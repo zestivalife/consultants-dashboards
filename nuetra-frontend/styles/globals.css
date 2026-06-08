@@ -1,0 +1,352 @@
+/* @import "tailwindcss"; */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Import Design System */
+@import './design-system.css';
+
+/* You can add any other global styles here if needed */
+
+:root {
+  --nuetra-motion-fast: 160ms;
+  --nuetra-motion-base: 220ms;
+  --nuetra-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --fluent-color-neutral-background-canvas: #f5f5f5;
+  --fluent-color-neutral-background-1: #ffffff;
+  --fluent-color-neutral-background-2: #fafafa;
+  --fluent-color-neutral-background-3: #f0f0f0;
+  --fluent-color-neutral-background-inset: #ededed;
+  --fluent-color-neutral-foreground-1: #242424;
+  --fluent-color-neutral-foreground-2: #424242;
+  --fluent-color-neutral-foreground-3: #616161;
+  --fluent-color-neutral-foreground-disabled: #8a8a8a;
+  --fluent-color-neutral-stroke-1: rgba(0, 0, 0, 0.08);
+  --fluent-color-neutral-stroke-2: rgba(0, 0, 0, 0.14);
+  --fluent-color-brand-background: #115ea3;
+  --fluent-color-brand-background-hover: #0f548c;
+  --fluent-color-brand-foreground: #ffffff;
+  --fluent-color-status-danger-background: rgba(209, 52, 56, 0.16);
+  --fluent-color-status-danger-foreground: #b10e1c;
+  --fluent-color-status-warning-background: rgba(255, 140, 0, 0.16);
+  --fluent-color-status-warning-foreground: #8a4b00;
+  --fluent-color-status-success-background: rgba(16, 124, 16, 0.18);
+  --fluent-color-status-success-foreground: #0f6a0f;
+  --fluent-color-status-info-background: rgba(59, 130, 246, 0.16);
+  --fluent-color-status-info-foreground: #0f548c;
+  --fluent-shadow-ambient: rgba(0, 0, 0, 0.06);
+  --fluent-shadow-key: rgba(0, 0, 0, 0.1);
+  --fluent-radius-card: 20px;
+  --fluent-radius-control: 9999px;
+}
+
+body {
+  text-rendering: optimizeLegibility;
+  background: var(--fluent-color-neutral-background-canvas);
+  color: var(--fluent-color-neutral-foreground-1);
+}
+
+.fluent-page {
+  background: var(--fluent-color-neutral-background-canvas);
+  color: var(--fluent-color-neutral-foreground-1);
+}
+
+.fluent-card {
+  border: 1px solid var(--fluent-color-neutral-stroke-1);
+  background: var(--fluent-color-neutral-background-1);
+  border-radius: var(--fluent-radius-card);
+  box-shadow: 0 2px 8px var(--fluent-shadow-ambient), 0 12px 28px var(--fluent-shadow-key);
+}
+
+.fluent-card-subtle {
+  border: 1px solid var(--fluent-color-neutral-stroke-1);
+  background: var(--fluent-color-neutral-background-2);
+  border-radius: calc(var(--fluent-radius-card) - 2px);
+}
+
+.fluent-card-hover {
+  transition:
+    background-color var(--nuetra-motion-base) var(--nuetra-ease-standard),
+    border-color var(--nuetra-motion-base) var(--nuetra-ease-standard),
+    box-shadow var(--nuetra-motion-base) var(--nuetra-ease-standard),
+    transform var(--nuetra-motion-fast) var(--nuetra-ease-standard);
+}
+
+.fluent-card-hover:hover {
+  background: #f7f9fc;
+  border-color: var(--fluent-color-neutral-stroke-2);
+  box-shadow: 0 4px 16px var(--fluent-shadow-ambient), 0 18px 36px var(--fluent-shadow-key);
+  transform: translateY(-1px);
+}
+
+.fluent-input {
+  border: 1px solid var(--fluent-color-neutral-stroke-1);
+  background: var(--fluent-color-neutral-background-1);
+  color: var(--fluent-color-neutral-foreground-1);
+}
+
+.fluent-input::placeholder {
+  color: var(--fluent-color-neutral-foreground-3);
+}
+
+.fluent-muted {
+  color: var(--fluent-color-neutral-foreground-2);
+}
+
+.fluent-subtle {
+  color: var(--fluent-color-neutral-foreground-3);
+}
+
+.fluent-primary-button {
+  background: var(--fluent-color-brand-background);
+  color: var(--fluent-color-brand-foreground);
+}
+
+.fluent-primary-button:hover {
+  background: var(--fluent-color-brand-background-hover);
+}
+
+.fluent-secondary-button {
+  background: var(--fluent-color-neutral-background-2);
+  color: var(--fluent-color-neutral-foreground-1);
+  border: 1px solid var(--fluent-color-neutral-stroke-1);
+}
+
+.fluent-secondary-button:hover {
+  background: #f7f9fc;
+  border-color: var(--fluent-color-neutral-stroke-2);
+}
+
+button,
+[role='button'],
+a,
+input,
+select,
+textarea {
+  transition:
+    background-color var(--nuetra-motion-base) var(--nuetra-ease-standard),
+    border-color var(--nuetra-motion-base) var(--nuetra-ease-standard),
+    box-shadow var(--nuetra-motion-base) var(--nuetra-ease-standard),
+    color var(--nuetra-motion-base) var(--nuetra-ease-standard),
+    opacity var(--nuetra-motion-fast) var(--nuetra-ease-standard),
+    transform var(--nuetra-motion-fast) var(--nuetra-ease-standard);
+}
+
+@media (hover: hover) {
+  button:hover,
+  [role='button']:hover {
+    will-change: transform;
+  }
+}
+
+button:focus-visible,
+[role='button']:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid rgba(17, 94, 163, 0.8);
+  outline-offset: 2px;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  box-shadow: 0 0 0 4px rgba(17, 94, 163, 0.14);
+}
+
+/* Your custom animations (optional, but good practice to move them here) */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-fadeIn { animation: fadeIn 0.8s ease-out forwards; }
+.animate-fadeInUp { animation: fadeInUp 0.8s ease-out forwards; }
+.animate-scaleIn { animation: scaleIn 0.6s ease-out forwards; }
+
+.animate-delay-100 { animation-delay: 0.1s; }
+.animate-delay-200 { animation-delay: 0.2s; }
+.animate-delay-300 { animation-delay: 0.3s; }
+.animate-delay-400 { animation-delay: 0.4s; }
+.animate-delay-500 { animation-delay: 0.5s; }
+.animate-delay-600 { animation-delay: 0.6s; }
+.animate-delay-700 { animation-delay: 0.7s; } /* Add this if you use it */
+.animate-delay-800 { animation-delay: 0.8s; } /* Add this if you use it */
+
+/* Micro-interactions - Pulse Glow Effect */
+@keyframes pulse-glow {
+  0%, 100% { 
+    box-shadow: 0 0 0 0 rgba(100, 174, 0, 0.4); 
+  }
+  50% { 
+    box-shadow: 0 0 0 8px rgba(100, 174, 0, 0); 
+  }
+}
+
+/* Float Animation for Hero Image */
+@keyframes float {
+  0%, 100% { 
+    transform: translateY(0px); 
+  }
+  50% { 
+    transform: translateY(-10px); 
+  }
+}
+
+/* Slide In from Right */
+@keyframes slide-in-right {
+  from { 
+    transform: translateX(100%); 
+    opacity: 0; 
+  }
+  to { 
+    transform: translateX(0); 
+    opacity: 1; 
+  }
+}
+
+/* Bounce Animation for Icons */
+@keyframes bounce-in {
+  0% { 
+    transform: scale(0.3); 
+    opacity: 0; 
+  }
+  50% { 
+    transform: scale(1.05); 
+  }
+  70% { 
+    transform: scale(0.9); 
+  }
+  100% { 
+    transform: scale(1); 
+    opacity: 1; 
+  }
+}
+
+/* Gradient Shift for Backgrounds */
+@keyframes gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Progress Bar Animation */
+@keyframes progress-bar {
+  from { 
+    width: 0%; 
+  }
+  to { 
+    width: 100%; 
+  }
+}
+
+/* Ripple Effect */
+@keyframes ripple {
+  to {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+/* Utility Classes */
+.animate-pulse-glow {
+  animation: pulse-glow 2s infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.5s ease-out forwards;
+}
+
+.animate-bounce-in {
+  animation: bounce-in 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.animate-gradient-shift {
+  background-size: 200% 200%;
+  animation: gradient-shift 8s ease infinite;
+}
+
+/* Hover Effects */
+.hover-lift {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.hover-glow {
+  transition: box-shadow 0.3s ease;
+}
+
+.hover-glow:hover {
+  box-shadow: 0 0 20px rgba(100, 174, 0, 0.3);
+}
+
+/* Focus States for Accessibility */
+.focus-ring:focus {
+  outline: none;
+  ring: 2px;
+  ring-color: #64ae00;
+  ring-offset: 2px;
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid #64ae00;
+  outline-offset: 2px;
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  
+  .animate-pulse-glow,
+  .animate-float,
+  .animate-gradient-shift {
+    animation: none !important;
+  }
+
+  button,
+  [role='button'],
+  a,
+  input,
+  select,
+  textarea {
+    transition: none !important;
+  }
+}
+
+/* Smooth Scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+
+  api-gateway:
+    volumes:
+      - ./api-gateway:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  auth-service:
+    volumes:
+      - ./services/auth-service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+
+  profile-service:
+    volumes:
+      - ./services/profile-service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
+
+  assessment-service:
+    volumes:
+      - ./services/assessment-service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
+
+  scoring-engine-service:
+    volumes:
+      - ./services/scoring-engine-service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8004 --reload
+
+  nutrition-service:
+    volumes:
+      - ./services/nutrition-service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8005 --reload
+
+  frontend:
+    profiles: ["skip"]   # disables frontend container in dev

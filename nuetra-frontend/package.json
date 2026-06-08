@@ -1,0 +1,35 @@
+{
+  "name": "nuetra-frontend",
+  "version": "1.0.0",
+  "description": "Nuetra – Corporate Wellness Portal Frontend (Next.js + TailwindCSS)",
+  "main": "index.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "author": "Nuetra Team",
+  "license": "MIT",
+  "dependencies": {
+    "autoprefixer": "^10.4.27",
+    "axios": "^1.11.0",
+    "chart.js": "^4.3.0",
+    "docx": "^9.7.1",
+    "framer-motion": "^12.23.12",
+    "lucide-react": "^0.539.0",
+    "next": "^15.5.2",
+    "papaparse": "^5.5.3",
+    "postcss": "^8.5.8",
+    "react": "^19.1.1",
+    "react-chartjs-2": "^5.2.0",
+    "react-dom": "^19.1.1",
+    "react-toastify": "^11.0.5",
+    "tailwindcss": "^3.4.17",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.13",
+    "eslint": "^8.55.0"
+  }
+}

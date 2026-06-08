@@ -1,0 +1,95 @@
+import jwt as pyjwt
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
+import structlog
+
+from app.config import get_settings
+
+logger = structlog.get_logger(__name__)
+
+PUBLIC_PATHS: set[str] = {
+    "/health",
+    "/ready",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+}
+
+PUBLIC_PREFIXES: list[str] = [
+    "/api/v1/auth/login",
+    "/api/v1/auth/register",
+    "/api/v1/auth/verify-otp",
+    "/api/v1/auth/refresh",
+    "/api/v1/auth/forgot-password",
+]
+
+
+def _is_public(path: str) -> bool:
+    if path in PUBLIC_PATHS:
+        return True
+    return any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES)
+
+
+def _extract_token(request: Request) -> str | None:
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        return auth_header[7:]
+    return request.headers.get("X-Access-Token")
+
+
+class JWTMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:
+        if _is_public(request.url.path):
+            return await call_next(request)
+
+        token = _extract_token(request)
+        if not token:
+            logger.error(f"Missing token. Path: {request.url.path}, Headers: {dict(request.headers)}")
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "success": False,
+                    "message": "Missing authentication token",
+                    "data": None,
+                    "error": "Missing authentication token",
+                    "request_id": getattr(request.state, "request_id", None),
+                },
+            )
+
+        settings = get_settings()
+        try:
+            payload = pyjwt.decode(
+                token,
+                settings.jwt_secret_key,
+                algorithms=[settings.jwt_algorithm],
+            )
+        except pyjwt.ExpiredSignatureError:
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "success": False,
+                    "message": "Token has expired",
+                    "data": None,
+                    "error": "Token has expired",
+                    "request_id": getattr(request.state, "request_id", None),
+                },
+            )
+        except pyjwt.InvalidTokenError as exc:
+            logger.warning("jwt_invalid", error=str(exc))
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "success": False,
+                    "message": "Invalid token",
+                    "data": None,
+                    "error": "Invalid token",
+                    "request_id": getattr(request.state, "request_id", None),
+                },
+            )
+
+        request.state.user_id = payload.get("sub")
+        request.state.user_role = payload.get("role", "member")
+        request.state.token_payload = payload
+
+        return await call_next(request)

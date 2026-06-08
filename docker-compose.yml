@@ -1,0 +1,218 @@
+version: "3.9"
+
+x-service-base: &service-base
+  restart: unless-stopped
+  networks:
+    - nuetra-net
+
+services:
+  # ─── Infrastructure ───────────────────────────────
+  postgres:
+    <<: *service-base
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nuetra
+      POSTGRES_PASSWORD: nuetra_secret
+      POSTGRES_DB: nuetra
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nuetra"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    <<: *service-base
+    image: redis:7-alpine
+    # ports:
+    #   - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── API Gateway ──────────────────────────────────
+  api-gateway:
+    <<: *service-base
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./api-gateway/.env.example
+    environment:
+      APP_ENV: development
+      APP_DEBUG: "true"
+      REDIS_URL: redis://redis:6379/1
+      CORS_ORIGINS: "http://localhost:3000,https://nuetra.in,https://www.nuetra.in"
+      AUTH_SERVICE_URL: http://auth-service:8001
+      PROFILE_SERVICE_URL: http://profile-service:8002
+      ASSESSMENT_SERVICE_URL: http://assessment-service:8003
+      SCORING_SERVICE_URL: http://scoring-engine-service:8004
+      NUTRITION_SERVICE_URL: http://nutrition-service:8005
+      CONSULTATION_SERVICE_URL: http://consultation-service:8006
+      PATHOLOGY_SERVICE_URL: http://pathology-service:8007
+      WEARABLE_SERVICE_URL: http://wearable-service:8008
+      ANALYTICS_SERVICE_URL: http://analytics-service:8009
+      ADMIN_SERVICE_URL: http://admin-service:8010
+      NOTIFICATION_SERVICE_URL: http://notification-service:8011
+      PAYMENT_SERVICE_URL: http://payment-service:8012
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ─── Auth Service ─────────────────────────────────
+  auth-service:
+    <<: *service-base
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    # ports:
+    #   - "8001:8001"
+    env_file:
+      - ./services/auth-service/.env.example
+    environment:
+      # Docker-networking overrides (these win over .env values)
+      APP_ENV: production
+      APP_DEBUG: "false"
+      DATABASE_URL: postgresql+asyncpg://nuetra:nuetra_secret@postgres:5432/nuetra_auth
+      REDIS_URL: redis://redis:6379/0
+      FRONTEND_URL: "https://nuetra.in"
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      # Force SendGrid REST API — avoids cloud SMTP port blocking
+      EMAIL_PROVIDER: "sendgrid"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+
+  # ─── Profile Service ───────────────────────────────
+  profile-service:
+    <<: *service-base
+    build:
+      context: ./services/profile-service
+      dockerfile: Dockerfile
+    # ports:
+    #   - "8002:8002"
+    environment:
+      APP_NAME: profile-service
+      APP_ENV: development
+      APP_DEBUG: "true"
+      APP_PORT: "8002"
+      DATABASE_URL: postgresql+asyncpg://nuetra:nuetra_secret@postgres:5432/nuetra_profile
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ─── Assessment Service ────────────────────────────
+  assessment-service:
+    <<: *service-base
+    build:
+      context: ./services/assessment-service
+      dockerfile: Dockerfile
+    # ports:
+    #   - "8003:8003"
+    environment:
+      APP_NAME: assessment-service
+      APP_ENV: development
+      APP_DEBUG: "true"
+      APP_PORT: "8003"
+      DATABASE_URL: postgresql+asyncpg://nuetra:nuetra_secret@postgres:5432/nuetra_assessment
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ─── Scoring Engine Service ────────────────────────
+  scoring-engine-service:
+    <<: *service-base
+    build:
+      context: ./services/scoring-engine-service
+      dockerfile: Dockerfile
+    # ports:
+    #   - "8004:8004"
+    environment:
+      APP_NAME: scoring-engine-service
+      APP_ENV: development
+      APP_DEBUG: "true"
+      APP_PORT: "8004"
+      DATABASE_URL: postgresql+asyncpg://nuetra:nuetra_secret@postgres:5432/nuetra_scoring
+      REDIS_URL: redis://redis:6379/0
+      PROFILE_SERVICE_URL: http://profile-service:8002
+      ASSESSMENT_SERVICE_URL: http://assessment-service:8003
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ─── Nutrition Service ─────────────────────────────
+  nutrition-service:
+    <<: *service-base
+    build:
+      context: ./services/nutrition-service
+      dockerfile: Dockerfile
+    # ports:
+    #   - "8005:8005"
+    environment:
+      APP_NAME: nutrition-service
+      APP_ENV: development
+      APP_DEBUG: "true"
+      APP_PORT: "8005"
+      DATABASE_URL: postgresql+asyncpg://nuetra:nuetra_secret@postgres:5432/nuetra_nutrition
+      REDIS_URL: redis://redis:6379/0
+      UPLOAD_BACKEND: local
+      UPLOAD_LOCAL_DIR: /app/uploads
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+    volumes:
+      - nutrition_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  
+  frontend:
+    build:
+      context: ./nuetra-frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.nuetra.in/api/v1}
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.nuetra.in/api/v1}
+    networks:
+      - nuetra-net
+
+volumes:
+  postgres_data:
+  redis_data:
+  nutrition_uploads:
+
+networks:
+  nuetra-net:
+    driver: bridge
