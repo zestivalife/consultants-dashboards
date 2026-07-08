@@ -64,6 +64,13 @@ const adminNav = [
 ];
 
 const timeframeOptions = ['Day', 'Week', 'Month', 'Quarter', 'Custom Range'];
+const intelligenceRangeOptions = [
+  { id: 'week', label: 'Week' },
+  { id: 'month', label: 'Month' },
+  { id: 'quarter', label: 'Quarter' },
+  { id: 'year', label: 'Yearly' },
+  { id: 'custom', label: 'Custom' },
+];
 const clientWorkspaceTabs = ['Overview', 'Biomarkers', 'Behaviors', 'Diet Plan', 'Reports', 'Notes', 'Chat', 'Timeline'];
 
 const fadeThrough = {
@@ -254,6 +261,59 @@ function buildClientRecords(state) {
     brandContext: employee.brand === 'Fiteatsy' ? 'Hormonal recovery' : 'Corporate wellness',
     packageLabel: employee.packageName || (employee.brand === 'Nuetra' ? 'Annual Corporate Program' : 'Recovery Program'),
   }));
+}
+
+function buildNutritionProfileSnapshot(employee) {
+  const bodyComposition = [
+    ['Current weight', `${58 + (employee.id.length % 8)} kg`],
+    ['Goal weight', `${55 + (employee.id.length % 6)} kg`],
+    ['Waist', `${78 + (employee.id.length % 9)} cm`],
+    ['BMI', `${(21.5 + (employee.id.length % 4) * 0.7).toFixed(1)}`],
+  ];
+
+  const lifestyle = [
+    ['Occupation', employee.role],
+    ['Activity level', employee.recovery >= 58 ? 'Moderate' : 'Low to moderate'],
+    ['Work rhythm', employee.workSchedule],
+    ['Travel frequency', employee.brand === 'Fiteatsy' ? 'Occasional' : 'Work-led'],
+  ];
+
+  const mealBehaviour = [
+    ['Wake time', '6:30 AM'],
+    ['Breakfast', '8:00 AM'],
+    ['Dinner', '8:15 PM'],
+    ['Water goal', `${Math.max(2, Math.round(employee.hydration / 30))} L`],
+  ];
+
+  const missing = [
+    employee.brand === 'Fiteatsy' ? 'Goal weight confirmation' : null,
+    employee.hydration < 55 ? 'Water intake pattern' : null,
+    employee.biomarkers.some((item) => item.status !== 'stable') ? 'Latest blood report review' : null,
+    employee.sleepQuality < 58 ? 'Sleep timing consistency' : null,
+    employee.symptomProfile?.[0] ? null : 'Food preferences',
+  ].filter(Boolean);
+
+  const completionPercent = Math.max(58, 92 - missing.length * 8);
+  const readinessPercent = Math.max(52, completionPercent - (missing.includes('Latest blood report review') ? 12 : 4));
+
+  const timeline = [
+    { id: `${employee.id}-nt-1`, time: '20 Jun', title: `Goal weight updated (${58 + (employee.id.length % 8)} -> ${55 + (employee.id.length % 6)} kg)` },
+    { id: `${employee.id}-nt-2`, time: '18 Jun', title: `Activity level refined to ${employee.recovery >= 58 ? 'Moderate' : 'Low to moderate'}` },
+    { id: `${employee.id}-nt-3`, time: '15 Jun', title: `New ${employee.reports[0]?.lab || 'lab'} report uploaded and OCR completed` },
+    { id: `${employee.id}-nt-4`, time: '12 Jun', title: `Food profile updated for ${employee.dietaryStyle} and ${employee.region} meals` },
+  ];
+
+  return {
+    completionPercent,
+    readinessPercent,
+    aiReady: readinessPercent >= 75,
+    missing,
+    bodyComposition,
+    lifestyle,
+    mealBehaviour,
+    latestReport: employee.reports[0],
+    timeline,
+  };
 }
 
 function getRegionalMeals(employee) {
@@ -795,7 +855,7 @@ function OperationalTopNav({ items, active, onChange, brandView, setBrandView, r
             ))}
           </div>
           <span className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-inset)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
-            {roleKind === 'consultant' ? 'Intervention Mode' : roleKind === 'mentor' ? 'Support Mode' : 'Organization Mode'}
+            {roleKind === 'consultant' ? 'Intervention Mode' : roleKind === 'mentor' ? 'Support Mode' : brandView === 'Fiteatsy' ? 'User Intelligence Mode' : 'Organization Mode'}
           </span>
         </div>
 
@@ -1883,6 +1943,7 @@ function ClientWorkspace({
   const chatMessages = buildChatMessages(employee, plan);
   const timelineEvents = buildTimelineEvents(employee, plan);
   const dietModules = buildDietProtocolModules(employee, plan);
+  const nutritionProfile = buildNutritionProfileSnapshot(employee);
   const [openDietModule, setOpenDietModule] = useState(dietModules[0]?.id || null);
   const communicationStream = [...chatMessages, ...sharedClientNotes.map((note) => ({ ...note, sender: note.author, type: note.type, text: note.text }))]
     .sort((a, b) => String(b.time).localeCompare(String(a.time)));
@@ -1941,6 +2002,55 @@ function ClientWorkspace({
         </div>
 
         <div className="space-y-4">
+          <Surface className="p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Nutrition Profile</p>
+                <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Shared health profile summary for consultant-ready diet planning.</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{nutritionProfile.completionPercent}% complete</p>
+                <p className={`mt-1 text-xs font-medium ${nutritionProfile.aiReady ? 'text-[#107c10]' : 'text-[#bc4b09]'}`}>
+                  {nutritionProfile.aiReady ? `AI ready ${nutritionProfile.readinessPercent}%` : `Pending ${nutritionProfile.readinessPercent}%`}
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
+                <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Missing information</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {nutritionProfile.missing.length ? nutritionProfile.missing.map((item) => (
+                    <StatusChip key={item} status="high">{item}</StatusChip>
+                  )) : <StatusChip status="improving">Profile complete</StatusChip>}
+                </div>
+              </div>
+              <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
+                <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Latest blood report</p>
+                <p className="mt-2 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{nutritionProfile.latestReport?.name || 'No report uploaded'}</p>
+                <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{nutritionProfile.latestReport?.lab || 'Awaiting upload'} • {nutritionProfile.latestReport?.uploadedAt || 'No upload date'}</p>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              {[
+                ['Body composition', nutritionProfile.bodyComposition],
+                ['Lifestyle summary', nutritionProfile.lifestyle],
+                ['Meal behaviour', nutritionProfile.mealBehaviour],
+              ].map(([title, items]) => (
+                <div key={title} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{title}</p>
+                  <div className="mt-3 space-y-2">
+                    {items.map(([label, value]) => (
+                      <div key={label} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-[var(--fluent-color-neutral-foreground-3)]">{label}</span>
+                        <span className="text-right font-medium text-[var(--fluent-color-neutral-foreground-1)]">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Surface>
+
           <Surface className="p-4">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">What changed</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -2002,15 +2112,14 @@ function ClientWorkspace({
           </Surface>
 
           <Surface className="p-4">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Timeline</p>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Nutrition Profile Timeline</p>
             <div className="mt-4 space-y-3">
-              {timelineEvents.slice(0, 4).map((event) => (
+              {nutritionProfile.timeline.map((event) => (
                 <div key={event.id} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{event.title}</p>
                     <p className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">{event.time}</p>
                   </div>
-                  <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{event.detail}</p>
                 </div>
               ))}
             </div>
@@ -2337,7 +2446,7 @@ function MentorHome({ clients, sessions, tasks }) {
   );
 }
 
-function AdminHome({ billing, revenue, quality }) {
+function AdminOverview({ billing, revenue, quality }) {
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
       <Surface className="p-5">
@@ -2375,6 +2484,208 @@ function AdminHome({ billing, revenue, quality }) {
       </Surface>
     </div>
   );
+}
+
+function FiteatsyAdminHome() {
+  const [range, setRange] = useState('month');
+  const [customStart, setCustomStart] = useState('2026-06-01');
+  const [customEnd, setCustomEnd] = useState('2026-06-03');
+  const [payload, setPayload] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (range === 'custom' && (!customStart || !customEnd)) {
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const params = new URLSearchParams({ range });
+    if (range === 'custom') {
+      params.set('start', customStart);
+      params.set('end', customEnd);
+    }
+
+    setLoading(true);
+    setError('');
+
+    fetch(`/api/intelligence/fiteatsy?${params.toString()}`, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('Unable to load Fiteatsy intelligence');
+        }
+        return response.json();
+      })
+      .then((nextPayload) => {
+        setPayload(nextPayload);
+        if (nextPayload?.window?.startDate && nextPayload?.window?.endDate && range !== 'custom') {
+          setCustomStart((current) => current || nextPayload.window.startDate);
+          setCustomEnd((current) => current || nextPayload.window.endDate);
+        }
+      })
+      .catch((fetchError) => {
+        if (fetchError.name !== 'AbortError') {
+          setError(fetchError.message || 'Unable to load Fiteatsy intelligence');
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [range, customEnd, customStart]);
+
+  const clients = payload?.clients || [];
+  const revenue = payload?.metrics?.revenue || [];
+  const quality = payload?.metrics?.quality || [];
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[1.3fr_0.9fr]">
+      <Surface className="p-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Clients and plans</p>
+            <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+              {payload?.window?.label ? `Showing Fiteatsy clients for ${payload.window.label}.` : 'Loading Fiteatsy client intelligence.'}
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 xl:items-end">
+            <div className="flex flex-wrap items-center gap-2">
+              {intelligenceRangeOptions.map((option) => (
+                <button
+                  key={option.id}
+                  onClick={() => setRange(option.id)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                    range === option.id
+                      ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]'
+                      : 'bg-[var(--fluent-color-neutral-background-2)] text-[var(--fluent-color-neutral-foreground-2)]'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            {range === 'custom' ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex items-center gap-2 rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-2 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
+                  <CalendarDays className="h-4 w-4" />
+                  <input
+                    type="date"
+                    value={customStart}
+                    onChange={(event) => setCustomStart(event.target.value)}
+                    className="bg-transparent text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                  />
+                </label>
+                <label className="inline-flex items-center gap-2 rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-2 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
+                  <CalendarDays className="h-4 w-4" />
+                  <input
+                    type="date"
+                    value={customEnd}
+                    onChange={(event) => setCustomEnd(event.target.value)}
+                    className="bg-transparent text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                  />
+                </label>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        {error ? (
+          <div className="mt-4 rounded-[16px] border border-[var(--fluent-color-status-danger-border)] bg-[var(--fluent-color-status-danger-background)] p-4 text-sm text-[var(--fluent-color-status-danger-foreground)]">
+            {error}
+          </div>
+        ) : null}
+
+        <div className="mt-4 grid gap-3">
+          {loading && !payload ? (
+            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading Fiteatsy clients...</div>
+          ) : null}
+
+          {!loading && !clients.length ? (
+            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No Fiteatsy clients found for the selected range.</div>
+          ) : null}
+
+          {clients.map((client) => (
+            <div key={client.id} className="rounded-[20px] bg-[var(--fluent-color-neutral-background-2)] p-4 shadow-[0_10px_32px_rgba(15,23,42,0.08)]">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{client.name}</p>
+                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${toneForStatus(client.planStatus)}`}>
+                      {client.planStatus.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.planName} · {client.planDuration} · {client.recoveryStage}</p>
+                  <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{client.city} · Last activity {client.latestActivity}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm xl:min-w-[220px]">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Readiness</p>
+                    <p className="mt-1 font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{client.readiness}%</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Adherence</p>
+                    <p className="mt-1 font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{client.adherenceScore}%</p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {client.goals.slice(0, 3).map((goal) => (
+                  <span key={`${client.id}-${goal}`} className="rounded-full bg-[var(--fluent-color-neutral-background-3)] px-2.5 py-1 text-[11px] text-[var(--fluent-color-neutral-foreground-2)]">
+                    {goal}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Surface>
+
+      <Surface className="p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Revenue and quality</p>
+            <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Metrics update from the same selected client date window.</p>
+          </div>
+          {loading ? <span className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">Refreshing...</span> : null}
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {revenue.map((item) => (
+            <div key={item.label} className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
+              <p className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.label}</p>
+              <p className="mt-2 text-2xl font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.value}</p>
+              <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.delta}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {quality.map((item) => (
+            <div key={item.id} className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{item.label}</p>
+                  <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.detail}</p>
+                </div>
+                <span className="text-lg font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.count}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Surface>
+    </div>
+  );
+}
+
+function AdminHome({ billing, revenue, quality, brandView }) {
+  if (brandView === 'Fiteatsy') {
+    return <FiteatsyAdminHome />;
+  }
+
+  return <AdminOverview billing={billing} revenue={revenue} quality={quality} />;
 }
 
 function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadItems, memoryItems, railItems, onClientOpen, onPulseSelect }) {
@@ -2942,6 +3253,15 @@ function PlatformWorkspace({ forcedRole }) {
   const selectedPlan = useMemo(() => state.plans.find((plan) => plan.employeeId === selectedClient?.id), [selectedClient, state.plans]);
   const roleName = getRoleDisplayName(resolvedRole);
   const topNavItems = roleKind === 'consultant' ? consultantNav : roleKind === 'mentor' ? mentorNav : adminNav;
+  const adminHeader = brandView === 'Fiteatsy'
+    ? {
+        title: 'User Intelligence',
+        subtitle: 'Client-level recovery visibility, plan mix, and quality for Fiteatsy.'
+      }
+    : {
+        title: 'Organization intelligence',
+        subtitle: 'Population-level recovery visibility and consultant performance.'
+      };
 
   const queueViews = useMemo(() => {
     const definitions = [
@@ -3631,8 +3951,8 @@ function PlatformWorkspace({ forcedRole }) {
                 <OrganizationsPage organizationSignals={organizationSignals} />
               ) : (
                 <>
-                  <CompactPageHeader title="Organization intelligence" subtitle="Population-level recovery visibility and consultant performance." />
-                  <AdminHome billing={state.finance.billing} revenue={state.finance.revenue} quality={state.quality} />
+                  <CompactPageHeader title={adminHeader.title} subtitle={adminHeader.subtitle} />
+                  <AdminHome billing={state.finance.billing} revenue={state.finance.revenue} quality={state.quality} brandView={brandView} />
                 </>
               )}
             </>

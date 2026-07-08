@@ -9,6 +9,7 @@ import { SAMPLE_PASSWORD, getRoleDisplayName } from '../data/mockPlatformData';
 export default function LoginPage() {
   const { login, user, isLoading, error, clearError, sampleUsers } = useAuth();
   const [form, setForm] = useState({ email: sampleUsers?.[0]?.email || '', password: SAMPLE_PASSWORD, rememberMe: true });
+  const groupedUsers = useMemo(() => sampleUsers || [], [sampleUsers]);
 
   useEffect(() => {
     if (user?.role) {
@@ -26,8 +27,6 @@ export default function LoginPage() {
       </div>
     );
   }
-
-  const groupedUsers = useMemo(() => sampleUsers || [], [sampleUsers]);
 
   async function handleSubmit(event) {
     event.preventDefault();
