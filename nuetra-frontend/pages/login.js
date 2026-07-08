@@ -7,8 +7,8 @@ import { getDashboardPathForRole } from '../lib/roleRoutes';
 import { SAMPLE_PASSWORD, getRoleDisplayName } from '../data/mockPlatformData';
 
 export default function LoginPage() {
-  const { login, user, isLoading, error, clearError, sampleUsers } = useAuth();
-  const [form, setForm] = useState({ email: sampleUsers?.[0]?.email || '', password: SAMPLE_PASSWORD, rememberMe: true });
+  const { login, user, isLoading, error, clearError, sampleUsers, isBackendAuthEnabled } = useAuth();
+  const [form, setForm] = useState({ email: isBackendAuthEnabled ? '' : sampleUsers?.[0]?.email || '', password: isBackendAuthEnabled ? '' : SAMPLE_PASSWORD, rememberMe: true });
   const groupedUsers = useMemo(() => sampleUsers || [], [sampleUsers]);
 
   useEffect(() => {
@@ -54,7 +54,9 @@ export default function LoginPage() {
               Adaptive wellness operations for Indian nutrition and recovery intelligence.
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-[#424242]">
-              This frontend is fully operational on production-quality sample data. Every workflow is complete: priority queue, inbox, longitudinal employee workspace, editable AI plan builder, session operations, reports, finance, quality review, and organization intelligence.
+              {isBackendAuthEnabled
+                ? 'The dashboard is connected to the live platform API so invited consultants and organization admins can sign in with real accounts.'
+                : 'This frontend is fully operational on production-quality sample data. Every workflow is complete: priority queue, inbox, longitudinal employee workspace, editable AI plan builder, session operations, reports, finance, quality review, and organization intelligence.'}
             </p>
           </div>
 
@@ -80,11 +82,11 @@ export default function LoginPage() {
         >
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-[#0f6cbd]">Sample access</p>
-              <h2 className="mt-2 text-3xl font-semibold text-[#242424]">Sign in instantly</h2>
+              <p className="text-xs uppercase tracking-[0.24em] text-[#0f6cbd]">{isBackendAuthEnabled ? 'Secure access' : 'Sample access'}</p>
+              <h2 className="mt-2 text-3xl font-semibold text-[#242424]">{isBackendAuthEnabled ? 'Sign in to your workspace' : 'Sign in instantly'}</h2>
             </div>
             <div className="rounded-full border border-[#107c10]/20 bg-[#107c10]/10 px-3 py-1.5 text-xs text-[#0f6a0f]">
-              Frontend-only mode
+              {isBackendAuthEnabled ? 'Connected to backend' : 'Frontend-only mode'}
             </div>
           </div>
 
@@ -101,7 +103,7 @@ export default function LoginPage() {
                     setForm((current) => ({ ...current, email: event.target.value }));
                   }}
                   className="w-full bg-transparent text-sm text-[#242424] outline-none placeholder:text-[#616161]"
-                  placeholder="name@nuetra.in"
+                  placeholder={isBackendAuthEnabled ? 'admin@company.com' : 'name@nuetra.in'}
                 />
               </div>
             </label>
@@ -118,7 +120,7 @@ export default function LoginPage() {
                     setForm((current) => ({ ...current, password: event.target.value }));
                   }}
                   className="w-full bg-transparent text-sm text-[#242424] outline-none placeholder:text-[#616161]"
-                  placeholder="Enter sample password"
+                  placeholder={isBackendAuthEnabled ? 'Enter your password' : 'Enter sample password'}
                 />
               </div>
             </label>
@@ -131,7 +133,7 @@ export default function LoginPage() {
                   onChange={(event) => setForm((current) => ({ ...current, rememberMe: event.target.checked }))}
                   className="h-4 w-4 rounded border border-[rgba(0,0,0,0.16)] bg-transparent"
                 />
-                Keep sample session active
+                {isBackendAuthEnabled ? 'Keep me signed in' : 'Keep sample session active'}
               </label>
               <Link href="/forgot-password" className="text-[#0f6cbd] transition hover:text-[#0f548c]">
                 Forgot password
@@ -151,33 +153,35 @@ export default function LoginPage() {
             </motion.button>
           </form>
 
-          <div className="fluent-card-subtle mt-8 rounded-[26px] p-5">
-            <div className="flex items-center gap-2 text-sm text-[#0f6a0f]">
-              <ShieldCheck className="h-4 w-4" />
-              Shared sample password: <span className="font-medium text-[#242424]">{SAMPLE_PASSWORD}</span>
+          {!isBackendAuthEnabled ? (
+            <div className="fluent-card-subtle mt-8 rounded-[26px] p-5">
+              <div className="flex items-center gap-2 text-sm text-[#0f6a0f]">
+                <ShieldCheck className="h-4 w-4" />
+                Shared sample password: <span className="font-medium text-[#242424]">{SAMPLE_PASSWORD}</span>
+              </div>
+              <div className="mt-4 space-y-3">
+                {groupedUsers.map((account) => (
+                  <motion.button
+                    key={account.id}
+                    type="button"
+                    onClick={() => setForm({ email: account.email, password: SAMPLE_PASSWORD, rememberMe: true })}
+                    whileHover={{ y: -2, borderColor: 'rgba(255,255,255,0.18)' }}
+                    whileTap={{ scale: 0.995 }}
+                    className="fluent-card-subtle fluent-card-hover flex w-full items-start justify-between gap-3 rounded-[22px] px-4 py-4 text-left"
+                  >
+                    <div>
+                      <p className="font-medium text-[#242424]">{account.name}</p>
+                      <p className="mt-1 text-sm text-[#616161]">{account.email}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-[#0f6cbd]">{getRoleDisplayName(account.role)}</p>
+                      <p className="mt-1 text-xs text-[#616161]">{account.focus}</p>
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
             </div>
-            <div className="mt-4 space-y-3">
-              {groupedUsers.map((account) => (
-                <motion.button
-                  key={account.id}
-                  type="button"
-                  onClick={() => setForm({ email: account.email, password: SAMPLE_PASSWORD, rememberMe: true })}
-                  whileHover={{ y: -2, borderColor: 'rgba(255,255,255,0.18)' }}
-                  whileTap={{ scale: 0.995 }}
-                  className="fluent-card-subtle fluent-card-hover flex w-full items-start justify-between gap-3 rounded-[22px] px-4 py-4 text-left"
-                >
-                  <div>
-                    <p className="font-medium text-[#242424]">{account.name}</p>
-                    <p className="mt-1 text-sm text-[#616161]">{account.email}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm text-[#0f6cbd]">{getRoleDisplayName(account.role)}</p>
-                    <p className="mt-1 text-xs text-[#616161]">{account.focus}</p>
-                  </div>
-                </motion.button>
-              ))}
-            </div>
-          </div>
+          ) : null}
         </motion.section>
       </div>
     </div>

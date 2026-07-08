@@ -191,6 +191,13 @@ export const authAPI = {
     });
   },
 
+  forgotPassword(email) {
+    return apiRequest('/auth/forgot-password', {
+      method: 'POST',
+      body: { email },
+    });
+  },
+
   me() {
     return apiRequest('/auth/me');
   },
@@ -436,6 +443,19 @@ export const teamMemberAPI = {
   },
 };
 
+export const corporateAPI = {
+  consultants() {
+    return apiRequest('/corporate-admin/consultants');
+  },
+
+  createConsultant(data) {
+    return apiRequest('/corporate-admin/consultants', {
+      method: 'POST',
+      body: data,
+    });
+  },
+};
+
 export default {
   auth: authAPI,
   profile: profileAPI,
@@ -445,5 +465,6 @@ export default {
   notification: notificationAPI,
   teamLead: teamLeadAPI,
   teamMember: teamMemberAPI,
+  corporate: corporateAPI,
   request: apiRequest,
 };

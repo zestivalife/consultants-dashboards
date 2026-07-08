@@ -12,6 +12,7 @@ from app.db.models.role import Role
 from app.db.models.notification import Notification
 from app.schemas.corporate import (
     TeamCreate, TeamResponse, EmployeeInvite, EmployeeResponse,
+    ConsultantInvite, ConsultantResponse,
     SessionRequestCreate, SessionRequestResponse, DashboardStats, AnalyticsData
 )
 from app.core.response import success_response
@@ -28,6 +29,18 @@ async def _notify(db: AsyncSession, user_id: uuid.UUID, title: str, message: str
         pass
 
 router = APIRouter(tags=["corporate-admin"])
+
+ADMIN_ROLE_NAMES = {"corporate_client", "corporate_admin", "organization_admin", "admin", "superuser"}
+CONSULTANT_ROLE_NAMES = {"consultant", "provider", "dietician", "senior_consultant"}
+
+
+def _ensure_admin_access(current_user):
+    if current_user.role not in ADMIN_ROLE_NAMES:
+        raise HTTPException(status_code=403, detail="Admin access is required")
+
+
+def _company_scope_id(current_user) -> uuid.UUID:
+    return current_user.company_id or current_user.id
 
 @router.get("/dashboard/stats")
 async def get_dashboard_stats(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -98,6 +111,7 @@ async def list_teams(db: AsyncSession = Depends(get_db), current_user: User = De
 
 @router.post("/employees")
 async def invite_employee(employee: EmployeeInvite, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _ensure_admin_access(current_user)
     # Simple logic to create a user and assign to the company.
     # Resolve requested role
     role_name_in = employee.role.lower().replace('-', '_').replace(' ', '_')
@@ -125,7 +139,7 @@ async def invite_employee(employee: EmployeeInvite, db: AsyncSession = Depends(g
         phone=employee.phone,
         password_hash=hash_password(temp_password),
         role_id=roleObj.id,
-        company_id=current_user.id,
+        company_id=_company_scope_id(current_user),
         is_verified=True,  # Invited by admin - no OTP needed, admin vouches for email
     )
     db.add(new_user)
@@ -151,10 +165,11 @@ async def invite_employee(employee: EmployeeInvite, db: AsyncSession = Depends(g
 
 @router.get("/employees")
 async def list_employees(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _ensure_admin_access(current_user)
     result = await db.execute(
         select(User, Role)
         .join(Role, User.role_id == Role.id)
-        .where(User.company_id == current_user.id)
+        .where(User.company_id == _company_scope_id(current_user))
     )
     employees = []
     for usr, r in result.all():
@@ -172,6 +187,7 @@ async def list_employees(db: AsyncSession = Depends(get_db), current_user: User 
 
 @router.post("/employees/bulk")
 async def invite_employees_bulk(employees: List[EmployeeInvite], db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _ensure_admin_access(current_user)
     invited_count = 0
     errors = []
     
@@ -202,7 +218,7 @@ async def invite_employees_bulk(employees: List[EmployeeInvite], db: AsyncSessio
                 phone=emp.phone,
                 password_hash=hash_password(temp_password),
                 role_id=role_id,
-                company_id=current_user.id,
+                company_id=_company_scope_id(current_user),
                 is_verified=True,  # Invited by admin - no OTP needed, admin vouches for email
             )
             db.add(new_user)
@@ -219,6 +235,98 @@ async def invite_employees_bulk(employees: List[EmployeeInvite], db: AsyncSessio
     await db.commit()
     
     return success_response({"invited": invited_count, "errors": errors}, f"Successfully invited {invited_count} employees.")
+
+
+@router.get("/consultants")
+async def list_consultants(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _ensure_admin_access(current_user)
+    result = await db.execute(
+        select(User, Role)
+        .join(Role, User.role_id == Role.id)
+        .where(User.company_id == _company_scope_id(current_user))
+        .where(func.lower(Role.name).in_(CONSULTANT_ROLE_NAMES))
+        .order_by(User.created_at.desc())
+    )
+    consultants = []
+    for usr, role in result.all():
+        consultants.append(
+            ConsultantResponse(
+                id=usr.id,
+                email=usr.email,
+                firstName=usr.first_name or "",
+                lastName=usr.last_name or "",
+                phone=usr.phone,
+                role=role.name,
+                specialization=usr.industry,
+                createdAt=usr.created_at,
+            ).model_dump(mode="json")
+        )
+    return success_response(consultants)
+
+
+@router.post("/consultants")
+async def create_consultant(consultant: ConsultantInvite, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _ensure_admin_access(current_user)
+
+    role_name_in = consultant.role.lower().replace('-', '_').replace(' ', '_')
+    if role_name_in not in CONSULTANT_ROLE_NAMES:
+        raise HTTPException(status_code=400, detail="Unsupported consultant role")
+
+    role_result = await db.execute(select(Role).where(func.lower(Role.name) == role_name_in))
+    role_obj = role_result.scalar_one_or_none()
+    if not role_obj:
+        raise HTTPException(status_code=500, detail="Consultant roles are not configured in the database")
+
+    existing = await db.scalar(select(User).where(User.email == consultant.email))
+    if existing:
+        raise HTTPException(status_code=400, detail="User with this email already exists")
+
+    temp_password = "Temp@123password"
+    new_user = User(
+        email=consultant.email,
+        first_name=consultant.firstName,
+        last_name=consultant.lastName,
+        phone=consultant.phone,
+        password_hash=hash_password(temp_password),
+        role_id=role_obj.id,
+        company_id=_company_scope_id(current_user),
+        industry=consultant.specialization,
+        is_verified=True,
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+
+    try:
+        get_email_service().send_invitation(new_user.email, temp_password, role_obj.name)
+    except Exception as e:
+        print(f"Failed to send consultant invitation email to {new_user.email}: {e}")
+
+    await _notify(
+        db,
+        new_user.id,
+        "Consultant account ready",
+        "Your consultant access has been created. Use the temporary password to sign in and reset it after login.",
+        type="invite",
+        priority="high",
+    )
+    await db.commit()
+
+    consultant_payload = ConsultantResponse(
+        id=new_user.id,
+        email=new_user.email,
+        firstName=new_user.first_name or "",
+        lastName=new_user.last_name or "",
+        phone=new_user.phone,
+        role=role_obj.name,
+        specialization=new_user.industry,
+        createdAt=new_user.created_at,
+    ).model_dump(mode="json")
+
+    return success_response(
+        {"consultant": consultant_payload, "tempPassword": temp_password},
+        "Consultant account created successfully",
+    )
 
 @router.post("/sessions")
 async def request_session(session: SessionRequestCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):

@@ -2,9 +2,11 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { useRouter } from 'next/router';
 import { findUserByCredentials, findUserByEmail, sampleUsers } from '../data/mockPlatformData';
 import { getDashboardPathForRole } from '../lib/roleRoutes';
+import { authAPI, clearTokens, getRefreshToken, setRefreshToken, setToken } from '../lib/api';
 
-const SESSION_KEY = 'nuetra_mock_session';
+const SESSION_KEY = 'nuetra_session';
 const RESET_KEY = 'nuetra_mock_reset';
+const BACKEND_AUTH_ENABLED = Boolean(process.env.NEXT_PUBLIC_API_URL);
 
 const AuthContext = createContext(null);
 
@@ -51,6 +53,18 @@ export function AuthProvider({ children }) {
     if (session?.user) {
       setUser(session.user);
     }
+
+    if (BACKEND_AUTH_ENABLED) {
+      refreshSession()
+        .catch(() => {
+          clearStoredSession();
+          clearTokens();
+          setUser(null);
+        })
+        .finally(() => setIsLoading(false));
+      return;
+    }
+
     setIsLoading(false);
   }, []);
 
@@ -59,6 +73,44 @@ export function AuthProvider({ children }) {
   async function login({ email, password, rememberMe = true, redirect = true }) {
     setIsLoading(true);
     setError(null);
+
+    if (BACKEND_AUTH_ENABLED) {
+      try {
+        const response = await authAPI.login(email, password);
+        const nextUser = response?.user;
+        const tokens = response?.tokens;
+
+        if (!nextUser || !tokens?.access_token) {
+          throw new Error('Login response is incomplete.');
+        }
+
+        setToken(tokens.access_token, rememberMe);
+        if (tokens.refresh_token) {
+          setRefreshToken(tokens.refresh_token);
+        }
+
+        const session = {
+          user: nextUser,
+          loggedInAt: new Date().toISOString(),
+          mode: 'backend',
+        };
+
+        setUser(nextUser);
+        persistSession(session, rememberMe);
+        setIsLoading(false);
+
+        if (redirect) {
+          router.replace(getDashboardPathForRole(nextUser.role));
+        }
+
+        return { user: nextUser };
+      } catch (nextError) {
+        const message = nextError?.message || 'Unable to sign in.';
+        setError(message);
+        setIsLoading(false);
+        return { error: message };
+      }
+    }
 
     const matchedUser = findUserByCredentials(email, password);
 
@@ -87,6 +139,17 @@ export function AuthProvider({ children }) {
   }
 
   async function logout() {
+    if (BACKEND_AUTH_ENABLED) {
+      const refreshToken = getRefreshToken();
+      if (refreshToken) {
+        try {
+          await authAPI.logout(refreshToken);
+        } catch {
+          // Best effort logout; always clear client-side state.
+        }
+      }
+      clearTokens();
+    }
     clearStoredSession();
     setUser(null);
     router.replace('/login');
@@ -95,6 +158,20 @@ export function AuthProvider({ children }) {
   async function register(payload) {
     setIsLoading(true);
     setError(null);
+
+    if (BACKEND_AUTH_ENABLED) {
+      try {
+        const data = await authAPI.register(payload);
+        setIsLoading(false);
+        router.push(`/verify-otp?email=${encodeURIComponent(payload.email)}`);
+        return { success: true, data };
+      } catch (nextError) {
+        const message = nextError?.message || 'Registration failed.';
+        setError(message);
+        setIsLoading(false);
+        return { error: message };
+      }
+    }
 
     const email = payload?.email?.trim();
     if (!email) {
@@ -127,6 +204,21 @@ export function AuthProvider({ children }) {
   }
 
   async function verifyOtp(email, otp) {
+    if (BACKEND_AUTH_ENABLED) {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const data = await authAPI.verifyOtp(email, otp);
+        setIsLoading(false);
+        return { success: true, data };
+      } catch (nextError) {
+        const message = nextError?.message || 'OTP verification failed.';
+        setError(message);
+        setIsLoading(false);
+        return { error: message };
+      }
+    }
+
     setIsLoading(false);
     return {
       success: true,
@@ -140,6 +232,27 @@ export function AuthProvider({ children }) {
   }
 
   async function refreshSession() {
+    if (BACKEND_AUTH_ENABLED) {
+      try {
+        const nextUser = await authAPI.me();
+        if (nextUser) {
+          const session = {
+            user: nextUser,
+            loggedInAt: new Date().toISOString(),
+            mode: 'backend',
+          };
+          setUser(nextUser);
+          persistSession(session, true);
+          return true;
+        }
+      } catch {
+        clearStoredSession();
+        clearTokens();
+        setUser(null);
+      }
+      return false;
+    }
+
     const session = readStoredSession();
     if (session?.user) {
       setUser(session.user);
@@ -149,6 +262,10 @@ export function AuthProvider({ children }) {
   }
 
   async function requestPasswordReset(email) {
+    if (BACKEND_AUTH_ENABLED) {
+      return authAPI.forgotPassword(email);
+    }
+
     const matchedUser = findUserByEmail(email);
     if (typeof window !== 'undefined') {
       localStorage.setItem(
@@ -182,6 +299,7 @@ export function AuthProvider({ children }) {
       requestPasswordReset,
       clearError,
       sampleUsers,
+      isBackendAuthEnabled: BACKEND_AUTH_ENABLED,
     }),
     [user, isLoading, error]
   );

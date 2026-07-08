@@ -23,6 +23,7 @@ import {
 import withAuth from '../../hocs/withAuth';
 import { useAuth } from '../../context/AuthContext';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
+import { corporateAPI } from '../../lib/api';
 
 const roleKinds = {
   consultant: 'consultant',
@@ -2493,6 +2494,21 @@ function FiteatsyAdminHome() {
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [consultants, setConsultants] = useState([]);
+  const [consultantsLoading, setConsultantsLoading] = useState(true);
+  const [consultantsError, setConsultantsError] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const [submitSuccess, setSubmitSuccess] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [form, setForm] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    role: 'consultant',
+    specialization: '',
+  });
 
   useEffect(() => {
     if (range === 'custom' && (!customStart || !customEnd)) {
@@ -2537,9 +2553,70 @@ function FiteatsyAdminHome() {
     return () => controller.abort();
   }, [range, customEnd, customStart]);
 
+  useEffect(() => {
+    let active = true;
+    setConsultantsLoading(true);
+    setConsultantsError('');
+
+    corporateAPI
+      .consultants()
+      .then((data) => {
+        if (active) {
+          setConsultants(Array.isArray(data) ? data : []);
+        }
+      })
+      .catch((nextError) => {
+        if (active) {
+          setConsultantsError(nextError?.message || 'Unable to load consultants.');
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setConsultantsLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const clients = payload?.clients || [];
   const revenue = payload?.metrics?.revenue || [];
   const quality = payload?.metrics?.quality || [];
+
+  function updateForm(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+    setSubmitError('');
+  }
+
+  async function handleConsultantCreate(event) {
+    event.preventDefault();
+    setSubmitting(true);
+    setSubmitError('');
+
+    try {
+      const response = await corporateAPI.createConsultant(form);
+      const createdConsultant = response?.consultant;
+      if (createdConsultant) {
+        setConsultants((current) => [createdConsultant, ...current]);
+      }
+      setSubmitSuccess(response);
+      setCreateOpen(false);
+      setForm({
+        firstName: '',
+        lastName: '',
+        email: '',
+        phone: '',
+        role: 'consultant',
+        specialization: '',
+      });
+    } catch (nextError) {
+      setSubmitError(nextError?.message || 'Unable to create consultant.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <div className="grid gap-4 xl:grid-cols-[1.3fr_0.9fr]">
@@ -2643,39 +2720,226 @@ function FiteatsyAdminHome() {
         </div>
       </Surface>
 
-      <Surface className="p-5">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Revenue and quality</p>
-            <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Metrics update from the same selected client date window.</p>
+      <div className="space-y-4">
+        <Surface className="p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Consultant accounts</p>
+              <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Create and manage Fiteatsy consultant access from the admin workspace.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSubmitError('');
+                setCreateOpen(true);
+              }}
+              className="rounded-full bg-[var(--fluent-color-brand-background)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-brand-foreground)]"
+            >
+              Create consultant
+            </button>
           </div>
-          {loading ? <span className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">Refreshing...</span> : null}
-        </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {revenue.map((item) => (
-            <div key={item.label} className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
-              <p className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.label}</p>
-              <p className="mt-2 text-2xl font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.value}</p>
-              <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.delta}</p>
+          {submitSuccess?.tempPassword ? (
+            <div className="mt-4 rounded-[18px] border border-[var(--fluent-color-status-success-border)] bg-[var(--fluent-color-status-success-background)] p-4">
+              <p className="text-sm font-medium text-[var(--fluent-color-status-success-foreground)]">
+                {submitSuccess?.consultant?.firstName || 'Consultant'} account created.
+              </p>
+              <p className="mt-1 text-sm text-[var(--fluent-color-status-success-foreground)]">
+                Temporary password: <span className="font-semibold">{submitSuccess.tempPassword}</span>
+              </p>
             </div>
-          ))}
-        </div>
+          ) : null}
 
-        <div className="mt-4 space-y-3">
-          {quality.map((item) => (
-            <div key={item.id} className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{item.label}</p>
-                  <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.detail}</p>
+          {consultantsError ? (
+            <div className="mt-4 rounded-[16px] border border-[var(--fluent-color-status-danger-border)] bg-[var(--fluent-color-status-danger-background)] p-4 text-sm text-[var(--fluent-color-status-danger-foreground)]">
+              {consultantsError}
+            </div>
+          ) : null}
+
+          <div className="mt-4 space-y-3">
+            {consultantsLoading ? (
+              <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading consultant directory...</div>
+            ) : null}
+
+            {!consultantsLoading && !consultants.length ? (
+              <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No consultants have been created for this organization yet.</div>
+            ) : null}
+
+            {consultants.map((consultant) => (
+              <div key={consultant.id} className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
+                      {[consultant.firstName, consultant.lastName].filter(Boolean).join(' ') || consultant.email}
+                    </p>
+                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{consultant.email}</p>
+                    <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+                      {consultant.specialization || 'General consultant'}{consultant.phone ? ` · ${consultant.phone}` : ''}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="rounded-full bg-[var(--fluent-color-neutral-background-3)] px-2.5 py-1 text-[11px] text-[var(--fluent-color-neutral-foreground-2)]">
+                      {formatStatusLabel(consultant.role)}
+                    </span>
+                    <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+                      Added {new Date(consultant.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
                 </div>
-                <span className="text-lg font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.count}</span>
               </div>
+            ))}
+          </div>
+        </Surface>
+
+        <Surface className="p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Revenue and quality</p>
+              <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Metrics update from the same selected client date window.</p>
             </div>
-          ))}
+            {loading ? <span className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">Refreshing...</span> : null}
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {revenue.map((item) => (
+              <div key={item.label} className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                <p className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.label}</p>
+                <p className="mt-2 text-2xl font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.value}</p>
+                <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.delta}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {quality.map((item) => (
+              <div key={item.id} className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{item.label}</p>
+                    <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.detail}</p>
+                  </div>
+                  <span className="text-lg font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.count}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Surface>
+      </div>
+
+      {createOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(15,23,42,0.42)] p-4">
+          <div className="w-full max-w-xl rounded-[28px] bg-[var(--fluent-color-neutral-background-1)] p-6 shadow-[0_24px_80px_rgba(15,23,42,0.24)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-lg font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Create consultant account</p>
+                <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">The consultant will receive a temporary password and can sign in immediately after creation.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateOpen(false)}
+                className="rounded-full bg-[var(--fluent-color-neutral-background-2)] p-2 text-[var(--fluent-color-neutral-foreground-2)]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConsultantCreate} className="mt-5 space-y-4">
+              {submitError ? (
+                <div className="rounded-[16px] border border-[var(--fluent-color-status-danger-border)] bg-[var(--fluent-color-status-danger-background)] p-4 text-sm text-[var(--fluent-color-status-danger-foreground)]">
+                  {submitError}
+                </div>
+              ) : null}
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-sm text-[var(--fluent-color-neutral-foreground-2)]">First name</span>
+                  <input
+                    type="text"
+                    required
+                    value={form.firstName}
+                    onChange={(event) => updateForm('firstName', event.target.value)}
+                    className="w-full rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-sm text-[var(--fluent-color-neutral-foreground-2)]">Last name</span>
+                  <input
+                    type="text"
+                    required
+                    value={form.lastName}
+                    onChange={(event) => updateForm('lastName', event.target.value)}
+                    className="w-full rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                  />
+                </label>
+              </div>
+
+              <label className="block">
+                <span className="mb-2 block text-sm text-[var(--fluent-color-neutral-foreground-2)]">Email</span>
+                <input
+                  type="email"
+                  required
+                  value={form.email}
+                  onChange={(event) => updateForm('email', event.target.value)}
+                  className="w-full rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                />
+              </label>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-sm text-[var(--fluent-color-neutral-foreground-2)]">Phone</span>
+                  <input
+                    type="text"
+                    value={form.phone}
+                    onChange={(event) => updateForm('phone', event.target.value)}
+                    className="w-full rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-sm text-[var(--fluent-color-neutral-foreground-2)]">Role</span>
+                  <select
+                    value={form.role}
+                    onChange={(event) => updateForm('role', event.target.value)}
+                    className="w-full rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                  >
+                    <option value="consultant">Consultant</option>
+                    <option value="provider">Provider</option>
+                    <option value="dietician">Dietician</option>
+                    <option value="senior_consultant">Senior Consultant</option>
+                  </select>
+                </label>
+              </div>
+
+              <label className="block">
+                <span className="mb-2 block text-sm text-[var(--fluent-color-neutral-foreground-2)]">Specialization</span>
+                <input
+                  type="text"
+                  value={form.specialization}
+                  onChange={(event) => updateForm('specialization', event.target.value)}
+                  placeholder="PCOS, metabolism, thyroid, women’s health"
+                  className="w-full rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                />
+              </label>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCreateOpen(false)}
+                  className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-4 py-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-sm font-medium text-[var(--fluent-color-brand-foreground)] disabled:opacity-70"
+                >
+                  {submitting ? 'Creating...' : 'Create consultant'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-      </Surface>
+      ) : null}
     </div>
   );
 }

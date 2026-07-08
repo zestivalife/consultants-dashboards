@@ -39,6 +39,25 @@ class EmployeeResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class ConsultantInvite(BaseModel):
+    email: EmailStr
+    firstName: str
+    lastName: str
+    phone: Optional[str] = None
+    role: str = "consultant"
+    specialization: Optional[str] = None
+
+class ConsultantResponse(BaseModel):
+    id: UUID
+    email: str
+    firstName: str
+    lastName: str
+    phone: Optional[str] = None
+    role: str
+    specialization: Optional[str] = None
+    status: str = "Active"
+    createdAt: datetime
+
 class SessionRequestCreate(BaseModel):
     title: str
     description: Optional[str] = None
