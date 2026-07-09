@@ -16,10 +16,16 @@ export function getApiBaseUrl() {
     baseUrl = 'http://localhost:8000';
   }
 
+  // In deployed browser sessions, use the app's own proxy route so the browser
+  // never depends on cross-origin CORS headers from the backend gateway.
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+    baseUrl = '/api/gateway';
+  }
+
   // Fallbacks if not set
   if (!baseUrl) {
     if (process.env.NODE_ENV === 'production') {
-      baseUrl = 'https://api.nuetra.in';
+      baseUrl = '/api/gateway';
     } else {
       baseUrl = 'http://localhost:8000';
     }
