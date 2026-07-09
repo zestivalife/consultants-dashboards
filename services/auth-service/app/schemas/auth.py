@@ -42,6 +42,7 @@ class TokenResponse(BaseModel):
 class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
+    is_active: bool
     is_verified: bool
     role: str
     company_name: str | None = None

@@ -24,6 +24,7 @@ class User(Base):
     role_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("roles.id"), nullable=False
     )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
     lock_until: Mapped[datetime | None] = mapped_column(

@@ -30,7 +30,7 @@ async def _notify(db: AsyncSession, user_id: uuid.UUID, title: str, message: str
 
 router = APIRouter(tags=["corporate-admin"])
 
-ADMIN_ROLE_NAMES = {"corporate_client", "corporate_admin", "organization_admin", "admin", "superuser"}
+ADMIN_ROLE_NAMES = {"corporate_client", "corporate_admin", "organization_admin", "admin", "superuser", "PLATFORM_OWNER"}
 CONSULTANT_ROLE_NAMES = {"consultant", "provider", "dietician", "senior_consultant"}
 
 

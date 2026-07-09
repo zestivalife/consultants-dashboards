@@ -73,6 +73,7 @@ def _user_response(user: User) -> UserResponse:
     return UserResponse(
         id=user.id,
         email=user.email,
+        is_active=user.is_active,
         is_verified=user.is_verified,
         role=user.role.name if user.role else "member",
         company_name=user.company_name,
@@ -259,6 +260,10 @@ async def login(
         raise ForbiddenException(
             f"Account locked. Try again in {remaining} seconds."
         )
+
+    if not user.is_active:
+        logger.warning("login_blocked_inactive", email=email, user_id=str(user.id))
+        raise ForbiddenException("Account is inactive. Please contact support.")
 
     if not verify_password(password, user.password_hash):
         user.failed_login_attempts += 1
