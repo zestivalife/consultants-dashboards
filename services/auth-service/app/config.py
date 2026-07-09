@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from functools import lru_cache
 
 
@@ -53,6 +54,21 @@ class Settings(BaseSettings):
     log_format: str = "json"
 
     model_config = {"env_file": ".env", "case_sensitive": False}
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        if not isinstance(value, str):
+            return value
+        if value.startswith("postgresql+asyncpg://"):
+            return value
+        if value.startswith("postgresql+psycopg2://"):
+            return "postgresql+asyncpg://" + value[len("postgresql+psycopg2://"):]
+        if value.startswith("postgresql://"):
+            return "postgresql+asyncpg://" + value[len("postgresql://"):]
+        if value.startswith("postgres://"):
+            return "postgresql+asyncpg://" + value[len("postgres://"):]
+        return value
 
 
 @lru_cache
