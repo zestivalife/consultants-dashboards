@@ -3,8 +3,12 @@ import sys
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 
+import httpx
+import redis.asyncio as aioredis
 import structlog
 from fastapi import FastAPI
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.middleware.request_id import RequestIdMiddleware
@@ -92,15 +96,72 @@ def create_app() -> FastAPI:
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(JWTMiddleware)
     add_cors_middleware(app)
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=[host.strip() for host in settings.trusted_hosts.split(",") if host.strip()],
+    )
     app.add_middleware(RequestIdMiddleware)
+
+    @app.middleware("http")
+    async def security_headers_middleware(request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        if settings.app_env.lower() == "production":
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains; preload",
+            )
+        return response
 
     @app.get("/health")
     async def health():
-        return {"success": True, "data": {"status": "alive"}}
+        return {
+            "status": "healthy",
+            "service": settings.app_name,
+            "version": settings.app_version,
+        }
 
     @app.get("/ready")
     async def ready():
-        return {"success": True, "data": {"status": "ready"}}
+        checks: dict[str, str] = {}
+
+        try:
+            r = aioredis.from_url(
+                settings.redis_url,
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+            )
+            await r.ping()
+            await r.aclose()
+            checks["redis"] = "ok"
+        except Exception:
+            checks["redis"] = "unavailable"
+
+        routes = settings.get_service_routes()
+        upstreams = {route["upstream"] for route in routes}
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
+            for upstream in sorted(upstreams):
+                service_name = upstream.rsplit("/", 1)[-1]
+                try:
+                    response = await client.get(f"{upstream}/api/v1/health")
+                    checks[service_name] = "ok" if response.status_code == 200 else "unavailable"
+                except Exception:
+                    checks[service_name] = "unavailable"
+
+        all_ok = all(value == "ok" for value in checks.values())
+        body = {
+            "status": "ready" if all_ok else "degraded",
+            "service": settings.app_name,
+            "version": settings.app_version,
+            "checks": checks,
+        }
+        if all_ok:
+            return body
+        return JSONResponse(status_code=503, content=body)
 
     @app.get("/debug/routes")
     async def debug_routes():

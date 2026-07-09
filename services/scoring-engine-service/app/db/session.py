@@ -22,6 +22,10 @@ def get_engine() -> AsyncEngine:
             pool_size=settings.db_pool_size,
             max_overflow=settings.db_max_overflow,
             pool_recycle=settings.db_pool_recycle,
+            pool_timeout=settings.db_pool_timeout,
+            pool_pre_ping=True,
+            pool_use_lifo=True,
+            connect_args={"server_settings": {"application_name": settings.app_name}},
             echo=settings.app_debug,
         )
     return _engine

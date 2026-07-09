@@ -33,16 +33,16 @@ async def fetch_profile(user_id: uuid.UUID, request_id: str | None = None) -> di
         headers["X-Request-Id"] = request_id
 
     client = await get_client()
-    try:
-        resp = await client.get(url, headers=headers)
-        if resp.status_code == 200:
-            body = resp.json()
-            return body.get("data")
-        logger.warning("profile_fetch_failed", status=resp.status_code, user_id=str(user_id))
-        return None
-    except httpx.HTTPError as exc:
-        logger.error("profile_fetch_error", error=str(exc))
-        return None
+    for attempt in range(2):
+        try:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                body = resp.json()
+                return body.get("data")
+            logger.warning("profile_fetch_failed", status=resp.status_code, user_id=str(user_id), attempt=attempt + 1)
+        except httpx.HTTPError as exc:
+            logger.error("profile_fetch_error", error=str(exc), attempt=attempt + 1)
+    return None
 
 
 async def fetch_assessment_history(
@@ -56,13 +56,14 @@ async def fetch_assessment_history(
         headers["X-Request-Id"] = request_id
 
     client = await get_client()
-    try:
-        resp = await client.get(url, headers=headers)
-        if resp.status_code == 200:
-            body = resp.json()
-            data = body.get("data", {})
-            return data.get("submissions", [])
-        return []
-    except httpx.HTTPError as exc:
-        logger.error("assessment_fetch_error", error=str(exc))
-        return []
+    for attempt in range(2):
+        try:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                body = resp.json()
+                data = body.get("data", {})
+                return data.get("submissions", [])
+            logger.warning("assessment_fetch_failed", status=resp.status_code, user_id=str(user_id), attempt=attempt + 1)
+        except httpx.HTTPError as exc:
+            logger.error("assessment_fetch_error", error=str(exc), attempt=attempt + 1)
+    return []

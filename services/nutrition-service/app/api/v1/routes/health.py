@@ -1,7 +1,6 @@
 from fastapi import APIRouter
 from sqlalchemy import text
 
-from app.core.response import success_response, error_response
 from app.db.session import get_engine
 
 router = APIRouter(tags=["health"])
@@ -9,7 +8,13 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health")
 async def liveness():
-    return success_response(data={"status": "alive"})
+    from app.config import get_settings
+    settings = get_settings()
+    return {
+        "status": "healthy",
+        "service": settings.app_name,
+        "version": settings.app_version,
+    }
 
 
 @router.get("/ready")
@@ -37,10 +42,22 @@ async def readiness():
         checks["redis"] = "unavailable"
 
     all_ok = all(v == "ok" for v in checks.values())
+    from app.config import get_settings
+    from fastapi.responses import JSONResponse
+    settings = get_settings()
     if all_ok:
-        return success_response(data={"status": "ready", "checks": checks})
-    return error_response(
-        message="Service not ready",
+        return {
+            "status": "ready",
+            "service": settings.app_name,
+            "version": settings.app_version,
+            "checks": checks,
+        }
+    return JSONResponse(
         status_code=503,
-        errors={"status": "degraded", "checks": checks},
+        content={
+            "status": "degraded",
+            "service": settings.app_name,
+            "version": settings.app_version,
+            "checks": checks,
+        },
     )
