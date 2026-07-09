@@ -1,6 +1,16 @@
-from pydantic_settings import BaseSettings
-from pydantic import Field
 from functools import lru_cache
+
+from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic_settings import BaseSettings
+
+
+DEFAULT_CORS_ORIGINS = [
+    "https://consultant.nuetra.in",
+    "https://consultants-dashboards.vercel.app",
+    "https://nuetra.in",
+    "https://www.nuetra.in",
+    "http://localhost:3000",
+]
 
 
 class ServiceRoute(BaseSettings):
@@ -13,15 +23,23 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_debug: bool = False
     app_version: str = "0.1.0"
+    app_port: int = Field(default=8000, validation_alias=AliasChoices("PORT", "APP_PORT", "app_port"))
 
     jwt_secret_key: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
 
-    redis_url: str = "redis://localhost:6379/1"
+    redis_url: str = Field(
+        default="redis://redis:6379/1",
+        validation_alias=AliasChoices("REDIS_URL", "redis_url"),
+    )
 
     rate_limit_per_minute: int = 60
 
-    cors_origins: str = "http://localhost:3000,https://nuetra.in,https://www.nuetra.in"
+    cors_origins: list[str] = Field(
+        default_factory=lambda: DEFAULT_CORS_ORIGINS.copy(),
+        validation_alias=AliasChoices("CORS_ORIGINS", "cors_origins"),
+    )
+    trusted_hosts: str = "api.nuetra.in,*.railway.app,localhost,127.0.0.1"
 
     log_level: str = "INFO"
     log_format: str = "json"
@@ -31,15 +49,26 @@ class Settings(BaseSettings):
     assessment_service_url: str = "http://assessment-service:8003"
     scoring_service_url: str = "http://scoring-engine-service:8004"
     nutrition_service_url: str = "http://nutrition-service:8005"
-    consultation_service_url: str = "http://consultation-service:8006"
-    pathology_service_url: str = "http://pathology-service:8007"
-    wearable_service_url: str = "http://wearable-service:8008"
-    analytics_service_url: str = "http://analytics-service:8009"
-    admin_service_url: str = "http://admin-service:8010"
-    notification_service_url: str = "http://notification-service:8011"
-    payment_service_url: str = "http://payment-service:8012"
 
     model_config = {"env_file": ".env", "case_sensitive": False}
+
+    @model_validator(mode="after")
+    def validate_production_settings(self) -> "Settings":
+        if self.app_env.lower() == "production" and self.jwt_secret_key == "change-me-in-production":
+            raise ValueError("JWT_SECRET_KEY must be set in production")
+        return self
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value: str | list[str] | None) -> list[str]:
+        if value is None:
+            return DEFAULT_CORS_ORIGINS.copy()
+        if isinstance(value, list):
+            return [origin.strip() for origin in value if isinstance(origin, str) and origin.strip()]
+        if isinstance(value, str):
+            parsed = [origin.strip() for origin in value.split(",") if origin.strip()]
+            return parsed or DEFAULT_CORS_ORIGINS.copy()
+        raise TypeError("cors_origins must be a comma-separated string or list of strings")
 
     def get_service_routes(self) -> list[dict]:
         return [
@@ -52,12 +81,6 @@ class Settings(BaseSettings):
             {"prefix": "/api/v1/assessments", "upstream": self.assessment_service_url},
             {"prefix": "/api/v1/scoring", "upstream": self.scoring_service_url},
             {"prefix": "/api/v1/nutrition", "upstream": self.nutrition_service_url},
-            {"prefix": "/api/v1/consultations", "upstream": self.consultation_service_url},
-            {"prefix": "/api/v1/pathology", "upstream": self.pathology_service_url},
-            {"prefix": "/api/v1/wearables", "upstream": self.wearable_service_url},
-            {"prefix": "/api/v1/analytics", "upstream": self.analytics_service_url},
-            {"prefix": "/api/v1/admin", "upstream": self.admin_service_url},
-            {"prefix": "/api/v1/payments", "upstream": self.payment_service_url},
         ]
 
 
