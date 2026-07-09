@@ -1,6 +1,7 @@
-from pydantic_settings import BaseSettings
-from pydantic import field_validator
 from functools import lru_cache
+
+from pydantic import AliasChoices, Field, field_validator
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -8,15 +9,17 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_debug: bool = False
     app_version: str = "0.1.0"
-    app_port: int = 8001
+    app_port: int = Field(default=8001, validation_alias=AliasChoices("PORT", "APP_PORT", "app_port"))
     frontend_url: str = "http://localhost:3000"
 
     database_url: str = "postgresql+asyncpg://nuetra:nuetra_secret@localhost:5432/nuetra_auth"
     db_pool_size: int = 20
     db_max_overflow: int = 10
     db_pool_recycle: int = 300
+    db_pool_timeout: int = 30
 
     redis_url: str = "redis://localhost:6379/0"
+    trusted_hosts: str = "*.railway.app,localhost,127.0.0.1"
 
     jwt_secret_key: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
