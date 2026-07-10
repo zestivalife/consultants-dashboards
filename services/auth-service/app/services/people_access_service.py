@@ -1,6 +1,8 @@
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from io import StringIO
+import csv
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,16 +13,29 @@ from app.db.models.owner_access import (
     AuditEvent,
     LoginSession,
     Organization,
+    PackageCatalog,
     Permission,
+    Product,
+    ServiceCatalog,
     UserInvitation,
     UserNote,
+    UserAttachment,
+    UserPackageAssignment,
+    UserProductAccess,
+    UserServiceAssignment,
     UserStatusHistory,
 )
 from app.db.models.user import User
 from app.repositories.people_access_repository import PeopleAccessRepository
+from app.repositories.refresh_token_repository import RefreshTokenRepository
+from app.db.models.role import Role
 from app.schemas.auth import UserResponse
 from app.schemas.people_access import (
     BulkActionResponse,
+    CsvImportRequest,
+    CsvImportResponse,
+    CustomRoleCreateRequest,
+    InvitationCreateRequest,
     ManagedUserCreateRequest,
     ManagedUserUpdateRequest,
     OrganizationCreateRequest,
@@ -33,16 +48,31 @@ from app.schemas.people_access import (
     PeopleAccessSummaryResponse,
     PeopleAccessUserRow,
     PeopleAccessUsersResponse,
+    ProductOption,
     PermissionCatalogItem,
+    RoleCloneRequest,
+    RolePermissionUpdateRequest,
     RolePermissionMatrixRow,
+    ServiceCatalogItem,
     UserAttachmentItem,
+    UserAttachmentCreateRequest,
+    UserPackageAssignmentItem,
+    UserProductAccessItem,
     UserNoteCreateRequest,
     UserNoteItem,
     UserProfileDetail,
+    UserPackageAssignmentRequest,
+    UserProductAssignmentRequest,
     UserRoleAssignment,
+    UserServiceAssignmentItem,
+    UserServiceAssignmentRequest,
     UserStatusHistoryItem,
     LoginSessionItem,
     MembershipSummary,
+    PackageCatalogItem,
+    PeopleAccessInvitationItem,
+    PaginationMeta,
+    ServiceCatalogItem,
 )
 
 
@@ -127,6 +157,8 @@ def _membership_to_summary(membership) -> MembershipSummary:
         organization=membership.organization.name if membership.organization else "Unassigned",
         department_id=membership.department_id,
         department=membership.department.name if membership.department else None,
+        primary_product_id=membership.primary_product_id,
+        primary_product=membership.primary_product.name if membership.primary_product else None,
         employee_id=membership.employee_id,
         package=membership.package_name,
         practitioner_id=membership.assigned_practitioner_id,
@@ -139,6 +171,84 @@ def _membership_to_summary(membership) -> MembershipSummary:
         verification="Verified" if membership.is_verified else "Pending verification",
         tags=membership.tags or [],
         joined_at=membership.joined_at,
+    )
+
+
+def _serialize_invitation(invitation: UserInvitation) -> PeopleAccessInvitationItem:
+    return PeopleAccessInvitationItem(
+        id=invitation.id,
+        email=invitation.email,
+        user_id=invitation.user_id,
+        role=invitation.role.name if invitation.role else None,
+        product=invitation.product.name if getattr(invitation, "product", None) else None,
+        organization=invitation.organization.name if invitation.organization else None,
+        status=invitation.status,
+        created_at=invitation.created_at,
+        expires_at=invitation.expires_at,
+        last_sent_at=invitation.last_sent_at,
+        accepted_at=invitation.accepted_at,
+        cancelled_at=invitation.cancelled_at,
+    )
+
+
+def _serialize_audit_event(event: AuditEvent) -> PeopleAccessAuditItem:
+    return PeopleAccessAuditItem(
+        id=event.id,
+        actor="Platform action" if event.actor_user_id else "System",
+        action=event.action,
+        entity_type=event.entity_type,
+        entity_id=event.entity_id,
+        product=event.product.name if getattr(event, "product", None) else None,
+        created_at=event.created_at,
+        request_id=event.request_id,
+    )
+
+
+def _serialize_product_access(access: UserProductAccess) -> UserProductAccessItem:
+    return UserProductAccessItem(
+        id=access.id,
+        product_id=access.product_id,
+        product=access.product.name if access.product else "Unknown",
+        organization_id=access.organization_id,
+        organization=access.organization.name if access.organization else None,
+        role_id=access.role_id,
+        role=access.role.name if access.role else None,
+        status=access.status,
+        is_primary=access.is_primary,
+        permissions=access.permissions or [],
+        created_at=access.created_at,
+    )
+
+
+def _serialize_package_assignment(assignment: UserPackageAssignment) -> UserPackageAssignmentItem:
+    return UserPackageAssignmentItem(
+        id=assignment.id,
+        product_id=assignment.product_id,
+        product=assignment.product.name if assignment.product else assignment.package.product.name,
+        package_id=assignment.package_id,
+        package=assignment.package.name if assignment.package else "Unknown",
+        organization_id=assignment.organization_id,
+        organization=assignment.organization.name if assignment.organization else None,
+        status=assignment.status,
+        notes=assignment.notes,
+        started_at=assignment.started_at,
+        ended_at=assignment.ended_at,
+    )
+
+
+def _serialize_service_assignment(assignment: UserServiceAssignment) -> UserServiceAssignmentItem:
+    return UserServiceAssignmentItem(
+        id=assignment.id,
+        product_id=assignment.product_id,
+        product=assignment.product.name if assignment.product else assignment.service.product.name,
+        service_id=assignment.service_id,
+        service=assignment.service.name if assignment.service else "Unknown",
+        organization_id=assignment.organization_id,
+        organization=assignment.organization.name if assignment.organization else None,
+        status=assignment.status,
+        notes=assignment.notes,
+        started_at=assignment.started_at,
+        ended_at=assignment.ended_at,
     )
 
 
@@ -159,6 +269,8 @@ def _user_to_row(user: User) -> PeopleAccessUserRow:
         package=membership.package_name if membership else None,
         practitioner=_display_name(membership.assigned_practitioner) if membership else None,
         mentor=_display_name(membership.assigned_mentor) if membership else None,
+        consultant=_display_name(membership.assigned_consultant) if membership else None,
+        products=[access.product.name for access in user.product_access if getattr(access, "product", None)],
         created_at=user.created_at,
         last_login_at=user.last_login_at,
         tags=membership.tags if membership else [],
@@ -189,30 +301,8 @@ async def get_summary(session: AsyncSession) -> PeopleAccessSummaryResponse:
             PeopleAccessDistributionItem(label=name, value=value)
             for name, value in org_distribution
         ],
-        pending_invitations=[
-            PeopleAccessInvitationItem(
-                id=invite.id,
-                email=invite.email,
-                role=invite.role.name if invite.role else None,
-                organization=invite.organization.name if invite.organization else None,
-                status=invite.status,
-                created_at=invite.created_at,
-                expires_at=invite.expires_at,
-            )
-            for invite in pending_invitations
-        ],
-        recent_activity=[
-            PeopleAccessAuditItem(
-                id=event.id,
-                actor="Platform action" if event.actor_user_id else "System",
-                action=event.action,
-                entity_type=event.entity_type,
-                entity_id=event.entity_id,
-                created_at=event.created_at,
-                request_id=event.request_id,
-            )
-            for event in recent_events
-        ],
+        pending_invitations=[_serialize_invitation(invite) for invite in pending_invitations],
+        recent_activity=[_serialize_audit_event(event) for event in recent_events],
     )
 
 
@@ -223,6 +313,7 @@ async def list_users(
     role: str | None = None,
     organization_id: uuid.UUID | None = None,
     department_id: uuid.UUID | None = None,
+    product_id: uuid.UUID | None = None,
     status: str | None = None,
     verification: str | None = None,
     page: int = 1,
@@ -236,6 +327,7 @@ async def list_users(
         role=normalize_role_name(role) if role else None,
         organization_id=organization_id,
         department_id=department_id,
+        product_id=product_id,
         status=_normalize_status(status) if status else None,
         verification=verification,
         page=page,
@@ -256,6 +348,9 @@ async def get_metadata(session: AsyncSession) -> PeopleAccessMetadataResponse:
     permissions = await repo.list_permissions()
     organizations = await repo.list_organizations()
     departments = await repo.list_departments()
+    products = await repo.list_products()
+    packages = await repo.list_packages()
+    services = await repo.list_services()
     practitioners = await repo.list_assignable_users(["practitioner", "consultant", "senior_consultant"])
     mentors = await repo.list_assignable_users(["mentor", "support_admin"])
     consultants = await repo.list_assignable_users(["consultant", "senior_consultant"])
@@ -290,6 +385,37 @@ async def get_metadata(session: AsyncSession) -> PeopleAccessMetadataResponse:
             {"id": department.id, "organization_id": department.organization_id, "name": department.name}
             for department in departments
         ],
+        products=[
+            ProductOption(id=product.id, key=product.key, name=product.name, status=product.status)
+            for product in products
+        ],
+        packages=[
+            PackageCatalogItem(
+                id=package.id,
+                product_id=package.product_id,
+                product=package.product.name if package.product else "Unknown",
+                code=package.code,
+                name=package.name,
+                category=package.category,
+                status=package.status,
+                description=package.description,
+            )
+            for package in packages
+        ],
+        services=[
+            ServiceCatalogItem(
+                id=service.id,
+                product_id=service.product_id,
+                product=service.product.name if service.product else "Unknown",
+                code=service.code,
+                name=service.name,
+                category=service.category,
+                provider_type=service.provider_type,
+                status=service.status,
+                description=service.description,
+            )
+            for service in services
+        ],
         practitioners=[_user_to_row(user) for user in practitioners],
         mentors=[_user_to_row(user) for user in mentors],
         consultants=[_user_to_row(user) for user in consultants],
@@ -301,6 +427,7 @@ async def get_user_detail(session: AsyncSession, user_id: uuid.UUID) -> UserProf
     user = await repo.get_user_detail(user_id)
     if user is None:
         raise NotFoundException("User not found")
+    audit_events = await repo.list_user_audit_events(user.id)
 
     return UserProfileDetail(
         id=user.id,
@@ -327,11 +454,15 @@ async def get_user_detail(session: AsyncSession, user_id: uuid.UUID) -> UserProf
         last_login_at=user.last_login_at,
         created_at=user.created_at,
         memberships=[_membership_to_summary(membership) for membership in user.organization_memberships],
+        product_access=[_serialize_product_access(access) for access in user.product_access],
+        package_assignments=[_serialize_package_assignment(item) for item in user.package_assignments],
+        service_assignments=[_serialize_service_assignment(item) for item in user.service_assignments],
         sessions=[
             LoginSessionItem(
                 id=session_item.id,
                 browser=session_item.browser,
                 platform=session_item.platform,
+                device_label=session_item.device_label,
                 ip_address=session_item.ip_address,
                 status=session_item.status,
                 created_at=session_item.created_at,
@@ -356,6 +487,8 @@ async def get_user_detail(session: AsyncSession, user_id: uuid.UUID) -> UserProf
                 file_name=attachment.file_name,
                 file_url=attachment.file_url,
                 content_type=attachment.content_type,
+                attachment_type=attachment.attachment_type,
+                note=attachment.note,
                 created_at=attachment.created_at,
             )
             for attachment in sorted(user.attachments, key=lambda item: item.created_at, reverse=True)
@@ -371,7 +504,78 @@ async def get_user_detail(session: AsyncSession, user_id: uuid.UUID) -> UserProf
             )
             for history in sorted(user.status_history, key=lambda item: item.created_at, reverse=True)
         ],
+        audit_events=[_serialize_audit_event(event) for event in audit_events],
     )
+
+
+async def _sync_product_scoped_assignments(
+    session: AsyncSession,
+    user: User,
+    repo: PeopleAccessRepository,
+    *,
+    actor: UserResponse,
+    organization_id: uuid.UUID | None,
+    product_ids: list[uuid.UUID],
+    primary_product_id: uuid.UUID | None,
+    package_ids: list[uuid.UUID],
+    service_ids: list[uuid.UUID],
+) -> None:
+    await repo.clear_user_product_access(user.id)
+    await repo.clear_user_package_assignments(user.id)
+    await repo.clear_user_service_assignments(user.id)
+
+    for product_id in product_ids:
+        product = await repo.get_product(product_id)
+        if product is None:
+            raise NotFoundException("Product not found")
+        if organization_id:
+            await repo.ensure_organization_product(organization_id, product_id)
+        await repo.add_user_product_access(
+            UserProductAccess(
+                user_id=user.id,
+                product_id=product_id,
+                organization_id=organization_id,
+                role_id=user.role_id,
+                status="ACTIVE",
+                is_primary=product_id == primary_product_id,
+                permissions=user.permissions or [],
+                assigned_by_user_id=actor.id,
+            )
+        )
+
+    for package_id in package_ids:
+        package = await repo.get_package(package_id)
+        if package is None:
+            raise NotFoundException("Package not found")
+        if organization_id:
+            await repo.ensure_organization_product(organization_id, package.product_id)
+        await repo.add_user_package_assignment(
+            UserPackageAssignment(
+                user_id=user.id,
+                package_id=package.id,
+                organization_id=organization_id,
+                product_id=package.product_id,
+                status="ACTIVE",
+                assigned_by_user_id=actor.id,
+            )
+        )
+
+    for service_id in service_ids:
+        service = await repo.get_service(service_id)
+        if service is None:
+            raise NotFoundException("Service not found")
+        if organization_id:
+            await repo.ensure_organization_product(organization_id, service.product_id)
+        await repo.add_user_service_assignment(
+            UserServiceAssignment(
+                user_id=user.id,
+                service_id=service.id,
+                organization_id=organization_id,
+                product_id=service.product_id,
+                status="ACTIVE",
+                assigned_by_user_id=actor.id,
+            )
+        )
 
 
 async def create_user(
@@ -429,6 +633,7 @@ async def create_user(
             {
                 "organization_id": payload.organization_id,
                 "department_id": payload.department_id,
+                "primary_product_id": payload.primary_product_id,
                 "employee_id": payload.employee_id,
                 "package_name": payload.package_name,
                 "assigned_practitioner_id": payload.assigned_practitioner_id,
@@ -441,15 +646,30 @@ async def create_user(
             },
         )
 
+    await _sync_product_scoped_assignments(
+        session,
+        user,
+        repo,
+        actor=actor,
+        organization_id=payload.organization_id,
+        product_ids=payload.product_ids or ([payload.primary_product_id] if payload.primary_product_id else []),
+        primary_product_id=payload.primary_product_id,
+        package_ids=payload.package_ids,
+        service_ids=payload.service_ids,
+    )
+
     invitation = UserInvitation(
+        user_id=user.id,
         email=user.email,
         invited_role_id=role.id,
+        product_id=payload.primary_product_id,
         organization_id=payload.organization_id,
         department_id=payload.department_id,
         invited_by_user_id=actor.id,
         status="INVITED",
         token=secrets.token_urlsafe(24),
         expires_at=payload.invite_expires_at or (datetime.now(timezone.utc) + timedelta(days=7)),
+        last_sent_at=datetime.now(timezone.utc),
     )
     await repo.create_invitation(invitation)
 
@@ -510,6 +730,7 @@ async def update_user(
         "role": user.role.name if user.role else None,
         "permissions": await resolve_user_permissions(session, user),
     }
+    current_membership = user.organization_memberships[0] if user.organization_memberships else None
 
     if payload.first_name is not None:
         user.first_name = payload.first_name
@@ -549,6 +770,7 @@ async def update_user(
         for value in [
             payload.organization_id,
             payload.department_id,
+            payload.primary_product_id,
             payload.employee_id,
             payload.package_name,
             payload.assigned_practitioner_id,
@@ -558,24 +780,37 @@ async def update_user(
             payload.status,
         ]
     ):
-        org_id = payload.organization_id or (user.organization_memberships[0].organization_id if user.organization_memberships else None)
+        org_id = payload.organization_id or (current_membership.organization_id if current_membership else None)
         if org_id:
             await repo.upsert_primary_membership(
                 user.id,
                 {
                     "organization_id": org_id,
-                    "department_id": payload.department_id or (user.organization_memberships[0].department_id if user.organization_memberships else None),
-                    "employee_id": payload.employee_id if payload.employee_id is not None else (user.organization_memberships[0].employee_id if user.organization_memberships else None),
-                    "package_name": payload.package_name if payload.package_name is not None else (user.organization_memberships[0].package_name if user.organization_memberships else None),
-                    "assigned_practitioner_id": payload.assigned_practitioner_id if payload.assigned_practitioner_id is not None else (user.organization_memberships[0].assigned_practitioner_id if user.organization_memberships else None),
-                    "assigned_mentor_id": payload.assigned_mentor_id if payload.assigned_mentor_id is not None else (user.organization_memberships[0].assigned_mentor_id if user.organization_memberships else None),
-                    "assigned_consultant_id": payload.assigned_consultant_id if payload.assigned_consultant_id is not None else (user.organization_memberships[0].assigned_consultant_id if user.organization_memberships else None),
+                    "department_id": payload.department_id or (current_membership.department_id if current_membership else None),
+                    "primary_product_id": payload.primary_product_id or (current_membership.primary_product_id if current_membership else None),
+                    "employee_id": payload.employee_id if payload.employee_id is not None else (current_membership.employee_id if current_membership else None),
+                    "package_name": payload.package_name if payload.package_name is not None else (current_membership.package_name if current_membership else None),
+                    "assigned_practitioner_id": payload.assigned_practitioner_id if payload.assigned_practitioner_id is not None else (current_membership.assigned_practitioner_id if current_membership else None),
+                    "assigned_mentor_id": payload.assigned_mentor_id if payload.assigned_mentor_id is not None else (current_membership.assigned_mentor_id if current_membership else None),
+                    "assigned_consultant_id": payload.assigned_consultant_id if payload.assigned_consultant_id is not None else (current_membership.assigned_consultant_id if current_membership else None),
                     "status": user.status,
                     "is_verified": user.is_verified,
-                    "tags": payload.tags if payload.tags is not None else (user.organization_memberships[0].tags if user.organization_memberships else []),
+                    "tags": payload.tags if payload.tags is not None else (current_membership.tags if current_membership else []),
                     "created_by_user_id": actor.id,
                 },
             )
+
+    await _sync_product_scoped_assignments(
+        session,
+        user,
+        repo,
+        actor=actor,
+        organization_id=payload.organization_id or (current_membership.organization_id if current_membership else None),
+        product_ids=payload.product_ids if payload.product_ids is not None else [access.product_id for access in user.product_access],
+        primary_product_id=payload.primary_product_id or (current_membership.primary_product_id if current_membership else None),
+        package_ids=payload.package_ids if payload.package_ids is not None else [assignment.package_id for assignment in user.package_assignments],
+        service_ids=payload.service_ids if payload.service_ids is not None else [assignment.service_id for assignment in user.service_assignments],
+    )
 
     if payload.note:
         await repo.add_note(UserNote(user_id=user.id, author_user_id=actor.id, body=payload.note))
@@ -634,6 +869,561 @@ async def add_note(
     )
     detail = await get_user_detail(session, user.id)
     return detail.notes
+
+
+async def add_attachment(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    payload: UserAttachmentCreateRequest,
+    *,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> list[UserAttachmentItem]:
+    repo = PeopleAccessRepository(session)
+    user = await repo.get_user_detail(user_id)
+    if user is None:
+        raise NotFoundException("User not found")
+    await repo.add_attachment(
+        UserAttachment(
+            user_id=user.id,
+            uploaded_by_user_id=actor.id,
+            file_name=payload.file_name,
+            file_url=payload.file_url,
+            content_type=payload.content_type,
+            attachment_type=payload.attachment_type,
+            note=payload.note,
+        )
+    )
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="user_attachment",
+            entity_id=str(user.id),
+            action="users.edit",
+            before_state=None,
+            after_state={"file_name": payload.file_name, "attachment_type": payload.attachment_type},
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    detail = await get_user_detail(session, user.id)
+    return detail.attachments
+
+
+async def list_invitations(
+    session: AsyncSession,
+    *,
+    search: str | None = None,
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[PeopleAccessInvitationItem], PaginationMeta]:
+    repo = PeopleAccessRepository(session)
+    invitations, total = await repo.list_invitations(search=search, status=status, page=page, page_size=page_size)
+    return [ _serialize_invitation(item) for item in invitations ], PaginationMeta(**repo.build_pagination(page, page_size, total))
+
+
+async def create_invitation(
+    session: AsyncSession,
+    payload: InvitationCreateRequest,
+    *,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> PeopleAccessInvitationItem:
+    repo = PeopleAccessRepository(session)
+    role = await repo.get_role_by_name(normalize_role_name(payload.role))
+    if role is None:
+        raise NotFoundException(f"Role '{payload.role}' not found")
+    if payload.organization_id:
+        organization = await repo.get_organization(payload.organization_id)
+        if organization is None:
+            raise NotFoundException("Organization not found")
+    if payload.product_id:
+        product = await repo.get_product(payload.product_id)
+        if product is None:
+            raise NotFoundException("Product not found")
+        if payload.organization_id:
+            await repo.ensure_organization_product(payload.organization_id, payload.product_id)
+    invitation = UserInvitation(
+        email=payload.email.lower().strip(),
+        invited_role_id=role.id,
+        product_id=payload.product_id,
+        organization_id=payload.organization_id,
+        department_id=payload.department_id,
+        invited_by_user_id=actor.id,
+        status="INVITED",
+        token=secrets.token_urlsafe(24),
+        expires_at=payload.expires_at or (datetime.now(timezone.utc) + timedelta(days=7)),
+        last_sent_at=datetime.now(timezone.utc),
+    )
+    await repo.create_invitation(invitation)
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="user_invitation",
+            entity_id=str(invitation.id),
+            action="users.invite",
+            product_id=payload.product_id,
+            before_state=None,
+            after_state={"email": invitation.email, "role": role.name},
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    return _serialize_invitation(await repo.get_invitation(invitation.id))
+
+
+async def resend_invitation(
+    session: AsyncSession,
+    invitation_id: uuid.UUID,
+    *,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> PeopleAccessInvitationItem:
+    repo = PeopleAccessRepository(session)
+    invitation = await repo.get_invitation(invitation_id)
+    if invitation is None:
+        raise NotFoundException("Invitation not found")
+    invitation.status = "INVITED"
+    invitation.token = secrets.token_urlsafe(24)
+    invitation.last_sent_at = datetime.now(timezone.utc)
+    invitation.cancelled_at = None
+    invitation.expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="user_invitation",
+            entity_id=str(invitation.id),
+            action="users.invite",
+            product_id=invitation.product_id,
+            before_state=None,
+            after_state={"status": invitation.status, "email": invitation.email},
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    return _serialize_invitation(invitation)
+
+
+async def cancel_invitation(
+    session: AsyncSession,
+    invitation_id: uuid.UUID,
+    *,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> PeopleAccessInvitationItem:
+    repo = PeopleAccessRepository(session)
+    invitation = await repo.get_invitation(invitation_id)
+    if invitation is None:
+        raise NotFoundException("Invitation not found")
+    invitation.status = "CANCELLED"
+    invitation.cancelled_at = datetime.now(timezone.utc)
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="user_invitation",
+            entity_id=str(invitation.id),
+            action="users.edit",
+            product_id=invitation.product_id,
+            before_state=None,
+            after_state={"status": invitation.status, "email": invitation.email},
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    return _serialize_invitation(invitation)
+
+
+async def update_role_permissions(
+    session: AsyncSession,
+    role_id: uuid.UUID,
+    payload: RolePermissionUpdateRequest,
+    *,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> RolePermissionMatrixRow:
+    repo = PeopleAccessRepository(session)
+    role = await repo.get_role_by_id(role_id)
+    if role is None:
+        raise NotFoundException("Role not found")
+    permissions = await repo.get_permission_by_keys(payload.permission_keys)
+    await repo.replace_role_permissions(role.id, [permission.id for permission in permissions])
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="role",
+            entity_id=str(role.id),
+            action="settings.manage",
+            before_state=None,
+            after_state={"permission_keys": payload.permission_keys},
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    roles = await get_metadata(session)
+    return next(item for item in roles.roles if item.id == role.id)
+
+
+async def create_custom_role(
+    session: AsyncSession,
+    payload: CustomRoleCreateRequest,
+    *,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> RolePermissionMatrixRow:
+    repo = PeopleAccessRepository(session)
+    role_name = normalize_role_name(payload.name)
+    if await repo.get_role_by_name(role_name):
+        raise ConflictException("Role already exists")
+    role = await repo.create_role(Role(name=role_name, description=payload.description))
+    permissions = await repo.get_permission_by_keys(payload.permission_keys)
+    await repo.replace_role_permissions(role.id, [permission.id for permission in permissions])
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="role",
+            entity_id=str(role.id),
+            action="settings.manage",
+            before_state=None,
+            after_state={"name": role.name},
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    roles = await get_metadata(session)
+    return next(item for item in roles.roles if item.id == role.id)
+
+
+async def clone_role(
+    session: AsyncSession,
+    role_id: uuid.UUID,
+    payload: RoleCloneRequest,
+    *,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> RolePermissionMatrixRow:
+    repo = PeopleAccessRepository(session)
+    source_role = await repo.get_role_by_id(role_id)
+    if source_role is None:
+        raise NotFoundException("Role not found")
+    existing = await repo.get_role_by_name(normalize_role_name(payload.name))
+    if existing:
+        raise ConflictException("Role already exists")
+    new_role = await repo.create_role(Role(name=normalize_role_name(payload.name), description=payload.description or source_role.description))
+    permissions_map = await repo.get_role_permissions([source_role.id])
+    permissions = await repo.get_permission_by_keys(permissions_map.get(source_role.id, []))
+    await repo.replace_role_permissions(new_role.id, [permission.id for permission in permissions])
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="role",
+            entity_id=str(new_role.id),
+            action="settings.manage",
+            before_state={"source_role_id": str(source_role.id)},
+            after_state={"name": new_role.name},
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    roles = await get_metadata(session)
+    return next(item for item in roles.roles if item.id == new_role.id)
+
+
+async def assign_products(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    assignments: list[UserProductAssignmentRequest],
+    *,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> list[UserProductAccessItem]:
+    repo = PeopleAccessRepository(session)
+    user = await repo.get_user_detail(user_id)
+    if user is None:
+        raise NotFoundException("User not found")
+    await repo.clear_user_product_access(user.id)
+    for assignment in assignments:
+        product = await repo.get_product(assignment.product_id)
+        if product is None:
+            raise NotFoundException("Product not found")
+        if assignment.organization_id:
+            await repo.ensure_organization_product(assignment.organization_id, assignment.product_id)
+        await repo.add_user_product_access(
+            UserProductAccess(
+                user_id=user.id,
+                product_id=assignment.product_id,
+                organization_id=assignment.organization_id,
+                role_id=assignment.role_id or user.role_id,
+                status=_normalize_status(assignment.status),
+                is_primary=assignment.is_primary,
+                permissions=assignment.permissions,
+                assigned_by_user_id=actor.id,
+            )
+        )
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="user_product_access",
+            entity_id=str(user.id),
+            action="users.edit",
+            before_state=None,
+            after_state={"product_ids": [str(item.product_id) for item in assignments]},
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    detail = await get_user_detail(session, user.id)
+    return detail.product_access
+
+
+async def assign_packages(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    assignments: list[UserPackageAssignmentRequest],
+    *,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> list[UserPackageAssignmentItem]:
+    repo = PeopleAccessRepository(session)
+    user = await repo.get_user_detail(user_id)
+    if user is None:
+        raise NotFoundException("User not found")
+    await repo.clear_user_package_assignments(user.id)
+    for assignment in assignments:
+        package = await repo.get_package(assignment.package_id)
+        if package is None:
+            raise NotFoundException("Package not found")
+        if assignment.organization_id:
+            await repo.ensure_organization_product(assignment.organization_id, package.product_id)
+        await repo.add_user_package_assignment(
+            UserPackageAssignment(
+                user_id=user.id,
+                package_id=assignment.package_id,
+                organization_id=assignment.organization_id,
+                product_id=package.product_id,
+                status=_normalize_status(assignment.status),
+                notes=assignment.notes,
+                assigned_by_user_id=actor.id,
+            )
+        )
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="user_package_assignment",
+            entity_id=str(user.id),
+            action="packages.manage",
+            before_state=None,
+            after_state={"package_ids": [str(item.package_id) for item in assignments]},
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    detail = await get_user_detail(session, user.id)
+    return detail.package_assignments
+
+
+async def assign_services(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    assignments: list[UserServiceAssignmentRequest],
+    *,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> list[UserServiceAssignmentItem]:
+    repo = PeopleAccessRepository(session)
+    user = await repo.get_user_detail(user_id)
+    if user is None:
+        raise NotFoundException("User not found")
+    await repo.clear_user_service_assignments(user.id)
+    for assignment in assignments:
+        service = await repo.get_service(assignment.service_id)
+        if service is None:
+            raise NotFoundException("Service not found")
+        if assignment.organization_id:
+            await repo.ensure_organization_product(assignment.organization_id, service.product_id)
+        await repo.add_user_service_assignment(
+            UserServiceAssignment(
+                user_id=user.id,
+                service_id=assignment.service_id,
+                organization_id=assignment.organization_id,
+                product_id=service.product_id,
+                status=_normalize_status(assignment.status),
+                notes=assignment.notes,
+                assigned_by_user_id=actor.id,
+            )
+        )
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="user_service_assignment",
+            entity_id=str(user.id),
+            action="services.manage",
+            before_state=None,
+            after_state={"service_ids": [str(item.service_id) for item in assignments]},
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    detail = await get_user_detail(session, user.id)
+    return detail.service_assignments
+
+
+async def revoke_user_session(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    session_id: uuid.UUID,
+    *,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> list[LoginSessionItem]:
+    repo = PeopleAccessRepository(session)
+    token_repo = RefreshTokenRepository(session)
+    session_row = await repo.revoke_login_session(session_id, user_id)
+    if session_row is None:
+        raise NotFoundException("Login session not found")
+    if session_row.refresh_token_id:
+        await token_repo.revoke(session_row.refresh_token_id)
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="user_session",
+            entity_id=str(user_id),
+            action="users.force_logout",
+            before_state=None,
+            after_state={"session_id": str(session_id)},
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    detail = await get_user_detail(session, user_id)
+    return detail.sessions
+
+
+async def force_logout_user(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> list[LoginSessionItem]:
+    repo = PeopleAccessRepository(session)
+    token_repo = RefreshTokenRepository(session)
+    sessions = await repo.revoke_all_login_sessions_for_user(user_id)
+    for session_row in sessions:
+        if session_row.refresh_token_id:
+            await token_repo.revoke(session_row.refresh_token_id)
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="user_session",
+            entity_id=str(user_id),
+            action="users.force_logout",
+            before_state=None,
+            after_state={"revoked_sessions": len(sessions)},
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    detail = await get_user_detail(session, user_id)
+    return detail.sessions
+
+
+async def export_users_csv(session: AsyncSession) -> str:
+    rows = await list_users(session, page=1, page_size=5000)
+    buffer = StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["id", "name", "email", "phone", "role", "status", "organization", "department", "products"])
+    for item in rows.items:
+        writer.writerow([
+            str(item.id),
+            item.name,
+            item.email,
+            item.phone or "",
+            item.role,
+            item.status,
+            item.organization or "",
+            item.department or "",
+            ", ".join(item.products),
+        ])
+    return buffer.getvalue()
+
+
+async def import_users(
+    session: AsyncSession,
+    payload: CsvImportRequest,
+    *,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> CsvImportResponse:
+    created = 0
+    skipped = 0
+    errors: list[str] = []
+    for row in payload.rows:
+        try:
+            await create_user(
+                session,
+                ManagedUserCreateRequest(
+                    email=row.email,
+                    first_name=row.first_name,
+                    last_name=row.last_name,
+                    phone=row.phone,
+                    role=row.role,
+                    organization_id=row.organization_id,
+                    department_id=row.department_id,
+                    employee_id=row.employee_id,
+                    primary_product_id=row.primary_product_id,
+                    product_ids=[row.primary_product_id] if row.primary_product_id else [],
+                    status=row.status,
+                ),
+                actor=actor,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                request_id=request_id,
+            )
+            created += 1
+        except ConflictException:
+            skipped += 1
+        except Exception as exc:
+            errors.append(f"{row.email}: {exc}")
+    return CsvImportResponse(processed=len(payload.rows), created=created, skipped=skipped, errors=errors)
 
 
 async def bulk_action(
@@ -797,6 +1587,7 @@ async def register_login_session(
             user_agent=user_agent,
             browser=browser,
             platform=platform,
+            device_label=" ".join(part for part in [platform, browser] if part) or None,
             status="ACTIVE",
         )
     )

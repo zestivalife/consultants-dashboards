@@ -257,10 +257,120 @@ export const ownerPeopleAccessAPI = {
     });
   },
 
+  addAttachment(userId, payload) {
+    return apiRequest(`/owner/people-access/users/${userId}/attachments`, {
+      method: 'POST',
+      body: payload,
+    });
+  },
+
   bulkAction(payload) {
     return apiRequest('/owner/people-access/users/bulk-actions', {
       method: 'POST',
       body: payload,
+    });
+  },
+
+  listInvitations(params = {}) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      searchParams.set(key, String(value));
+    });
+    const suffix = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return apiRequest(`/owner/people-access/invitations${suffix}`);
+  },
+
+  createInvitation(payload) {
+    return apiRequest('/owner/people-access/invitations', {
+      method: 'POST',
+      body: payload,
+    });
+  },
+
+  resendInvitation(invitationId) {
+    return apiRequest(`/owner/people-access/invitations/${invitationId}/resend`, {
+      method: 'POST',
+    });
+  },
+
+  cancelInvitation(invitationId) {
+    return apiRequest(`/owner/people-access/invitations/${invitationId}/cancel`, {
+      method: 'POST',
+    });
+  },
+
+  updateRolePermissions(roleId, permissionKeys) {
+    return apiRequest(`/owner/people-access/roles/${roleId}/permissions`, {
+      method: 'PATCH',
+      body: { permission_keys: permissionKeys },
+    });
+  },
+
+  createRole(payload) {
+    return apiRequest('/owner/people-access/roles', {
+      method: 'POST',
+      body: payload,
+    });
+  },
+
+  cloneRole(roleId, payload) {
+    return apiRequest(`/owner/people-access/roles/${roleId}/clone`, {
+      method: 'POST',
+      body: payload,
+    });
+  },
+
+  assignProducts(userId, assignments) {
+    return apiRequest(`/owner/people-access/users/${userId}/products`, {
+      method: 'PUT',
+      body: assignments,
+    });
+  },
+
+  assignPackages(userId, assignments) {
+    return apiRequest(`/owner/people-access/users/${userId}/packages`, {
+      method: 'PUT',
+      body: assignments,
+    });
+  },
+
+  assignServices(userId, assignments) {
+    return apiRequest(`/owner/people-access/users/${userId}/services`, {
+      method: 'PUT',
+      body: assignments,
+    });
+  },
+
+  revokeSession(userId, sessionId) {
+    return apiRequest(`/owner/people-access/users/${userId}/sessions/${sessionId}/revoke`, {
+      method: 'POST',
+    });
+  },
+
+  forceLogout(userId) {
+    return apiRequest(`/owner/people-access/users/${userId}/force-logout`, {
+      method: 'POST',
+    });
+  },
+
+  async exportUsersCsv() {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/owner/people-access/exports/users`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      const err = new Error(`Export failed (${res.status})`);
+      err.status = res.status;
+      throw err;
+    }
+    return res.text();
+  },
+
+  importUsers(rows) {
+    return apiRequest('/owner/people-access/users/import', {
+      method: 'POST',
+      body: { rows },
     });
   },
 

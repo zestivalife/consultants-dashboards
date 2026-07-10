@@ -65,6 +65,15 @@ class User(Base):
     organization_memberships: Mapped[list["OrganizationMembership"]] = relationship(  # noqa: F821
         foreign_keys="OrganizationMembership.user_id", back_populates="user"
     )
+    product_access: Mapped[list["UserProductAccess"]] = relationship(  # noqa: F821
+        foreign_keys="UserProductAccess.user_id", back_populates="user"
+    )
+    package_assignments: Mapped[list["UserPackageAssignment"]] = relationship(  # noqa: F821
+        foreign_keys="UserPackageAssignment.user_id", back_populates="user"
+    )
+    service_assignments: Mapped[list["UserServiceAssignment"]] = relationship(  # noqa: F821
+        foreign_keys="UserServiceAssignment.user_id", back_populates="user"
+    )
     login_sessions: Mapped[list["LoginSession"]] = relationship(  # noqa: F821
         back_populates="user"
     )

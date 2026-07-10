@@ -505,12 +505,25 @@ export function PeopleAccessModule({
   detailLoading = false,
   error = null,
   filters,
+  invitations = [],
+  invitationPagination,
   onSelectUser,
   onFilterChange,
   onCreateUser,
   onUpdateUser,
   onBulkAction,
   onAddNote,
+  onAddAttachment,
+  onCreateInvitation,
+  onResendInvitation,
+  onCancelInvitation,
+  onAssignProducts,
+  onAssignPackages,
+  onAssignServices,
+  onRevokeSession,
+  onForceLogout,
+  onExportUsersCsv,
+  onImportUsers,
   onRefresh,
 }) {
   const [selectedIds, setSelectedIds] = useState([]);
@@ -519,6 +532,22 @@ export function PeopleAccessModule({
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [noteDraft, setNoteDraft] = useState('');
+  const [attachmentDraft, setAttachmentDraft] = useState({
+    file_name: '',
+    file_url: '',
+    content_type: '',
+    attachment_type: 'document',
+    note: '',
+  });
+  const [invitationDraft, setInvitationDraft] = useState({
+    email: '',
+    role: 'consultant',
+    product_id: '',
+    organization_id: '',
+    department_id: '',
+  });
+  const [csvDraft, setCsvDraft] = useState('');
+  const [roleBulkDraft, setRoleBulkDraft] = useState('consultant');
   const [form, setForm] = useState({
     email: '',
     first_name: '',
@@ -532,16 +561,23 @@ export function PeopleAccessModule({
     assigned_practitioner_id: '',
     assigned_mentor_id: '',
     assigned_consultant_id: '',
+    primary_product_id: '',
+    product_ids: [],
+    package_ids: [],
+    service_ids: [],
     status: 'INVITED',
     permissions: [],
     tags: [],
     note: '',
   });
-  const profileTabs = ['General', 'Professional', 'Organizations', 'Permissions', 'Activity Timeline', 'Login Sessions', 'Audit History', 'Assigned Packages', 'Assigned Services', 'Notes'];
+  const profileTabs = ['General', 'Professional', 'Organizations', 'Permissions', 'Product Access', 'Status History', 'Login Sessions', 'Audit History', 'Assigned Packages', 'Assigned Services', 'Attachments', 'Notes'];
   const roleOptions = metadata?.roles || [];
   const permissionOptions = metadata?.permissions || [];
   const organizationOptions = metadata?.organizations || [];
   const departmentOptions = metadata?.departments || [];
+  const productOptions = metadata?.products || [];
+  const packageOptions = metadata?.packages || [];
+  const serviceOptions = metadata?.services || [];
   const practitioners = metadata?.practitioners || [];
   const mentors = metadata?.mentors || [];
   const consultants = metadata?.consultants || [];
@@ -566,6 +602,10 @@ export function PeopleAccessModule({
       assigned_practitioner_id: selectedUser.memberships?.[0]?.practitioner_id || '',
       assigned_mentor_id: selectedUser.memberships?.[0]?.mentor_id || '',
       assigned_consultant_id: selectedUser.memberships?.[0]?.consultant_id || '',
+      primary_product_id: selectedUser.memberships?.[0]?.primary_product_id || selectedUser.product_access?.find((item) => item.is_primary)?.product_id || '',
+      product_ids: (selectedUser.product_access || []).map((item) => item.product_id),
+      package_ids: (selectedUser.package_assignments || []).map((item) => item.package_id),
+      service_ids: (selectedUser.service_assignments || []).map((item) => item.service_id),
       status: selectedUser.status || 'ACTIVE',
       permissions: selectedUser.permissions || [],
       tags: selectedUser.memberships?.[0]?.tags || [],
@@ -574,6 +614,9 @@ export function PeopleAccessModule({
   }, [selectedUser]);
 
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedProductIdSet = useMemo(() => new Set(form.product_ids || []), [form.product_ids]);
+  const selectedPackageIdSet = useMemo(() => new Set(form.package_ids || []), [form.package_ids]);
+  const selectedServiceIdSet = useMemo(() => new Set(form.service_ids || []), [form.service_ids]);
   const summaryMetric = (label) => summary?.metrics?.find((item) => item.label === label)?.value ?? 0;
   const adminsCount = useMemo(
     () => people.filter((item) => ['platform_owner', 'superuser', 'organization_admin', 'corporate_admin', 'support_admin'].includes(item.role)).length,
@@ -582,8 +625,20 @@ export function PeopleAccessModule({
   const mentorCount = useMemo(() => people.filter((item) => item.role === 'mentor').length, [people]);
   const consultantCount = useMemo(() => people.filter((item) => ['consultant', 'senior_consultant', 'practitioner'].includes(item.role)).length, [people]);
   const suspendedCount = useMemo(() => people.filter((item) => item.status !== 'ACTIVE').length, [people]);
+  const activeFilterProduct = filters?.product_id || '';
+  const activeFilterStatus = filters?.status || '';
+  const activeFilterVerification = filters?.verification || '';
 
   const updateForm = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const toggleListValue = (key, value) => {
+    setForm((current) => {
+      const values = current[key] || [];
+      return {
+        ...current,
+        [key]: values.includes(value) ? values.filter((item) => item !== value) : [...values, value],
+      };
+    });
+  };
   const togglePermission = (permissionKey) => {
     setForm((current) => ({
       ...current,
@@ -609,6 +664,10 @@ export function PeopleAccessModule({
         assigned_practitioner_id: form.assigned_practitioner_id || null,
         assigned_mentor_id: form.assigned_mentor_id || null,
         assigned_consultant_id: form.assigned_consultant_id || null,
+        primary_product_id: form.primary_product_id || null,
+        product_ids: form.product_ids,
+        package_ids: form.package_ids,
+        service_ids: form.service_ids,
         tags: form.tags.filter(Boolean),
       });
       setShowCreateForm(false);
@@ -626,6 +685,10 @@ export function PeopleAccessModule({
         assigned_practitioner_id: '',
         assigned_mentor_id: '',
         assigned_consultant_id: '',
+        primary_product_id: '',
+        product_ids: [],
+        package_ids: [],
+        service_ids: [],
         status: 'INVITED',
         permissions: [],
         tags: [],
@@ -652,6 +715,10 @@ export function PeopleAccessModule({
         assigned_practitioner_id: form.assigned_practitioner_id || null,
         assigned_mentor_id: form.assigned_mentor_id || null,
         assigned_consultant_id: form.assigned_consultant_id || null,
+        primary_product_id: form.primary_product_id || null,
+        product_ids: form.product_ids,
+        package_ids: form.package_ids,
+        service_ids: form.service_ids,
         status: form.status,
         permissions: form.permissions,
         tags: form.tags.filter(Boolean),
@@ -662,10 +729,11 @@ export function PeopleAccessModule({
   };
 
   const applyBulkAction = async (action, extra = {}) => {
-    if (!selectedIds.length) return;
+    const targetIds = extra.user_ids?.length ? extra.user_ids : selectedIds;
+    if (!targetIds.length) return;
     setIsSubmitting(true);
     try {
-      await onBulkAction?.({ action, user_ids: selectedIds, ...extra });
+      await onBulkAction?.({ action, user_ids: targetIds, ...extra });
       setSelectedIds([]);
     } finally {
       setIsSubmitting(false);
@@ -684,6 +752,120 @@ export function PeopleAccessModule({
     }
   };
 
+  const submitAttachment = async () => {
+    if (!selectedUser?.id || !attachmentDraft.file_name.trim() || !attachmentDraft.file_url.trim()) return;
+    setIsSubmitting(true);
+    try {
+      await onAddAttachment?.(selectedUser.id, {
+        ...attachmentDraft,
+        content_type: attachmentDraft.content_type || null,
+        note: attachmentDraft.note || null,
+      });
+      setAttachmentDraft({
+        file_name: '',
+        file_url: '',
+        content_type: '',
+        attachment_type: 'document',
+        note: '',
+      });
+      setProfileTab('Attachments');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const submitInvitation = async () => {
+    if (!invitationDraft.email.trim()) return;
+    setIsSubmitting(true);
+    try {
+      await onCreateInvitation?.({
+        email: invitationDraft.email.trim(),
+        role: invitationDraft.role,
+        product_id: invitationDraft.product_id || null,
+        organization_id: invitationDraft.organization_id || null,
+        department_id: invitationDraft.department_id || null,
+      });
+      setInvitationDraft({
+        email: '',
+        role: 'consultant',
+        product_id: '',
+        organization_id: '',
+        department_id: '',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const syncProductAssignments = async () => {
+    if (!selectedUser?.id) return;
+    setIsSubmitting(true);
+    try {
+      await onAssignProducts?.(
+        selectedUser.id,
+        form.product_ids.map((productId) => ({
+          product_id: productId,
+          organization_id: form.organization_id || null,
+          role_id: null,
+          status: 'ACTIVE',
+          is_primary: productId === form.primary_product_id,
+          permissions: [],
+        }))
+      );
+      await onAssignPackages?.(
+        selectedUser.id,
+        form.package_ids.map((packageId) => ({
+          package_id: packageId,
+          organization_id: form.organization_id || null,
+          status: 'ACTIVE',
+        }))
+      );
+      await onAssignServices?.(
+        selectedUser.id,
+        form.service_ids.map((serviceId) => ({
+          service_id: serviceId,
+          organization_id: form.organization_id || null,
+          status: 'ACTIVE',
+        }))
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCsvExport = async () => {
+    const csv = await onExportUsersCsv?.();
+    if (!csv || typeof window === 'undefined') return;
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'people-access-export.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCsvImport = async () => {
+    const lines = csvDraft
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length <= 1) return;
+    const [headerLine, ...dataLines] = lines;
+    const headers = headerLine.split(',').map((item) => item.trim());
+    const rows = dataLines.map((line) => {
+      const cells = line.split(',').map((item) => item.trim());
+      return headers.reduce((acc, header, index) => ({ ...acc, [header]: cells[index] || '' }), {});
+    });
+    setIsSubmitting(true);
+    try {
+      await onImportUsers?.(rows);
+      setCsvDraft('');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <ModuleFrame
       badge="People & access"
@@ -691,8 +873,8 @@ export function PeopleAccessModule({
       description="Search, filter, bulk-edit, import, export, and govern platform identities across owners, admins, mentors, consultants, practitioners, and employees."
       actions={
         <>
-          <ActionButton icon={Upload} label="CSV Import" />
-          <ActionButton icon={Download} label="CSV Export" />
+          <ActionButton icon={Upload} label="CSV Import" onClick={handleCsvImport} />
+          <ActionButton icon={Download} label="CSV Export" onClick={handleCsvExport} />
           <ActionButton icon={UserCog} label="Refresh" onClick={() => onRefresh?.()} />
           <ActionButton
             icon={Plus}
@@ -756,6 +938,38 @@ export function PeopleAccessModule({
                   <SlidersHorizontal className="h-4 w-4" />
                   Saved views
                 </button>
+                <select
+                  value={activeFilterProduct}
+                  onChange={(event) => onFilterChange?.({ product_id: event.target.value, page: 1 })}
+                  className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600 outline-none"
+                >
+                  <option value="">All products</option>
+                  {productOptions.map((product) => (
+                    <option key={product.id} value={product.id}>{product.name}</option>
+                  ))}
+                </select>
+                <select
+                  value={activeFilterStatus}
+                  onChange={(event) => onFilterChange?.({ status: event.target.value, page: 1 })}
+                  className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600 outline-none"
+                >
+                  <option value="">All statuses</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="INVITED">Invited</option>
+                  <option value="PENDING_VERIFICATION">Pending verification</option>
+                  <option value="INACTIVE">Inactive</option>
+                  <option value="LOCKED">Locked</option>
+                  <option value="SUSPENDED">Suspended</option>
+                </select>
+                <select
+                  value={activeFilterVerification}
+                  onChange={(event) => onFilterChange?.({ verification: event.target.value, page: 1 })}
+                  className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600 outline-none"
+                >
+                  <option value="">All verification</option>
+                  <option value="verified">Verified</option>
+                  <option value="pending">Pending</option>
+                </select>
                 <button
                   onClick={() => onFilterChange?.({ search: searchDraft, page: 1 })}
                   className="inline-flex items-center gap-2 rounded-xl border border-[#237afc] bg-[#f5f9ff] px-3 py-2 text-sm font-bold text-[#237afc]"
@@ -784,7 +998,7 @@ export function PeopleAccessModule({
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
-                    {['Select', 'Person', 'Role', 'Organizations', 'Assigned packages', 'Status'].map((header) => (
+                    {['Select', 'Person', 'Role', 'Products', 'Organizations', 'Assigned packages', 'Verification', 'Status'].map((header) => (
                       <th key={header} className="px-5 py-4 text-left text-xs font-black uppercase tracking-[0.24em] text-gray-400">{header}</th>
                     ))}
                   </tr>
@@ -807,8 +1021,12 @@ export function PeopleAccessModule({
                         </button>
                       </td>
                       <td className="px-5 py-4"><Badge tone="blue">{person.role.replace(/_/g, ' ')}</Badge></td>
+                      <td className="px-5 py-4 text-sm text-gray-500">{person.products?.length ? person.products.join(', ') : 'No products'}</td>
                       <td className="px-5 py-4 text-sm text-gray-500">{person.organization || 'Unassigned'}</td>
                       <td className="px-5 py-4 text-sm text-gray-500">{person.package || 'No package'}</td>
+                      <td className="px-5 py-4">
+                        <Badge tone={person.verification === 'Verified' ? 'green' : 'amber'}>{person.verification}</Badge>
+                      </td>
                       <td className="px-5 py-4">
                         <Badge tone={person.status === 'ACTIVE' ? 'green' : 'red'}>{person.status}</Badge>
                       </td>
@@ -821,8 +1039,17 @@ export function PeopleAccessModule({
               <button onClick={() => applyBulkAction('activate')} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600">Bulk activate</button>
               <button onClick={() => applyBulkAction('suspend')} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600">Bulk suspend</button>
               <button onClick={() => applyBulkAction('deactivate')} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600">Bulk deactivate</button>
-              <button onClick={() => applyBulkAction('assign_role', { role: 'mentor' })} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600">Promote to mentor</button>
-              <button onClick={() => applyBulkAction('assign_role', { role: 'consultant' })} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600">Assign consultant role</button>
+              <select
+                value={roleBulkDraft}
+                onChange={(event) => setRoleBulkDraft(event.target.value)}
+                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600 outline-none"
+              >
+                <option value="consultant">consultant</option>
+                <option value="mentor">mentor</option>
+                <option value="practitioner">practitioner</option>
+                <option value="organization_admin">organization admin</option>
+              </select>
+              <button onClick={() => applyBulkAction('assign_role', { role: roleBulkDraft })} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600">Apply bulk role</button>
             </div>
             {pagination ? (
               <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
@@ -882,6 +1109,12 @@ export function PeopleAccessModule({
                 </select>
                 <input value={form.employee_id} onChange={(event) => updateForm('employee_id', event.target.value)} placeholder="Employee ID" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
                 <input value={form.package_name} onChange={(event) => updateForm('package_name', event.target.value)} placeholder="Assigned package" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+                <select value={form.primary_product_id} onChange={(event) => updateForm('primary_product_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                  <option value="">Primary product</option>
+                  {productOptions.map((product) => (
+                    <option key={product.id} value={product.id}>{product.name}</option>
+                  ))}
+                </select>
                 <select value={form.assigned_practitioner_id} onChange={(event) => updateForm('assigned_practitioner_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
                   <option value="">Assigned practitioner</option>
                   {practitioners.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
@@ -894,6 +1127,60 @@ export function PeopleAccessModule({
                   <option value="">Assigned consultant</option>
                   {consultants.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
                 </select>
+                <div className="rounded-2xl border border-gray-200 px-4 py-3 md:col-span-2">
+                  <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Products</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {productOptions.map((product) => (
+                      <button
+                        key={product.id}
+                        type="button"
+                        onClick={() => toggleListValue('product_ids', product.id)}
+                        className={cn(
+                          'rounded-full border px-3 py-2 text-xs font-bold',
+                          selectedProductIdSet.has(product.id) ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
+                        )}
+                      >
+                        {product.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-gray-200 px-4 py-3 md:col-span-2">
+                  <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Package assignments</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {packageOptions.map((pkg) => (
+                      <button
+                        key={pkg.id}
+                        type="button"
+                        onClick={() => toggleListValue('package_ids', pkg.id)}
+                        className={cn(
+                          'rounded-full border px-3 py-2 text-xs font-bold',
+                          selectedPackageIdSet.has(pkg.id) ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
+                        )}
+                      >
+                        {pkg.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-gray-200 px-4 py-3 md:col-span-2">
+                  <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Service assignments</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {serviceOptions.map((service) => (
+                      <button
+                        key={service.id}
+                        type="button"
+                        onClick={() => toggleListValue('service_ids', service.id)}
+                        className={cn(
+                          'rounded-full border px-3 py-2 text-xs font-bold',
+                          selectedServiceIdSet.has(service.id) ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
+                        )}
+                      >
+                        {service.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <textarea value={form.note} onChange={(event) => updateForm('note', event.target.value)} placeholder="Invitation note or operator note" className="min-h-[110px] rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none md:col-span-2" />
               </div>
 
@@ -923,6 +1210,71 @@ export function PeopleAccessModule({
               </div>
             </Panel>
           ) : null}
+
+          <Panel title="Invitation lifecycle" subtitle="Create, resend, cancel, and review pending product-scoped invites.">
+            <div className="grid gap-4 md:grid-cols-2">
+              <input value={invitationDraft.email} onChange={(event) => setInvitationDraft((current) => ({ ...current, email: event.target.value }))} placeholder="Invitee email" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+              <select value={invitationDraft.role} onChange={(event) => setInvitationDraft((current) => ({ ...current, role: event.target.value }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                {roleOptions.map((role) => (
+                  <option key={role.id} value={role.name.toLowerCase().replace(/ /g, '_')}>{role.name}</option>
+                ))}
+              </select>
+              <select value={invitationDraft.product_id} onChange={(event) => setInvitationDraft((current) => ({ ...current, product_id: event.target.value }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                <option value="">Select product</option>
+                {productOptions.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+              </select>
+              <select value={invitationDraft.organization_id} onChange={(event) => setInvitationDraft((current) => ({ ...current, organization_id: event.target.value, department_id: '' }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                <option value="">Select organization</option>
+                {organizationOptions.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
+              </select>
+              <select value={invitationDraft.department_id} onChange={(event) => setInvitationDraft((current) => ({ ...current, department_id: event.target.value }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none md:col-span-2">
+                <option value="">Select department</option>
+                {departmentOptions
+                  .filter((department) => !invitationDraft.organization_id || department.organization_id === invitationDraft.organization_id)
+                  .map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+              </select>
+            </div>
+            <div className="mt-4 flex gap-3">
+              <ActionButton icon={Mail} label="Create invitation" tone="primary" onClick={submitInvitation} disabled={isSubmitting} />
+            </div>
+            <div className="mt-5 space-y-3">
+              {invitations.length ? invitations.map((invitation) => (
+                <div key={invitation.id} className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <p className="font-bold text-gray-900">{invitation.email}</p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {(invitation.role || 'Unassigned').replace(/_/g, ' ')} · {invitation.product || 'No product'} · {invitation.organization || 'No organization'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge tone={invitation.status === 'INVITED' ? 'blue' : invitation.status === 'ACCEPTED' ? 'green' : 'red'}>{invitation.status}</Badge>
+                      <button onClick={() => onResendInvitation?.(invitation.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Resend</button>
+                      <button onClick={() => onCancelInvitation?.(invitation.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Cancel</button>
+                    </div>
+                  </div>
+                </div>
+              )) : <p className="text-sm text-gray-500">No invitations created yet.</p>}
+              {invitationPagination ? (
+                <p className="text-xs text-gray-500">
+                  {invitationPagination.total} invitations · page {invitationPagination.page} of {invitationPagination.total_pages}
+                </p>
+              ) : null}
+            </div>
+          </Panel>
+
+          <Panel title="CSV import workspace" subtitle="Paste a CSV with headers like email, first_name, last_name, role, organization_id, primary_product_id.">
+            <textarea
+              value={csvDraft}
+              onChange={(event) => setCsvDraft(event.target.value)}
+              placeholder="email,first_name,last_name,role,organization_id,department_id,employee_id,primary_product_id,status"
+              className="min-h-[150px] w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none"
+            />
+            <div className="mt-4 flex gap-3">
+              <ActionButton icon={Upload} label="Run import" tone="primary" onClick={handleCsvImport} disabled={isSubmitting || !csvDraft.trim()} />
+              <ActionButton icon={Download} label="Export current roster" onClick={handleCsvExport} />
+            </div>
+          </Panel>
         </div>
 
         <Panel title={selectedUser?.name || 'User profile'} subtitle="Profile-level governance and authority review.">
@@ -963,6 +1315,25 @@ export function PeopleAccessModule({
                 ))}
               </div>
 
+              <div className="mt-6 grid gap-4 md:grid-cols-4">
+                <div className="rounded-2xl border border-gray-100 bg-white px-4 py-4">
+                  <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Active devices</p>
+                  <p className="mt-2 text-2xl font-black text-gray-900">{selectedUser.sessions.filter((session) => session.status === 'ACTIVE').length}</p>
+                </div>
+                <div className="rounded-2xl border border-gray-100 bg-white px-4 py-4">
+                  <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Products</p>
+                  <p className="mt-2 text-2xl font-black text-gray-900">{selectedUser.product_access.length}</p>
+                </div>
+                <div className="rounded-2xl border border-gray-100 bg-white px-4 py-4">
+                  <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Notes</p>
+                  <p className="mt-2 text-2xl font-black text-gray-900">{selectedUser.notes.length}</p>
+                </div>
+                <div className="rounded-2xl border border-gray-100 bg-white px-4 py-4">
+                  <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Attachments</p>
+                  <p className="mt-2 text-2xl font-black text-gray-900">{selectedUser.attachments.length}</p>
+                </div>
+              </div>
+
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 <input value={form.first_name} onChange={(event) => updateForm('first_name', event.target.value)} placeholder="First name" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
                 <input value={form.last_name} onChange={(event) => updateForm('last_name', event.target.value)} placeholder="Last name" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
@@ -977,6 +1348,26 @@ export function PeopleAccessModule({
                     <option key={item} value={item}>{item}</option>
                   ))}
                 </select>
+                <select value={form.organization_id} onChange={(event) => updateForm('organization_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                  <option value="">Select organization</option>
+                  {organizationOptions.map((organization) => (
+                    <option key={organization.id} value={organization.id}>{organization.name}</option>
+                  ))}
+                </select>
+                <select value={form.department_id} onChange={(event) => updateForm('department_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                  <option value="">Select department</option>
+                  {departmentOptions
+                    .filter((department) => !form.organization_id || department.organization_id === form.organization_id)
+                    .map((department) => (
+                      <option key={department.id} value={department.id}>{department.name}</option>
+                    ))}
+                </select>
+                <select value={form.primary_product_id} onChange={(event) => updateForm('primary_product_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                  <option value="">Primary product</option>
+                  {productOptions.map((product) => (
+                    <option key={product.id} value={product.id}>{product.name}</option>
+                  ))}
+                </select>
                 <input value={form.package_name} onChange={(event) => updateForm('package_name', event.target.value)} placeholder="Assigned package" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
               </div>
 
@@ -984,6 +1375,8 @@ export function PeopleAccessModule({
                 <ActionButton icon={Save} label="Save profile changes" tone="primary" onClick={submitUpdateUser} disabled={isSubmitting} />
                 <ActionButton icon={CheckCircle2} label="Activate" onClick={() => applyBulkAction('activate', { user_ids: [selectedUser.id] })} />
                 <ActionButton icon={XCircle} label="Suspend" onClick={() => applyBulkAction('suspend', { user_ids: [selectedUser.id] })} />
+                <ActionButton icon={KeyRound} label="Force logout" onClick={() => onForceLogout?.(selectedUser.id)} />
+                <ActionButton icon={Save} label="Sync assignments" onClick={syncProductAssignments} disabled={isSubmitting} />
               </div>
 
               <div className="mt-6 rounded-3xl bg-gray-50 p-5">
@@ -1007,7 +1400,7 @@ export function PeopleAccessModule({
                     {selectedUser.memberships.length ? selectedUser.memberships.map((membership) => (
                       <div key={membership.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
                         <p className="font-bold text-gray-900">{membership.organization}</p>
-                        <p className="mt-1 text-xs text-gray-500">{membership.department || 'No department'} · {membership.package || 'No package'} · {membership.status}</p>
+                        <p className="mt-1 text-xs text-gray-500">{membership.department || 'No department'} · {membership.primary_product || 'No primary product'} · {membership.package || 'No package'} · {membership.status}</p>
                         <p className="mt-1 text-xs text-gray-500">Practitioner: {membership.practitioner || '—'} · Mentor: {membership.mentor || '—'} · Consultant: {membership.consultant || '—'}</p>
                       </div>
                     )) : <p>No organization memberships yet.</p>}
@@ -1020,12 +1413,49 @@ export function PeopleAccessModule({
                     ))}
                   </div>
                 )}
-                {profileTab === 'Activity Timeline' && (
+                {profileTab === 'Product Access' && (
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-gray-200 bg-white px-4 py-4">
+                      <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Product scope</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {productOptions.map((product) => (
+                          <button
+                            key={product.id}
+                            type="button"
+                            onClick={() => toggleListValue('product_ids', product.id)}
+                            className={cn(
+                              'rounded-full border px-3 py-2 text-xs font-bold',
+                              selectedProductIdSet.has(product.id) ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
+                            )}
+                          >
+                            {product.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-3 text-sm text-gray-600">
+                      {selectedUser.product_access.length ? selectedUser.product_access.map((access) => (
+                        <div key={access.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="font-bold text-gray-900">{access.product}</p>
+                            <div className="flex items-center gap-2">
+                              {access.is_primary ? <Badge tone="blue">Primary</Badge> : null}
+                              <Badge tone={access.status === 'ACTIVE' ? 'green' : 'red'}>{access.status}</Badge>
+                            </div>
+                          </div>
+                          <p className="mt-1 text-xs text-gray-500">{access.organization || 'Global scope'} · {access.role || 'No scoped role'}</p>
+                        </div>
+                      )) : <p>No product access assigned yet.</p>}
+                    </div>
+                  </div>
+                )}
+                {profileTab === 'Status History' && (
                   <div className="space-y-3 text-sm text-gray-600">
                     {selectedUser.status_history.length ? selectedUser.status_history.map((history) => (
                       <div key={history.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
                         <p className="font-bold text-gray-900">{history.new_status}</p>
-                        <p className="text-xs text-gray-500">{history.reason || 'Status change recorded'} · {new Date(history.created_at).toLocaleString()}</p>
+                        <p className="text-xs text-gray-500">{history.previous_status || 'No previous status'} → {history.new_status}</p>
+                        <p className="mt-1 text-xs text-gray-500">{history.reason || 'Status change recorded'} · {history.changed_by} · {new Date(history.created_at).toLocaleString()}</p>
                       </div>
                     )) : <p>No activity recorded yet.</p>}
                   </div>
@@ -1034,35 +1464,117 @@ export function PeopleAccessModule({
                   <div className="space-y-2 text-sm text-gray-600">
                     {selectedUser.sessions.length ? selectedUser.sessions.map((session) => (
                       <div key={session.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
-                        <p className="font-bold text-gray-900">{session.browser || 'Unknown browser'} · {session.platform || 'Unknown platform'}</p>
-                        <p className="text-xs text-gray-500">{session.ip_address || 'Unknown IP'} · {session.status} · last seen {new Date(session.last_seen_at).toLocaleString()}</p>
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-bold text-gray-900">{session.device_label || session.browser || 'Unknown browser'} · {session.platform || 'Unknown platform'}</p>
+                            <p className="text-xs text-gray-500">{session.ip_address || 'Unknown IP'} · {session.status} · last seen {new Date(session.last_seen_at).toLocaleString()}</p>
+                          </div>
+                          <button onClick={() => onRevokeSession?.(selectedUser.id, session.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">
+                            Revoke
+                          </button>
+                        </div>
                       </div>
                     )) : <p>No login sessions recorded yet.</p>}
                   </div>
                 )}
                 {profileTab === 'Audit History' && (
                   <div className="space-y-3 text-sm text-gray-600">
-                    {selectedUser.status_history.length ? selectedUser.status_history.map((history) => (
-                      <div key={history.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
-                        <p className="font-bold text-gray-900">{history.changed_by}</p>
-                        <p className="text-xs text-gray-500">{history.previous_status || 'New'} → {history.new_status} · {new Date(history.created_at).toLocaleString()}</p>
+                    {selectedUser.audit_events.length ? selectedUser.audit_events.map((event) => (
+                      <div key={event.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
+                        <p className="font-bold text-gray-900">{event.action}</p>
+                        <p className="text-xs text-gray-500">{event.actor} · {event.entity_type} · {event.product || 'No product'} · {new Date(event.created_at).toLocaleString()}</p>
+                        <p className="mt-1 text-xs text-gray-400">{event.request_id || 'No request id'}</p>
                       </div>
                     )) : <p>No audit history available yet.</p>}
                   </div>
                 )}
                 {profileTab === 'Assigned Packages' && (
                   <div className="space-y-3 text-sm text-gray-600">
-                    {selectedUser.memberships.length ? selectedUser.memberships.map((membership) => (
-                      <div key={`${membership.id}-package`} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
-                        <p className="font-bold text-gray-900">{membership.package || 'No package assigned'}</p>
-                        <p className="text-xs text-gray-500">{membership.organization}</p>
+                    <div className="rounded-2xl border border-gray-200 bg-white px-4 py-4">
+                      <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Package scope</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {packageOptions.map((pkg) => (
+                          <button
+                            key={pkg.id}
+                            type="button"
+                            onClick={() => toggleListValue('package_ids', pkg.id)}
+                            className={cn(
+                              'rounded-full border px-3 py-2 text-xs font-bold',
+                              selectedPackageIdSet.has(pkg.id) ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
+                            )}
+                          >
+                            {pkg.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {selectedUser.package_assignments.length ? selectedUser.package_assignments.map((assignment) => (
+                      <div key={assignment.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
+                        <p className="font-bold text-gray-900">{assignment.package}</p>
+                        <p className="text-xs text-gray-500">{assignment.product} · {assignment.organization || 'Global scope'} · {assignment.status}</p>
                       </div>
                     )) : <p>No package assignments yet.</p>}
                   </div>
                 )}
                 {profileTab === 'Assigned Services' && (
                   <div className="space-y-3 text-sm text-gray-600">
-                    <p>Service-level assignments will appear here from package and workflow mappings.</p>
+                    <div className="rounded-2xl border border-gray-200 bg-white px-4 py-4">
+                      <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Service scope</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {serviceOptions.map((service) => (
+                          <button
+                            key={service.id}
+                            type="button"
+                            onClick={() => toggleListValue('service_ids', service.id)}
+                            className={cn(
+                              'rounded-full border px-3 py-2 text-xs font-bold',
+                              selectedServiceIdSet.has(service.id) ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
+                            )}
+                          >
+                            {service.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {selectedUser.service_assignments.length ? selectedUser.service_assignments.map((assignment) => (
+                      <div key={assignment.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
+                        <p className="font-bold text-gray-900">{assignment.service}</p>
+                        <p className="text-xs text-gray-500">{assignment.product} · {assignment.organization || 'Global scope'} · {assignment.status}</p>
+                      </div>
+                    )) : <p>No service assignments yet.</p>}
+                  </div>
+                )}
+                {profileTab === 'Attachments' && (
+                  <div className="space-y-4">
+                    <div className="space-y-3 text-sm text-gray-600">
+                      {selectedUser.attachments.length ? selectedUser.attachments.map((attachment) => (
+                        <div key={attachment.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-gray-900">{attachment.file_name}</p>
+                              <p className="mt-1 text-xs text-gray-500">{attachment.attachment_type || 'attachment'} · {attachment.content_type || 'unknown type'}</p>
+                            </div>
+                            <a href={attachment.file_url} target="_blank" rel="noreferrer" className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">
+                              Open
+                            </a>
+                          </div>
+                          {attachment.note ? <p className="mt-2 text-sm text-gray-600">{attachment.note}</p> : null}
+                        </div>
+                      )) : <p>No attachments uploaded yet.</p>}
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <input value={attachmentDraft.file_name} onChange={(event) => setAttachmentDraft((current) => ({ ...current, file_name: event.target.value }))} placeholder="File name" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+                      <input value={attachmentDraft.file_url} onChange={(event) => setAttachmentDraft((current) => ({ ...current, file_url: event.target.value }))} placeholder="File URL" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+                      <input value={attachmentDraft.content_type} onChange={(event) => setAttachmentDraft((current) => ({ ...current, content_type: event.target.value }))} placeholder="Content type" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+                      <select value={attachmentDraft.attachment_type} onChange={(event) => setAttachmentDraft((current) => ({ ...current, attachment_type: event.target.value }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                        <option value="document">Document</option>
+                        <option value="certificate">Certificate</option>
+                        <option value="agreement">Agreement</option>
+                        <option value="proof">Proof</option>
+                      </select>
+                      <textarea value={attachmentDraft.note} onChange={(event) => setAttachmentDraft((current) => ({ ...current, note: event.target.value }))} placeholder="Attachment note" className="min-h-[90px] rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none md:col-span-2" />
+                    </div>
+                    <ActionButton icon={Plus} label="Save attachment" tone="primary" onClick={submitAttachment} disabled={isSubmitting || !attachmentDraft.file_name.trim() || !attachmentDraft.file_url.trim()} />
                   </div>
                 )}
                 {profileTab === 'Notes' && (
@@ -1080,7 +1592,7 @@ export function PeopleAccessModule({
                     <ActionButton icon={Plus} label="Save note" tone="primary" onClick={submitNote} disabled={isSubmitting || !noteDraft.trim()} />
                   </div>
                 )}
-                {!['General', 'Professional', 'Permissions', 'Login Sessions', 'Notes'].includes(profileTab) && (
+                {!['General', 'Professional', 'Permissions', 'Product Access', 'Status History', 'Login Sessions', 'Audit History', 'Assigned Packages', 'Assigned Services', 'Attachments', 'Notes', 'Organizations'].includes(profileTab) && (
                   null
                 )}
               </div>
@@ -1094,8 +1606,19 @@ export function PeopleAccessModule({
   );
 }
 
-export function PermissionMatrixModule({ metadata, loading = false }) {
+export function PermissionMatrixModule({
+  metadata,
+  loading = false,
+  onUpdateRolePermissions,
+  onCreateRole,
+  onCloneRole,
+}) {
   const [query, setQuery] = useState('');
+  const [selectedRoleId, setSelectedRoleId] = useState('');
+  const [draftPermissions, setDraftPermissions] = useState({});
+  const [roleDraft, setRoleDraft] = useState({ name: '', description: '' });
+  const [cloneDraft, setCloneDraft] = useState({ name: '', description: '' });
+  const [isSaving, setIsSaving] = useState(false);
   const roleRows = metadata?.roles || [];
   const permissionGroups = useMemo(() => {
     const grouped = new Map();
@@ -1116,6 +1639,71 @@ export function PermissionMatrixModule({ metadata, loading = false }) {
     setExpanded(permissionGroups.reduce((acc, group) => ({ ...acc, [group.module]: true }), {}));
   }, [metadata?.permissions]);
 
+  const allExpanded = permissionGroups.length > 0 && permissionGroups.every((group) => expanded[group.module]);
+
+  useEffect(() => {
+    if (!roleRows.length) return;
+    const nextRoleId = selectedRoleId || roleRows[0].id;
+    const selectedRole = roleRows.find((role) => role.id === nextRoleId) || roleRows[0];
+    setSelectedRoleId(selectedRole.id);
+    setDraftPermissions((current) => ({
+      ...current,
+      [selectedRole.id]: current[selectedRole.id] || [...(selectedRole.permissions || [])],
+    }));
+  }, [roleRows, selectedRoleId]);
+
+  const selectedRole = roleRows.find((role) => role.id === selectedRoleId) || roleRows[0];
+  const selectedRolePermissions = draftPermissions[selectedRole?.id] || selectedRole?.permissions || [];
+  const toggleDraftPermission = (permissionKey) => {
+    if (!selectedRole) return;
+    setDraftPermissions((current) => {
+      const existing = current[selectedRole.id] || selectedRole.permissions || [];
+      const nextPermissions = existing.includes(permissionKey)
+        ? existing.filter((item) => item !== permissionKey)
+        : [...existing, permissionKey];
+      return { ...current, [selectedRole.id]: nextPermissions };
+    });
+  };
+
+  const savePermissions = async () => {
+    if (!selectedRole) return;
+    setIsSaving(true);
+    try {
+      await onUpdateRolePermissions?.(selectedRole.id, selectedRolePermissions);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const createRole = async () => {
+    if (!roleDraft.name.trim()) return;
+    setIsSaving(true);
+    try {
+      await onCreateRole?.({
+        name: roleDraft.name.trim(),
+        description: roleDraft.description.trim() || null,
+        permission_keys: selectedRolePermissions,
+      });
+      setRoleDraft({ name: '', description: '' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const cloneRole = async (roleId) => {
+    if (!cloneDraft.name.trim()) return;
+    setIsSaving(true);
+    try {
+      await onCloneRole?.(roleId, {
+        name: cloneDraft.name.trim(),
+        description: cloneDraft.description.trim() || null,
+      });
+      setCloneDraft({ name: '', description: '' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <ModuleFrame
       badge="Role & permission management"
@@ -1123,8 +1711,8 @@ export function PermissionMatrixModule({ metadata, loading = false }) {
       description="Search permissions, expand modules, duplicate roles, and prepare custom role definitions without leaving the owner workspace."
       actions={
         <>
-          <ActionButton icon={Copy} label="Duplicate role" />
-          <ActionButton icon={Plus} label="Create custom role" tone="primary" />
+          <ActionButton icon={Save} label="Save matrix" onClick={savePermissions} disabled={isSaving || !selectedRole} />
+          <ActionButton icon={Plus} label="Create custom role" tone="primary" onClick={createRole} disabled={isSaving || !roleDraft.name.trim()} />
         </>
       }
     >
@@ -1132,19 +1720,30 @@ export function PermissionMatrixModule({ metadata, loading = false }) {
         <Panel title="Role library" subtitle="Cloneable and governed roles for enterprise operations.">
           <div className="space-y-3">
             {roleRows.map((role) => (
-              <div key={role.id} className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+              <div key={role.id} className={cn('rounded-2xl border px-4 py-4', selectedRoleId === role.id ? 'border-[#237afc] bg-[#f5f9ff]' : 'border-gray-100 bg-gray-50')}>
                 <div className="flex items-center justify-between gap-4">
-                  <div>
+                  <button type="button" onClick={() => setSelectedRoleId(role.id)} className="text-left">
                     <p className="font-bold text-gray-900">{role.name}</p>
                     <p className="text-sm text-gray-500">{role.users} assigned users</p>
-                  </div>
+                  </button>
                   <div className="flex items-center gap-2">
                     {role.cloneable ? <Badge tone="blue">Cloneable</Badge> : <Badge tone="red">Fixed</Badge>}
-                    <button className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Clone</button>
+                    {role.cloneable ? (
+                      <button onClick={() => cloneRole(role.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">
+                        Clone
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               </div>
             ))}
+          </div>
+          <div className="mt-5 space-y-3 rounded-2xl border border-gray-100 bg-white p-4">
+            <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Create / clone role</p>
+            <input value={roleDraft.name} onChange={(event) => setRoleDraft((current) => ({ ...current, name: event.target.value }))} placeholder="New role name" className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+            <textarea value={roleDraft.description} onChange={(event) => setRoleDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Role description" className="min-h-[90px] w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+            <input value={cloneDraft.name} onChange={(event) => setCloneDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Clone selected role as..." className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+            <textarea value={cloneDraft.description} onChange={(event) => setCloneDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Clone description" className="min-h-[90px] w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
           </div>
         </Panel>
 
@@ -1159,9 +1758,15 @@ export function PermissionMatrixModule({ metadata, loading = false }) {
                 className="bg-transparent outline-none"
               />
             </button>
-            <button className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600">
+            <button
+              onClick={() => {
+                const nextState = !allExpanded;
+                setExpanded(permissionGroups.reduce((acc, group) => ({ ...acc, [group.module]: nextState }), {}));
+              }}
+              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600"
+            >
               <ChevronDown className="h-4 w-4" />
-              Expand / collapse
+              {allExpanded ? 'Collapse all' : 'Expand all'}
             </button>
           </div>
 
@@ -1206,8 +1811,14 @@ export function PermissionMatrixModule({ metadata, loading = false }) {
                             {roleRows.map((role) => {
                               const checked = (role.permissions || []).includes(permission.key);
                               return (
-                                <td key={`${role.id}-${permission.id}`} className="px-4 py-3 text-center">
-                                  <input type="checkbox" checked={checked} readOnly className="h-4 w-4 rounded border-gray-300 text-[#237afc]" />
+                            <td key={`${role.id}-${permission.id}`} className="px-4 py-3 text-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={role.id === selectedRole?.id ? selectedRolePermissions.includes(permission.key) : checked}
+                                    readOnly={role.id !== selectedRole?.id}
+                                    onChange={role.id === selectedRole?.id ? () => toggleDraftPermission(permission.key) : undefined}
+                                    className="h-4 w-4 rounded border-gray-300 text-[#237afc]"
+                                  />
                                 </td>
                               );
                             })}

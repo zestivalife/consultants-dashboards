@@ -14,14 +14,49 @@ class PeopleAccessDistributionItem(BaseModel):
     value: int
 
 
+class ProductOption(BaseModel):
+    id: uuid.UUID
+    key: str
+    name: str
+    status: str
+
+
+class PackageCatalogItem(BaseModel):
+    id: uuid.UUID
+    product_id: uuid.UUID
+    product: str
+    code: str
+    name: str
+    category: str | None = None
+    status: str
+    description: str | None = None
+
+
+class ServiceCatalogItem(BaseModel):
+    id: uuid.UUID
+    product_id: uuid.UUID
+    product: str
+    code: str
+    name: str
+    category: str | None = None
+    provider_type: str | None = None
+    status: str
+    description: str | None = None
+
+
 class PeopleAccessInvitationItem(BaseModel):
     id: uuid.UUID
     email: str
+    user_id: uuid.UUID | None = None
     role: str | None = None
+    product: str | None = None
     organization: str | None = None
     status: str
     created_at: datetime
     expires_at: datetime | None = None
+    last_sent_at: datetime | None = None
+    accepted_at: datetime | None = None
+    cancelled_at: datetime | None = None
 
 
 class PeopleAccessAuditItem(BaseModel):
@@ -30,6 +65,7 @@ class PeopleAccessAuditItem(BaseModel):
     action: str
     entity_type: str
     entity_id: str
+    product: str | None = None
     created_at: datetime
     request_id: str | None = None
 
@@ -57,6 +93,8 @@ class PeopleAccessUserRow(BaseModel):
     package: str | None = None
     practitioner: str | None = None
     mentor: str | None = None
+    consultant: str | None = None
+    products: list[str] = Field(default_factory=list)
     created_at: datetime
     last_login_at: datetime | None = None
     tags: list[str] = Field(default_factory=list)
@@ -87,6 +125,8 @@ class MembershipSummary(BaseModel):
     organization: str
     department_id: uuid.UUID | None = None
     department: str | None = None
+    primary_product_id: uuid.UUID | None = None
+    primary_product: str | None = None
     employee_id: str | None = None
     package: str | None = None
     practitioner_id: uuid.UUID | None = None
@@ -101,10 +141,53 @@ class MembershipSummary(BaseModel):
     joined_at: datetime
 
 
+class UserProductAccessItem(BaseModel):
+    id: uuid.UUID
+    product_id: uuid.UUID
+    product: str
+    organization_id: uuid.UUID | None = None
+    organization: str | None = None
+    role_id: uuid.UUID | None = None
+    role: str | None = None
+    status: str
+    is_primary: bool = False
+    permissions: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
+class UserPackageAssignmentItem(BaseModel):
+    id: uuid.UUID
+    product_id: uuid.UUID
+    product: str
+    package_id: uuid.UUID
+    package: str
+    organization_id: uuid.UUID | None = None
+    organization: str | None = None
+    status: str
+    notes: str | None = None
+    started_at: datetime
+    ended_at: datetime | None = None
+
+
+class UserServiceAssignmentItem(BaseModel):
+    id: uuid.UUID
+    product_id: uuid.UUID
+    product: str
+    service_id: uuid.UUID
+    service: str
+    organization_id: uuid.UUID | None = None
+    organization: str | None = None
+    status: str
+    notes: str | None = None
+    started_at: datetime
+    ended_at: datetime | None = None
+
+
 class LoginSessionItem(BaseModel):
     id: uuid.UUID
     browser: str | None = None
     platform: str | None = None
+    device_label: str | None = None
     ip_address: str | None = None
     status: str
     created_at: datetime
@@ -125,6 +208,8 @@ class UserAttachmentItem(BaseModel):
     file_name: str
     file_url: str
     content_type: str | None = None
+    attachment_type: str | None = None
+    note: str | None = None
     created_at: datetime
 
 
@@ -154,10 +239,14 @@ class UserProfileDetail(BaseModel):
     last_login_at: datetime | None = None
     created_at: datetime
     memberships: list[MembershipSummary] = Field(default_factory=list)
+    product_access: list[UserProductAccessItem] = Field(default_factory=list)
+    package_assignments: list[UserPackageAssignmentItem] = Field(default_factory=list)
+    service_assignments: list[UserServiceAssignmentItem] = Field(default_factory=list)
     sessions: list[LoginSessionItem] = Field(default_factory=list)
     notes: list[UserNoteItem] = Field(default_factory=list)
     attachments: list[UserAttachmentItem] = Field(default_factory=list)
     status_history: list[UserStatusHistoryItem] = Field(default_factory=list)
+    audit_events: list[PeopleAccessAuditItem] = Field(default_factory=list)
 
 
 class PermissionCatalogItem(BaseModel):
@@ -194,6 +283,9 @@ class PeopleAccessMetadataResponse(BaseModel):
     permissions: list[PermissionCatalogItem]
     organizations: list[OrganizationOption]
     departments: list[DepartmentOption]
+    products: list[ProductOption]
+    packages: list[PackageCatalogItem]
+    services: list[ServiceCatalogItem]
     practitioners: list[PeopleAccessUserRow]
     mentors: list[PeopleAccessUserRow]
     consultants: list[PeopleAccessUserRow]
@@ -212,6 +304,10 @@ class ManagedUserCreateRequest(BaseModel):
     assigned_practitioner_id: uuid.UUID | None = None
     assigned_mentor_id: uuid.UUID | None = None
     assigned_consultant_id: uuid.UUID | None = None
+    primary_product_id: uuid.UUID | None = None
+    product_ids: list[uuid.UUID] = Field(default_factory=list)
+    package_ids: list[uuid.UUID] = Field(default_factory=list)
+    service_ids: list[uuid.UUID] = Field(default_factory=list)
     status: str = "INVITED"
     permissions: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
@@ -231,6 +327,10 @@ class ManagedUserUpdateRequest(BaseModel):
     assigned_practitioner_id: uuid.UUID | None = None
     assigned_mentor_id: uuid.UUID | None = None
     assigned_consultant_id: uuid.UUID | None = None
+    primary_product_id: uuid.UUID | None = None
+    product_ids: list[uuid.UUID] | None = None
+    package_ids: list[uuid.UUID] | None = None
+    service_ids: list[uuid.UUID] | None = None
     status: str | None = None
     permissions: list[str] | None = None
     tags: list[str] | None = None
@@ -241,13 +341,24 @@ class UserNoteCreateRequest(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
 
 
+class UserAttachmentCreateRequest(BaseModel):
+    file_name: str = Field(min_length=1, max_length=255)
+    file_url: str = Field(min_length=1, max_length=2000)
+    content_type: str | None = None
+    attachment_type: str | None = None
+    note: str | None = None
+
+
 class BulkActionRequest(BaseModel):
     action: str
     user_ids: list[uuid.UUID] = Field(default_factory=list)
     organization_id: uuid.UUID | None = None
     department_id: uuid.UUID | None = None
+    product_id: uuid.UUID | None = None
     role: str | None = None
     package_name: str | None = None
+    package_id: uuid.UUID | None = None
+    service_id: uuid.UUID | None = None
     status: str | None = None
 
 
@@ -255,6 +366,77 @@ class BulkActionResponse(BaseModel):
     action: str
     processed: int
     affected_ids: list[uuid.UUID]
+
+
+class InvitationCreateRequest(BaseModel):
+    email: EmailStr
+    role: str
+    product_id: uuid.UUID | None = None
+    organization_id: uuid.UUID | None = None
+    department_id: uuid.UUID | None = None
+    expires_at: datetime | None = None
+
+
+class RolePermissionUpdateRequest(BaseModel):
+    permission_keys: list[str] = Field(default_factory=list)
+
+
+class CustomRoleCreateRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    description: str | None = None
+    permission_keys: list[str] = Field(default_factory=list)
+
+
+class RoleCloneRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    description: str | None = None
+
+
+class UserProductAssignmentRequest(BaseModel):
+    product_id: uuid.UUID
+    organization_id: uuid.UUID | None = None
+    role_id: uuid.UUID | None = None
+    status: str = "ACTIVE"
+    is_primary: bool = False
+    permissions: list[str] = Field(default_factory=list)
+
+
+class UserPackageAssignmentRequest(BaseModel):
+    package_id: uuid.UUID
+    organization_id: uuid.UUID | None = None
+    status: str = "ACTIVE"
+    notes: str | None = None
+
+
+class UserServiceAssignmentRequest(BaseModel):
+    service_id: uuid.UUID
+    organization_id: uuid.UUID | None = None
+    status: str = "ACTIVE"
+    notes: str | None = None
+
+
+class CsvImportRow(BaseModel):
+    email: EmailStr
+    first_name: str | None = None
+    last_name: str | None = None
+    phone: str | None = None
+    role: str
+    organization_id: uuid.UUID | None = None
+    department_id: uuid.UUID | None = None
+    employee_id: str | None = None
+    primary_product_id: uuid.UUID | None = None
+    status: str = "INVITED"
+
+
+class CsvImportRequest(BaseModel):
+    rows: list[CsvImportRow] = Field(default_factory=list)
+
+
+class CsvImportResponse(BaseModel):
+    processed: int
+    created: int
+    skipped: int
+    errors: list[str] = Field(default_factory=list)
 
 
 class OrganizationCreateRequest(BaseModel):

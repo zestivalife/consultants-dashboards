@@ -102,10 +102,14 @@ function SuperuserDashboard() {
   const [peopleAccessMetadata, setPeopleAccessMetadata] = useState(null);
   const [peopleAccessUsers, setPeopleAccessUsers] = useState([]);
   const [peopleAccessPagination, setPeopleAccessPagination] = useState(null);
+  const [peopleAccessInvitations, setPeopleAccessInvitations] = useState([]);
+  const [peopleAccessInvitationPagination, setPeopleAccessInvitationPagination] = useState(null);
   const [peopleAccessFilters, setPeopleAccessFilters] = useState({
     search: '',
     role: '',
+    product_id: '',
     status: '',
+    verification: '',
     page: 1,
     page_size: 20,
     sort_by: 'created_at',
@@ -183,6 +187,13 @@ function SuperuserDashboard() {
     }
   }, []);
 
+  const loadInvitations = useCallback(async (params = {}) => {
+    const response = await ownerPeopleAccessAPI.listInvitations(params);
+    setPeopleAccessInvitations(response?.items || []);
+    setPeopleAccessInvitationPagination(response?.pagination || null);
+    return response;
+  }, []);
+
   const refreshPeopleAccess = useCallback(async (userOverrides = {}) => {
     setPeopleAccessLoading(true);
     setPeopleAccessError(null);
@@ -191,13 +202,14 @@ function SuperuserDashboard() {
         loadPeopleAccessSummary(),
         loadPeopleAccessMetadata(),
         loadPeopleAccessUsers(userOverrides),
+        loadInvitations(),
       ]);
     } catch (error) {
       setPeopleAccessError(error?.message || 'Unable to load People & Access.');
     } finally {
       setPeopleAccessLoading(false);
     }
-  }, [loadPeopleAccessMetadata, loadPeopleAccessSummary, loadPeopleAccessUsers]);
+  }, [loadInvitations, loadPeopleAccessMetadata, loadPeopleAccessSummary, loadPeopleAccessUsers]);
 
   useEffect(() => {
     if (!user) return;
@@ -254,6 +266,101 @@ function SuperuserDashboard() {
     return notes;
   }, [loadSelectedUser, selectedUserId]);
 
+  const handleAddAttachment = useCallback(async (userId, payload) => {
+    const attachments = await ownerPeopleAccessAPI.addAttachment(userId, payload);
+    if (selectedUserId === userId) {
+      await loadSelectedUser(userId);
+    }
+    return attachments;
+  }, [loadSelectedUser, selectedUserId]);
+
+  const handleCreateInvitation = useCallback(async (payload) => {
+    const invitation = await ownerPeopleAccessAPI.createInvitation(payload);
+    await loadInvitations();
+    return invitation;
+  }, [loadInvitations]);
+
+  const handleResendInvitation = useCallback(async (invitationId) => {
+    const invitation = await ownerPeopleAccessAPI.resendInvitation(invitationId);
+    await loadInvitations();
+    return invitation;
+  }, [loadInvitations]);
+
+  const handleCancelInvitation = useCallback(async (invitationId) => {
+    const invitation = await ownerPeopleAccessAPI.cancelInvitation(invitationId);
+    await loadInvitations();
+    return invitation;
+  }, [loadInvitations]);
+
+  const handleAssignProducts = useCallback(async (userId, assignments) => {
+    const result = await ownerPeopleAccessAPI.assignProducts(userId, assignments);
+    if (selectedUserId === userId) {
+      await loadSelectedUser(userId);
+    }
+    await refreshPeopleAccess();
+    return result;
+  }, [loadSelectedUser, refreshPeopleAccess, selectedUserId]);
+
+  const handleAssignPackages = useCallback(async (userId, assignments) => {
+    const result = await ownerPeopleAccessAPI.assignPackages(userId, assignments);
+    if (selectedUserId === userId) {
+      await loadSelectedUser(userId);
+    }
+    await refreshPeopleAccess();
+    return result;
+  }, [loadSelectedUser, refreshPeopleAccess, selectedUserId]);
+
+  const handleAssignServices = useCallback(async (userId, assignments) => {
+    const result = await ownerPeopleAccessAPI.assignServices(userId, assignments);
+    if (selectedUserId === userId) {
+      await loadSelectedUser(userId);
+    }
+    await refreshPeopleAccess();
+    return result;
+  }, [loadSelectedUser, refreshPeopleAccess, selectedUserId]);
+
+  const handleRevokeSession = useCallback(async (userId, sessionId) => {
+    const result = await ownerPeopleAccessAPI.revokeSession(userId, sessionId);
+    if (selectedUserId === userId) {
+      await loadSelectedUser(userId);
+    }
+    return result;
+  }, [loadSelectedUser, selectedUserId]);
+
+  const handleForceLogout = useCallback(async (userId) => {
+    const result = await ownerPeopleAccessAPI.forceLogout(userId);
+    if (selectedUserId === userId) {
+      await loadSelectedUser(userId);
+    }
+    return result;
+  }, [loadSelectedUser, selectedUserId]);
+
+  const handleExportUsersCsv = useCallback(async () => ownerPeopleAccessAPI.exportUsersCsv(), []);
+
+  const handleImportUsers = useCallback(async (rows) => {
+    const result = await ownerPeopleAccessAPI.importUsers(rows);
+    await refreshPeopleAccess();
+    return result;
+  }, [refreshPeopleAccess]);
+
+  const handleUpdateRolePermissions = useCallback(async (roleId, permissionKeys) => {
+    const result = await ownerPeopleAccessAPI.updateRolePermissions(roleId, permissionKeys);
+    await refreshPeopleAccess();
+    return result;
+  }, [refreshPeopleAccess]);
+
+  const handleCreateRole = useCallback(async (payload) => {
+    const result = await ownerPeopleAccessAPI.createRole(payload);
+    await refreshPeopleAccess();
+    return result;
+  }, [refreshPeopleAccess]);
+
+  const handleCloneRole = useCallback(async (roleId, payload) => {
+    const result = await ownerPeopleAccessAPI.cloneRole(roleId, payload);
+    await refreshPeopleAccess();
+    return result;
+  }, [refreshPeopleAccess]);
+
   return (
     <div className="min-h-screen relative overflow-hidden font-sans">
       <div className="absolute inset-0 bg-[#f4faff]">
@@ -298,12 +405,25 @@ function SuperuserDashboard() {
                 detailLoading={peopleDetailLoading}
                 error={peopleAccessError}
                 filters={peopleAccessFilters}
+                invitations={peopleAccessInvitations}
+                invitationPagination={peopleAccessInvitationPagination}
                 onSelectUser={setSelectedUserId}
                 onFilterChange={handlePeopleFilterChange}
                 onCreateUser={handleCreateUser}
                 onUpdateUser={handleUpdateUser}
                 onBulkAction={handleBulkAction}
                 onAddNote={handleAddNote}
+                onAddAttachment={handleAddAttachment}
+                onCreateInvitation={handleCreateInvitation}
+                onResendInvitation={handleResendInvitation}
+                onCancelInvitation={handleCancelInvitation}
+                onAssignProducts={handleAssignProducts}
+                onAssignPackages={handleAssignPackages}
+                onAssignServices={handleAssignServices}
+                onRevokeSession={handleRevokeSession}
+                onForceLogout={handleForceLogout}
+                onExportUsersCsv={handleExportUsersCsv}
+                onImportUsers={handleImportUsers}
                 onRefresh={refreshPeopleAccess}
               />
             )}
@@ -311,6 +431,9 @@ function SuperuserDashboard() {
               <PermissionMatrixModule
                 metadata={peopleAccessMetadata}
                 loading={peopleAccessLoading}
+                onUpdateRolePermissions={handleUpdateRolePermissions}
+                onCreateRole={handleCreateRole}
+                onCloneRole={handleCloneRole}
                 onRefresh={refreshPeopleAccess}
               />
             )}
