@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     def get_service_routes(self) -> list[dict]:
         return [
             {"prefix": "/api/v1/corporate-admin", "upstream": self.auth_service_url},
+            {"prefix": "/api/v1/owner/people-access", "upstream": self.auth_service_url},
             {"prefix": "/api/v1/team-lead", "upstream": self.auth_service_url},
             {"prefix": "/api/v1/team-member", "upstream": self.auth_service_url},
             {"prefix": "/api/v1/notifications", "upstream": self.auth_service_url},

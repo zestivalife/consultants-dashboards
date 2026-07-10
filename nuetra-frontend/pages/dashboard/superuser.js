@@ -7,6 +7,7 @@ import DashboardHeader from '../../components/DashboardHeader';
 import { TopNavTabs } from '../../components/dashboard';
 import withAuth from '../../hocs/withAuth';
 import { useAuth } from '../../context/AuthContext';
+import { ownerPeopleAccessAPI } from '../../lib/api';
 import {
   CommandCenterModule,
   OrganizationsModule,
@@ -97,6 +98,24 @@ function SuperuserDashboard() {
   const router = useRouter();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [peopleAccessSummary, setPeopleAccessSummary] = useState(null);
+  const [peopleAccessMetadata, setPeopleAccessMetadata] = useState(null);
+  const [peopleAccessUsers, setPeopleAccessUsers] = useState([]);
+  const [peopleAccessPagination, setPeopleAccessPagination] = useState(null);
+  const [peopleAccessFilters, setPeopleAccessFilters] = useState({
+    search: '',
+    role: '',
+    status: '',
+    page: 1,
+    page_size: 20,
+    sort_by: 'created_at',
+    sort_order: 'desc',
+  });
+  const [selectedUserId, setSelectedUserId] = useState(null);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [peopleAccessLoading, setPeopleAccessLoading] = useState(false);
+  const [peopleDetailLoading, setPeopleDetailLoading] = useState(false);
+  const [peopleAccessError, setPeopleAccessError] = useState(null);
 
   const ownerName = useMemo(() => {
     const firstName = user?.first_name || user?.firstName;
@@ -122,6 +141,118 @@ function SuperuserDashboard() {
   }, [router]);
 
   const currentRoleLabel = roleTitles[(user?.role || 'platform_owner').toLowerCase()] || 'Platform Owner';
+
+  const loadPeopleAccessSummary = useCallback(async () => {
+    const summary = await ownerPeopleAccessAPI.summary();
+    setPeopleAccessSummary(summary);
+    return summary;
+  }, []);
+
+  const loadPeopleAccessMetadata = useCallback(async () => {
+    const metadata = await ownerPeopleAccessAPI.metadata();
+    setPeopleAccessMetadata(metadata);
+    return metadata;
+  }, []);
+
+  const loadPeopleAccessUsers = useCallback(async (overrides = {}) => {
+    const nextFilters = { ...peopleAccessFilters, ...overrides };
+    setPeopleAccessFilters(nextFilters);
+    const response = await ownerPeopleAccessAPI.listUsers(nextFilters);
+    setPeopleAccessUsers(response?.items || []);
+    setPeopleAccessPagination(response?.pagination || null);
+    if (!selectedUserId && response?.items?.length) {
+      setSelectedUserId(response.items[0].id);
+    } else if (selectedUserId && !response?.items?.some((item) => item.id === selectedUserId)) {
+      setSelectedUserId(response?.items?.[0]?.id || null);
+    }
+    return response;
+  }, [peopleAccessFilters, selectedUserId]);
+
+  const loadSelectedUser = useCallback(async (userId) => {
+    if (!userId) {
+      setSelectedUser(null);
+      return null;
+    }
+    setPeopleDetailLoading(true);
+    try {
+      const detail = await ownerPeopleAccessAPI.getUser(userId);
+      setSelectedUser(detail);
+      return detail;
+    } finally {
+      setPeopleDetailLoading(false);
+    }
+  }, []);
+
+  const refreshPeopleAccess = useCallback(async (userOverrides = {}) => {
+    setPeopleAccessLoading(true);
+    setPeopleAccessError(null);
+    try {
+      await Promise.all([
+        loadPeopleAccessSummary(),
+        loadPeopleAccessMetadata(),
+        loadPeopleAccessUsers(userOverrides),
+      ]);
+    } catch (error) {
+      setPeopleAccessError(error?.message || 'Unable to load People & Access.');
+    } finally {
+      setPeopleAccessLoading(false);
+    }
+  }, [loadPeopleAccessMetadata, loadPeopleAccessSummary, loadPeopleAccessUsers]);
+
+  useEffect(() => {
+    if (!user) return;
+    refreshPeopleAccess().catch(() => null);
+  }, [refreshPeopleAccess, user]);
+
+  useEffect(() => {
+    if (!selectedUserId) return;
+    loadSelectedUser(selectedUserId).catch((error) => {
+      setPeopleAccessError(error?.message || 'Unable to load user detail.');
+    });
+  }, [loadSelectedUser, selectedUserId]);
+
+  const handlePeopleFilterChange = useCallback((patch) => {
+    refreshPeopleAccess({ ...patch, page: patch.page || 1 }).catch((error) => {
+      setPeopleAccessError(error?.message || 'Unable to update People & Access filters.');
+    });
+  }, [refreshPeopleAccess]);
+
+  const handleCreateUser = useCallback(async (payload) => {
+    const created = await ownerPeopleAccessAPI.createUser(payload);
+    await refreshPeopleAccess();
+    if (created?.id) {
+      setSelectedUserId(created.id);
+      await loadSelectedUser(created.id);
+    }
+    return created;
+  }, [loadSelectedUser, refreshPeopleAccess]);
+
+  const handleUpdateUser = useCallback(async (userId, payload) => {
+    const updated = await ownerPeopleAccessAPI.updateUser(userId, payload);
+    await refreshPeopleAccess();
+    if (updated?.id) {
+      setSelectedUserId(updated.id);
+      await loadSelectedUser(updated.id);
+    }
+    return updated;
+  }, [loadSelectedUser, refreshPeopleAccess]);
+
+  const handleBulkAction = useCallback(async (payload) => {
+    const result = await ownerPeopleAccessAPI.bulkAction(payload);
+    await refreshPeopleAccess();
+    if (selectedUserId) {
+      await loadSelectedUser(selectedUserId);
+    }
+    return result;
+  }, [loadSelectedUser, refreshPeopleAccess, selectedUserId]);
+
+  const handleAddNote = useCallback(async (userId, body) => {
+    const notes = await ownerPeopleAccessAPI.addNote(userId, body);
+    if (selectedUserId === userId) {
+      await loadSelectedUser(userId);
+    }
+    return notes;
+  }, [loadSelectedUser, selectedUserId]);
 
   return (
     <div className="min-h-screen relative overflow-hidden font-sans">
@@ -156,11 +287,31 @@ function SuperuserDashboard() {
           <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28 }}>
             {activeTab === 'dashboard' && <CommandCenterModule data={platformOwnerConsoleData} />}
             {activeTab === 'companies' && <OrganizationsModule organizations={platformOwnerConsoleData.organizations} />}
-            {activeTab === 'users' && <PeopleAccessModule people={platformOwnerConsoleData.people} />}
+            {activeTab === 'users' && (
+              <PeopleAccessModule
+                summary={peopleAccessSummary}
+                metadata={peopleAccessMetadata}
+                people={peopleAccessUsers}
+                pagination={peopleAccessPagination}
+                selectedUser={selectedUser}
+                loading={peopleAccessLoading}
+                detailLoading={peopleDetailLoading}
+                error={peopleAccessError}
+                filters={peopleAccessFilters}
+                onSelectUser={setSelectedUserId}
+                onFilterChange={handlePeopleFilterChange}
+                onCreateUser={handleCreateUser}
+                onUpdateUser={handleUpdateUser}
+                onBulkAction={handleBulkAction}
+                onAddNote={handleAddNote}
+                onRefresh={refreshPeopleAccess}
+              />
+            )}
             {activeTab === 'roles' && (
               <PermissionMatrixModule
-                permissionGroups={platformOwnerConsoleData.permissionGroups}
-                roles={platformOwnerConsoleData.roles}
+                metadata={peopleAccessMetadata}
+                loading={peopleAccessLoading}
+                onRefresh={refreshPeopleAccess}
               />
             )}
             {activeTab === 'packages' && <PackageBuilderModule packages={platformOwnerConsoleData.packages} />}
@@ -178,4 +329,4 @@ function SuperuserDashboard() {
   );
 }
 
-export default withAuth(SuperuserDashboard, ['superuser', 'super_admin']);
+export default withAuth(SuperuserDashboard, ['superuser', 'super_admin', 'platform_owner']);

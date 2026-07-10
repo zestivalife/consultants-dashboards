@@ -91,6 +91,7 @@ class JWTMiddleware(BaseHTTPMiddleware):
 
         request.state.user_id = payload.get("sub")
         request.state.user_role = payload.get("role", "member")
+        request.state.user_permissions = payload.get("permissions", []) or []
         request.state.token_payload = payload
 
         return await call_next(request)

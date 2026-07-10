@@ -11,6 +11,18 @@ router = APIRouter()
 
 _client: httpx.AsyncClient | None = None
 
+OWNER_ACCESS_RULES: tuple[tuple[str, str, set[str]], ...] = (
+    ("/api/v1/owner/people-access/summary", "GET", {"users.read"}),
+    ("/api/v1/owner/people-access/metadata", "GET", {"users.read"}),
+    ("/api/v1/owner/people-access/users/bulk-actions", "POST", {"users.edit", "users.invite"}),
+    ("/api/v1/owner/people-access/users", "POST", {"users.create"}),
+    ("/api/v1/owner/people-access/users/", "POST", {"users.edit"}),
+    ("/api/v1/owner/people-access/users/", "PATCH", {"users.edit"}),
+    ("/api/v1/owner/people-access/users/", "GET", {"users.read"}),
+    ("/api/v1/owner/people-access/users", "GET", {"users.read"}),
+    ("/api/v1/owner/people-access/organizations", "POST", {"organizations.manage"}),
+)
+
 
 async def get_http_client() -> httpx.AsyncClient:
     global _client
@@ -40,12 +52,33 @@ def _resolve_upstream(path: str) -> tuple[str, str] | None:
     return None
 
 
+def _required_permissions(path: str, method: str) -> set[str]:
+    for prefix, allowed_method, permissions in OWNER_ACCESS_RULES:
+        if method == allowed_method and path.startswith(prefix):
+            return permissions
+    return set()
+
+
 @router.api_route(
     "/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
 )
 async def proxy(request: Request, path: str):
     full_path = f"/{path}"
+    required_permissions = _required_permissions(full_path, request.method.upper())
+    user_permissions = set(getattr(request.state, "user_permissions", []) or [])
+    if required_permissions and not (user_permissions & required_permissions):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "success": False,
+                "message": "You do not have permission to access this resource",
+                "data": None,
+                "error": "Forbidden",
+                "request_id": getattr(request.state, "request_id", None),
+            },
+        )
+
     resolved = _resolve_upstream(full_path)
 
     if resolved is None:
@@ -79,6 +112,9 @@ async def proxy(request: Request, path: str):
     user_role = getattr(request.state, "user_role", None)
     if user_role:
         headers["X-User-Role"] = str(user_role)
+
+    if user_permissions:
+        headers["X-User-Permissions"] = ",".join(sorted(user_permissions))
 
     body = await request.body()
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   ArrowUpRight,
@@ -88,11 +88,14 @@ function ModuleFrame({ badge, title, description, actions, children }) {
   );
 }
 
-function ActionButton({ icon: Icon, label, tone = 'secondary' }) {
+function ActionButton({ icon: Icon, label, tone = 'secondary', onClick, type = 'button', disabled = false }) {
   return (
     <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
       className={cn(
-        'inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition-colors',
+        'inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-60',
         tone === 'primary'
           ? 'bg-[#237afc] text-white shadow-md hover:bg-[#1a62d6]'
           : 'border border-gray-200 bg-white text-gray-700 hover:border-[#237afc] hover:text-[#237afc]'
@@ -492,11 +495,194 @@ export function OrganizationsModule({ organizations }) {
   );
 }
 
-export function PeopleAccessModule({ people }) {
-  const [selectedId, setSelectedId] = useState(people[0]?.id || '');
+export function PeopleAccessModule({
+  summary,
+  metadata,
+  people = [],
+  pagination,
+  selectedUser,
+  loading = false,
+  detailLoading = false,
+  error = null,
+  filters,
+  onSelectUser,
+  onFilterChange,
+  onCreateUser,
+  onUpdateUser,
+  onBulkAction,
+  onAddNote,
+  onRefresh,
+}) {
+  const [selectedIds, setSelectedIds] = useState([]);
   const [profileTab, setProfileTab] = useState('General');
-  const selected = useMemo(() => people.find((item) => item.id === selectedId) || people[0], [people, selectedId]);
+  const [searchDraft, setSearchDraft] = useState(filters?.search || '');
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [noteDraft, setNoteDraft] = useState('');
+  const [form, setForm] = useState({
+    email: '',
+    first_name: '',
+    last_name: '',
+    phone: '',
+    role: 'consultant',
+    organization_id: '',
+    department_id: '',
+    employee_id: '',
+    package_name: '',
+    assigned_practitioner_id: '',
+    assigned_mentor_id: '',
+    assigned_consultant_id: '',
+    status: 'INVITED',
+    permissions: [],
+    tags: [],
+    note: '',
+  });
   const profileTabs = ['General', 'Professional', 'Organizations', 'Permissions', 'Activity Timeline', 'Login Sessions', 'Audit History', 'Assigned Packages', 'Assigned Services', 'Notes'];
+  const roleOptions = metadata?.roles || [];
+  const permissionOptions = metadata?.permissions || [];
+  const organizationOptions = metadata?.organizations || [];
+  const departmentOptions = metadata?.departments || [];
+  const practitioners = metadata?.practitioners || [];
+  const mentors = metadata?.mentors || [];
+  const consultants = metadata?.consultants || [];
+
+  useEffect(() => {
+    setSearchDraft(filters?.search || '');
+  }, [filters?.search]);
+
+  useEffect(() => {
+    if (!selectedUser) return;
+    setForm((current) => ({
+      ...current,
+      email: selectedUser.email || '',
+      first_name: selectedUser.first_name || '',
+      last_name: selectedUser.last_name || '',
+      phone: selectedUser.phone || '',
+      role: (selectedUser.role || 'consultant').toLowerCase(),
+      organization_id: selectedUser.memberships?.[0]?.organization_id || '',
+      department_id: selectedUser.memberships?.[0]?.department_id || '',
+      employee_id: selectedUser.memberships?.[0]?.employee_id || '',
+      package_name: selectedUser.memberships?.[0]?.package || '',
+      assigned_practitioner_id: selectedUser.memberships?.[0]?.practitioner_id || '',
+      assigned_mentor_id: selectedUser.memberships?.[0]?.mentor_id || '',
+      assigned_consultant_id: selectedUser.memberships?.[0]?.consultant_id || '',
+      status: selectedUser.status || 'ACTIVE',
+      permissions: selectedUser.permissions || [],
+      tags: selectedUser.memberships?.[0]?.tags || [],
+      note: '',
+    }));
+  }, [selectedUser]);
+
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const summaryMetric = (label) => summary?.metrics?.find((item) => item.label === label)?.value ?? 0;
+  const adminsCount = useMemo(
+    () => people.filter((item) => ['platform_owner', 'superuser', 'organization_admin', 'corporate_admin', 'support_admin'].includes(item.role)).length,
+    [people]
+  );
+  const mentorCount = useMemo(() => people.filter((item) => item.role === 'mentor').length, [people]);
+  const consultantCount = useMemo(() => people.filter((item) => ['consultant', 'senior_consultant', 'practitioner'].includes(item.role)).length, [people]);
+  const suspendedCount = useMemo(() => people.filter((item) => item.status !== 'ACTIVE').length, [people]);
+
+  const updateForm = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const togglePermission = (permissionKey) => {
+    setForm((current) => ({
+      ...current,
+      permissions: current.permissions.includes(permissionKey)
+        ? current.permissions.filter((item) => item !== permissionKey)
+        : [...current.permissions, permissionKey],
+    }));
+  };
+
+  const toggleSelected = (userId) => {
+    setSelectedIds((current) =>
+      current.includes(userId) ? current.filter((item) => item !== userId) : [...current, userId]
+    );
+  };
+
+  const submitCreateUser = async () => {
+    setIsSubmitting(true);
+    try {
+      await onCreateUser?.({
+        ...form,
+        organization_id: form.organization_id || null,
+        department_id: form.department_id || null,
+        assigned_practitioner_id: form.assigned_practitioner_id || null,
+        assigned_mentor_id: form.assigned_mentor_id || null,
+        assigned_consultant_id: form.assigned_consultant_id || null,
+        tags: form.tags.filter(Boolean),
+      });
+      setShowCreateForm(false);
+      setSelectedIds([]);
+      setForm({
+        email: '',
+        first_name: '',
+        last_name: '',
+        phone: '',
+        role: 'consultant',
+        organization_id: '',
+        department_id: '',
+        employee_id: '',
+        package_name: '',
+        assigned_practitioner_id: '',
+        assigned_mentor_id: '',
+        assigned_consultant_id: '',
+        status: 'INVITED',
+        permissions: [],
+        tags: [],
+        note: '',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const submitUpdateUser = async () => {
+    if (!selectedUser?.id) return;
+    setIsSubmitting(true);
+    try {
+      await onUpdateUser?.(selectedUser.id, {
+        first_name: form.first_name,
+        last_name: form.last_name,
+        phone: form.phone,
+        role: form.role,
+        organization_id: form.organization_id || null,
+        department_id: form.department_id || null,
+        employee_id: form.employee_id || null,
+        package_name: form.package_name || null,
+        assigned_practitioner_id: form.assigned_practitioner_id || null,
+        assigned_mentor_id: form.assigned_mentor_id || null,
+        assigned_consultant_id: form.assigned_consultant_id || null,
+        status: form.status,
+        permissions: form.permissions,
+        tags: form.tags.filter(Boolean),
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const applyBulkAction = async (action, extra = {}) => {
+    if (!selectedIds.length) return;
+    setIsSubmitting(true);
+    try {
+      await onBulkAction?.({ action, user_ids: selectedIds, ...extra });
+      setSelectedIds([]);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const submitNote = async () => {
+    if (!selectedUser?.id || !noteDraft.trim()) return;
+    setIsSubmitting(true);
+    try {
+      await onAddNote?.(selectedUser.id, noteDraft.trim());
+      setNoteDraft('');
+      setProfileTab('Notes');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <ModuleFrame
@@ -507,17 +693,29 @@ export function PeopleAccessModule({ people }) {
         <>
           <ActionButton icon={Upload} label="CSV Import" />
           <ActionButton icon={Download} label="CSV Export" />
-          <ActionButton icon={UserCog} label="Bulk Actions" tone="primary" />
+          <ActionButton icon={UserCog} label="Refresh" onClick={() => onRefresh?.()} />
+          <ActionButton
+            icon={Plus}
+            label={showCreateForm ? 'Close create form' : 'Add mentor / consultant / admin'}
+            tone="primary"
+            onClick={() => setShowCreateForm((current) => !current)}
+          />
         </>
       }
     >
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <StatPill icon={Users} label="People" value={people.length} />
-        <StatPill icon={Shield} label="Admins" value={people.filter((item) => ['admin', 'platform_owner', 'organization_admin'].includes(item.role)).length} tone="from-violet-500 to-fuchsia-500" />
-        <StatPill icon={UserCog} label="Mentors" value={people.filter((item) => item.role === 'mentor').length} tone="from-amber-500 to-orange-500" />
-        <StatPill icon={BriefcaseBusiness} label="Consultants" value={people.filter((item) => ['consultant', 'practitioner'].includes(item.role)).length} tone="from-emerald-500 to-teal-500" />
-        <StatPill icon={Mail} label="Suspended" value={people.filter((item) => item.status !== 'Active').length} tone="from-rose-500 to-red-500" />
+        <StatPill icon={Users} label="People" value={summaryMetric('People') || people.length} />
+        <StatPill icon={Shield} label="Admins" value={adminsCount} tone="from-violet-500 to-fuchsia-500" />
+        <StatPill icon={UserCog} label="Mentors" value={mentorCount} tone="from-amber-500 to-orange-500" />
+        <StatPill icon={BriefcaseBusiness} label="Consultants" value={consultantCount} tone="from-emerald-500 to-teal-500" />
+        <StatPill icon={Mail} label="Suspended" value={suspendedCount} tone="from-rose-500 to-red-500" />
       </div>
+
+      {error ? (
+        <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+          {error}
+        </div>
+      ) : null}
 
       <div className="mt-8 grid gap-8 xl:grid-cols-[1.2fr_1fr]">
         <div className="space-y-6">
@@ -530,7 +728,24 @@ export function PeopleAccessModule({ people }) {
               { key: 'mentors', label: 'Mentors' },
               { key: 'employees', label: 'Employees' },
             ]}
-            activeFilter="all"
+            activeFilter={
+              filters?.role === 'platform_owner'
+                ? 'owners'
+                : filters?.role === 'mentor'
+                  ? 'mentors'
+                  : filters?.role === 'employee'
+                    ? 'employees'
+                    : filters?.role
+                      ? 'admins'
+                      : 'all'
+            }
+            onFilterChange={(key) => {
+              if (key === 'all') return onFilterChange?.({ role: '', page: 1 });
+              if (key === 'owners') return onFilterChange?.({ role: 'platform_owner', page: 1 });
+              if (key === 'mentors') return onFilterChange?.({ role: 'mentor', page: 1 });
+              if (key === 'employees') return onFilterChange?.({ role: 'employee', page: 1 });
+              return onFilterChange?.({ role: 'organization_admin', page: 1 });
+            }}
             rightControls={
               <div className="ml-2 flex items-center gap-2">
                 <button className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600">
@@ -541,9 +756,28 @@ export function PeopleAccessModule({ people }) {
                   <SlidersHorizontal className="h-4 w-4" />
                   Saved views
                 </button>
+                <button
+                  onClick={() => onFilterChange?.({ search: searchDraft, page: 1 })}
+                  className="inline-flex items-center gap-2 rounded-xl border border-[#237afc] bg-[#f5f9ff] px-3 py-2 text-sm font-bold text-[#237afc]"
+                >
+                  <Search className="h-4 w-4" />
+                  Apply search
+                </button>
               </div>
             }
           />
+
+          <div className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
+            <input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') onFilterChange?.({ search: searchDraft, page: 1 });
+              }}
+              placeholder="Search by person, email, organization, employee ID..."
+              className="w-full bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400"
+            />
+          </div>
 
           <Panel title="Enterprise roster" subtitle="Bulk-ready people management with status, role, and org visibility.">
             <div className="overflow-hidden rounded-3xl border border-gray-100">
@@ -559,19 +793,24 @@ export function PeopleAccessModule({ people }) {
                   {people.map((person) => (
                     <tr key={person.id} className="hover:bg-gray-50/80">
                       <td className="px-5 py-4">
-                        <input type="checkbox" className="h-4 w-4 rounded border-gray-300" />
+                        <input
+                          type="checkbox"
+                          checked={selectedIdSet.has(person.id)}
+                          onChange={() => toggleSelected(person.id)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
                       </td>
                       <td className="px-5 py-4">
-                        <button onClick={() => setSelectedId(person.id)} className="text-left">
+                        <button onClick={() => onSelectUser?.(person.id)} className="text-left">
                           <p className="font-bold text-gray-900">{person.name}</p>
                           <p className="text-xs text-gray-500">{person.email}</p>
                         </button>
                       </td>
                       <td className="px-5 py-4"><Badge tone="blue">{person.role.replace(/_/g, ' ')}</Badge></td>
-                      <td className="px-5 py-4 text-sm text-gray-500">{person.organizations.join(', ')}</td>
-                      <td className="px-5 py-4 text-sm text-gray-500">{person.packages.join(', ')}</td>
+                      <td className="px-5 py-4 text-sm text-gray-500">{person.organization || 'Unassigned'}</td>
+                      <td className="px-5 py-4 text-sm text-gray-500">{person.package || 'No package'}</td>
                       <td className="px-5 py-4">
-                        <Badge tone={person.status === 'Active' ? 'green' : 'red'}>{person.status}</Badge>
+                        <Badge tone={person.status === 'ACTIVE' ? 'green' : 'red'}>{person.status}</Badge>
                       </td>
                     </tr>
                   ))}
@@ -579,28 +818,130 @@ export function PeopleAccessModule({ people }) {
               </table>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
-              {['Bulk role change', 'Bulk suspend', 'Bulk activate', 'Bulk invite', 'Export selected'].map((item) => (
-                <button key={item} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600">
-                  {item}
-                </button>
-              ))}
+              <button onClick={() => applyBulkAction('activate')} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600">Bulk activate</button>
+              <button onClick={() => applyBulkAction('suspend')} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600">Bulk suspend</button>
+              <button onClick={() => applyBulkAction('deactivate')} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600">Bulk deactivate</button>
+              <button onClick={() => applyBulkAction('assign_role', { role: 'mentor' })} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600">Promote to mentor</button>
+              <button onClick={() => applyBulkAction('assign_role', { role: 'consultant' })} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600">Assign consultant role</button>
             </div>
+            {pagination ? (
+              <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
+                <p>
+                  Page {pagination.page} of {pagination.total_pages} · {pagination.total} total identities
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => onFilterChange?.({ page: Math.max(1, pagination.page - 1) })}
+                    disabled={pagination.page <= 1}
+                    className="rounded-full border border-gray-200 bg-white px-4 py-2 font-bold text-gray-600 disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    onClick={() => onFilterChange?.({ page: Math.min(pagination.total_pages, pagination.page + 1) })}
+                    disabled={pagination.page >= pagination.total_pages}
+                    className="rounded-full border border-gray-200 bg-white px-4 py-2 font-bold text-gray-600 disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </Panel>
+
+          {showCreateForm ? (
+            <Panel title="Create identity" subtitle="Invite a mentor, consultant, senior consultant, practitioner, admin, or employee.">
+              <div className="grid gap-4 md:grid-cols-2">
+                <input value={form.email} onChange={(event) => updateForm('email', event.target.value)} placeholder="Work email" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+                <input value={form.phone} onChange={(event) => updateForm('phone', event.target.value)} placeholder="Phone number" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+                <input value={form.first_name} onChange={(event) => updateForm('first_name', event.target.value)} placeholder="First name" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+                <input value={form.last_name} onChange={(event) => updateForm('last_name', event.target.value)} placeholder="Last name" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+                <select value={form.role} onChange={(event) => updateForm('role', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                  {roleOptions.map((role) => (
+                    <option key={role.id} value={role.name.toLowerCase().replace(/ /g, '_')}>{role.name}</option>
+                  ))}
+                </select>
+                <select value={form.status} onChange={(event) => updateForm('status', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                  {['INVITED', 'PENDING_VERIFICATION', 'ACTIVE', 'INACTIVE', 'LOCKED', 'SUSPENDED'].map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+                <select value={form.organization_id} onChange={(event) => updateForm('organization_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                  <option value="">Select organization</option>
+                  {organizationOptions.map((organization) => (
+                    <option key={organization.id} value={organization.id}>{organization.name}</option>
+                  ))}
+                </select>
+                <select value={form.department_id} onChange={(event) => updateForm('department_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                  <option value="">Select department</option>
+                  {departmentOptions
+                    .filter((department) => !form.organization_id || department.organization_id === form.organization_id)
+                    .map((department) => (
+                      <option key={department.id} value={department.id}>{department.name}</option>
+                    ))}
+                </select>
+                <input value={form.employee_id} onChange={(event) => updateForm('employee_id', event.target.value)} placeholder="Employee ID" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+                <input value={form.package_name} onChange={(event) => updateForm('package_name', event.target.value)} placeholder="Assigned package" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+                <select value={form.assigned_practitioner_id} onChange={(event) => updateForm('assigned_practitioner_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                  <option value="">Assigned practitioner</option>
+                  {practitioners.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+                </select>
+                <select value={form.assigned_mentor_id} onChange={(event) => updateForm('assigned_mentor_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                  <option value="">Assigned mentor</option>
+                  {mentors.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+                </select>
+                <select value={form.assigned_consultant_id} onChange={(event) => updateForm('assigned_consultant_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none md:col-span-2">
+                  <option value="">Assigned consultant</option>
+                  {consultants.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+                </select>
+                <textarea value={form.note} onChange={(event) => updateForm('note', event.target.value)} placeholder="Invitation note or operator note" className="min-h-[110px] rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none md:col-span-2" />
+              </div>
+
+              <div className="mt-6">
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Authorities</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {permissionOptions.map((permission) => (
+                    <label key={permission.id} className="flex items-start gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={form.permissions.includes(permission.key)}
+                        onChange={() => togglePermission(permission.key)}
+                        className="mt-1 h-4 w-4 rounded border-gray-300"
+                      />
+                      <span>
+                        <span className="block font-bold text-gray-900">{permission.label}</span>
+                        <span className="block text-xs text-gray-500">{permission.key}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-6 flex gap-3">
+                <ActionButton icon={Plus} label="Create user" tone="primary" onClick={submitCreateUser} disabled={isSubmitting} />
+                <ActionButton icon={XCircle} label="Cancel" onClick={() => setShowCreateForm(false)} />
+              </div>
+            </Panel>
+          ) : null}
         </div>
 
-        <Panel title={selected?.name || 'User profile'} subtitle="Profile-level governance and authority review.">
-          {selected ? (
+        <Panel title={selectedUser?.name || 'User profile'} subtitle="Profile-level governance and authority review.">
+          {detailLoading ? (
+            <div className="rounded-3xl bg-gray-50 px-6 py-16 text-center text-sm font-semibold text-gray-500">
+              Loading user detail...
+            </div>
+          ) : selectedUser ? (
             <>
               <div className="flex items-center gap-4">
                 <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#237afc] to-[#53b6ff] text-lg font-black text-white">
-                  {selected.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}
+                  {selectedUser.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}
                 </div>
                 <div>
-                  <p className="text-lg font-black text-gray-900">{selected.name}</p>
-                  <p className="text-sm text-gray-500">{selected.professional}</p>
+                  <p className="text-lg font-black text-gray-900">{selectedUser.name}</p>
+                  <p className="text-sm text-gray-500">{selectedUser.professional_title || 'Assigned user profile'}</p>
                   <div className="mt-2 flex items-center gap-2">
-                    <Badge tone="blue">{selected.role.replace(/_/g, ' ')}</Badge>
-                    <Badge tone={selected.status === 'Active' ? 'green' : 'red'}>{selected.status}</Badge>
+                    <Badge tone="blue">{selectedUser.role.replace(/_/g, ' ')}</Badge>
+                    <Badge tone={selectedUser.status === 'ACTIVE' ? 'green' : 'red'}>{selectedUser.status}</Badge>
                   </div>
                 </div>
               </div>
@@ -622,40 +963,125 @@ export function PeopleAccessModule({ people }) {
                 ))}
               </div>
 
+              <div className="mt-6 grid gap-4 md:grid-cols-2">
+                <input value={form.first_name} onChange={(event) => updateForm('first_name', event.target.value)} placeholder="First name" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+                <input value={form.last_name} onChange={(event) => updateForm('last_name', event.target.value)} placeholder="Last name" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+                <input value={form.phone} onChange={(event) => updateForm('phone', event.target.value)} placeholder="Phone number" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+                <select value={form.role} onChange={(event) => updateForm('role', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                  {roleOptions.map((role) => (
+                    <option key={role.id} value={role.name.toLowerCase().replace(/ /g, '_')}>{role.name}</option>
+                  ))}
+                </select>
+                <select value={form.status} onChange={(event) => updateForm('status', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                  {['ACTIVE', 'INACTIVE', 'LOCKED', 'SUSPENDED', 'DELETED'].map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+                <input value={form.package_name} onChange={(event) => updateForm('package_name', event.target.value)} placeholder="Assigned package" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+              </div>
+
+              <div className="mt-4 flex gap-3">
+                <ActionButton icon={Save} label="Save profile changes" tone="primary" onClick={submitUpdateUser} disabled={isSubmitting} />
+                <ActionButton icon={CheckCircle2} label="Activate" onClick={() => applyBulkAction('activate', { user_ids: [selectedUser.id] })} />
+                <ActionButton icon={XCircle} label="Suspend" onClick={() => applyBulkAction('suspend', { user_ids: [selectedUser.id] })} />
+              </div>
+
               <div className="mt-6 rounded-3xl bg-gray-50 p-5">
                 {profileTab === 'General' && (
                   <div className="space-y-3 text-sm text-gray-600">
-                    <p><span className="font-bold text-gray-900">Email:</span> {selected.email}</p>
-                    <p><span className="font-bold text-gray-900">Primary organizations:</span> {selected.organizations.join(', ')}</p>
-                    <p><span className="font-bold text-gray-900">Status:</span> {selected.status}</p>
+                    <p><span className="font-bold text-gray-900">Email:</span> {selectedUser.email}</p>
+                    <p><span className="font-bold text-gray-900">Phone:</span> {selectedUser.phone || 'Not added'}</p>
+                    <p><span className="font-bold text-gray-900">Created:</span> {new Date(selectedUser.created_at).toLocaleString()}</p>
+                    <p><span className="font-bold text-gray-900">Status:</span> {selectedUser.status}</p>
                   </div>
                 )}
                 {profileTab === 'Professional' && (
                   <div className="space-y-3 text-sm text-gray-600">
-                    <p><span className="font-bold text-gray-900">Role focus:</span> {selected.professional}</p>
-                    <p><span className="font-bold text-gray-900">Assigned services:</span> {selected.services.join(', ')}</p>
-                    <p><span className="font-bold text-gray-900">Packages:</span> {selected.packages.join(', ')}</p>
+                    <p><span className="font-bold text-gray-900">Role focus:</span> {selectedUser.professional_title || selectedUser.role}</p>
+                    <p><span className="font-bold text-gray-900">Verification:</span> {selectedUser.verification}</p>
+                    <p><span className="font-bold text-gray-900">Primary role:</span> {selectedUser.role.replace(/_/g, ' ')}</p>
+                  </div>
+                )}
+                {profileTab === 'Organizations' && (
+                  <div className="space-y-3 text-sm text-gray-600">
+                    {selectedUser.memberships.length ? selectedUser.memberships.map((membership) => (
+                      <div key={membership.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
+                        <p className="font-bold text-gray-900">{membership.organization}</p>
+                        <p className="mt-1 text-xs text-gray-500">{membership.department || 'No department'} · {membership.package || 'No package'} · {membership.status}</p>
+                        <p className="mt-1 text-xs text-gray-500">Practitioner: {membership.practitioner || '—'} · Mentor: {membership.mentor || '—'} · Consultant: {membership.consultant || '—'}</p>
+                      </div>
+                    )) : <p>No organization memberships yet.</p>}
                   </div>
                 )}
                 {profileTab === 'Permissions' && (
                   <div className="flex flex-wrap gap-2">
-                    {selected.permissions.map((permission) => (
+                    {selectedUser.permissions.map((permission) => (
                       <Badge key={permission} tone="violet">{permission}</Badge>
                     ))}
                   </div>
                 )}
-                {profileTab === 'Login Sessions' && (
-                  <div className="space-y-2 text-sm text-gray-600">
-                    <p><span className="font-bold text-gray-900">Active sessions:</span> {selected.loginSessions}</p>
-                    <p>Last session from Chrome on macOS.</p>
-                    <p>Device trust: Enterprise approved.</p>
+                {profileTab === 'Activity Timeline' && (
+                  <div className="space-y-3 text-sm text-gray-600">
+                    {selectedUser.status_history.length ? selectedUser.status_history.map((history) => (
+                      <div key={history.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
+                        <p className="font-bold text-gray-900">{history.new_status}</p>
+                        <p className="text-xs text-gray-500">{history.reason || 'Status change recorded'} · {new Date(history.created_at).toLocaleString()}</p>
+                      </div>
+                    )) : <p>No activity recorded yet.</p>}
                   </div>
                 )}
-                {profileTab === 'Notes' && <p className="text-sm text-gray-600">{selected.notes}</p>}
+                {profileTab === 'Login Sessions' && (
+                  <div className="space-y-2 text-sm text-gray-600">
+                    {selectedUser.sessions.length ? selectedUser.sessions.map((session) => (
+                      <div key={session.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
+                        <p className="font-bold text-gray-900">{session.browser || 'Unknown browser'} · {session.platform || 'Unknown platform'}</p>
+                        <p className="text-xs text-gray-500">{session.ip_address || 'Unknown IP'} · {session.status} · last seen {new Date(session.last_seen_at).toLocaleString()}</p>
+                      </div>
+                    )) : <p>No login sessions recorded yet.</p>}
+                  </div>
+                )}
+                {profileTab === 'Audit History' && (
+                  <div className="space-y-3 text-sm text-gray-600">
+                    {selectedUser.status_history.length ? selectedUser.status_history.map((history) => (
+                      <div key={history.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
+                        <p className="font-bold text-gray-900">{history.changed_by}</p>
+                        <p className="text-xs text-gray-500">{history.previous_status || 'New'} → {history.new_status} · {new Date(history.created_at).toLocaleString()}</p>
+                      </div>
+                    )) : <p>No audit history available yet.</p>}
+                  </div>
+                )}
+                {profileTab === 'Assigned Packages' && (
+                  <div className="space-y-3 text-sm text-gray-600">
+                    {selectedUser.memberships.length ? selectedUser.memberships.map((membership) => (
+                      <div key={`${membership.id}-package`} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
+                        <p className="font-bold text-gray-900">{membership.package || 'No package assigned'}</p>
+                        <p className="text-xs text-gray-500">{membership.organization}</p>
+                      </div>
+                    )) : <p>No package assignments yet.</p>}
+                  </div>
+                )}
+                {profileTab === 'Assigned Services' && (
+                  <div className="space-y-3 text-sm text-gray-600">
+                    <p>Service-level assignments will appear here from package and workflow mappings.</p>
+                  </div>
+                )}
+                {profileTab === 'Notes' && (
+                  <div className="space-y-4">
+                    <div className="space-y-3 text-sm text-gray-600">
+                      {selectedUser.notes.length ? selectedUser.notes.map((note) => (
+                        <div key={note.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
+                          <p className="font-semibold text-gray-900">{note.author}</p>
+                          <p className="mt-1 text-sm text-gray-600">{note.body}</p>
+                          <p className="mt-2 text-xs text-gray-500">{new Date(note.created_at).toLocaleString()}</p>
+                        </div>
+                      )) : <p>No operator notes yet.</p>}
+                    </div>
+                    <textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="Add an internal note for this user..." className="min-h-[110px] w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+                    <ActionButton icon={Plus} label="Save note" tone="primary" onClick={submitNote} disabled={isSubmitting || !noteDraft.trim()} />
+                  </div>
+                )}
                 {!['General', 'Professional', 'Permissions', 'Login Sessions', 'Notes'].includes(profileTab) && (
-                  <p className="text-sm text-gray-600">
-                    {profileTab} workflow is prepared for production and can be connected to live APIs without changing the layout.
-                  </p>
+                  null
                 )}
               </div>
             </>
@@ -668,8 +1094,27 @@ export function PeopleAccessModule({ people }) {
   );
 }
 
-export function PermissionMatrixModule({ permissionGroups, roles }) {
-  const [expanded, setExpanded] = useState(permissionGroups.reduce((acc, group) => ({ ...acc, [group.module]: true }), {}));
+export function PermissionMatrixModule({ metadata, loading = false }) {
+  const [query, setQuery] = useState('');
+  const roleRows = metadata?.roles || [];
+  const permissionGroups = useMemo(() => {
+    const grouped = new Map();
+    (metadata?.permissions || []).forEach((permission) => {
+      const group = grouped.get(permission.module) || [];
+      if (!query || permission.key.toLowerCase().includes(query.toLowerCase()) || permission.label.toLowerCase().includes(query.toLowerCase())) {
+        group.push(permission);
+      }
+      grouped.set(permission.module, group);
+    });
+    return Array.from(grouped.entries())
+      .map(([module, permissions]) => ({ module, permissions }))
+      .filter((group) => group.permissions.length > 0);
+  }, [metadata?.permissions, query]);
+  const [expanded, setExpanded] = useState({});
+
+  useEffect(() => {
+    setExpanded(permissionGroups.reduce((acc, group) => ({ ...acc, [group.module]: true }), {}));
+  }, [metadata?.permissions]);
 
   return (
     <ModuleFrame
@@ -686,7 +1131,7 @@ export function PermissionMatrixModule({ permissionGroups, roles }) {
       <div className="grid gap-6 xl:grid-cols-[0.9fr_1.4fr]">
         <Panel title="Role library" subtitle="Cloneable and governed roles for enterprise operations.">
           <div className="space-y-3">
-            {roles.map((role) => (
+            {roleRows.map((role) => (
               <div key={role.id} className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
@@ -707,7 +1152,12 @@ export function PermissionMatrixModule({ permissionGroups, roles }) {
           <div className="mb-4 flex flex-wrap gap-2">
             <button className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600">
               <Search className="h-4 w-4" />
-              Search permissions
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search permissions"
+                className="bg-transparent outline-none"
+              />
             </button>
             <button className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600">
               <ChevronDown className="h-4 w-4" />
@@ -715,7 +1165,12 @@ export function PermissionMatrixModule({ permissionGroups, roles }) {
             </button>
           </div>
 
-          <div className="space-y-4">
+          {loading ? (
+            <div className="rounded-3xl bg-gray-50 px-6 py-16 text-center text-sm font-semibold text-gray-500">
+              Loading permission matrix...
+            </div>
+          ) : (
+            <div className="space-y-4">
             {permissionGroups.map((group) => (
               <div key={group.module} className="overflow-hidden rounded-2xl border border-gray-100">
                 <button
@@ -734,7 +1189,7 @@ export function PermissionMatrixModule({ permissionGroups, roles }) {
                       <thead className="border-y border-gray-100 bg-white">
                         <tr>
                           <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-[0.24em] text-gray-400">Permission</th>
-                          {roles.map((role) => (
+                          {roleRows.map((role) => (
                             <th key={role.id} className="px-4 py-3 text-center text-xs font-black uppercase tracking-[0.24em] text-gray-400">
                               {role.name}
                             </th>
@@ -743,12 +1198,15 @@ export function PermissionMatrixModule({ permissionGroups, roles }) {
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {group.permissions.map((permission, index) => (
-                          <tr key={permission}>
-                            <td className="px-4 py-3 font-semibold text-gray-800">{permission}</td>
-                            {roles.map((role, roleIndex) => {
-                              const checked = role.name === 'Platform Owner' || roleIndex <= Math.min(index % roles.length, roles.length - 1);
+                          <tr key={permission.id}>
+                            <td className="px-4 py-3 font-semibold text-gray-800">
+                              <p>{permission.label}</p>
+                              <p className="text-xs text-gray-400">{permission.key}</p>
+                            </td>
+                            {roleRows.map((role) => {
+                              const checked = (role.permissions || []).includes(permission.key);
                               return (
-                                <td key={`${role.id}-${permission}`} className="px-4 py-3 text-center">
+                                <td key={`${role.id}-${permission.id}`} className="px-4 py-3 text-center">
                                   <input type="checkbox" checked={checked} readOnly className="h-4 w-4 rounded border-gray-300 text-[#237afc]" />
                                 </td>
                               );
@@ -761,7 +1219,8 @@ export function PermissionMatrixModule({ permissionGroups, roles }) {
                 )}
               </div>
             ))}
-          </div>
+            </div>
+          )}
         </Panel>
       </div>
     </ModuleFrame>

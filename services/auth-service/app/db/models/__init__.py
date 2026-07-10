@@ -8,6 +8,20 @@ from app.db.models.team import Team, SessionRequest, TeamMembership
 from app.db.models.notification import Notification
 from app.db.models.metric import WellnessMetric
 from app.db.models.tool_usage import ToolUsage
+from app.db.models.owner_access import (
+    Permission,
+    RolePermission,
+    UserRole,
+    Organization,
+    Department,
+    OrganizationMembership,
+    AuditEvent,
+    LoginSession,
+    UserNote,
+    UserAttachment,
+    UserInvitation,
+    UserStatusHistory,
+)
 
 __all__ = [
     "Role",
@@ -22,4 +36,16 @@ __all__ = [
     "Notification",
     "WellnessMetric",
     "ToolUsage",
+    "Permission",
+    "RolePermission",
+    "UserRole",
+    "Organization",
+    "Department",
+    "OrganizationMembership",
+    "AuditEvent",
+    "LoginSession",
+    "UserNote",
+    "UserAttachment",
+    "UserInvitation",
+    "UserStatusHistory",
 ]

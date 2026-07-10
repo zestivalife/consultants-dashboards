@@ -31,6 +31,7 @@ from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.role_repository import RoleRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth import LoginResponse, RoleResponse, TokenResponse, UserResponse
+from app.services import people_access_service
 
 logger = get_logger(__name__)
 
@@ -69,7 +70,7 @@ def _send_invitation_email_background(email: str, temp_password: str, role: str)
 
 # ── helpers ───────────────────────────────────────────
 
-def _user_response(user: User) -> UserResponse:
+def _user_response(user: User, permissions: list[str] | None = None) -> UserResponse:
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -81,16 +82,19 @@ def _user_response(user: User) -> UserResponse:
         first_name=user.first_name,
         last_name=user.last_name,
         phone=user.phone,
-        permissions=user.permissions or [],
+        permissions=permissions if permissions is not None else (user.permissions or []),
         created_at=user.created_at,
     )
 
 
-def _build_tokens(user: User, raw_refresh: str) -> TokenResponse:
+def _build_tokens(user: User, raw_refresh: str, permissions: list[str] | None = None) -> TokenResponse:
     settings = get_settings()
     access_token = create_access_token(
         subject=str(user.id),
-        extra_claims={"role": user.role.name if user.role else "member"},
+        extra_claims={
+            "role": user.role.name if user.role else "member",
+            "permissions": permissions if permissions is not None else (user.permissions or []),
+        },
     )
     return TokenResponse(
         access_token=access_token,
@@ -282,6 +286,7 @@ async def login(
 
     user.failed_login_attempts = 0
     user.lock_until = None
+    user.last_login_at = now
     await user_repo.update(user)
 
     # ── Enforce email verification ─────────────────────────────────
@@ -298,13 +303,21 @@ async def login(
         expires_at=now + timedelta(days=settings.jwt_refresh_expiry_days),
     )
     await refresh_repo.create(refresh_record)
+    await people_access_service.register_login_session(
+        session,
+        user,
+        refresh_record.id,
+        ip_address,
+        user_agent,
+    )
 
     await audit_repo.create(
         "LOGIN_SUCCESS", user_id=user.id, ip_address=ip_address, user_agent=user_agent,
     )
 
-    tokens = _build_tokens(user, raw_refresh)
-    user_data = _user_response(user)
+    permission_claims = await people_access_service.resolve_user_permissions(session, user)
+    tokens = _build_tokens(user, raw_refresh, permission_claims)
+    user_data = _user_response(user, permission_claims)
 
     logger.info("user_logged_in", user_id=str(user.id))
     return LoginResponse(tokens=tokens, user=user_data)
@@ -338,12 +351,20 @@ async def refresh(
         expires_at=datetime.now(timezone.utc) + timedelta(days=settings.jwt_refresh_expiry_days),
     )
     await refresh_repo.create(new_record)
+    await people_access_service.refresh_login_session(
+        session,
+        user,
+        new_record.id,
+        ip_address,
+        user_agent,
+    )
 
     await audit_repo.create(
         "TOKEN_REFRESH", user_id=user.id, ip_address=ip_address, user_agent=user_agent,
     )
 
-    return _build_tokens(user, new_raw)
+    permissions = await people_access_service.resolve_user_permissions(session, user)
+    return _build_tokens(user, new_raw, permissions)
 
 
 async def logout(
@@ -356,7 +377,11 @@ async def logout(
     refresh_repo = RefreshTokenRepository(session)
     audit_repo = AuditLogRepository(session)
 
-    await refresh_repo.revoke_by_hash(hash_token(raw_token))
+    token_hash = hash_token(raw_token)
+    token_record = await refresh_repo.get_valid_by_hash(token_hash)
+    await refresh_repo.revoke_by_hash(token_hash)
+    if token_record is not None:
+        await people_access_service.revoke_login_session(session, token_record.id)
 
     await audit_repo.create(
         "LOGOUT", user_id=user_id, ip_address=ip_address, user_agent=user_agent,
@@ -370,7 +395,8 @@ async def get_current_user(session: AsyncSession, user_id: uuid.UUID) -> UserRes
     user = await user_repo.get_by_id(user_id)
     if user is None:
         raise NotFoundException("User not found")
-    return _user_response(user)
+    permissions = await people_access_service.resolve_user_permissions(session, user)
+    return _user_response(user, permissions)
 
 
 async def list_roles(session: AsyncSession) -> list[RoleResponse]:

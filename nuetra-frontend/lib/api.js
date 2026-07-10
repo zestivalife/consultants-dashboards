@@ -213,6 +213,65 @@ export const authAPI = {
   },
 };
 
+export const ownerPeopleAccessAPI = {
+  summary() {
+    return apiRequest('/owner/people-access/summary');
+  },
+
+  metadata() {
+    return apiRequest('/owner/people-access/metadata');
+  },
+
+  listUsers(params = {}) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      searchParams.set(key, String(value));
+    });
+    const suffix = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return apiRequest(`/owner/people-access/users${suffix}`);
+  },
+
+  getUser(userId) {
+    return apiRequest(`/owner/people-access/users/${userId}`);
+  },
+
+  createUser(payload) {
+    return apiRequest('/owner/people-access/users', {
+      method: 'POST',
+      body: payload,
+    });
+  },
+
+  updateUser(userId, payload) {
+    return apiRequest(`/owner/people-access/users/${userId}`, {
+      method: 'PATCH',
+      body: payload,
+    });
+  },
+
+  addNote(userId, body) {
+    return apiRequest(`/owner/people-access/users/${userId}/notes`, {
+      method: 'POST',
+      body: { body },
+    });
+  },
+
+  bulkAction(payload) {
+    return apiRequest('/owner/people-access/users/bulk-actions', {
+      method: 'POST',
+      body: payload,
+    });
+  },
+
+  createOrganization(payload) {
+    return apiRequest('/owner/people-access/organizations', {
+      method: 'POST',
+      body: payload,
+    });
+  },
+};
+
 // ── Profile endpoints ──────────────────────────────────────────────
 
 export const profileAPI = {
