@@ -32,8 +32,9 @@ const roleKinds = {
   team_member: 'consultant',
   member: 'consultant',
   senior_consultant: 'consultant',
-  admin: 'consultant',
-  superuser: 'consultant',
+  admin: 'admin',
+  superuser: 'admin',
+  platform_owner: 'admin',
   mentor: 'mentor',
   team_lead: 'mentor',
   organization_admin: 'admin',
@@ -62,6 +63,7 @@ const adminNav = [
   { id: 'clients', label: 'Clients', icon: Users },
   { id: 'intelligence', label: 'Intelligence', icon: TrendingUp },
   { id: 'organizations', label: 'Organizations', icon: FileBarChart2 },
+  { id: 'people', label: 'People', icon: ListChecks },
 ];
 
 const timeframeOptions = ['Day', 'Week', 'Month', 'Quarter', 'Custom Range'];
@@ -73,6 +75,27 @@ const intelligenceRangeOptions = [
   { id: 'custom', label: 'Custom' },
 ];
 const clientWorkspaceTabs = ['Overview', 'Biomarkers', 'Behaviors', 'Diet Plan', 'Reports', 'Notes', 'Chat', 'Timeline'];
+const superAdminRoles = new Set(['superuser', 'platform_owner']);
+const managedRoleOptions = [
+  { value: 'mentor', label: 'Mentor', audience: 'mentor' },
+  { value: 'consultant', label: 'Consultant', audience: 'consultant' },
+  { value: 'provider', label: 'Provider', audience: 'consultant' },
+  { value: 'dietician', label: 'Dietician', audience: 'consultant' },
+  { value: 'senior_consultant', label: 'Senior Consultant', audience: 'consultant' },
+  { value: 'admin', label: 'Admin', audience: 'admin' },
+  { value: 'organization_admin', label: 'Organization Admin', audience: 'admin' },
+  { value: 'corporate_admin', label: 'Corporate Admin', audience: 'admin' },
+];
+const defaultAuthorityOptions = [
+  { id: 'client_read', label: 'Client Directory', description: 'View assigned client records and progress.', audience: 'all' },
+  { id: 'plan_review', label: 'Plan Review', description: 'Review and approve nutrition or recovery plans.', audience: 'consultant' },
+  { id: 'report_interpretation', label: 'Report Interpretation', description: 'Interpret uploaded blood reports and biomarker summaries.', audience: 'consultant' },
+  { id: 'mentor_queue', label: 'Mentor Queue', description: 'Access mentor escalations, support notes, and supervision views.', audience: 'mentor' },
+  { id: 'team_supervision', label: 'Team Supervision', description: 'Oversee consultants, mentor follow-through, and review pipeline health.', audience: 'mentor' },
+  { id: 'user_management', label: 'User Management', description: 'Create and manage practitioners and admins.', audience: 'admin' },
+  { id: 'analytics_read', label: 'Analytics Access', description: 'View intelligence, revenue, and quality dashboards.', audience: 'admin' },
+  { id: 'authority_management', label: 'Authority Management', description: 'Grant or revoke authorities for practitioner accounts.', audience: 'admin' },
+];
 
 const fadeThrough = {
   initial: { opacity: 0, y: 8 },
@@ -124,6 +147,19 @@ function getRoleKind(role) {
 
 function formatStatusLabel(value = '') {
   return value.replace(/_/g, ' ');
+}
+
+function getAuthorityAudience(role) {
+  const option = managedRoleOptions.find((item) => item.value === String(role).toLowerCase());
+  return option?.audience || 'consultant';
+}
+
+function groupManagedPeople(people) {
+  return {
+    mentors: people.filter((item) => ['mentor', 'team_lead'].includes(item.role)),
+    consultants: people.filter((item) => ['consultant', 'provider', 'dietician', 'senior_consultant'].includes(item.role)),
+    admins: people.filter((item) => ['admin', 'organization_admin', 'corporate_admin', 'superuser'].includes(item.role)),
+  };
 }
 
 function toneForStatus(status) {
@@ -2487,6 +2523,377 @@ function AdminOverview({ billing, revenue, quality }) {
   );
 }
 
+function SuperAdminPeoplePage() {
+  const [people, setPeople] = useState([]);
+  const [peopleLoading, setPeopleLoading] = useState(true);
+  const [peopleError, setPeopleError] = useState('');
+  const [authorityOptions, setAuthorityOptions] = useState(defaultAuthorityOptions);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editingPerson, setEditingPerson] = useState(null);
+  const [submitError, setSubmitError] = useState('');
+  const [submitSuccess, setSubmitSuccess] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [form, setForm] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    role: 'mentor',
+    specialization: '',
+    authorities: [],
+  });
+  const [editAuthorities, setEditAuthorities] = useState([]);
+
+  useEffect(() => {
+    let active = true;
+
+    Promise.allSettled([corporateAPI.people(), corporateAPI.authorityOptions()])
+      .then(([peopleResult, optionsResult]) => {
+        if (!active) return;
+
+        if (peopleResult.status === 'fulfilled') {
+          setPeople(Array.isArray(peopleResult.value) ? peopleResult.value : []);
+        } else {
+          setPeopleError(peopleResult.reason?.message || 'Unable to load workspace people.');
+        }
+
+        if (optionsResult.status === 'fulfilled' && Array.isArray(optionsResult.value)) {
+          setAuthorityOptions(optionsResult.value);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setPeopleLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const grouped = useMemo(() => groupManagedPeople(people), [people]);
+  const visibleAuthorityOptions = useMemo(() => {
+    const audience = getAuthorityAudience(form.role);
+    return authorityOptions.filter((item) => item.audience === 'all' || item.audience === audience);
+  }, [authorityOptions, form.role]);
+  const editableAuthorityOptions = useMemo(() => {
+    const audience = editingPerson ? getAuthorityAudience(editingPerson.role) : 'consultant';
+    return authorityOptions.filter((item) => item.audience === 'all' || item.audience === audience);
+  }, [authorityOptions, editingPerson]);
+
+  function updateForm(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+    setSubmitError('');
+  }
+
+  function toggleAuthority(value) {
+    setForm((current) => ({
+      ...current,
+      authorities: current.authorities.includes(value)
+        ? current.authorities.filter((item) => item !== value)
+        : [...current.authorities, value],
+    }));
+  }
+
+  function toggleEditAuthority(value) {
+    setEditAuthorities((current) => (
+      current.includes(value)
+        ? current.filter((item) => item !== value)
+        : [...current, value]
+    ));
+  }
+
+  async function handleCreate(event) {
+    event.preventDefault();
+    setSubmitting(true);
+    setSubmitError('');
+
+    try {
+      const response = await corporateAPI.createPerson(form);
+      const createdPerson = response?.person;
+      if (createdPerson) {
+        setPeople((current) => [createdPerson, ...current]);
+      }
+      setSubmitSuccess(response);
+      setCreateOpen(false);
+      setForm({
+        firstName: '',
+        lastName: '',
+        email: '',
+        phone: '',
+        role: 'mentor',
+        specialization: '',
+        authorities: [],
+      });
+    } catch (nextError) {
+      setSubmitError(nextError?.message || 'Unable to create workspace account.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleAuthoritySave(event) {
+    event.preventDefault();
+    if (!editingPerson) return;
+    setSubmitting(true);
+    setSubmitError('');
+
+    try {
+      const response = await corporateAPI.updatePersonAuthorities(editingPerson.id, editAuthorities);
+      setPeople((current) => current.map((item) => (item.id === response.id ? response : item)));
+      setEditingPerson(null);
+    } catch (nextError) {
+      setSubmitError(nextError?.message || 'Unable to update authorities.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const sections = [
+    { id: 'mentors', title: 'Mentors', subtitle: 'Supervision, escalations, and recovery oversight.', items: grouped.mentors },
+    { id: 'consultants', title: 'Consultants', subtitle: 'Practitioner delivery roles and specialist reviewers.', items: grouped.consultants },
+    { id: 'admins', title: 'Admins', subtitle: 'Operational owners with platform and organization controls.', items: grouped.admins },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <Surface className="p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">People and authorities</p>
+            <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Super admins can create mentor, consultant, and admin accounts, then assign only the authorities they need.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSubmitError('');
+              setCreateOpen(true);
+            }}
+            className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-sm font-medium text-[var(--fluent-color-brand-foreground)]"
+          >
+            Add workspace user
+          </button>
+        </div>
+
+        {submitSuccess?.tempPassword ? (
+          <div className="mt-4 rounded-[18px] border border-[var(--fluent-color-status-success-border)] bg-[var(--fluent-color-status-success-background)] p-4">
+            <p className="text-sm font-medium text-[var(--fluent-color-status-success-foreground)]">
+              {submitSuccess?.person?.firstName || 'Workspace user'} account created.
+            </p>
+            <p className="mt-1 text-sm text-[var(--fluent-color-status-success-foreground)]">
+              Temporary password: <span className="font-semibold">{submitSuccess.tempPassword}</span>
+            </p>
+          </div>
+        ) : null}
+
+        {peopleError ? (
+          <div className="mt-4 rounded-[16px] border border-[var(--fluent-color-status-danger-border)] bg-[var(--fluent-color-status-danger-background)] p-4 text-sm text-[var(--fluent-color-status-danger-foreground)]">
+            {peopleError}
+          </div>
+        ) : null}
+      </Surface>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        {sections.map((section) => (
+          <Surface key={section.id} className="p-5">
+            <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{section.title}</p>
+            <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{section.subtitle}</p>
+            <div className="mt-4 space-y-3">
+              {peopleLoading ? (
+                <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading {section.title.toLowerCase()}...</div>
+              ) : null}
+              {!peopleLoading && !section.items.length ? (
+                <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No {section.title.toLowerCase()} created yet.</div>
+              ) : null}
+              {section.items.map((person) => (
+                <div key={person.id} className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
+                        {[person.firstName, person.lastName].filter(Boolean).join(' ') || person.email}
+                      </p>
+                      <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{person.email}</p>
+                      <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+                        {formatStatusLabel(person.role)}{person.specialization ? ` · ${person.specialization}` : ''}{person.phone ? ` · ${person.phone}` : ''}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSubmitError('');
+                        setEditingPerson(person);
+                        setEditAuthorities(person.authorities || []);
+                      }}
+                      className="rounded-full bg-[var(--fluent-color-neutral-background-3)] px-3 py-1.5 text-xs font-medium text-[var(--fluent-color-neutral-foreground-2)]"
+                    >
+                      Edit authorities
+                    </button>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(person.authorities || []).map((authority) => (
+                      <span key={`${person.id}-${authority}`} className="rounded-full bg-[rgba(54,88,212,0.12)] px-2.5 py-1 text-[11px] text-[#3658d4]">
+                        {authority.replace(/_/g, ' ')}
+                      </span>
+                    ))}
+                    {!person.authorities?.length ? (
+                      <span className="rounded-full bg-[var(--fluent-color-neutral-background-3)] px-2.5 py-1 text-[11px] text-[var(--fluent-color-neutral-foreground-3)]">
+                        No custom authorities
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Surface>
+        ))}
+      </div>
+
+      {createOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(15,23,42,0.42)] p-4">
+          <div className="w-full max-w-2xl rounded-[28px] bg-[var(--fluent-color-neutral-background-1)] p-6 shadow-[0_24px_80px_rgba(15,23,42,0.24)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-lg font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Create workspace account</p>
+                <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Invite a mentor, consultant, or admin and define the authorities they should receive from day one.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateOpen(false)}
+                className="rounded-full bg-[var(--fluent-color-neutral-background-2)] p-2 text-[var(--fluent-color-neutral-foreground-2)]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreate} className="mt-5 space-y-4">
+              {submitError ? (
+                <div className="rounded-[16px] border border-[var(--fluent-color-status-danger-border)] bg-[var(--fluent-color-status-danger-background)] p-4 text-sm text-[var(--fluent-color-status-danger-foreground)]">
+                  {submitError}
+                </div>
+              ) : null}
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-sm text-[var(--fluent-color-neutral-foreground-2)]">First name</span>
+                  <input type="text" required value={form.firstName} onChange={(event) => updateForm('firstName', event.target.value)} className="w-full rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none" />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-sm text-[var(--fluent-color-neutral-foreground-2)]">Last name</span>
+                  <input type="text" required value={form.lastName} onChange={(event) => updateForm('lastName', event.target.value)} className="w-full rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none" />
+                </label>
+              </div>
+
+              <label className="block">
+                <span className="mb-2 block text-sm text-[var(--fluent-color-neutral-foreground-2)]">Email</span>
+                <input type="email" required value={form.email} onChange={(event) => updateForm('email', event.target.value)} className="w-full rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none" />
+              </label>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-sm text-[var(--fluent-color-neutral-foreground-2)]">Phone</span>
+                  <input type="text" value={form.phone} onChange={(event) => updateForm('phone', event.target.value)} className="w-full rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none" />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-sm text-[var(--fluent-color-neutral-foreground-2)]">Role</span>
+                  <select value={form.role} onChange={(event) => updateForm('role', event.target.value)} className="w-full rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none">
+                    {managedRoleOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <label className="block">
+                <span className="mb-2 block text-sm text-[var(--fluent-color-neutral-foreground-2)]">Specialization / context</span>
+                <input type="text" value={form.specialization} onChange={(event) => updateForm('specialization', event.target.value)} placeholder="PCOS, operations, women’s health, mentor oversight" className="w-full rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none" />
+              </label>
+
+              <div className="rounded-[22px] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Authorities</p>
+                <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Choose the exact access this role should receive.</p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {visibleAuthorityOptions.map((authority) => (
+                    <label key={authority.id} className="flex cursor-pointer items-start gap-3 rounded-[18px] bg-[var(--fluent-color-neutral-background-1)] p-3">
+                      <input
+                        type="checkbox"
+                        checked={form.authorities.includes(authority.id)}
+                        onChange={() => toggleAuthority(authority.id)}
+                        className="mt-1 h-4 w-4 accent-[var(--fluent-color-brand-background)]"
+                      />
+                      <div>
+                        <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{authority.label}</p>
+                        <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{authority.description}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setCreateOpen(false)} className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-4 py-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Cancel</button>
+                <button type="submit" disabled={submitting} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-sm font-medium text-[var(--fluent-color-brand-foreground)] disabled:opacity-70">
+                  {submitting ? 'Creating...' : 'Create user'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {editingPerson ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(15,23,42,0.42)] p-4">
+          <div className="w-full max-w-xl rounded-[28px] bg-[var(--fluent-color-neutral-background-1)] p-6 shadow-[0_24px_80px_rgba(15,23,42,0.24)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-lg font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Edit authorities</p>
+                <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                  {[editingPerson.firstName, editingPerson.lastName].filter(Boolean).join(' ') || editingPerson.email} · {formatStatusLabel(editingPerson.role)}
+                </p>
+              </div>
+              <button type="button" onClick={() => setEditingPerson(null)} className="rounded-full bg-[var(--fluent-color-neutral-background-2)] p-2 text-[var(--fluent-color-neutral-foreground-2)]">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAuthoritySave} className="mt-5 space-y-4">
+              {submitError ? (
+                <div className="rounded-[16px] border border-[var(--fluent-color-status-danger-border)] bg-[var(--fluent-color-status-danger-background)] p-4 text-sm text-[var(--fluent-color-status-danger-foreground)]">
+                  {submitError}
+                </div>
+              ) : null}
+
+              <div className="grid gap-3">
+                {editableAuthorityOptions.map((authority) => (
+                  <label key={authority.id} className="flex cursor-pointer items-start gap-3 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-3">
+                    <input
+                      type="checkbox"
+                      checked={editAuthorities.includes(authority.id)}
+                      onChange={() => toggleEditAuthority(authority.id)}
+                      className="mt-1 h-4 w-4 accent-[var(--fluent-color-brand-background)]"
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{authority.label}</p>
+                      <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{authority.description}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setEditingPerson(null)} className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-4 py-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Cancel</button>
+                <button type="submit" disabled={submitting} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-sm font-medium text-[var(--fluent-color-brand-foreground)] disabled:opacity-70">
+                  {submitting ? 'Saving...' : 'Save authorities'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function FiteatsyAdminHome() {
   const [range, setRange] = useState('month');
   const [customStart, setCustomStart] = useState('2026-06-01');
@@ -3420,6 +3827,7 @@ function PlatformWorkspace({ forcedRole }) {
   const { user, logout } = useAuth();
   const resolvedRole = forcedRole || user?.role || 'consultant';
   const roleKind = getRoleKind(resolvedRole);
+  const isSuperAdmin = superAdminRoles.has(String(resolvedRole).toLowerCase());
   const [state, setState] = useState(() => {
     const initial = buildInitialPlatformState();
     return {
@@ -3516,7 +3924,7 @@ function PlatformWorkspace({ forcedRole }) {
   const selectedClient = useMemo(() => allClients.find((client) => client.id === selectedClientId) || allClients[0], [allClients, selectedClientId]);
   const selectedPlan = useMemo(() => state.plans.find((plan) => plan.employeeId === selectedClient?.id), [selectedClient, state.plans]);
   const roleName = getRoleDisplayName(resolvedRole);
-  const topNavItems = roleKind === 'consultant' ? consultantNav : roleKind === 'mentor' ? mentorNav : adminNav;
+  const topNavItems = roleKind === 'consultant' ? consultantNav : roleKind === 'mentor' ? mentorNav : (isSuperAdmin ? adminNav : adminNav.filter((item) => item.id !== 'people'));
   const adminHeader = brandView === 'Fiteatsy'
     ? {
         title: 'User Intelligence',
@@ -4213,6 +4621,8 @@ function PlatformWorkspace({ forcedRole }) {
             <>
               {nav === 'organizations' ? (
                 <OrganizationsPage organizationSignals={organizationSignals} />
+              ) : nav === 'people' ? (
+                isSuperAdmin ? <SuperAdminPeoplePage /> : <CompactPageHeader title="Restricted" subtitle="Only super admins can manage mentors, consultants, admins, and their authorities." />
               ) : (
                 <>
                   <CompactPageHeader title={adminHeader.title} subtitle={adminHeader.subtitle} />
@@ -4288,3 +4698,4 @@ export const ConsultantWorkspace = withAuth(() => <PlatformWorkspace forcedRole=
 export const SeniorConsultantWorkspace = withAuth(() => <PlatformWorkspace forcedRole="senior_consultant" />, ['senior_consultant', 'admin', 'superuser']);
 export const MentorWorkspace = withAuth(() => <PlatformWorkspace forcedRole="mentor" />, ['mentor', 'team_lead']);
 export const OrganizationWorkspace = withAuth(() => <PlatformWorkspace forcedRole="organization_admin" />, ['organization_admin', 'corporate_admin', 'corporate_client']);
+export const AdminWorkspace = withAuth(() => <PlatformWorkspace forcedRole="admin" />, ['admin', 'superuser', 'PLATFORM_OWNER']);

@@ -50,6 +50,7 @@ class UserResponse(BaseModel):
     first_name: str | None = None
     last_name: str | None = None
     phone: str | None = None
+    permissions: list[str] = Field(default_factory=list)
     created_at: datetime
 
     model_config = {"from_attributes": True}

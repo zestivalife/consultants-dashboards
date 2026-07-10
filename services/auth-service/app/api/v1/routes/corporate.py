@@ -13,7 +13,8 @@ from app.db.models.notification import Notification
 from app.schemas.corporate import (
     TeamCreate, TeamResponse, EmployeeInvite, EmployeeResponse,
     ConsultantInvite, ConsultantResponse,
-    SessionRequestCreate, SessionRequestResponse, DashboardStats, AnalyticsData
+    SessionRequestCreate, SessionRequestResponse, DashboardStats, AnalyticsData,
+    AuthorityOption, ManagedPersonCreate, ManagedPersonResponse, ManagedPersonUpdate
 )
 from app.core.response import success_response
 from app.core.security import hash_password
@@ -32,6 +33,33 @@ router = APIRouter(tags=["corporate-admin"])
 
 ADMIN_ROLE_NAMES = {"corporate_client", "corporate_admin", "organization_admin", "admin", "superuser", "PLATFORM_OWNER"}
 CONSULTANT_ROLE_NAMES = {"consultant", "provider", "dietician", "senior_consultant"}
+MENTOR_ROLE_NAMES = {"mentor", "team_lead"}
+ADMIN_MANAGED_ROLE_NAMES = {"admin", "organization_admin", "corporate_admin"}
+MANAGED_ROLE_NAMES = CONSULTANT_ROLE_NAMES | MENTOR_ROLE_NAMES | ADMIN_MANAGED_ROLE_NAMES
+SUPER_ADMIN_ROLE_NAMES = {"superuser", "platform_owner", "PLATFORM_OWNER"}
+
+AUTHORITY_OPTIONS = [
+    {"id": "client_read", "label": "Client Directory", "description": "View assigned client records and progress.", "audience": "all"},
+    {"id": "plan_review", "label": "Plan Review", "description": "Review and approve nutrition or recovery plans.", "audience": "consultant"},
+    {"id": "report_interpretation", "label": "Report Interpretation", "description": "Interpret uploaded blood reports and biomarker summaries.", "audience": "consultant"},
+    {"id": "mentor_queue", "label": "Mentor Queue", "description": "Access mentor escalations, support notes, and supervision views.", "audience": "mentor"},
+    {"id": "team_supervision", "label": "Team Supervision", "description": "Oversee consultants, mentor follow-through, and review pipeline health.", "audience": "mentor"},
+    {"id": "user_management", "label": "User Management", "description": "Create and manage practitioners and admins.", "audience": "admin"},
+    {"id": "analytics_read", "label": "Analytics Access", "description": "View intelligence, revenue, and quality dashboards.", "audience": "admin"},
+    {"id": "authority_management", "label": "Authority Management", "description": "Grant or revoke authorities for practitioner accounts.", "audience": "admin"},
+]
+
+ROLE_DEFAULT_AUTHORITIES = {
+    "mentor": ["client_read", "mentor_queue", "team_supervision"],
+    "team_lead": ["client_read", "mentor_queue", "team_supervision"],
+    "consultant": ["client_read", "plan_review", "report_interpretation"],
+    "provider": ["client_read", "plan_review", "report_interpretation"],
+    "dietician": ["client_read", "plan_review", "report_interpretation"],
+    "senior_consultant": ["client_read", "plan_review", "report_interpretation", "mentor_queue"],
+    "admin": ["client_read", "user_management", "analytics_read"],
+    "organization_admin": ["client_read", "user_management", "analytics_read"],
+    "corporate_admin": ["client_read", "user_management", "analytics_read"],
+}
 
 
 def _ensure_admin_access(current_user):
@@ -39,8 +67,42 @@ def _ensure_admin_access(current_user):
         raise HTTPException(status_code=403, detail="Admin access is required")
 
 
+def _ensure_super_admin_access(current_user):
+    if current_user.role not in SUPER_ADMIN_ROLE_NAMES:
+        raise HTTPException(status_code=403, detail="Super admin access is required")
+
+
 def _company_scope_id(current_user) -> uuid.UUID:
     return current_user.company_id or current_user.id
+
+
+def _normalize_role_name(role_name: str) -> str:
+    return role_name.lower().replace("-", "_").replace(" ", "_")
+
+
+def _normalize_authorities(role_name: str, authorities: list[str] | None) -> list[str]:
+    requested = [value.strip() for value in (authorities or []) if isinstance(value, str) and value.strip()]
+    if requested:
+        unique = []
+        for value in requested:
+            if value not in unique:
+                unique.append(value)
+        return unique
+    return ROLE_DEFAULT_AUTHORITIES.get(role_name, ["client_read"])
+
+
+def _person_payload(user: User, role_name: str) -> ManagedPersonResponse:
+    return ManagedPersonResponse(
+        id=user.id,
+        email=user.email,
+        firstName=user.first_name or "",
+        lastName=user.last_name or "",
+        phone=user.phone,
+        role=role_name,
+        specialization=user.industry,
+        authorities=user.permissions or [],
+        createdAt=user.created_at,
+    )
 
 @router.get("/dashboard/stats")
 async def get_dashboard_stats(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -259,6 +321,7 @@ async def list_consultants(db: AsyncSession = Depends(get_db), current_user: Use
                 role=role.name,
                 specialization=usr.industry,
                 createdAt=usr.created_at,
+                authorities=usr.permissions or [],
             ).model_dump(mode="json")
         )
     return success_response(consultants)
@@ -292,6 +355,7 @@ async def create_consultant(consultant: ConsultantInvite, db: AsyncSession = Dep
         company_id=_company_scope_id(current_user),
         industry=consultant.specialization,
         is_verified=True,
+        permissions=ROLE_DEFAULT_AUTHORITIES.get(role_name_in, ["client_read"]),
     )
     db.add(new_user)
     await db.commit()
@@ -321,11 +385,118 @@ async def create_consultant(consultant: ConsultantInvite, db: AsyncSession = Dep
         role=role_obj.name,
         specialization=new_user.industry,
         createdAt=new_user.created_at,
+        authorities=new_user.permissions or [],
     ).model_dump(mode="json")
 
     return success_response(
         {"consultant": consultant_payload, "tempPassword": temp_password},
         "Consultant account created successfully",
+    )
+
+
+@router.get("/authority-options")
+async def get_authority_options(current_user: User = Depends(get_current_user)):
+    _ensure_super_admin_access(current_user)
+    return success_response([AuthorityOption(**item).model_dump(mode="json") for item in AUTHORITY_OPTIONS])
+
+
+@router.get("/people")
+async def list_people(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _ensure_super_admin_access(current_user)
+    result = await db.execute(
+        select(User, Role)
+        .join(Role, User.role_id == Role.id)
+        .where(func.lower(Role.name).in_(MANAGED_ROLE_NAMES))
+        .order_by(Role.name.asc(), User.created_at.desc())
+    )
+    people = []
+    for usr, role in result.all():
+        people.append(_person_payload(usr, role.name).model_dump(mode="json"))
+    return success_response(people)
+
+
+@router.post("/people")
+async def create_person(person: ManagedPersonCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _ensure_super_admin_access(current_user)
+
+    role_name_in = _normalize_role_name(person.role)
+    if role_name_in not in MANAGED_ROLE_NAMES:
+        raise HTTPException(status_code=400, detail="Unsupported role")
+
+    role_result = await db.execute(select(Role).where(func.lower(Role.name) == role_name_in))
+    role_obj = role_result.scalar_one_or_none()
+    if not role_obj:
+        raise HTTPException(status_code=500, detail="Role is not configured in the database")
+
+    existing = await db.scalar(select(User).where(User.email == person.email))
+    if existing:
+        raise HTTPException(status_code=400, detail="User with this email already exists")
+
+    temp_password = "Temp@123password"
+    new_user = User(
+        email=person.email,
+        first_name=person.firstName,
+        last_name=person.lastName,
+        phone=person.phone,
+        password_hash=hash_password(temp_password),
+        role_id=role_obj.id,
+        company_id=_company_scope_id(current_user),
+        industry=person.specialization,
+        is_verified=True,
+        permissions=_normalize_authorities(role_name_in, person.authorities),
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+
+    try:
+        get_email_service().send_invitation(new_user.email, temp_password, role_obj.name)
+    except Exception as e:
+        print(f"Failed to send managed user invitation email to {new_user.email}: {e}")
+
+    await _notify(
+        db,
+        new_user.id,
+        "Workspace account ready",
+        "Your platform access has been created. Use the temporary password to sign in and reset it after login.",
+        type="invite",
+        priority="high",
+    )
+    await db.commit()
+
+    return success_response(
+        {"person": _person_payload(new_user, role_obj.name).model_dump(mode="json"), "tempPassword": temp_password},
+        "Workspace account created successfully",
+    )
+
+
+@router.patch("/people/{user_id}/authorities")
+async def update_person_authorities(
+    user_id: uuid.UUID,
+    update: ManagedPersonUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ensure_super_admin_access(current_user)
+
+    result = await db.execute(
+        select(User, Role)
+        .join(Role, User.role_id == Role.id)
+        .where(User.id == user_id)
+        .where(func.lower(Role.name).in_(MANAGED_ROLE_NAMES))
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Managed user not found")
+
+    managed_user, role = row
+    managed_user.permissions = _normalize_authorities(role.name, update.authorities)
+    await db.commit()
+    await db.refresh(managed_user)
+
+    return success_response(
+        _person_payload(managed_user, role.name).model_dump(mode="json"),
+        "Authorities updated successfully",
     )
 
 @router.post("/sessions")

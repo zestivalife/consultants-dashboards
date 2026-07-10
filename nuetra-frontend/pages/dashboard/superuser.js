@@ -1,3 +1,3 @@
-import { SeniorConsultantWorkspace } from '../../components/platform/PlatformWorkspace';
+import { AdminWorkspace } from '../../components/platform/PlatformWorkspace';
 
-export default SeniorConsultantWorkspace;
+export default AdminWorkspace;

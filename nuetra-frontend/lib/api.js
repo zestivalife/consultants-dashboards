@@ -450,6 +450,28 @@ export const teamMemberAPI = {
 };
 
 export const corporateAPI = {
+  authorityOptions() {
+    return apiRequest('/corporate-admin/authority-options');
+  },
+
+  people() {
+    return apiRequest('/corporate-admin/people');
+  },
+
+  createPerson(data) {
+    return apiRequest('/corporate-admin/people', {
+      method: 'POST',
+      body: data,
+    });
+  },
+
+  updatePersonAuthorities(userId, authorities) {
+    return apiRequest(`/corporate-admin/people/${userId}/authorities`, {
+      method: 'PATCH',
+      body: { authorities },
+    });
+  },
+
   consultants() {
     return apiRequest('/corporate-admin/consultants');
   },

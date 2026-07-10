@@ -3,6 +3,13 @@ from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
+
+class AuthorityOption(BaseModel):
+    id: str
+    label: str
+    description: str
+    audience: str
+
 class TeamCreate(BaseModel):
     name: str
     description: Optional[str] = None
@@ -55,6 +62,34 @@ class ConsultantResponse(BaseModel):
     phone: Optional[str] = None
     role: str
     specialization: Optional[str] = None
+    status: str = "Active"
+    createdAt: datetime
+    authorities: List[str] = Field(default_factory=list)
+
+
+class ManagedPersonCreate(BaseModel):
+    email: EmailStr
+    firstName: str
+    lastName: str
+    phone: Optional[str] = None
+    role: str
+    specialization: Optional[str] = None
+    authorities: List[str] = Field(default_factory=list)
+
+
+class ManagedPersonUpdate(BaseModel):
+    authorities: List[str] = Field(default_factory=list)
+
+
+class ManagedPersonResponse(BaseModel):
+    id: UUID
+    email: str
+    firstName: str
+    lastName: str
+    phone: Optional[str] = None
+    role: str
+    specialization: Optional[str] = None
+    authorities: List[str] = Field(default_factory=list)
     status: str = "Active"
     createdAt: datetime
 
