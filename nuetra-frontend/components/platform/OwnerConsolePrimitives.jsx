@@ -70,6 +70,9 @@ export function ActionButton({ icon: Icon, label, tone = 'secondary', onClick, t
 
 export function ControlBar({
   searchPlaceholder,
+  searchValue = '',
+  onSearchChange,
+  onSearchKeyDown,
   filters = [],
   activeFilter,
   onFilterChange,
@@ -81,6 +84,9 @@ export function ControlBar({
         <Search className="h-4 w-4 text-gray-400" />
         <input
           type="text"
+          value={searchValue}
+          onChange={(event) => onSearchChange?.(event.target.value)}
+          onKeyDown={onSearchKeyDown}
           placeholder={searchPlaceholder}
           className="w-full bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400"
         />

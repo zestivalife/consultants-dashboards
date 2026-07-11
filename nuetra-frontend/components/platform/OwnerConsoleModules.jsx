@@ -371,6 +371,10 @@ export function PeopleAccessModule({
   const [profileTab, setProfileTab] = useState('General');
   const [searchDraft, setSearchDraft] = useState(filters?.search || '');
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showInvitationModal, setShowInvitationModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [isProfileDrawerOpen, setIsProfileDrawerOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [noteDraft, setNoteDraft] = useState('');
   const [attachmentDraft, setAttachmentDraft] = useState({
@@ -469,6 +473,16 @@ export function PeopleAccessModule({
   const activeFilterProduct = filters?.product_id || '';
   const activeFilterStatus = filters?.status || '';
   const activeFilterVerification = filters?.verification || '';
+  const activeRoleChip =
+    filters?.role === 'platform_owner'
+      ? 'owners'
+      : filters?.role === 'mentor'
+        ? 'mentors'
+        : filters?.role === 'employee'
+          ? 'employees'
+          : filters?.role
+            ? 'admins'
+            : 'all';
 
   const updateForm = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const toggleListValue = (key, value) => {
@@ -493,6 +507,11 @@ export function PeopleAccessModule({
     setSelectedIds((current) =>
       current.includes(userId) ? current.filter((item) => item !== userId) : [...current, userId]
     );
+  };
+
+  const openUserDrawer = (userId) => {
+    onSelectUser?.(userId);
+    setIsProfileDrawerOpen(true);
   };
 
   const submitCreateUser = async () => {
@@ -633,6 +652,7 @@ export function PeopleAccessModule({
         organization_id: '',
         department_id: '',
       });
+      setShowInvitationModal(false);
     } finally {
       setIsSubmitting(false);
     }
@@ -702,6 +722,7 @@ export function PeopleAccessModule({
     try {
       await onImportUsers?.(rows);
       setCsvDraft('');
+      setShowImportModal(false);
     } finally {
       setIsSubmitting(false);
     }
@@ -714,24 +735,35 @@ export function PeopleAccessModule({
       description="Search, filter, bulk-edit, import, export, and govern platform identities across owners, admins, mentors, consultants, practitioners, and employees."
       actions={
         <>
-          <ActionButton icon={Upload} label="CSV Import" onClick={handleCsvImport} />
+          <ActionButton icon={Upload} label="CSV Import" onClick={() => setShowImportModal(true)} />
           <ActionButton icon={Download} label="CSV Export" onClick={handleCsvExport} />
           <ActionButton icon={UserCog} label="Refresh" onClick={() => onRefresh?.()} />
           <ActionButton
             icon={Plus}
-            label={showCreateForm ? 'Close create form' : 'Add mentor / consultant / admin'}
+            label="Add mentor / consultant / admin"
             tone="primary"
-            onClick={() => setShowCreateForm((current) => !current)}
+            onClick={() => setShowCreateForm(true)}
           />
         </>
       }
     >
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <StatPill icon={Users} label="People" value={summaryMetric('People') || people.length} />
-        <StatPill icon={Shield} label="Admins" value={adminsCount} tone="from-violet-500 to-fuchsia-500" />
-        <StatPill icon={UserCog} label="Mentors" value={mentorCount} tone="from-amber-500 to-orange-500" />
-        <StatPill icon={BriefcaseBusiness} label="Consultants" value={consultantCount} tone="from-emerald-500 to-teal-500" />
-        <StatPill icon={Mail} label="Suspended" value={suspendedCount} tone="from-rose-500 to-red-500" />
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {[
+          { label: 'People', value: summaryMetric('People') || people.length, icon: Users, tone: 'from-[#237afc] to-[#58b6ff]', patch: { role: '', status: '', page: 1 } },
+          { label: 'Admins', value: adminsCount, icon: Shield, tone: 'from-violet-500 to-fuchsia-500', patch: { role: 'organization_admin', page: 1 } },
+          { label: 'Mentors', value: mentorCount, icon: UserCog, tone: 'from-amber-500 to-orange-500', patch: { role: 'mentor', page: 1 } },
+          { label: 'Consultants', value: consultantCount, icon: BriefcaseBusiness, tone: 'from-emerald-500 to-teal-500', patch: { role: 'consultant', page: 1 } },
+          { label: 'Suspended', value: suspendedCount, icon: Mail, tone: 'from-rose-500 to-red-500', patch: { status: 'SUSPENDED', page: 1 } },
+        ].map((metric) => (
+          <button
+            key={metric.label}
+            type="button"
+            onClick={() => onFilterChange?.(metric.patch)}
+            className="text-left transition-transform hover:-translate-y-0.5"
+          >
+            <StatPill icon={metric.icon} label={metric.label} value={metric.value} tone={metric.tone} />
+          </button>
+        ))}
       </div>
 
       {error ? (
@@ -740,10 +772,14 @@ export function PeopleAccessModule({
         </div>
       ) : null}
 
-      <div className="mt-8 grid gap-8 xl:grid-cols-[1.2fr_1fr]">
-        <div className="space-y-6">
+      <div className="mt-8 space-y-6">
           <ControlBar
             searchPlaceholder="Search people, roles, organizations, sessions, or package assignments..."
+            searchValue={searchDraft}
+            onSearchChange={setSearchDraft}
+            onSearchKeyDown={(event) => {
+              if (event.key === 'Enter') onFilterChange?.({ search: searchDraft, page: 1 });
+            }}
             filters={[
               { key: 'all', label: 'All' },
               { key: 'owners', label: 'Platform Owners' },
@@ -751,17 +787,7 @@ export function PeopleAccessModule({
               { key: 'mentors', label: 'Mentors' },
               { key: 'employees', label: 'Employees' },
             ]}
-            activeFilter={
-              filters?.role === 'platform_owner'
-                ? 'owners'
-                : filters?.role === 'mentor'
-                  ? 'mentors'
-                  : filters?.role === 'employee'
-                    ? 'employees'
-                    : filters?.role
-                      ? 'admins'
-                      : 'all'
-            }
+            activeFilter={activeRoleChip}
             onFilterChange={(key) => {
               if (key === 'all') return onFilterChange?.({ role: '', page: 1 });
               if (key === 'owners') return onFilterChange?.({ role: 'platform_owner', page: 1 });
@@ -812,6 +838,13 @@ export function PeopleAccessModule({
                   <option value="pending">Pending</option>
                 </select>
                 <button
+                  onClick={() => setShowAdvancedFilters(true)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600"
+                >
+                  <Filter className="h-4 w-4" />
+                  Advanced
+                </button>
+                <button
                   onClick={() => onFilterChange?.({ search: searchDraft, page: 1 })}
                   className="inline-flex items-center gap-2 rounded-xl border border-[#237afc] bg-[#f5f9ff] px-3 py-2 text-sm font-bold text-[#237afc]"
                 >
@@ -822,32 +855,43 @@ export function PeopleAccessModule({
             }
           />
 
-          <div className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
-            <input
-              value={searchDraft}
-              onChange={(event) => setSearchDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') onFilterChange?.({ search: searchDraft, page: 1 });
-              }}
-              placeholder="Search by person, email, organization, employee ID..."
-              className="w-full bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400"
-            />
-          </div>
-
           <Panel title="Enterprise roster" subtitle="Bulk-ready people management with status, role, and org visibility.">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-gray-50 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone="blue">{selectedIds.length} selected</Badge>
+                <button onClick={() => applyBulkAction('activate')} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Activate</button>
+                <button onClick={() => applyBulkAction('suspend')} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Suspend</button>
+                <button onClick={() => applyBulkAction('deactivate')} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Deactivate</button>
+                <select
+                  value={roleBulkDraft}
+                  onChange={(event) => setRoleBulkDraft(event.target.value)}
+                  className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 outline-none"
+                >
+                  <option value="consultant">consultant</option>
+                  <option value="mentor">mentor</option>
+                  <option value="practitioner">practitioner</option>
+                  <option value="organization_admin">organization admin</option>
+                </select>
+                <button onClick={() => applyBulkAction('assign_role', { role: roleBulkDraft })} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Assign role</button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button onClick={() => setShowInvitationModal(true)} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">New invitation</button>
+                <button onClick={() => setShowImportModal(true)} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Import CSV</button>
+              </div>
+            </div>
             <div className="overflow-hidden rounded-3xl border border-gray-100">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
                     {['Select', 'Person', 'Role', 'Products', 'Organizations', 'Assigned packages', 'Verification', 'Status'].map((header) => (
-                      <th key={header} className="px-5 py-4 text-left text-xs font-black uppercase tracking-[0.24em] text-gray-400">{header}</th>
+                      <th key={header} className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.18em] text-gray-400">{header}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 bg-white">
                   {people.map((person) => (
-                    <tr key={person.id} className="hover:bg-gray-50/80">
-                      <td className="px-5 py-4">
+                    <tr key={person.id} className="cursor-pointer hover:bg-gray-50/80" onClick={() => openUserDrawer(person.id)}>
+                      <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={selectedIdSet.has(person.id)}
@@ -855,42 +899,26 @@ export function PeopleAccessModule({
                           className="h-4 w-4 rounded border-gray-300"
                         />
                       </td>
-                      <td className="px-5 py-4">
-                        <button onClick={() => onSelectUser?.(person.id)} className="text-left">
-                          <p className="font-bold text-gray-900">{person.name}</p>
+                      <td className="px-4 py-3">
+                        <button onClick={() => openUserDrawer(person.id)} className="text-left">
+                          <p className="font-semibold text-gray-900">{person.name}</p>
                           <p className="text-xs text-gray-500">{person.email}</p>
                         </button>
                       </td>
-                      <td className="px-5 py-4"><Badge tone="blue">{person.role.replace(/_/g, ' ')}</Badge></td>
-                      <td className="px-5 py-4 text-sm text-gray-500">{person.products?.length ? person.products.join(', ') : 'No products'}</td>
-                      <td className="px-5 py-4 text-sm text-gray-500">{person.organization || 'Unassigned'}</td>
-                      <td className="px-5 py-4 text-sm text-gray-500">{person.package || 'No package'}</td>
-                      <td className="px-5 py-4">
+                      <td className="px-4 py-3"><Badge tone="blue">{person.role.replace(/_/g, ' ')}</Badge></td>
+                      <td className="px-4 py-3 text-sm text-gray-500">{person.products?.length ? person.products.join(', ') : 'No products'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500">{person.organization || 'Unassigned'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500">{person.package || 'No package'}</td>
+                      <td className="px-4 py-3">
                         <Badge tone={person.verification === 'Verified' ? 'green' : 'amber'}>{person.verification}</Badge>
                       </td>
-                      <td className="px-5 py-4">
+                      <td className="px-4 py-3">
                         <Badge tone={person.status === 'ACTIVE' ? 'green' : 'red'}>{person.status}</Badge>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button onClick={() => applyBulkAction('activate')} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600">Bulk activate</button>
-              <button onClick={() => applyBulkAction('suspend')} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600">Bulk suspend</button>
-              <button onClick={() => applyBulkAction('deactivate')} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600">Bulk deactivate</button>
-              <select
-                value={roleBulkDraft}
-                onChange={(event) => setRoleBulkDraft(event.target.value)}
-                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600 outline-none"
-              >
-                <option value="consultant">consultant</option>
-                <option value="mentor">mentor</option>
-                <option value="practitioner">practitioner</option>
-                <option value="organization_admin">organization admin</option>
-              </select>
-              <button onClick={() => applyBulkAction('assign_role', { role: roleBulkDraft })} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600">Apply bulk role</button>
             </div>
             {pagination ? (
               <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
@@ -917,167 +945,11 @@ export function PeopleAccessModule({
             ) : null}
           </Panel>
 
-          {showCreateForm ? (
-            <Panel title="Create identity" subtitle="Invite a mentor, consultant, senior consultant, practitioner, admin, or employee.">
-              <div className="grid gap-4 md:grid-cols-2">
-                <input value={form.email} onChange={(event) => updateForm('email', event.target.value)} placeholder="Work email" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
-                <input value={form.phone} onChange={(event) => updateForm('phone', event.target.value)} placeholder="Phone number" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
-                <input value={form.first_name} onChange={(event) => updateForm('first_name', event.target.value)} placeholder="First name" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
-                <input value={form.last_name} onChange={(event) => updateForm('last_name', event.target.value)} placeholder="Last name" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
-                <select value={form.role} onChange={(event) => updateForm('role', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                  {roleOptions.map((role) => (
-                    <option key={role.id} value={role.name.toLowerCase().replace(/ /g, '_')}>{role.name}</option>
-                  ))}
-                </select>
-                <select value={form.status} onChange={(event) => updateForm('status', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                  {['INVITED', 'PENDING_VERIFICATION', 'ACTIVE', 'INACTIVE', 'LOCKED', 'SUSPENDED'].map((item) => (
-                    <option key={item} value={item}>{item}</option>
-                  ))}
-                </select>
-                <select value={form.organization_id} onChange={(event) => updateForm('organization_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                  <option value="">Select organization</option>
-                  {organizationOptions.map((organization) => (
-                    <option key={organization.id} value={organization.id}>{organization.name}</option>
-                  ))}
-                </select>
-                <select value={form.department_id} onChange={(event) => updateForm('department_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                  <option value="">Select department</option>
-                  {departmentOptions
-                    .filter((department) => !form.organization_id || department.organization_id === form.organization_id)
-                    .map((department) => (
-                      <option key={department.id} value={department.id}>{department.name}</option>
-                    ))}
-                </select>
-                <input value={form.employee_id} onChange={(event) => updateForm('employee_id', event.target.value)} placeholder="Employee ID" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
-                <input value={form.package_name} onChange={(event) => updateForm('package_name', event.target.value)} placeholder="Assigned package" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
-                <select value={form.primary_product_id} onChange={(event) => updateForm('primary_product_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                  <option value="">Primary product</option>
-                  {productOptions.map((product) => (
-                    <option key={product.id} value={product.id}>{product.name}</option>
-                  ))}
-                </select>
-                <select value={form.assigned_practitioner_id} onChange={(event) => updateForm('assigned_practitioner_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                  <option value="">Assigned practitioner</option>
-                  {practitioners.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
-                </select>
-                <select value={form.assigned_mentor_id} onChange={(event) => updateForm('assigned_mentor_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                  <option value="">Assigned mentor</option>
-                  {mentors.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
-                </select>
-                <select value={form.assigned_consultant_id} onChange={(event) => updateForm('assigned_consultant_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none md:col-span-2">
-                  <option value="">Assigned consultant</option>
-                  {consultants.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
-                </select>
-                <div className="rounded-2xl border border-gray-200 px-4 py-3 md:col-span-2">
-                  <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Products</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {productOptions.map((product) => (
-                      <button
-                        key={product.id}
-                        type="button"
-                        onClick={() => toggleListValue('product_ids', product.id)}
-                        className={cn(
-                          'rounded-full border px-3 py-2 text-xs font-bold',
-                          selectedProductIdSet.has(product.id) ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
-                        )}
-                      >
-                        {product.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-gray-200 px-4 py-3 md:col-span-2">
-                  <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Package assignments</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {packageOptions.map((pkg) => (
-                      <button
-                        key={pkg.id}
-                        type="button"
-                        onClick={() => toggleListValue('package_ids', pkg.id)}
-                        className={cn(
-                          'rounded-full border px-3 py-2 text-xs font-bold',
-                          selectedPackageIdSet.has(pkg.id) ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
-                        )}
-                      >
-                        {pkg.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-gray-200 px-4 py-3 md:col-span-2">
-                  <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Service assignments</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {serviceOptions.map((service) => (
-                      <button
-                        key={service.id}
-                        type="button"
-                        onClick={() => toggleListValue('service_ids', service.id)}
-                        className={cn(
-                          'rounded-full border px-3 py-2 text-xs font-bold',
-                          selectedServiceIdSet.has(service.id) ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
-                        )}
-                      >
-                        {service.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <textarea value={form.note} onChange={(event) => updateForm('note', event.target.value)} placeholder="Invitation note or operator note" className="min-h-[110px] rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none md:col-span-2" />
-              </div>
-
-              <div className="mt-6">
-                <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Authorities</p>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  {permissionOptions.map((permission) => (
-                    <label key={permission.id} className="flex items-start gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={form.permissions.includes(permission.key)}
-                        onChange={() => togglePermission(permission.key)}
-                        className="mt-1 h-4 w-4 rounded border-gray-300"
-                      />
-                      <span>
-                        <span className="block font-bold text-gray-900">{permission.label}</span>
-                        <span className="block text-xs text-gray-500">{permission.key}</span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-6 flex gap-3">
-                <ActionButton icon={Plus} label="Create user" tone="primary" onClick={submitCreateUser} disabled={isSubmitting} />
-                <ActionButton icon={XCircle} label="Cancel" onClick={() => setShowCreateForm(false)} />
-              </div>
-            </Panel>
-          ) : null}
-
-          <Panel title="Invitation lifecycle" subtitle="Create, resend, cancel, and review pending product-scoped invites.">
-            <div className="grid gap-4 md:grid-cols-2">
-              <input value={invitationDraft.email} onChange={(event) => setInvitationDraft((current) => ({ ...current, email: event.target.value }))} placeholder="Invitee email" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
-              <select value={invitationDraft.role} onChange={(event) => setInvitationDraft((current) => ({ ...current, role: event.target.value }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                {roleOptions.map((role) => (
-                  <option key={role.id} value={role.name.toLowerCase().replace(/ /g, '_')}>{role.name}</option>
-                ))}
-              </select>
-              <select value={invitationDraft.product_id} onChange={(event) => setInvitationDraft((current) => ({ ...current, product_id: event.target.value }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                <option value="">Select product</option>
-                {productOptions.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
-              </select>
-              <select value={invitationDraft.organization_id} onChange={(event) => setInvitationDraft((current) => ({ ...current, organization_id: event.target.value, department_id: '' }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                <option value="">Select organization</option>
-                {organizationOptions.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
-              </select>
-              <select value={invitationDraft.department_id} onChange={(event) => setInvitationDraft((current) => ({ ...current, department_id: event.target.value }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none md:col-span-2">
-                <option value="">Select department</option>
-                {departmentOptions
-                  .filter((department) => !invitationDraft.organization_id || department.organization_id === invitationDraft.organization_id)
-                  .map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-              </select>
-            </div>
-            <div className="mt-4 flex gap-3">
-              <ActionButton icon={Mail} label="Create invitation" tone="primary" onClick={submitInvitation} disabled={isSubmitting} />
-            </div>
+          <Panel
+            title="Invitation lifecycle"
+            subtitle="Track pending, accepted, expired, and cancelled invitations without keeping the invite form on the page."
+            action={<ActionButton icon={Mail} label="New invitation" tone="primary" onClick={() => setShowInvitationModal(true)} />}
+          >
             <div className="mt-5 space-y-3">
               {invitations.length ? invitations.map((invitation) => (
                 <div key={invitation.id} className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
@@ -1103,79 +975,332 @@ export function PeopleAccessModule({
               ) : null}
             </div>
           </Panel>
+      </div>
 
-          <Panel title="CSV import workspace" subtitle="Paste a CSV with headers like email, first_name, last_name, role, organization_id, primary_product_id.">
+      {showCreateForm ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-6">
+          <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-[#237afc]">Create identity</p>
+                <h3 className="mt-2 text-2xl font-black text-gray-900">Add a mentor, consultant, admin, or employee</h3>
+                <p className="mt-2 text-sm text-gray-500">Keep creation in a focused workflow instead of pinning a long form to the workspace.</p>
+              </div>
+              <button onClick={() => setShowCreateForm(false)} className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500">
+                Close
+              </button>
+            </div>
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <input value={form.email} onChange={(event) => updateForm('email', event.target.value)} placeholder="Work email" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+              <input value={form.phone} onChange={(event) => updateForm('phone', event.target.value)} placeholder="Phone number" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+              <input value={form.first_name} onChange={(event) => updateForm('first_name', event.target.value)} placeholder="First name" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+              <input value={form.last_name} onChange={(event) => updateForm('last_name', event.target.value)} placeholder="Last name" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+              <select value={form.role} onChange={(event) => updateForm('role', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                {roleOptions.map((role) => (
+                  <option key={role.id} value={role.name.toLowerCase().replace(/ /g, '_')}>{role.name}</option>
+                ))}
+              </select>
+              <select value={form.status} onChange={(event) => updateForm('status', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                {['INVITED', 'PENDING_VERIFICATION', 'ACTIVE', 'INACTIVE', 'LOCKED', 'SUSPENDED'].map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
+              <select value={form.organization_id} onChange={(event) => updateForm('organization_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                <option value="">Select organization</option>
+                {organizationOptions.map((organization) => (
+                  <option key={organization.id} value={organization.id}>{organization.name}</option>
+                ))}
+              </select>
+              <select value={form.department_id} onChange={(event) => updateForm('department_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                <option value="">Select department</option>
+                {departmentOptions
+                  .filter((department) => !form.organization_id || department.organization_id === form.organization_id)
+                  .map((department) => (
+                    <option key={department.id} value={department.id}>{department.name}</option>
+                  ))}
+              </select>
+              <input value={form.employee_id} onChange={(event) => updateForm('employee_id', event.target.value)} placeholder="Employee ID" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+              <input value={form.package_name} onChange={(event) => updateForm('package_name', event.target.value)} placeholder="Assigned package" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+              <select value={form.primary_product_id} onChange={(event) => updateForm('primary_product_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                <option value="">Primary product</option>
+                {productOptions.map((product) => (
+                  <option key={product.id} value={product.id}>{product.name}</option>
+                ))}
+              </select>
+              <select value={form.assigned_practitioner_id} onChange={(event) => updateForm('assigned_practitioner_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                <option value="">Assigned practitioner</option>
+                {practitioners.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+              </select>
+              <select value={form.assigned_mentor_id} onChange={(event) => updateForm('assigned_mentor_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                <option value="">Assigned mentor</option>
+                {mentors.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+              </select>
+              <select value={form.assigned_consultant_id} onChange={(event) => updateForm('assigned_consultant_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none md:col-span-2">
+                <option value="">Assigned consultant</option>
+                {consultants.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+              </select>
+              <div className="rounded-2xl border border-gray-200 px-4 py-3 md:col-span-2">
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Products</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {productOptions.map((product) => (
+                    <button
+                      key={product.id}
+                      type="button"
+                      onClick={() => toggleListValue('product_ids', product.id)}
+                      className={cn(
+                        'rounded-full border px-3 py-2 text-xs font-bold',
+                        selectedProductIdSet.has(product.id) ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
+                      )}
+                    >
+                      {product.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-gray-200 px-4 py-3 md:col-span-2">
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Package assignments</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {packageOptions.map((pkg) => (
+                    <button
+                      key={pkg.id}
+                      type="button"
+                      onClick={() => toggleListValue('package_ids', pkg.id)}
+                      className={cn(
+                        'rounded-full border px-3 py-2 text-xs font-bold',
+                        selectedPackageIdSet.has(pkg.id) ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
+                      )}
+                    >
+                      {pkg.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-gray-200 px-4 py-3 md:col-span-2">
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Service assignments</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {serviceOptions.map((service) => (
+                    <button
+                      key={service.id}
+                      type="button"
+                      onClick={() => toggleListValue('service_ids', service.id)}
+                      className={cn(
+                        'rounded-full border px-3 py-2 text-xs font-bold',
+                        selectedServiceIdSet.has(service.id) ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
+                      )}
+                    >
+                      {service.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <textarea value={form.note} onChange={(event) => updateForm('note', event.target.value)} placeholder="Invitation note or operator note" className="min-h-[110px] rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none md:col-span-2" />
+            </div>
+            <div className="mt-6">
+              <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Authorities</p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                {permissionOptions.map((permission) => (
+                  <label key={permission.id} className="flex items-start gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.permissions.includes(permission.key)}
+                      onChange={() => togglePermission(permission.key)}
+                      className="mt-1 h-4 w-4 rounded border-gray-300"
+                    />
+                    <span>
+                      <span className="block font-bold text-gray-900">{permission.label}</span>
+                      <span className="block text-xs text-gray-500">{permission.key}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <ActionButton icon={Plus} label="Create user" tone="primary" onClick={submitCreateUser} disabled={isSubmitting} />
+              <ActionButton icon={XCircle} label="Cancel" onClick={() => setShowCreateForm(false)} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showInvitationModal ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-6">
+          <div className="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-[#237afc]">Invitation workflow</p>
+                <h3 className="mt-2 text-2xl font-black text-gray-900">Create a new product-scoped invitation</h3>
+              </div>
+              <button onClick={() => setShowInvitationModal(false)} className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500">Close</button>
+            </div>
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <input value={invitationDraft.email} onChange={(event) => setInvitationDraft((current) => ({ ...current, email: event.target.value }))} placeholder="Invitee email" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
+              <select value={invitationDraft.role} onChange={(event) => setInvitationDraft((current) => ({ ...current, role: event.target.value }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                {roleOptions.map((role) => (
+                  <option key={role.id} value={role.name.toLowerCase().replace(/ /g, '_')}>{role.name}</option>
+                ))}
+              </select>
+              <select value={invitationDraft.product_id} onChange={(event) => setInvitationDraft((current) => ({ ...current, product_id: event.target.value }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                <option value="">Select product</option>
+                {productOptions.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+              </select>
+              <select value={invitationDraft.organization_id} onChange={(event) => setInvitationDraft((current) => ({ ...current, organization_id: event.target.value, department_id: '' }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                <option value="">Select organization</option>
+                {organizationOptions.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
+              </select>
+              <select value={invitationDraft.department_id} onChange={(event) => setInvitationDraft((current) => ({ ...current, department_id: event.target.value }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none md:col-span-2">
+                <option value="">Select department</option>
+                {departmentOptions
+                  .filter((department) => !invitationDraft.organization_id || department.organization_id === invitationDraft.organization_id)
+                  .map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+              </select>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <ActionButton icon={Mail} label="Create invitation" tone="primary" onClick={submitInvitation} disabled={isSubmitting} />
+              <ActionButton icon={XCircle} label="Cancel" onClick={() => setShowInvitationModal(false)} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showImportModal ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-6">
+          <div className="w-full max-w-3xl rounded-[28px] bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-[#237afc]">CSV import</p>
+                <h3 className="mt-2 text-2xl font-black text-gray-900">Paste or stage a roster import</h3>
+                <p className="mt-2 text-sm text-gray-500">Expected headers: email, first_name, last_name, role, organization_id, department_id, employee_id, primary_product_id, status.</p>
+              </div>
+              <button onClick={() => setShowImportModal(false)} className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500">Close</button>
+            </div>
             <textarea
               value={csvDraft}
               onChange={(event) => setCsvDraft(event.target.value)}
               placeholder="email,first_name,last_name,role,organization_id,department_id,employee_id,primary_product_id,status"
-              className="min-h-[150px] w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none"
+              className="mt-6 min-h-[220px] w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none"
             />
-            <div className="mt-4 flex gap-3">
+            <div className="mt-6 flex gap-3">
               <ActionButton icon={Upload} label="Run import" tone="primary" onClick={handleCsvImport} disabled={isSubmitting || !csvDraft.trim()} />
               <ActionButton icon={Download} label="Export current roster" onClick={handleCsvExport} />
             </div>
-          </Panel>
+          </div>
         </div>
+      ) : null}
 
-        <Panel title={selectedUser?.name || 'User profile'} subtitle="Profile-level governance and authority review.">
-          {detailLoading ? (
-            <div className="rounded-3xl bg-gray-50 px-6 py-16 text-center text-sm font-semibold text-gray-500">
-              Loading user detail...
+      {showAdvancedFilters ? (
+        <div className="fixed inset-0 z-40 bg-slate-950/25">
+          <div className="absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto border-l border-gray-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-[#237afc]">Advanced filters</p>
+                <h3 className="mt-2 text-2xl font-black text-gray-900">Refine the roster</h3>
+              </div>
+              <button onClick={() => setShowAdvancedFilters(false)} className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500">Close</button>
             </div>
-          ) : selectedUser ? (
-            <>
-              <div className="flex items-center gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#237afc] to-[#53b6ff] text-lg font-black text-white">
-                  {selectedUser.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}
-                </div>
-                <div>
-                  <p className="text-lg font-black text-gray-900">{selectedUser.name}</p>
-                  <p className="text-sm text-gray-500">{selectedUser.professional_title || 'Assigned user profile'}</p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <Badge tone="blue">{selectedUser.role.replace(/_/g, ' ')}</Badge>
-                    <Badge tone={selectedUser.status === 'ACTIVE' ? 'green' : 'red'}>{selectedUser.status}</Badge>
+            <div className="mt-6 space-y-4">
+              <select value={filters?.role || ''} onChange={(event) => onFilterChange?.({ role: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                <option value="">All roles</option>
+                {roleOptions.map((role) => (
+                  <option key={role.id} value={role.name.toLowerCase().replace(/ /g, '_')}>{role.name}</option>
+                ))}
+              </select>
+              <select value={activeFilterProduct} onChange={(event) => onFilterChange?.({ product_id: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                <option value="">All products</option>
+                {productOptions.map((product) => (
+                  <option key={product.id} value={product.id}>{product.name}</option>
+                ))}
+              </select>
+              <select value={activeFilterStatus} onChange={(event) => onFilterChange?.({ status: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                <option value="">All statuses</option>
+                <option value="ACTIVE">Active</option>
+                <option value="INVITED">Invited</option>
+                <option value="PENDING_VERIFICATION">Pending verification</option>
+                <option value="INACTIVE">Inactive</option>
+                <option value="LOCKED">Locked</option>
+                <option value="SUSPENDED">Suspended</option>
+              </select>
+              <select value={activeFilterVerification} onChange={(event) => onFilterChange?.({ verification: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                <option value="">All verification</option>
+                <option value="verified">Verified</option>
+                <option value="pending">Pending</option>
+              </select>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <ActionButton icon={Filter} label="Apply filters" tone="primary" onClick={() => setShowAdvancedFilters(false)} />
+              <ActionButton icon={XCircle} label="Reset" onClick={() => onFilterChange?.({ role: '', product_id: '', status: '', verification: '', search: '', page: 1 })} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isProfileDrawerOpen ? (
+        <div className="fixed inset-0 z-40 bg-slate-950/25">
+          <div className="absolute right-0 top-0 h-full w-full max-w-[760px] overflow-y-auto border-l border-gray-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-[#237afc]">User 360 profile</p>
+                <h3 className="mt-2 text-2xl font-black text-gray-900">{selectedUser?.name || 'User profile'}</h3>
+                <p className="mt-2 text-sm text-gray-500">Profile-level governance, assignments, sessions, notes, attachments, and audit review.</p>
+              </div>
+              <button onClick={() => setIsProfileDrawerOpen(false)} className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500">Close</button>
+            </div>
+            {detailLoading ? (
+              <div className="mt-6 rounded-3xl bg-gray-50 px-6 py-16 text-center text-sm font-semibold text-gray-500">
+                Loading user detail...
+              </div>
+            ) : selectedUser ? (
+              <>
+                <div className="mt-6 flex items-center gap-4">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#237afc] to-[#53b6ff] text-lg font-black text-white">
+                    {selectedUser.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}
+                  </div>
+                  <div>
+                    <p className="text-lg font-black text-gray-900">{selectedUser.name}</p>
+                    <p className="text-sm text-gray-500">{selectedUser.professional_title || 'Assigned user profile'}</p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <Badge tone="blue">{selectedUser.role.replace(/_/g, ' ')}</Badge>
+                      <Badge tone={selectedUser.status === 'ACTIVE' ? 'green' : 'red'}>{selectedUser.status}</Badge>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="mt-6 flex flex-wrap gap-2">
-                {profileTabs.map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => setProfileTab(tab)}
-                    className={cn(
-                      'rounded-full px-3 py-2 text-xs font-bold transition-colors',
-                      profileTab === tab
-                        ? 'bg-[#237afc] text-white'
-                        : 'bg-gray-50 text-gray-600 border border-gray-200'
-                    )}
-                  >
-                    {tab}
-                  </button>
-                ))}
-              </div>
+                <div className="mt-6 flex flex-wrap gap-2">
+                  {profileTabs.map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setProfileTab(tab)}
+                      className={cn(
+                        'rounded-full px-3 py-2 text-xs font-bold transition-colors',
+                        profileTab === tab
+                          ? 'bg-[#237afc] text-white'
+                          : 'border border-gray-200 bg-gray-50 text-gray-600'
+                      )}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
 
-              <div className="mt-6 grid gap-4 md:grid-cols-4">
-                <div className="rounded-2xl border border-gray-100 bg-white px-4 py-4">
-                  <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Active devices</p>
-                  <p className="mt-2 text-2xl font-black text-gray-900">{selectedUser.sessions.filter((session) => session.status === 'ACTIVE').length}</p>
+                <div className="mt-6 grid gap-3 md:grid-cols-4">
+                  <div className="rounded-2xl bg-gray-50 px-4 py-4">
+                    <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Active devices</p>
+                    <p className="mt-2 text-2xl font-black text-gray-900">{selectedUser.sessions.filter((session) => session.status === 'ACTIVE').length}</p>
+                  </div>
+                  <div className="rounded-2xl bg-gray-50 px-4 py-4">
+                    <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Products</p>
+                    <p className="mt-2 text-2xl font-black text-gray-900">{selectedUser.product_access.length}</p>
+                  </div>
+                  <div className="rounded-2xl bg-gray-50 px-4 py-4">
+                    <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Notes</p>
+                    <p className="mt-2 text-2xl font-black text-gray-900">{selectedUser.notes.length}</p>
+                  </div>
+                  <div className="rounded-2xl bg-gray-50 px-4 py-4">
+                    <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Attachments</p>
+                    <p className="mt-2 text-2xl font-black text-gray-900">{selectedUser.attachments.length}</p>
+                  </div>
                 </div>
-                <div className="rounded-2xl border border-gray-100 bg-white px-4 py-4">
-                  <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Products</p>
-                  <p className="mt-2 text-2xl font-black text-gray-900">{selectedUser.product_access.length}</p>
-                </div>
-                <div className="rounded-2xl border border-gray-100 bg-white px-4 py-4">
-                  <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Notes</p>
-                  <p className="mt-2 text-2xl font-black text-gray-900">{selectedUser.notes.length}</p>
-                </div>
-                <div className="rounded-2xl border border-gray-100 bg-white px-4 py-4">
-                  <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Attachments</p>
-                  <p className="mt-2 text-2xl font-black text-gray-900">{selectedUser.attachments.length}</p>
-                </div>
-              </div>
 
-              <div className="mt-6 grid gap-4 md:grid-cols-2">
+                <div className="mt-6 grid gap-4 md:grid-cols-2">
                 <input value={form.first_name} onChange={(event) => updateForm('first_name', event.target.value)} placeholder="First name" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
                 <input value={form.last_name} onChange={(event) => updateForm('last_name', event.target.value)} placeholder="Last name" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
                 <input value={form.phone} onChange={(event) => updateForm('phone', event.target.value)} placeholder="Phone number" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
@@ -1212,15 +1337,15 @@ export function PeopleAccessModule({
                 <input value={form.package_name} onChange={(event) => updateForm('package_name', event.target.value)} placeholder="Assigned package" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
               </div>
 
-              <div className="mt-4 flex gap-3">
-                <ActionButton icon={Save} label="Save profile changes" tone="primary" onClick={submitUpdateUser} disabled={isSubmitting} />
-                <ActionButton icon={CheckCircle2} label="Activate" onClick={() => applyBulkAction('activate', { user_ids: [selectedUser.id] })} />
-                <ActionButton icon={XCircle} label="Suspend" onClick={() => applyBulkAction('suspend', { user_ids: [selectedUser.id] })} />
-                <ActionButton icon={KeyRound} label="Force logout" onClick={() => onForceLogout?.(selectedUser.id)} />
-                <ActionButton icon={Save} label="Sync assignments" onClick={syncProductAssignments} disabled={isSubmitting} />
-              </div>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <ActionButton icon={Save} label="Save profile changes" tone="primary" onClick={submitUpdateUser} disabled={isSubmitting} />
+                  <ActionButton icon={CheckCircle2} label="Activate" onClick={() => applyBulkAction('activate', { user_ids: [selectedUser.id] })} />
+                  <ActionButton icon={XCircle} label="Suspend" onClick={() => applyBulkAction('suspend', { user_ids: [selectedUser.id] })} />
+                  <ActionButton icon={KeyRound} label="Force logout" onClick={() => onForceLogout?.(selectedUser.id)} />
+                  <ActionButton icon={Save} label="Sync assignments" onClick={syncProductAssignments} disabled={isSubmitting} />
+                </div>
 
-              <div className="mt-6 rounded-3xl bg-gray-50 p-5">
+                <div className="mt-6 rounded-3xl bg-gray-50 p-5">
                 {profileTab === 'General' && (
                   <div className="space-y-3 text-sm text-gray-600">
                     <p><span className="font-bold text-gray-900">Email:</span> {selectedUser.email}</p>
@@ -1436,13 +1561,14 @@ export function PeopleAccessModule({
                 {!['General', 'Professional', 'Permissions', 'Product Access', 'Status History', 'Login Sessions', 'Audit History', 'Assigned Packages', 'Assigned Services', 'Attachments', 'Notes', 'Organizations'].includes(profileTab) && (
                   null
                 )}
-              </div>
-            </>
-          ) : (
-            <EmptyState icon={Users} title="No person selected" description="Pick a user to inspect detailed access, activity, and notes." />
-          )}
-        </Panel>
-      </div>
+                </div>
+              </>
+            ) : (
+              <EmptyState icon={Users} title="No person selected" description="Pick a user to inspect detailed access, activity, and notes." />
+            )}
+          </div>
+        </div>
+      ) : null}
     </ModuleFrame>
   );
 }
