@@ -4,7 +4,6 @@ import { Building2, Shield, Sparkles, Users } from 'lucide-react';
 import { useRouter } from 'next/router';
 
 import DashboardHeader from '../../components/DashboardHeader';
-import { TopNavTabs } from '../../components/dashboard';
 import withAuth from '../../hocs/withAuth';
 import { useAuth } from '../../context/AuthContext';
 import { ownerPeopleAccessAPI } from '../../lib/api';
@@ -29,6 +28,47 @@ const roleTitles = {
   superuser: 'Platform Owner',
   admin: 'Admin',
 };
+
+const cn = (...values) => values.filter(Boolean).join(' ');
+
+const ownerNavigationGroups = [
+  {
+    key: 'operations',
+    label: 'Operations',
+    description: 'Platform command, organizations, and daily execution.',
+    tabs: ['dashboard', 'companies'],
+  },
+  {
+    key: 'people',
+    label: 'People & Access',
+    description: 'Identity, authority, sessions, and governance.',
+    tabs: ['users', 'roles'],
+  },
+  {
+    key: 'catalog',
+    label: 'Catalog',
+    description: 'Packages and reusable service definitions.',
+    tabs: ['packages', 'services'],
+  },
+  {
+    key: 'delivery',
+    label: 'Care Team',
+    description: 'Practitioners, mentors, and operating capacity.',
+    tabs: ['providers', 'mentors'],
+  },
+  {
+    key: 'insights',
+    label: 'Insights',
+    description: 'Performance reporting and audit visibility.',
+    tabs: ['reports', 'audit'],
+  },
+  {
+    key: 'workspace',
+    label: 'Workspace',
+    description: 'Platform health, settings, and admin controls.',
+    tabs: ['system', 'settings'],
+  },
+];
 
 function OwnerSummaryBar({ ownerName }) {
   const organizations = platformOwnerConsoleData.organizations;
@@ -88,6 +128,64 @@ function OwnerSummaryBar({ ownerName }) {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OwnerConsoleNav({ activeTab, onTabChange }) {
+  const activeGroup =
+    ownerNavigationGroups.find((group) => group.tabs.includes(activeTab)) || ownerNavigationGroups[0];
+
+  const secondaryTabs = activeGroup.tabs
+    .map((key) => platformOwnerModuleTabs.find((tab) => tab.key === key))
+    .filter(Boolean);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-3">
+        {ownerNavigationGroups.map((group) => {
+          const isActive = group.key === activeGroup.key;
+          return (
+            <button
+              key={group.key}
+              type="button"
+              onClick={() => onTabChange(group.tabs[0])}
+              className={cn(
+                'rounded-2xl border px-4 py-3 text-left transition-all',
+                isActive
+                  ? 'border-[#237afc] bg-[#f5f9ff] shadow-sm'
+                  : 'border-gray-200 bg-white hover:border-[#237afc]/40 hover:bg-[#fbfdff]'
+              )}
+            >
+              <p className={cn('text-sm font-black', isActive ? 'text-[#237afc]' : 'text-gray-900')}>{group.label}</p>
+              <p className="mt-1 text-xs text-gray-500">{group.description}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="rounded-3xl border border-gray-100 bg-white/90 p-3 shadow-sm">
+        <div className="flex flex-wrap gap-2">
+          {secondaryTabs.map((tab) => {
+            const isActive = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => onTabChange(tab.key)}
+                className={cn(
+                  'rounded-full px-4 py-2 text-sm font-bold transition-all',
+                  isActive
+                    ? 'bg-[#237afc] text-white shadow-sm'
+                    : 'border border-gray-200 bg-white text-gray-600 hover:border-[#237afc] hover:text-[#237afc]'
+                )}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -385,7 +483,7 @@ function SuperuserDashboard() {
               </p>
             </div>
           </div>
-          <TopNavTabs activeTab={activeTab} onTabChange={handleTabChange} tabs={platformOwnerModuleTabs} className="mb-0" />
+          <OwnerConsoleNav activeTab={activeTab} onTabChange={handleTabChange} />
         </div>
 
         <div className="space-y-6">
