@@ -264,11 +264,11 @@ export default function DashboardHeader({
 
             <Link href={getDashboardUrl()} className="flex items-center shrink-0">
               <Image
-                src="/nuetra-logo-new.svg"
-                alt="Nuetra Logo"
-                width={120}
-                height={24}
-                className="object-contain w-[100px] sm:w-[130px] lg:w-[150px]"
+                src="/zestiva-logo.png"
+                alt="Zestiva Logo"
+                width={313}
+                height={114}
+                className="object-contain w-[120px] sm:w-[150px] lg:w-[170px]"
               />
             </Link>
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
+import Image from 'next/image';
 import { ArrowRight, KeyRound, Mail, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { getDashboardPathForRole } from '../lib/roleRoutes';
@@ -49,7 +50,15 @@ export default function LoginPage() {
           className="fluent-card flex flex-col justify-between rounded-[36px] p-7 backdrop-blur"
         >
           <div>
-            <p className="text-xs uppercase tracking-[0.28em] text-[#0f6cbd]">Nuetra Practitioner Platform</p>
+            <Image
+              src="/zestiva-logo.png"
+              alt="Zestiva"
+              width={313}
+              height={114}
+              className="h-auto w-[180px] object-contain"
+              priority
+            />
+            <p className="mt-5 text-xs uppercase tracking-[0.28em] text-[#0f6cbd]">Zestiva Consultant Dashboard</p>
             <h1 className="mt-5 max-w-3xl text-4xl font-semibold leading-tight text-[#242424] sm:text-5xl">
               Adaptive wellness operations for Indian nutrition and recovery intelligence.
             </h1>
