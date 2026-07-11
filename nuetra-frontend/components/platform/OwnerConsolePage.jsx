@@ -23,6 +23,7 @@ import OwnerConsoleLayout from './OwnerConsoleLayout';
 import { platformOwnerConsoleData } from '../../data/platformOwnerConsoleData';
 import { getOwnerBreadcrumbs, getOwnerRouteBySlug } from '../../lib/ownerConsoleRoutes';
 import { useOwnerPeopleAccess } from '../../hooks/useOwnerPeopleAccess';
+import { getRoleKey } from '../../lib/roleRoutes';
 
 const roleTitles = {
   platform_owner: 'Platform Owner',
@@ -54,7 +55,7 @@ export default function OwnerConsolePage({ moduleSlug = 'command-center' }) {
     return user?.name || 'Platform Owner';
   }, [user]);
 
-  const currentRoleLabel = roleTitles[(user?.role || 'platform_owner').toLowerCase()] || 'Platform Owner';
+  const currentRoleLabel = roleTitles[getRoleKey(user?.role) || 'platform_owner'] || 'Platform Owner';
   const breadcrumbs = useMemo(() => getOwnerBreadcrumbs(route.slug), [route.slug]);
   const permissionRoleId = typeof router.query.role_id === 'string' ? router.query.role_id : '';
   const permissionQuery = typeof router.query.permission_q === 'string' ? router.query.permission_q : '';

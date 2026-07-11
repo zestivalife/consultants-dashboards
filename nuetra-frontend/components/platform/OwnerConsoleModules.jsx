@@ -426,37 +426,64 @@ export function PeopleAccessModule({
   const practitioners = metadata?.practitioners || [];
   const mentors = metadata?.mentors || [];
   const consultants = metadata?.consultants || [];
+  const safeSelectedUser = useMemo(() => {
+    if (!selectedUser) return null;
+    const displayName =
+      selectedUser.name ||
+      [selectedUser.first_name, selectedUser.last_name].filter(Boolean).join(' ').trim() ||
+      selectedUser.email ||
+      'User profile';
+
+    return {
+      ...selectedUser,
+      name: displayName,
+      email: selectedUser.email || 'No email added',
+      role: selectedUser.role || 'member',
+      status: selectedUser.status || 'UNKNOWN',
+      verification: selectedUser.verification || 'Pending verification',
+      memberships: Array.isArray(selectedUser.memberships) ? selectedUser.memberships : [],
+      permissions: Array.isArray(selectedUser.permissions) ? selectedUser.permissions : [],
+      product_access: Array.isArray(selectedUser.product_access) ? selectedUser.product_access : [],
+      package_assignments: Array.isArray(selectedUser.package_assignments) ? selectedUser.package_assignments : [],
+      service_assignments: Array.isArray(selectedUser.service_assignments) ? selectedUser.service_assignments : [],
+      sessions: Array.isArray(selectedUser.sessions) ? selectedUser.sessions : [],
+      notes: Array.isArray(selectedUser.notes) ? selectedUser.notes : [],
+      attachments: Array.isArray(selectedUser.attachments) ? selectedUser.attachments : [],
+      status_history: Array.isArray(selectedUser.status_history) ? selectedUser.status_history : [],
+      audit_events: Array.isArray(selectedUser.audit_events) ? selectedUser.audit_events : [],
+    };
+  }, [selectedUser]);
 
   useEffect(() => {
     setSearchDraft(filters?.search || '');
   }, [filters?.search]);
 
   useEffect(() => {
-    if (!selectedUser) return;
+    if (!safeSelectedUser) return;
     setForm((current) => ({
       ...current,
-      email: selectedUser.email || '',
-      first_name: selectedUser.first_name || '',
-      last_name: selectedUser.last_name || '',
-      phone: selectedUser.phone || '',
-      role: (selectedUser.role || 'consultant').toLowerCase(),
-      organization_id: selectedUser.memberships?.[0]?.organization_id || '',
-      department_id: selectedUser.memberships?.[0]?.department_id || '',
-      employee_id: selectedUser.memberships?.[0]?.employee_id || '',
-      package_name: selectedUser.memberships?.[0]?.package || '',
-      assigned_practitioner_id: selectedUser.memberships?.[0]?.practitioner_id || '',
-      assigned_mentor_id: selectedUser.memberships?.[0]?.mentor_id || '',
-      assigned_consultant_id: selectedUser.memberships?.[0]?.consultant_id || '',
-      primary_product_id: selectedUser.memberships?.[0]?.primary_product_id || selectedUser.product_access?.find((item) => item.is_primary)?.product_id || '',
-      product_ids: (selectedUser.product_access || []).map((item) => item.product_id),
-      package_ids: (selectedUser.package_assignments || []).map((item) => item.package_id),
-      service_ids: (selectedUser.service_assignments || []).map((item) => item.service_id),
-      status: selectedUser.status || 'ACTIVE',
-      permissions: selectedUser.permissions || [],
-      tags: selectedUser.memberships?.[0]?.tags || [],
+      email: safeSelectedUser.email || '',
+      first_name: safeSelectedUser.first_name || '',
+      last_name: safeSelectedUser.last_name || '',
+      phone: safeSelectedUser.phone || '',
+      role: (safeSelectedUser.role || 'consultant').toLowerCase(),
+      organization_id: safeSelectedUser.memberships?.[0]?.organization_id || '',
+      department_id: safeSelectedUser.memberships?.[0]?.department_id || '',
+      employee_id: safeSelectedUser.memberships?.[0]?.employee_id || '',
+      package_name: safeSelectedUser.memberships?.[0]?.package || '',
+      assigned_practitioner_id: safeSelectedUser.memberships?.[0]?.practitioner_id || '',
+      assigned_mentor_id: safeSelectedUser.memberships?.[0]?.mentor_id || '',
+      assigned_consultant_id: safeSelectedUser.memberships?.[0]?.consultant_id || '',
+      primary_product_id: safeSelectedUser.memberships?.[0]?.primary_product_id || safeSelectedUser.product_access.find((item) => item.is_primary)?.product_id || '',
+      product_ids: safeSelectedUser.product_access.map((item) => item.product_id),
+      package_ids: safeSelectedUser.package_assignments.map((item) => item.package_id),
+      service_ids: safeSelectedUser.service_assignments.map((item) => item.service_id),
+      status: safeSelectedUser.status || 'ACTIVE',
+      permissions: safeSelectedUser.permissions || [],
+      tags: safeSelectedUser.memberships?.[0]?.tags || [],
       note: '',
     }));
-  }, [selectedUser]);
+  }, [safeSelectedUser]);
 
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedProductIdSet = useMemo(() => new Set(form.product_ids || []), [form.product_ids]);
@@ -1239,7 +1266,7 @@ export function PeopleAccessModule({
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.24em] text-[#237afc]">User 360 profile</p>
-                <h3 className="mt-2 text-2xl font-black text-gray-900">{selectedUser?.name || 'User profile'}</h3>
+                <h3 className="mt-2 text-2xl font-black text-gray-900">{safeSelectedUser?.name || 'User profile'}</h3>
                 <p className="mt-2 text-sm text-gray-500">Profile-level governance, assignments, sessions, notes, attachments, and audit review.</p>
               </div>
               <button onClick={() => setIsProfileDrawerOpen(false)} className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500">Close</button>
@@ -1248,18 +1275,18 @@ export function PeopleAccessModule({
               <div className="mt-6 rounded-3xl bg-gray-50 px-6 py-16 text-center text-sm font-semibold text-gray-500">
                 Loading user detail...
               </div>
-            ) : selectedUser ? (
+            ) : safeSelectedUser ? (
               <>
                 <div className="mt-6 flex items-center gap-4">
                   <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#237afc] to-[#53b6ff] text-lg font-black text-white">
-                    {selectedUser.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}
+                    {safeSelectedUser.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}
                   </div>
                   <div>
-                    <p className="text-lg font-black text-gray-900">{selectedUser.name}</p>
-                    <p className="text-sm text-gray-500">{selectedUser.professional_title || 'Assigned user profile'}</p>
+                    <p className="text-lg font-black text-gray-900">{safeSelectedUser.name}</p>
+                    <p className="text-sm text-gray-500">{safeSelectedUser.professional_title || 'Assigned user profile'}</p>
                     <div className="mt-2 flex items-center gap-2">
-                      <Badge tone="blue">{selectedUser.role.replace(/_/g, ' ')}</Badge>
-                      <Badge tone={selectedUser.status === 'ACTIVE' ? 'green' : 'red'}>{selectedUser.status}</Badge>
+                      <Badge tone="blue">{safeSelectedUser.role.replace(/_/g, ' ')}</Badge>
+                      <Badge tone={safeSelectedUser.status === 'ACTIVE' ? 'green' : 'red'}>{safeSelectedUser.status}</Badge>
                     </div>
                   </div>
                 </div>
@@ -1284,19 +1311,19 @@ export function PeopleAccessModule({
                 <div className="mt-6 grid gap-3 md:grid-cols-4">
                   <div className="rounded-2xl bg-gray-50 px-4 py-4">
                     <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Active devices</p>
-                    <p className="mt-2 text-2xl font-black text-gray-900">{selectedUser.sessions.filter((session) => session.status === 'ACTIVE').length}</p>
+                    <p className="mt-2 text-2xl font-black text-gray-900">{safeSelectedUser.sessions.filter((session) => session.status === 'ACTIVE').length}</p>
                   </div>
                   <div className="rounded-2xl bg-gray-50 px-4 py-4">
                     <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Products</p>
-                    <p className="mt-2 text-2xl font-black text-gray-900">{selectedUser.product_access.length}</p>
+                    <p className="mt-2 text-2xl font-black text-gray-900">{safeSelectedUser.product_access.length}</p>
                   </div>
                   <div className="rounded-2xl bg-gray-50 px-4 py-4">
                     <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Notes</p>
-                    <p className="mt-2 text-2xl font-black text-gray-900">{selectedUser.notes.length}</p>
+                    <p className="mt-2 text-2xl font-black text-gray-900">{safeSelectedUser.notes.length}</p>
                   </div>
                   <div className="rounded-2xl bg-gray-50 px-4 py-4">
                     <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Attachments</p>
-                    <p className="mt-2 text-2xl font-black text-gray-900">{selectedUser.attachments.length}</p>
+                    <p className="mt-2 text-2xl font-black text-gray-900">{safeSelectedUser.attachments.length}</p>
                   </div>
                 </div>
 
@@ -1339,31 +1366,31 @@ export function PeopleAccessModule({
 
                 <div className="mt-4 flex flex-wrap gap-3">
                   <ActionButton icon={Save} label="Save profile changes" tone="primary" onClick={submitUpdateUser} disabled={isSubmitting} />
-                  <ActionButton icon={CheckCircle2} label="Activate" onClick={() => applyBulkAction('activate', { user_ids: [selectedUser.id] })} />
-                  <ActionButton icon={XCircle} label="Suspend" onClick={() => applyBulkAction('suspend', { user_ids: [selectedUser.id] })} />
-                  <ActionButton icon={KeyRound} label="Force logout" onClick={() => onForceLogout?.(selectedUser.id)} />
+                  <ActionButton icon={CheckCircle2} label="Activate" onClick={() => applyBulkAction('activate', { user_ids: [safeSelectedUser.id] })} />
+                  <ActionButton icon={XCircle} label="Suspend" onClick={() => applyBulkAction('suspend', { user_ids: [safeSelectedUser.id] })} />
+                  <ActionButton icon={KeyRound} label="Force logout" onClick={() => onForceLogout?.(safeSelectedUser.id)} />
                   <ActionButton icon={Save} label="Sync assignments" onClick={syncProductAssignments} disabled={isSubmitting} />
                 </div>
 
                 <div className="mt-6 rounded-3xl bg-gray-50 p-5">
                 {profileTab === 'General' && (
                   <div className="space-y-3 text-sm text-gray-600">
-                    <p><span className="font-bold text-gray-900">Email:</span> {selectedUser.email}</p>
-                    <p><span className="font-bold text-gray-900">Phone:</span> {selectedUser.phone || 'Not added'}</p>
-                    <p><span className="font-bold text-gray-900">Created:</span> {new Date(selectedUser.created_at).toLocaleString()}</p>
-                    <p><span className="font-bold text-gray-900">Status:</span> {selectedUser.status}</p>
+                    <p><span className="font-bold text-gray-900">Email:</span> {safeSelectedUser.email}</p>
+                    <p><span className="font-bold text-gray-900">Phone:</span> {safeSelectedUser.phone || 'Not added'}</p>
+                    <p><span className="font-bold text-gray-900">Created:</span> {safeSelectedUser.created_at ? new Date(safeSelectedUser.created_at).toLocaleString() : 'Not recorded'}</p>
+                    <p><span className="font-bold text-gray-900">Status:</span> {safeSelectedUser.status}</p>
                   </div>
                 )}
                 {profileTab === 'Professional' && (
                   <div className="space-y-3 text-sm text-gray-600">
-                    <p><span className="font-bold text-gray-900">Role focus:</span> {selectedUser.professional_title || selectedUser.role}</p>
-                    <p><span className="font-bold text-gray-900">Verification:</span> {selectedUser.verification}</p>
-                    <p><span className="font-bold text-gray-900">Primary role:</span> {selectedUser.role.replace(/_/g, ' ')}</p>
+                    <p><span className="font-bold text-gray-900">Role focus:</span> {safeSelectedUser.professional_title || safeSelectedUser.role}</p>
+                    <p><span className="font-bold text-gray-900">Verification:</span> {safeSelectedUser.verification}</p>
+                    <p><span className="font-bold text-gray-900">Primary role:</span> {safeSelectedUser.role.replace(/_/g, ' ')}</p>
                   </div>
                 )}
                 {profileTab === 'Organizations' && (
                   <div className="space-y-3 text-sm text-gray-600">
-                    {selectedUser.memberships.length ? selectedUser.memberships.map((membership) => (
+                    {safeSelectedUser.memberships.length ? safeSelectedUser.memberships.map((membership) => (
                       <div key={membership.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
                         <p className="font-bold text-gray-900">{membership.organization}</p>
                         <p className="mt-1 text-xs text-gray-500">{membership.department || 'No department'} · {membership.primary_product || 'No primary product'} · {membership.package || 'No package'} · {membership.status}</p>
@@ -1374,7 +1401,7 @@ export function PeopleAccessModule({
                 )}
                 {profileTab === 'Permissions' && (
                   <div className="flex flex-wrap gap-2">
-                    {selectedUser.permissions.map((permission) => (
+                    {safeSelectedUser.permissions.map((permission) => (
                       <Badge key={permission} tone="violet">{permission}</Badge>
                     ))}
                   </div>
@@ -1400,7 +1427,7 @@ export function PeopleAccessModule({
                       </div>
                     </div>
                     <div className="space-y-3 text-sm text-gray-600">
-                      {selectedUser.product_access.length ? selectedUser.product_access.map((access) => (
+                      {safeSelectedUser.product_access.length ? safeSelectedUser.product_access.map((access) => (
                         <div key={access.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
                           <div className="flex items-center justify-between gap-3">
                             <p className="font-bold text-gray-900">{access.product}</p>
@@ -1417,7 +1444,7 @@ export function PeopleAccessModule({
                 )}
                 {profileTab === 'Status History' && (
                   <div className="space-y-3 text-sm text-gray-600">
-                    {selectedUser.status_history.length ? selectedUser.status_history.map((history) => (
+                    {safeSelectedUser.status_history.length ? safeSelectedUser.status_history.map((history) => (
                       <div key={history.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
                         <p className="font-bold text-gray-900">{history.new_status}</p>
                         <p className="text-xs text-gray-500">{history.previous_status || 'No previous status'} → {history.new_status}</p>
@@ -1428,14 +1455,14 @@ export function PeopleAccessModule({
                 )}
                 {profileTab === 'Login Sessions' && (
                   <div className="space-y-2 text-sm text-gray-600">
-                    {selectedUser.sessions.length ? selectedUser.sessions.map((session) => (
+                    {safeSelectedUser.sessions.length ? safeSelectedUser.sessions.map((session) => (
                       <div key={session.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
                         <div className="flex items-center justify-between gap-3">
                           <div>
                             <p className="font-bold text-gray-900">{session.device_label || session.browser || 'Unknown browser'} · {session.platform || 'Unknown platform'}</p>
                             <p className="text-xs text-gray-500">{session.ip_address || 'Unknown IP'} · {session.status} · last seen {new Date(session.last_seen_at).toLocaleString()}</p>
                           </div>
-                          <button onClick={() => onRevokeSession?.(selectedUser.id, session.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">
+                          <button onClick={() => onRevokeSession?.(safeSelectedUser.id, session.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">
                             Revoke
                           </button>
                         </div>
@@ -1445,7 +1472,7 @@ export function PeopleAccessModule({
                 )}
                 {profileTab === 'Audit History' && (
                   <div className="space-y-3 text-sm text-gray-600">
-                    {selectedUser.audit_events.length ? selectedUser.audit_events.map((event) => (
+                    {safeSelectedUser.audit_events.length ? safeSelectedUser.audit_events.map((event) => (
                       <div key={event.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
                         <p className="font-bold text-gray-900">{event.action}</p>
                         <p className="text-xs text-gray-500">{event.actor} · {event.entity_type} · {event.product || 'No product'} · {new Date(event.created_at).toLocaleString()}</p>
@@ -1474,7 +1501,7 @@ export function PeopleAccessModule({
                         ))}
                       </div>
                     </div>
-                    {selectedUser.package_assignments.length ? selectedUser.package_assignments.map((assignment) => (
+                    {safeSelectedUser.package_assignments.length ? safeSelectedUser.package_assignments.map((assignment) => (
                       <div key={assignment.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
                         <p className="font-bold text-gray-900">{assignment.package}</p>
                         <p className="text-xs text-gray-500">{assignment.product} · {assignment.organization || 'Global scope'} · {assignment.status}</p>
@@ -1502,7 +1529,7 @@ export function PeopleAccessModule({
                         ))}
                       </div>
                     </div>
-                    {selectedUser.service_assignments.length ? selectedUser.service_assignments.map((assignment) => (
+                    {safeSelectedUser.service_assignments.length ? safeSelectedUser.service_assignments.map((assignment) => (
                       <div key={assignment.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
                         <p className="font-bold text-gray-900">{assignment.service}</p>
                         <p className="text-xs text-gray-500">{assignment.product} · {assignment.organization || 'Global scope'} · {assignment.status}</p>
@@ -1513,7 +1540,7 @@ export function PeopleAccessModule({
                 {profileTab === 'Attachments' && (
                   <div className="space-y-4">
                     <div className="space-y-3 text-sm text-gray-600">
-                      {selectedUser.attachments.length ? selectedUser.attachments.map((attachment) => (
+                      {safeSelectedUser.attachments.length ? safeSelectedUser.attachments.map((attachment) => (
                         <div key={attachment.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
                           <div className="flex items-center justify-between gap-3">
                             <div>
@@ -1546,7 +1573,7 @@ export function PeopleAccessModule({
                 {profileTab === 'Notes' && (
                   <div className="space-y-4">
                     <div className="space-y-3 text-sm text-gray-600">
-                      {selectedUser.notes.length ? selectedUser.notes.map((note) => (
+                      {safeSelectedUser.notes.length ? safeSelectedUser.notes.map((note) => (
                         <div key={note.id} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
                           <p className="font-semibold text-gray-900">{note.author}</p>
                           <p className="mt-1 text-sm text-gray-600">{note.body}</p>

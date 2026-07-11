@@ -16,8 +16,15 @@ const ROLE_ROUTES_MAP = {
 };
 
 export function getDashboardPathForRole(role, fallback = '/dashboard/provider') {
-  if (!role) return fallback;
-  return ROLE_ROUTES_MAP[String(role).toLowerCase()] || fallback;
+  const roleKey = getRoleKey(role);
+  if (!roleKey) return fallback;
+  return ROLE_ROUTES_MAP[roleKey] || fallback;
+}
+
+export function getRoleKey(role) {
+  if (!role) return '';
+  if (typeof role === 'string') return role.toLowerCase();
+  return String(role.name || role.key || role.slug || '').toLowerCase();
 }
 
 export default ROLE_ROUTES_MAP;

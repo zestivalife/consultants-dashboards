@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
+import { getRoleKey } from '../lib/roleRoutes';
 import LogoutButton from './LogoutButton';
 import NotificationSystem from './NotificationSystem';
 
@@ -75,7 +76,7 @@ export default function DashboardHeader({
   const menuRef = useRef(null);
   const settingsRef = useRef(null);
 
-  const userRoleKey = (user?.role || '').toLowerCase();
+  const userRoleKey = getRoleKey(user?.role);
   const isPlatformOwner = userRoleKey.includes('super') || userRoleKey === 'platform_owner';
 
   const identity = useMemo(() => {
@@ -123,7 +124,7 @@ export default function DashboardHeader({
       team_member: '/dashboard/team-member',
       member: '/dashboard/team-member',
     };
-    const roleKey = (typeof user.role === 'string' ? user.role : user.role?.name || '').toLowerCase();
+    const roleKey = getRoleKey(user.role);
     return roleMap[roleKey] || '/';
   };
 

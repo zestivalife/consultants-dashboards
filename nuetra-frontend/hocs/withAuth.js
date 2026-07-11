@@ -8,6 +8,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../context/AuthContext';
+import { getRoleKey } from '../lib/roleRoutes';
 
 function LoadingScreen() {
   return (
@@ -64,7 +65,7 @@ export default function withAuth(WrappedComponent, allowedRoles = []) {
     if (isLoading) return <LoadingScreen />;
     if (!user) return <RedirectScreen message="Redirecting to login…" />;
 
-    const role = (user.role || '').toLowerCase();
+    const role = getRoleKey(user.role);
     const allowed =
       allowedRoles.length === 0 ||
       allowedRoles.map((r) => r.toLowerCase()).includes(role);
