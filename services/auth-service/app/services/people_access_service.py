@@ -76,7 +76,6 @@ from app.schemas.people_access import (
 )
 
 
-OWNER_ROLE_NAMES = {"superuser", "platform_owner"}
 MANAGEABLE_STATUSES = {"INVITED", "PENDING_VERIFICATION", "ACTIVE", "INACTIVE", "LOCKED", "SUSPENDED", "DELETED"}
 ROLE_ALIASES = {
     "platform owner": "platform_owner",
@@ -141,13 +140,19 @@ async def resolve_user_permissions(session: AsyncSession, user: User) -> list[st
     return permissions
 
 
-async def ensure_owner_access(session: AsyncSession, current_user: UserResponse) -> None:
-    role_name = (current_user.role or "").lower()
-    if role_name in OWNER_ROLE_NAMES:
-        return
+async def ensure_owner_access(
+    session: AsyncSession,
+    current_user: UserResponse,
+    required_permissions: set[str] | None = None,
+) -> None:
     permission_set = set(current_user.permissions or [])
-    if "users.read" not in permission_set and "users.create" not in permission_set:
-        raise ForbiddenException("Platform owner access is required")
+    if not required_permissions:
+        required_permissions = {"users.read"}
+
+    if permission_set & required_permissions:
+        return
+
+    raise ForbiddenException("You do not have permission to access this resource")
 
 
 def _membership_to_summary(membership) -> MembershipSummary:

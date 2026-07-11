@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.owner_access import Permission, RolePermission, UserInvitation, UserRole
 from app.db.models.role import Role
 from app.db.models.user import User
+from app.core.exceptions import ForbiddenException
 from app.schemas.auth import UserResponse
 from app.schemas.people_access import ManagedUserCreateRequest, ManagedUserUpdateRequest
 from app.services import people_access_service
@@ -71,6 +72,46 @@ async def test_resolve_user_permissions_merges_role_and_user_permissions(session
 
     permissions = await people_access_service.resolve_user_permissions(session, owner)
     assert permissions == ["users.read", "users.edit"]
+
+
+@pytest.mark.asyncio
+async def test_ensure_owner_access_allows_required_permission(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    owner = await _create_user(session, owner_role, "owner@zestiva.in")
+    actor = _actor_from_user(owner, permissions=["packages.manage"])
+
+    await people_access_service.ensure_owner_access(
+        session,
+        actor,
+        {"packages.manage"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_ensure_owner_access_rejects_role_without_required_permission(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    owner = await _create_user(session, owner_role, "owner@zestiva.in")
+    actor = _actor_from_user(owner, permissions=["users.read"])
+
+    with pytest.raises(ForbiddenException):
+        await people_access_service.ensure_owner_access(
+            session,
+            actor,
+            {"packages.manage"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_ensure_owner_access_allows_any_permission_match(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    owner = await _create_user(session, owner_role, "owner@zestiva.in")
+    actor = _actor_from_user(owner, permissions=["users.invite"])
+
+    await people_access_service.ensure_owner_access(
+        session,
+        actor,
+        {"users.edit", "users.invite"},
+    )
 
 
 @pytest.mark.asyncio

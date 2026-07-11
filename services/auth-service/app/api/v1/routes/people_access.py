@@ -30,6 +30,18 @@ from app.services import people_access_service
 router = APIRouter(tags=["people-access"])
 
 
+async def _require_people_access(
+    session: AsyncSession,
+    current_user: UserResponse,
+    *permissions: str,
+) -> None:
+    await people_access_service.ensure_owner_access(
+        session,
+        current_user,
+        set(permissions),
+    )
+
+
 def _client_ip(request: Request) -> str | None:
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
@@ -51,7 +63,7 @@ async def get_summary(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.read")
     result = await people_access_service.get_summary(session)
     return success_response(data=result.model_dump(mode="json"))
 
@@ -62,7 +74,7 @@ async def get_metadata(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.read")
     result = await people_access_service.get_metadata(session)
     return success_response(data=result.model_dump(mode="json"))
 
@@ -84,7 +96,7 @@ async def list_users(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.read")
     result = await people_access_service.list_users(
         session,
         search=search,
@@ -109,7 +121,7 @@ async def get_user_detail(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.read")
     result = await people_access_service.get_user_detail(session, user_id)
     return success_response(data=result.model_dump(mode="json"))
 
@@ -121,7 +133,7 @@ async def create_user(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.create")
     result = await people_access_service.create_user(
         session,
         body,
@@ -139,7 +151,7 @@ async def update_user(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.edit")
     result = await people_access_service.update_user(
         session,
         user_id,
@@ -158,7 +170,7 @@ async def add_note(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.edit")
     result = await people_access_service.add_note(
         session,
         user_id,
@@ -180,7 +192,7 @@ async def add_attachment(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.edit")
     result = await people_access_service.add_attachment(
         session,
         user_id,
@@ -201,7 +213,7 @@ async def list_invitations(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.read")
     items, pagination = await people_access_service.list_invitations(
         session,
         search=search,
@@ -224,7 +236,7 @@ async def create_invitation(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.invite")
     result = await people_access_service.create_invitation(
         session,
         body,
@@ -241,7 +253,7 @@ async def resend_invitation(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.invite")
     result = await people_access_service.resend_invitation(
         session,
         invitation_id,
@@ -258,7 +270,7 @@ async def cancel_invitation(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.invite")
     result = await people_access_service.cancel_invitation(
         session,
         invitation_id,
@@ -276,7 +288,7 @@ async def update_role_permissions(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "settings.manage")
     result = await people_access_service.update_role_permissions(
         session,
         role_id,
@@ -294,7 +306,7 @@ async def create_custom_role(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "settings.manage")
     result = await people_access_service.create_custom_role(
         session,
         body,
@@ -312,7 +324,7 @@ async def clone_role(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "settings.manage")
     result = await people_access_service.clone_role(
         session,
         role_id,
@@ -331,7 +343,7 @@ async def assign_products(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.edit")
     result = await people_access_service.assign_products(
         session,
         user_id,
@@ -350,7 +362,7 @@ async def assign_packages(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "packages.manage")
     result = await people_access_service.assign_packages(
         session,
         user_id,
@@ -369,7 +381,7 @@ async def assign_services(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "services.manage")
     result = await people_access_service.assign_services(
         session,
         user_id,
@@ -388,7 +400,7 @@ async def revoke_user_session(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.force_logout")
     result = await people_access_service.revoke_user_session(
         session,
         user_id,
@@ -406,7 +418,7 @@ async def force_logout_user(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.force_logout")
     result = await people_access_service.force_logout_user(
         session,
         user_id,
@@ -422,7 +434,7 @@ async def export_users(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.export")
     csv_content = await people_access_service.export_users_csv(session)
     return PlainTextResponse(
         content=csv_content,
@@ -438,7 +450,7 @@ async def import_users(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.import")
     result = await people_access_service.import_users(
         session,
         body,
@@ -455,7 +467,7 @@ async def bulk_actions(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "users.edit", "users.invite")
     result = await people_access_service.bulk_action(
         session,
         action=body.action,
@@ -478,7 +490,7 @@ async def create_organization(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await people_access_service.ensure_owner_access(session, current_user)
+    await _require_people_access(session, current_user, "organizations.manage")
     result = await people_access_service.create_organization(
         session,
         body,
