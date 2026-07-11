@@ -22,6 +22,7 @@ import {
   UserCog,
   LogOut,
   PanelTop,
+  Plus,
 } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
@@ -57,6 +58,10 @@ export default function DashboardHeader({
   searchPlaceholder = 'Search Employee, Session',
   showNavLinks = true,
   onMenuOpen,
+  breadcrumbs = [],
+  workspaceLabel = '',
+  allowSettingsMenu = true,
+  quickActionLabel = 'Quick actions',
 }) {
   const router = useRouter();
   const { user, logout } = useAuth();
@@ -70,7 +75,8 @@ export default function DashboardHeader({
   const menuRef = useRef(null);
   const settingsRef = useRef(null);
 
-  const isPlatformOwner = (user?.role || '').toLowerCase().includes('super');
+  const userRoleKey = (user?.role || '').toLowerCase();
+  const isPlatformOwner = userRoleKey.includes('super') || userRoleKey === 'platform_owner';
 
   const identity = useMemo(() => {
     const ownerOverride = user?.email ? OWNER_DIRECTORY[user.email.toLowerCase()] : null;
@@ -105,8 +111,9 @@ export default function DashboardHeader({
   const getDashboardUrl = () => {
     if (!user?.role) return '/';
     const roleMap = {
-      superuser: '/dashboard/superuser',
-      super_admin: '/dashboard/superuser',
+      superuser: '/dashboard/owner',
+      super_admin: '/dashboard/owner',
+      platform_owner: '/dashboard/owner',
       admin: '/dashboard/admin',
       dietician: '/dashboard/provider',
       provider: '/dashboard/provider',
@@ -151,30 +158,30 @@ export default function DashboardHeader({
       {
         id: 'command-center',
         label: 'Go to Command Center',
-        hint: '/dashboard/superuser',
+        hint: '/dashboard/owner',
         icon: Sparkles,
-        run: () => router.push('/dashboard/superuser'),
+        run: () => router.push('/dashboard/owner'),
       },
       {
         id: 'people-access',
         label: 'Open People & Access',
-        hint: 'superuser tab',
+        hint: '/dashboard/owner/people-access',
         icon: UserCog,
-        run: () => router.push('/dashboard/superuser?tab=users'),
+        run: () => router.push('/dashboard/owner/people-access'),
       },
       {
         id: 'organizations',
         label: 'Open Organizations',
-        hint: 'superuser tab',
+        hint: '/dashboard/owner/organizations',
         icon: PanelTop,
-        run: () => router.push('/dashboard/superuser?tab=companies'),
+        run: () => router.push('/dashboard/owner/organizations'),
       },
       {
         id: 'platform-health',
         label: 'Open Platform Health',
-        hint: 'superuser tab',
+        hint: '/dashboard/owner/platform-health',
         icon: Activity,
-        run: () => router.push('/dashboard/superuser?tab=system'),
+        run: () => router.push('/dashboard/owner/platform-health'),
       },
       ...baseActions,
     ];
@@ -265,7 +272,25 @@ export default function DashboardHeader({
               />
             </Link>
 
-            {showNavLinks && (
+            {breadcrumbs.length > 0 ? (
+              <div className="hidden lg:flex min-w-0 flex-col gap-1">
+                <div className="flex items-center gap-2 overflow-hidden text-xs font-semibold text-gray-400">
+                  {breadcrumbs.map((crumb, index) => (
+                    <React.Fragment key={`${crumb.href || crumb.label}-${index}`}>
+                      {index > 0 ? <ChevronDown className="h-3 w-3 -rotate-90 shrink-0" /> : null}
+                      {crumb.href ? (
+                        <Link href={crumb.href} className="truncate transition-colors hover:text-[#237afc]">
+                          {crumb.label}
+                        </Link>
+                      ) : (
+                        <span className="truncate">{crumb.label}</span>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </div>
+                {workspaceLabel ? <p className="truncate text-sm font-semibold text-gray-600">{workspaceLabel}</p> : null}
+              </div>
+            ) : showNavLinks && (
               <div className="hidden md:flex items-center gap-8">
                 <Link
                   href="/request-session"
@@ -301,16 +326,27 @@ export default function DashboardHeader({
               </div>
             </div>
 
+            {workspaceLabel ? (
+              <button
+                type="button"
+                className="hidden xl:flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600"
+              >
+                <Shield className="h-4 w-4" />
+                {workspaceLabel}
+              </button>
+            ) : null}
+
             <button
               onClick={() => setShowCommandPalette(true)}
               className="hidden lg:flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:border-[#237afc] hover:text-[#237afc] transition-colors"
             >
-              <Sparkles className="h-4 w-4" />
-              Quick actions
+              <Plus className="h-4 w-4" />
+              {quickActionLabel}
             </button>
 
             <NotificationSystem />
 
+            {allowSettingsMenu ? (
             <div className="relative" ref={settingsRef}>
               <button
                 onClick={() => setShowSettingsMenu(!showSettingsMenu)}
@@ -376,7 +412,7 @@ export default function DashboardHeader({
 
                     {isPlatformOwner && (
                       <button
-                        onClick={() => router.push('/dashboard/superuser?tab=system')}
+                        onClick={() => router.push('/dashboard/owner/platform-health')}
                         className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left hover:bg-gray-50 transition-colors"
                       >
                         <div className="flex items-center gap-3">
@@ -393,6 +429,7 @@ export default function DashboardHeader({
                 </div>
               )}
             </div>
+            ) : null}
 
             <div className="relative" ref={menuRef}>
               <button
@@ -438,7 +475,7 @@ export default function DashboardHeader({
 
                     {isPlatformOwner && (
                       <button
-                        onClick={() => router.push('/dashboard/superuser?tab=users')}
+                        onClick={() => router.push('/dashboard/owner/people-access')}
                         className="flex w-full items-center gap-3 px-6 py-3 text-sm font-semibold text-gray-600 hover:bg-blue-50 hover:text-[#237afc] transition-colors"
                       >
                         <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-400">

@@ -9,8 +9,8 @@ const ROLE_ROUTES_MAP = {
   organization_admin: '/dashboard/corporate-admin',
   corporate_admin: '/dashboard/corporate-admin',
   corporate_client: '/dashboard/corporate-admin',
-  superuser: '/dashboard/superuser',
-  platform_owner: '/dashboard/superuser',
+  superuser: '/dashboard/owner',
+  platform_owner: '/dashboard/owner',
   team_member: '/dashboard/provider',
   member: '/dashboard/provider',
 };

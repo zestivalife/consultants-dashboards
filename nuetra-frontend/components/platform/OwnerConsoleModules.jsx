@@ -1612,9 +1612,13 @@ export function PermissionMatrixModule({
   onUpdateRolePermissions,
   onCreateRole,
   onCloneRole,
+  selectedRoleId: controlledSelectedRoleId,
+  onSelectedRoleChange,
+  searchQuery,
+  onSearchQueryChange,
 }) {
-  const [query, setQuery] = useState('');
-  const [selectedRoleId, setSelectedRoleId] = useState('');
+  const [query, setQuery] = useState(searchQuery || '');
+  const [selectedRoleId, setSelectedRoleId] = useState(controlledSelectedRoleId || '');
   const [draftPermissions, setDraftPermissions] = useState({});
   const [roleDraft, setRoleDraft] = useState({ name: '', description: '' });
   const [cloneDraft, setCloneDraft] = useState({ name: '', description: '' });
@@ -1636,6 +1640,16 @@ export function PermissionMatrixModule({
   const [expanded, setExpanded] = useState({});
 
   useEffect(() => {
+    setQuery(searchQuery || '');
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (controlledSelectedRoleId !== undefined) {
+      setSelectedRoleId(controlledSelectedRoleId || '');
+    }
+  }, [controlledSelectedRoleId]);
+
+  useEffect(() => {
     setExpanded(permissionGroups.reduce((acc, group) => ({ ...acc, [group.module]: true }), {}));
   }, [metadata?.permissions]);
 
@@ -1646,11 +1660,12 @@ export function PermissionMatrixModule({
     const nextRoleId = selectedRoleId || roleRows[0].id;
     const selectedRole = roleRows.find((role) => role.id === nextRoleId) || roleRows[0];
     setSelectedRoleId(selectedRole.id);
+    onSelectedRoleChange?.(selectedRole.id);
     setDraftPermissions((current) => ({
       ...current,
       [selectedRole.id]: current[selectedRole.id] || [...(selectedRole.permissions || [])],
     }));
-  }, [roleRows, selectedRoleId]);
+  }, [onSelectedRoleChange, roleRows, selectedRoleId]);
 
   const selectedRole = roleRows.find((role) => role.id === selectedRoleId) || roleRows[0];
   const selectedRolePermissions = draftPermissions[selectedRole?.id] || selectedRole?.permissions || [];
@@ -1722,7 +1737,14 @@ export function PermissionMatrixModule({
             {roleRows.map((role) => (
               <div key={role.id} className={cn('rounded-2xl border px-4 py-4', selectedRoleId === role.id ? 'border-[#237afc] bg-[#f5f9ff]' : 'border-gray-100 bg-gray-50')}>
                 <div className="flex items-center justify-between gap-4">
-                  <button type="button" onClick={() => setSelectedRoleId(role.id)} className="text-left">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedRoleId(role.id);
+                      onSelectedRoleChange?.(role.id);
+                    }}
+                    className="text-left"
+                  >
                     <p className="font-bold text-gray-900">{role.name}</p>
                     <p className="text-sm text-gray-500">{role.users} assigned users</p>
                   </button>
@@ -1751,12 +1773,15 @@ export function PermissionMatrixModule({
           <div className="mb-4 flex flex-wrap gap-2">
             <button className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600">
               <Search className="h-4 w-4" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search permissions"
-                className="bg-transparent outline-none"
-              />
+                <input
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    onSearchQueryChange?.(event.target.value);
+                  }}
+                  placeholder="Search permissions"
+                  className="bg-transparent outline-none"
+                />
             </button>
             <button
               onClick={() => {
@@ -2026,6 +2051,37 @@ export function PractitionersModule({ practitioners }) {
               <div className="rounded-2xl bg-gray-50 p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Revenue</p><p className="mt-2 text-sm font-bold text-gray-900">{practitioner.revenue}</p></div>
               <div className="rounded-2xl bg-gray-50 p-4 md:col-span-2"><p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Organizations / packages / services</p><p className="mt-2 text-sm font-bold text-gray-900">{practitioner.organizations.join(', ')} · {practitioner.packages.join(', ')} · {practitioner.services.join(', ')}</p></div>
               <div className="rounded-2xl bg-gray-50 p-4 md:col-span-2"><p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Performance</p><p className="mt-2 text-sm font-bold text-gray-900">{practitioner.performance} · {practitioner.rating}/5 rating</p></div>
+            </div>
+          </Panel>
+        ))}
+      </div>
+    </ModuleFrame>
+  );
+}
+
+export function ConsultantsModule({ consultants }) {
+  return (
+    <ModuleFrame
+      badge="Consultants"
+      title="Consulting coverage, approvals, package ownership, and performance"
+      description="Review consultant specialization, assigned organizations, package accountability, service scope, quality performance, and commercial contribution."
+      actions={
+        <>
+          <ActionButton icon={CalendarDays} label="Open consultant calendar" />
+          <ActionButton icon={Plus} label="Add consultant" tone="primary" />
+        </>
+      }
+    >
+      <div className="grid gap-6 xl:grid-cols-2">
+        {consultants.map((consultant) => (
+          <Panel key={consultant.id} title={consultant.name} subtitle={consultant.title}>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-2xl bg-gray-50 p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Certificates</p><p className="mt-2 text-sm font-bold text-gray-900">{consultant.certificates.join(', ')}</p></div>
+              <div className="rounded-2xl bg-gray-50 p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Qualifications</p><p className="mt-2 text-sm font-bold text-gray-900">{consultant.qualifications.join(', ')}</p></div>
+              <div className="rounded-2xl bg-gray-50 p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Availability</p><p className="mt-2 text-sm font-bold text-gray-900">{consultant.availability}</p></div>
+              <div className="rounded-2xl bg-gray-50 p-4"><p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Revenue</p><p className="mt-2 text-sm font-bold text-gray-900">{consultant.revenue}</p></div>
+              <div className="rounded-2xl bg-gray-50 p-4 md:col-span-2"><p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Organizations / packages / services</p><p className="mt-2 text-sm font-bold text-gray-900">{consultant.organizations.join(', ')} · {consultant.packages.join(', ')} · {consultant.services.join(', ')}</p></div>
+              <div className="rounded-2xl bg-gray-50 p-4 md:col-span-2"><p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Performance</p><p className="mt-2 text-sm font-bold text-gray-900">{consultant.performance} · {consultant.rating}/5 rating</p></div>
             </div>
           </Panel>
         ))}
