@@ -143,8 +143,9 @@ function OwnerConsoleNav({ activeTab, onTabChange }) {
     .filter(Boolean);
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-3">
+    <div className="space-y-3">
+      <div className="overflow-x-auto">
+        <div className="flex min-w-max items-center gap-2">
         {ownerNavigationGroups.map((group) => {
           const isActive = group.key === activeGroup.key;
           return (
@@ -153,21 +154,23 @@ function OwnerConsoleNav({ activeTab, onTabChange }) {
               type="button"
               onClick={() => onTabChange(group.tabs[0])}
               className={cn(
-                'rounded-2xl border px-4 py-3 text-left transition-all',
+                'rounded-full border px-3 py-2 text-left transition-all whitespace-nowrap',
                 isActive
                   ? 'border-[#237afc] bg-[#f5f9ff] shadow-sm'
                   : 'border-gray-200 bg-white hover:border-[#237afc]/40 hover:bg-[#fbfdff]'
               )}
             >
-              <p className={cn('text-sm font-black', isActive ? 'text-[#237afc]' : 'text-gray-900')}>{group.label}</p>
-              <p className="mt-1 text-xs text-gray-500">{group.description}</p>
+              <span className={cn('text-xs font-black tracking-[0.02em]', isActive ? 'text-[#237afc]' : 'text-gray-700')}>
+                {group.label}
+              </span>
             </button>
           );
         })}
+        </div>
       </div>
 
-      <div className="rounded-3xl border border-gray-100 bg-white/90 p-3 shadow-sm">
-        <div className="flex flex-wrap gap-2">
+      <div className="overflow-x-auto rounded-3xl border border-gray-100 bg-white/90 p-2 shadow-sm">
+        <div className="flex min-w-max items-center gap-2">
           {secondaryTabs.map((tab) => {
             const isActive = activeTab === tab.key;
             return (
@@ -176,7 +179,7 @@ function OwnerConsoleNav({ activeTab, onTabChange }) {
                 type="button"
                 onClick={() => onTabChange(tab.key)}
                 className={cn(
-                  'rounded-full px-4 py-2 text-sm font-bold transition-all',
+                  'rounded-full px-3 py-2 text-xs font-bold transition-all whitespace-nowrap',
                   isActive
                     ? 'bg-[#237afc] text-white shadow-sm'
                     : 'border border-gray-200 bg-white text-gray-600 hover:border-[#237afc] hover:text-[#237afc]'
