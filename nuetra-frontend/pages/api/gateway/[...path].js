@@ -1,4 +1,13 @@
 const DEFAULT_UPSTREAM = 'https://api.nuetra.in';
+const DEFAULT_AUTH_UPSTREAM = 'https://auth-service-production-ef64.up.railway.app';
+const AUTH_SERVICE_PREFIXES = [
+  'api/v1/auth',
+  'api/v1/owner/people-access',
+  'api/v1/corporate-admin',
+  'api/v1/team-lead',
+  'api/v1/team-member',
+  'api/v1/notifications',
+];
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
   'keep-alive',
@@ -21,6 +30,17 @@ export const config = {
 
 function getUpstreamBaseUrl() {
   return (process.env.GATEWAY_UPSTREAM_URL || DEFAULT_UPSTREAM).replace(/\/$/, '');
+}
+
+function getAuthServiceBaseUrl() {
+  return (process.env.AUTH_SERVICE_UPSTREAM_URL || DEFAULT_AUTH_UPSTREAM).replace(/\/$/, '');
+}
+
+function getBaseUrlForPath(upstreamPath) {
+  if (AUTH_SERVICE_PREFIXES.some((prefix) => upstreamPath === prefix || upstreamPath.startsWith(`${prefix}/`))) {
+    return getAuthServiceBaseUrl();
+  }
+  return getUpstreamBaseUrl();
 }
 
 async function readRawBody(req) {
@@ -75,7 +95,7 @@ export default async function handler(req, res) {
   const upstreamPath = pathSegments.join('/');
   const queryIndex = req.url.indexOf('?');
   const rawQuery = queryIndex >= 0 ? req.url.slice(queryIndex) : '';
-  const upstreamUrl = `${getUpstreamBaseUrl()}/${upstreamPath}${rawQuery}`;
+  const upstreamUrl = `${getBaseUrlForPath(upstreamPath)}/${upstreamPath}${rawQuery}`;
 
   const bodyBuffer =
     req.method === 'GET' || req.method === 'HEAD' ? null : await readRawBody(req);
