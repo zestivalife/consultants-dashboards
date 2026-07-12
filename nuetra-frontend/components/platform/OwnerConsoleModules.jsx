@@ -24,6 +24,7 @@ import {
   PencilLine,
   Plus,
   Save,
+  Search,
   Settings,
   Shield,
   Sparkles,
