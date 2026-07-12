@@ -12,6 +12,10 @@ router = APIRouter()
 
 _client: httpx.AsyncClient | None = None
 
+DELEGATED_PERMISSION_PREFIXES: tuple[str, ...] = (
+    "/api/v1/owner/people-access",
+)
+
 async def get_http_client() -> httpx.AsyncClient:
     global _client
     if _client is None or _client.is_closed:
@@ -48,7 +52,11 @@ async def proxy(request: Request, path: str):
     full_path = f"/{path}"
     required_permissions = required_owner_permissions(full_path, request.method.upper())
     user_permissions = set(getattr(request.state, "user_permissions", []) or [])
-    if required_permissions and not (user_permissions & required_permissions):
+    delegated_permissions = any(
+        full_path == prefix or full_path.startswith(prefix + "/")
+        for prefix in DELEGATED_PERMISSION_PREFIXES
+    )
+    if required_permissions and not delegated_permissions and not (user_permissions & required_permissions):
         return JSONResponse(
             status_code=403,
             content={

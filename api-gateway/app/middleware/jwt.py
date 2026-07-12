@@ -29,11 +29,27 @@ PUBLIC_PREFIXES: list[str] = [
     "/api/v1/auth/forgot-password",
 ]
 
+DELEGATED_AUTH_PREFIXES: list[str] = [
+    # These routes are owned by auth-service, which validates the access token
+    # with the same signing settings that issued it. The gateway should not
+    # reject them first with a potentially different deployment secret.
+    "/api/v1/auth",
+    "/api/v1/owner/people-access",
+    "/api/v1/corporate-admin",
+    "/api/v1/team-lead",
+    "/api/v1/team-member",
+    "/api/v1/notifications",
+]
+
 
 def _is_public(path: str) -> bool:
     if path in PUBLIC_PATHS:
         return True
     return any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES)
+
+
+def _is_delegated_auth(path: str) -> bool:
+    return any(path == prefix or path.startswith(prefix + "/") for prefix in DELEGATED_AUTH_PREFIXES)
 
 
 def _extract_token(request: Request) -> str | None:
@@ -46,6 +62,9 @@ def _extract_token(request: Request) -> str | None:
 class JWTMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         if _is_public(request.url.path):
+            return await call_next(request)
+
+        if _is_delegated_auth(request.url.path):
             return await call_next(request)
 
         token = _extract_token(request)
