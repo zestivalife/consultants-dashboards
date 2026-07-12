@@ -19,7 +19,6 @@ import {
   GripVertical,
   KeyRound,
   LayoutPanelTop,
-  ListFilter,
   Mail,
   MoreHorizontal,
   PencilLine,
@@ -27,7 +26,6 @@ import {
   Save,
   Settings,
   Shield,
-  SlidersHorizontal,
   Sparkles,
   Tag,
   Upload,
@@ -568,6 +566,10 @@ export function PeopleAccessModule({
   };
 
   const submitCreateUser = async () => {
+    if (!form.email.trim()) {
+      setActionError('Create user requires a work email.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       const result = await runAction('Create user', onCreateUser, {
@@ -644,7 +646,10 @@ export function PeopleAccessModule({
 
   const applyBulkAction = async (action, extra = {}) => {
     const targetIds = extra.user_ids?.length ? extra.user_ids : selectedIds;
-    if (!targetIds.length) return;
+    if (!targetIds.length) {
+      setActionError('Select at least one user before running a bulk action.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       await runAction('Bulk user action', onBulkAction, { action, user_ids: targetIds, ...extra });
@@ -655,7 +660,10 @@ export function PeopleAccessModule({
   };
 
   const submitNote = async () => {
-    if (!selectedUser?.id || !noteDraft.trim()) return;
+    if (!selectedUser?.id || !noteDraft.trim()) {
+      setActionError('Select a user and enter a note before saving.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       const result = await runAction('Add user note', onAddNote, selectedUser.id, noteDraft.trim());
@@ -668,7 +676,10 @@ export function PeopleAccessModule({
   };
 
   const submitAttachment = async () => {
-    if (!selectedUser?.id || !attachmentDraft.file_name.trim() || !attachmentDraft.file_url.trim()) return;
+    if (!selectedUser?.id || !attachmentDraft.file_name.trim() || !attachmentDraft.file_url.trim()) {
+      setActionError('Attachment requires a selected user, file name, and file URL.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       const result = await runAction('Add attachment', onAddAttachment, selectedUser.id, {
@@ -691,7 +702,10 @@ export function PeopleAccessModule({
   };
 
   const submitInvitation = async () => {
-    if (!invitationDraft.email.trim()) return;
+    if (!invitationDraft.email.trim()) {
+      setActionError('Create invitation requires an invitee email.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       const result = await runAction('Create invitation', onCreateInvitation, {
@@ -716,7 +730,10 @@ export function PeopleAccessModule({
   };
 
   const syncProductAssignments = async () => {
-    if (!selectedUser?.id) return;
+    if (!selectedUser?.id) {
+      setActionError('Select a user before syncing assignments.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       const productResult = await runAction(
@@ -776,7 +793,10 @@ export function PeopleAccessModule({
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean);
-    if (lines.length <= 1) return;
+    if (lines.length <= 1) {
+      setActionError('CSV import requires a header row and at least one data row.');
+      return;
+    }
     const [headerLine, ...dataLines] = lines;
     const headers = headerLine.split(',').map((item) => item.trim());
     const rows = dataLines.map((line) => {
@@ -838,7 +858,7 @@ export function PeopleAccessModule({
         </div>
       ) : null}
       {actionError ? (
-        <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+        <div className="fixed right-6 top-6 z-50 max-w-md rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 shadow-2xl">
           {actionError}
         </div>
       ) : null}
@@ -868,14 +888,6 @@ export function PeopleAccessModule({
             }}
             rightControls={
               <div className="ml-2 flex items-center gap-2">
-                <button className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600">
-                  <ListFilter className="h-4 w-4" />
-                  Column visibility
-                </button>
-                <button className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600">
-                  <SlidersHorizontal className="h-4 w-4" />
-                  Saved views
-                </button>
                 <select
                   value={activeFilterProduct}
                   onChange={(event) => applyFilters({ product_id: event.target.value, page: 1 })}
@@ -1743,7 +1755,10 @@ export function PermissionMatrixModule({
   };
 
   const createRole = async () => {
-    if (!roleDraft.name.trim()) return;
+    if (!roleDraft.name.trim()) {
+      setMatrixError('Create custom role requires a role name.');
+      return;
+    }
     setIsSaving(true);
     try {
       const result = await runMatrixAction('Create custom role', onCreateRole, {
@@ -1759,7 +1774,10 @@ export function PermissionMatrixModule({
   };
 
   const cloneRole = async (roleId) => {
-    if (!cloneDraft.name.trim()) return;
+    if (!cloneDraft.name.trim()) {
+      setMatrixError('Enter a clone role name before cloning a role.');
+      return;
+    }
     setIsSaving(true);
     try {
       const result = await runMatrixAction('Clone role', onCloneRole, roleId, {
