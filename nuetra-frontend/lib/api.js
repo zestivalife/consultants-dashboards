@@ -41,7 +41,9 @@ export function getApiBaseUrl() {
 }
 
 const API_BASE = getApiBaseUrl();
+const DEBUG_API = process.env.NEXT_PUBLIC_DEBUG_API === 'true';
 // ── token helpers ──────────────────────────────────────────────────
+let refreshPromise = null;
 
 export function getToken() {
   if (typeof window === 'undefined') return null;
@@ -65,12 +67,30 @@ export function setToken(token, remember = true) {
 
 export function getRefreshToken() {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem('refresh_token') || null;
+  return (
+    localStorage.getItem('refresh_token') ||
+    sessionStorage.getItem('refresh_token') ||
+    null
+  );
 }
 
-export function setRefreshToken(token) {
+export function setRefreshToken(token, remember = true) {
   if (typeof window === 'undefined') return;
-  localStorage.setItem('refresh_token', token);
+  if (remember) {
+    localStorage.setItem('refresh_token', token);
+    sessionStorage.removeItem('refresh_token');
+  } else {
+    sessionStorage.setItem('refresh_token', token);
+    localStorage.removeItem('refresh_token');
+  }
+}
+
+export function isRememberedAuthSession() {
+  if (typeof window === 'undefined') return true;
+  return Boolean(
+    localStorage.getItem('access_token') ||
+    localStorage.getItem('refresh_token')
+  );
 }
 
 export function clearTokens() {
@@ -78,6 +98,62 @@ export function clearTokens() {
   localStorage.removeItem('access_token');
   localStorage.removeItem('refresh_token');
   sessionStorage.removeItem('access_token');
+  sessionStorage.removeItem('refresh_token');
+}
+
+function redactHeaders(headers) {
+  if (!headers?.Authorization) return headers;
+  return { ...headers, Authorization: 'Bearer [redacted]' };
+}
+
+async function refreshAccessToken() {
+  if (typeof window === 'undefined') return null;
+
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return null;
+
+  if (!refreshPromise) {
+    const remember = isRememberedAuthSession();
+    refreshPromise = fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+      .then(async (res) => {
+        const text = await res.text();
+        let json = null;
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch {
+          json = null;
+        }
+
+        if (!res.ok) {
+          const err = new Error(json?.message || json?.error || 'Session refresh failed.');
+          err.status = res.status;
+          err.data = json;
+          throw err;
+        }
+
+        const tokens = json?.data || json;
+        if (!tokens?.access_token || !tokens?.refresh_token) {
+          throw new Error('Session refresh response is incomplete.');
+        }
+
+        setToken(tokens.access_token, remember);
+        setRefreshToken(tokens.refresh_token, remember);
+        return tokens.access_token;
+      })
+      .catch((err) => {
+        clearTokens();
+        throw err;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+
+  return refreshPromise;
 }
 
 // ── core request function ──────────────────────────────────────────
@@ -91,43 +167,50 @@ export function clearTokens() {
  * @throws {Error}        - with `.status`, `.data`, `.message` on failure
  */
 export async function apiRequest(path, opts = {}) {
+  const { skipAuthRefresh = false, responseType = 'json', ...fetchOptions } = opts;
   const url = `${API_BASE}${path.startsWith('/') ? path : '/' + path}`;
+  const shouldSkipAuthRefresh = skipAuthRefresh || path.startsWith('/auth/refresh') || path.startsWith('/auth/login');
 
   const token = getToken();
   const headers = {
-    ...(opts.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+    ...(fetchOptions.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(opts.headers || {}),
+    ...(fetchOptions.headers || {}),
   };
 
-  const finalBody = opts.body instanceof FormData
-    ? opts.body
-    : opts.body
-      ? typeof opts.body === 'string'
-        ? opts.body
-        : JSON.stringify(opts.body)
+  const finalBody = fetchOptions.body instanceof FormData
+    ? fetchOptions.body
+    : fetchOptions.body
+      ? typeof fetchOptions.body === 'string'
+        ? fetchOptions.body
+        : JSON.stringify(fetchOptions.body)
       : undefined;
 
-  console.log(`[API REQUEST] ${opts.method || 'GET'} ${url}`, { headers, body: opts.body });
+  if (DEBUG_API) {
+    console.log(`[API REQUEST] ${fetchOptions.method || 'GET'} ${url}`, {
+      headers: redactHeaders(headers),
+      body: fetchOptions.body,
+    });
+  }
 
   let res;
   try {
     res = await fetch(url, {
-      ...opts,
+      ...fetchOptions,
       headers,
       body: finalBody,
     });
   } catch (networkErr) {
     // Re-throw AbortErrors unchanged so callers using AbortController can detect them.
     if (networkErr.name === 'AbortError') throw networkErr;
-    console.error(`[API NETWORK ERROR] ${opts.method || 'GET'} ${url}`, networkErr);
+    console.error(`[API NETWORK ERROR] ${fetchOptions.method || 'GET'} ${url}`, networkErr);
     const err = new Error('Network error: please check if the server is running.');
     err.status = 0;
     err.cause = networkErr;
     throw err;
   }
 
-  const text = await res.text();
+  let text = await res.text();
   let json = null;
   try {
     json = text ? JSON.parse(text) : null;
@@ -136,7 +219,45 @@ export async function apiRequest(path, opts = {}) {
   }
 
   if (!res.ok) {
-    console.error(`[API ERROR] ${res.status} ${opts.method || 'GET'} ${url}`, json || text);
+    if (res.status === 401 && !shouldSkipAuthRefresh && typeof window !== 'undefined') {
+      try {
+        const nextAccessToken = await refreshAccessToken();
+        if (nextAccessToken) {
+          const retryHeaders = {
+            ...headers,
+            Authorization: `Bearer ${nextAccessToken}`,
+          };
+          const retryResponse = await fetch(url, {
+            ...fetchOptions,
+            headers: retryHeaders,
+            body: finalBody,
+          });
+          const retryText = await retryResponse.text();
+          let retryJson = null;
+          try {
+            retryJson = retryText ? JSON.parse(retryText) : null;
+          } catch {
+            retryJson = null;
+          }
+
+          if (retryResponse.ok) {
+            if (responseType === 'text') return retryText;
+            if (retryJson && typeof retryJson === 'object' && 'success' in retryJson) {
+              return retryJson.data;
+            }
+            return retryJson;
+          }
+
+          res = retryResponse;
+          json = retryJson;
+          text = retryText;
+        }
+      } catch {
+        clearTokens();
+      }
+    }
+
+    console.error(`[API ERROR] ${res.status} ${fetchOptions.method || 'GET'} ${url}`, json || text);
     if (res.status === 401 && typeof window !== 'undefined') {
       clearTokens();
     }
@@ -149,7 +270,11 @@ export async function apiRequest(path, opts = {}) {
     throw err;
   }
 
-  console.log(`[API RESPONSE] ${res.status} ${opts.method || 'GET'} ${url}`, json);
+  if (DEBUG_API) {
+    console.log(`[API RESPONSE] ${res.status} ${fetchOptions.method || 'GET'} ${url}`, json);
+  }
+
+  if (responseType === 'text') return text;
 
   // Backend wraps everything in { success, data, message, error, request_id }.
   // Return the inner `data` so callers don't need to unwrap every time.
@@ -187,6 +312,7 @@ export const authAPI = {
     return apiRequest('/auth/refresh', {
       method: 'POST',
       body: { refresh_token: refreshToken },
+      skipAuthRefresh: true,
     });
   },
 
@@ -194,6 +320,7 @@ export const authAPI = {
     return apiRequest('/auth/logout', {
       method: 'POST',
       body: { refresh_token: refreshToken },
+      skipAuthRefresh: true,
     });
   },
 
@@ -355,16 +482,9 @@ export const ownerPeopleAccessAPI = {
   },
 
   async exportUsersCsv() {
-    const token = getToken();
-    const res = await fetch(`${API_BASE}/owner/people-access/exports/users`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    return apiRequest('/owner/people-access/exports/users', {
+      responseType: 'text',
     });
-    if (!res.ok) {
-      const err = new Error(`Export failed (${res.status})`);
-      err.status = res.status;
-      throw err;
-    }
-    return res.text();
   },
 
   importUsers(rows) {

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { useRouter } from 'next/router';
 import { findUserByCredentials, findUserByEmail, sampleUsers } from '../data/mockPlatformData';
 import { getDashboardPathForRole } from '../lib/roleRoutes';
-import { authAPI, clearTokens, getRefreshToken, setRefreshToken, setToken } from '../lib/api';
+import { authAPI, clearTokens, getRefreshToken, isRememberedAuthSession, setRefreshToken, setToken } from '../lib/api';
 
 const SESSION_KEY = 'nuetra_session';
 const RESET_KEY = 'nuetra_mock_reset';
@@ -10,17 +10,26 @@ const BACKEND_AUTH_ENABLED = Boolean(process.env.NEXT_PUBLIC_API_URL);
 
 const AuthContext = createContext(null);
 
-function readStoredSession() {
+function readStoredSessionRecord() {
   if (typeof window === 'undefined') return null;
 
-  const raw = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
+  const localRaw = localStorage.getItem(SESSION_KEY);
+  const sessionRaw = sessionStorage.getItem(SESSION_KEY);
+  const raw = localRaw || sessionRaw;
   if (!raw) return null;
 
   try {
-    return JSON.parse(raw);
+    return {
+      session: JSON.parse(raw),
+      rememberMe: Boolean(localRaw),
+    };
   } catch {
     return null;
   }
+}
+
+function readStoredSession() {
+  return readStoredSessionRecord()?.session || null;
 }
 
 function persistSession(session, rememberMe) {
@@ -49,13 +58,13 @@ export function AuthProvider({ children }) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const session = readStoredSession();
-    if (session?.user) {
-      setUser(session.user);
+    const storedSession = readStoredSessionRecord();
+    if (storedSession?.session?.user) {
+      setUser(storedSession.session.user);
     }
 
     if (BACKEND_AUTH_ENABLED) {
-      refreshSession()
+      refreshSession({ rememberMe: storedSession?.rememberMe ?? isRememberedAuthSession() })
         .catch(() => {
           clearStoredSession();
           clearTokens();
@@ -86,13 +95,14 @@ export function AuthProvider({ children }) {
 
         setToken(tokens.access_token, rememberMe);
         if (tokens.refresh_token) {
-          setRefreshToken(tokens.refresh_token);
+          setRefreshToken(tokens.refresh_token, rememberMe);
         }
 
         const session = {
           user: nextUser,
           loggedInAt: new Date().toISOString(),
           mode: 'backend',
+          rememberMe,
         };
 
         setUser(nextUser);
@@ -231,18 +241,20 @@ export function AuthProvider({ children }) {
     };
   }
 
-  async function refreshSession() {
+  async function refreshSession(options = {}) {
     if (BACKEND_AUTH_ENABLED) {
       try {
+        const rememberMe = options.rememberMe ?? isRememberedAuthSession();
         const nextUser = await authAPI.me();
         if (nextUser) {
           const session = {
             user: nextUser,
             loggedInAt: new Date().toISOString(),
             mode: 'backend',
+            rememberMe,
           };
           setUser(nextUser);
-          persistSession(session, true);
+          persistSession(session, rememberMe);
           return true;
         }
       } catch {

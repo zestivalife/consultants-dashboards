@@ -1601,10 +1601,12 @@ async def register_login_session(
 async def refresh_login_session(
     session: AsyncSession,
     user: User,
+    previous_refresh_token_id: uuid.UUID,
     refresh_token_id: uuid.UUID,
     ip_address: str | None,
     user_agent: str | None,
 ) -> None:
+    await revoke_login_session(session, previous_refresh_token_id)
     await register_login_session(session, user, refresh_token_id, ip_address, user_agent)
 
 

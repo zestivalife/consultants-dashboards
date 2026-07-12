@@ -344,16 +344,45 @@ async def refresh(
     if user is None:
         raise UnauthorizedException("User not found")
 
+    now = datetime.now(timezone.utc)
+    if user.lock_until and user.lock_until > now:
+        await audit_repo.create(
+            "TOKEN_REFRESH_BLOCKED_LOCKED",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        raise ForbiddenException("Account is locked. Please sign in again after the lock expires.")
+
+    if not user.is_active:
+        await audit_repo.create(
+            "TOKEN_REFRESH_BLOCKED_INACTIVE",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        raise ForbiddenException("Account is inactive. Please contact support.")
+
+    if not user.is_verified:
+        await audit_repo.create(
+            "TOKEN_REFRESH_BLOCKED_UNVERIFIED",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        raise ForbiddenException("Email not verified. Please verify your email and sign in again.")
+
     new_raw = generate_refresh_token()
     new_record = RefreshToken(
         user_id=user.id,
         token_hash=hash_token(new_raw),
-        expires_at=datetime.now(timezone.utc) + timedelta(days=settings.jwt_refresh_expiry_days),
+        expires_at=now + timedelta(days=settings.jwt_refresh_expiry_days),
     )
     await refresh_repo.create(new_record)
     await people_access_service.refresh_login_session(
         session,
         user,
+        token_record.id,
         new_record.id,
         ip_address,
         user_agent,
