@@ -112,7 +112,7 @@ export default async function handler(req, res) {
     res.status(upstreamResponse.status);
 
     const responseBuffer = Buffer.from(await upstreamResponse.arrayBuffer());
-    res.send(responseBuffer);
+    res.end(responseBuffer);
   } catch (error) {
     console.error('[API GATEWAY PROXY ERROR]', error);
     res.status(502).json({
