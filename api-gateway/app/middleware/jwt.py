@@ -11,6 +11,9 @@ logger = structlog.get_logger(__name__)
 PUBLIC_PATHS: set[str] = {
     "/health",
     "/ready",
+    "/version",
+    "/api/v1/version",
+    "/api/v1/versions",
     "/docs",
     "/openapi.json",
     "/redoc",

@@ -2,6 +2,7 @@ import '../styles/globals.css';
 import { AuthProvider } from '../context/AuthContext';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useRouter } from 'next/router';
+import ProductionVersionBadge from '../components/ProductionVersionBadge';
 
 function MyApp({ Component, pageProps }) {
   const router = useRouter();
@@ -19,6 +20,7 @@ function MyApp({ Component, pageProps }) {
           <Component {...pageProps} />
         </motion.div>
       </AnimatePresence>
+      <ProductionVersionBadge />
     </AuthProvider>
   );
 }

@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from sqlalchemy import text
 
 from app.db.session import get_engine
+from app.version import get_runtime_version
 
 router = APIRouter(tags=["health"])
 
@@ -10,11 +11,21 @@ router = APIRouter(tags=["health"])
 async def liveness():
     from app.config import get_settings
     settings = get_settings()
+    version = get_runtime_version(settings.app_name, settings.app_version, settings.app_env)
     return {
         "status": "healthy",
         "service": settings.app_name,
         "version": settings.app_version,
+        "runtime": version,
     }
+
+
+@router.get("/version")
+async def version():
+    from app.config import get_settings
+
+    settings = get_settings()
+    return get_runtime_version(settings.app_name, settings.app_version, settings.app_env)
 
 
 @router.get("/ready")
@@ -50,6 +61,7 @@ async def readiness():
             "status": "ready",
             "service": settings.app_name,
             "version": settings.app_version,
+            "runtime": get_runtime_version(settings.app_name, settings.app_version, settings.app_env),
             "checks": checks,
         }
     return JSONResponse(
@@ -58,6 +70,7 @@ async def readiness():
             "status": "degraded",
             "service": settings.app_name,
             "version": settings.app_version,
+            "runtime": get_runtime_version(settings.app_name, settings.app_version, settings.app_env),
             "checks": checks,
         },
     )

@@ -16,6 +16,7 @@ from app.middleware.jwt import JWTMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.cors import add_cors_middleware
 from app.routers.proxy import router as proxy_router, close_http_client
+from app.version import get_runtime_version
 
 logger = structlog.get_logger(__name__)
 
@@ -118,10 +119,53 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health():
+        version = get_runtime_version(settings.app_name, settings.app_version, settings.app_env)
         return {
             "status": "healthy",
             "service": settings.app_name,
             "version": settings.app_version,
+            "runtime": version,
+        }
+
+    @app.get("/version")
+    async def version():
+        return get_runtime_version(settings.app_name, settings.app_version, settings.app_env)
+
+    @app.get("/api/v1/version")
+    async def api_version():
+        return get_runtime_version(settings.app_name, settings.app_version, settings.app_env)
+
+    @app.get("/api/v1/versions")
+    async def service_versions():
+        gateway_version = get_runtime_version(settings.app_name, settings.app_version, settings.app_env)
+        services: dict[str, dict | str] = {"api-gateway": gateway_version}
+
+        upstreams: dict[str, str] = {
+            "auth-service": settings.auth_service_url.rstrip("/"),
+            "profile-service": settings.profile_service_url.rstrip("/"),
+            "assessment-service": settings.assessment_service_url.rstrip("/"),
+            "scoring-engine-service": settings.scoring_service_url.rstrip("/"),
+            "nutrition-service": settings.nutrition_service_url.rstrip("/"),
+        }
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
+            for label, upstream in sorted(upstreams.items()):
+                try:
+                    response = await client.get(f"{upstream}/api/v1/version")
+                    services[label] = response.json() if response.status_code == 200 else {
+                        "status": "unavailable",
+                        "http_status": response.status_code,
+                    }
+                except Exception as exc:
+                    services[label] = {
+                        "status": "unavailable",
+                        "error": str(exc),
+                    }
+
+        return {
+            "status": "ok",
+            "environment": settings.app_env,
+            "services": services,
         }
 
     @app.get("/ready")
@@ -157,6 +201,7 @@ def create_app() -> FastAPI:
             "status": "ready" if all_ok else "degraded",
             "service": settings.app_name,
             "version": settings.app_version,
+            "runtime": get_runtime_version(settings.app_name, settings.app_version, settings.app_env),
             "checks": checks,
         }
         if all_ok:
