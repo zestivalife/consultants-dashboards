@@ -5,12 +5,12 @@ Revises: b1c2d3e4f5a6
 Create Date: 2026-07-09 15:05:00
 """
 from typing import Sequence, Union
-import hashlib
 import uuid
 
-import bcrypt
 import sqlalchemy as sa
 from alembic import op
+
+from app.core.security import hash_password
 
 
 revision: str = "c4d5e6f7a8b9"
@@ -35,11 +35,6 @@ OWNER_USERS = [
         "first_name": "Lalit",
     },
 ]
-
-
-def _hash_password(password: str) -> str:
-    prehashed = hashlib.sha256(password.encode("utf-8")).hexdigest().encode("utf-8")
-    return bcrypt.hashpw(prehashed, bcrypt.gensalt(rounds=12)).decode("utf-8")
 
 
 def _has_column(conn: sa.Connection, table_name: str, column_name: str) -> bool:
@@ -131,7 +126,7 @@ def upgrade() -> None:
             {
                 "id": owner["id"],
                 "email": owner["email"],
-                "password_hash": _hash_password(owner["password"]),
+                "password_hash": hash_password(owner["password"]),
                 "role_id": role_id,
                 "first_name": owner["first_name"],
             },

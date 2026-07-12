@@ -104,6 +104,30 @@ def _build_tokens(user: User, raw_refresh: str, permissions: list[str] | None = 
     )
 
 
+def _ensure_authenticatable_user(user: User, *, now: datetime | None = None) -> None:
+    current_time = now or datetime.now(timezone.utc)
+    status = str(user.status or "").upper()
+    if user.deleted_at is not None or status == "DELETED":
+        logger.warning("auth_blocked_deleted", email=user.email, user_id=str(user.id))
+        raise ForbiddenException("Account is deleted. Please contact support.")
+
+    if user.lock_until and user.lock_until > current_time:
+        remaining = int((user.lock_until - current_time).total_seconds())
+        raise ForbiddenException(
+            f"Account locked. Try again in {remaining} seconds."
+        )
+
+    if not user.is_active:
+        logger.warning("auth_blocked_inactive", email=user.email, user_id=str(user.id))
+        raise ForbiddenException("Account is inactive. Please contact support.")
+
+    if not user.is_verified:
+        logger.warning("auth_blocked_unverified", email=user.email, user_id=str(user.id))
+        raise ForbiddenException(
+            "Email not verified. Please check your inbox for the OTP and verify your email first."
+        )
+
+
 # ── public API ────────────────────────────────────────
 
 async def register(
@@ -120,6 +144,7 @@ async def register(
 
     user_repo = UserRepository(session)
     role_repo = RoleRepository(session)
+    audit_repo = AuditLogRepository(session)
 
     existing = await user_repo.get_by_email(email)
     if existing:
@@ -159,6 +184,7 @@ async def register(
     otp_record = OTPVerification(user_id=user.id, purpose="email_verification")
     session.add(otp_record)
     await session.flush()
+    await audit_repo.create("USER_REGISTERED", user_id=user.id)
 
     # Note: Email will be sent in background. API returns success regardless of email status
     # This prevents 504 timeouts due to SMTP/SendGrid delays
@@ -260,15 +286,24 @@ async def login(
         raise UnauthorizedException("Invalid credentials")
 
     now = datetime.now(timezone.utc)
-    if user.lock_until and user.lock_until > now:
-        remaining = int((user.lock_until - now).total_seconds())
-        raise ForbiddenException(
-            f"Account locked. Try again in {remaining} seconds."
+    if user.deleted_at is not None or str(user.status or "").upper() == "DELETED":
+        logger.warning("login_blocked_deleted", email=email, user_id=str(user.id))
+        await audit_repo.create(
+            "LOGIN_BLOCKED_DELETED", user_id=user.id, ip_address=ip_address, user_agent=user_agent,
         )
+        raise ForbiddenException("Account is deleted. Please contact support.")
+
+    if user.lock_until and user.lock_until > now:
+        await audit_repo.create(
+            "LOGIN_BLOCKED_LOCKED", user_id=user.id, ip_address=ip_address, user_agent=user_agent,
+        )
+        _ensure_authenticatable_user(user, now=now)
 
     if not user.is_active:
-        logger.warning("login_blocked_inactive", email=email, user_id=str(user.id))
-        raise ForbiddenException("Account is inactive. Please contact support.")
+        await audit_repo.create(
+            "LOGIN_BLOCKED_INACTIVE", user_id=user.id, ip_address=ip_address, user_agent=user_agent,
+        )
+        _ensure_authenticatable_user(user, now=now)
 
     if not verify_password(password, user.password_hash):
         user.failed_login_attempts += 1
@@ -291,10 +326,10 @@ async def login(
 
     # ── Enforce email verification ─────────────────────────────────
     if not user.is_verified:
-        logger.warning("login_blocked_unverified", email=email, user_id=str(user.id))
-        raise ForbiddenException(
-            "Email not verified. Please check your inbox for the OTP and verify your email first."
+        await audit_repo.create(
+            "LOGIN_BLOCKED_UNVERIFIED", user_id=user.id, ip_address=ip_address, user_agent=user_agent,
         )
+        _ensure_authenticatable_user(user, now=now)
 
     raw_refresh = generate_refresh_token()
     refresh_record = RefreshToken(
@@ -345,6 +380,15 @@ async def refresh(
         raise UnauthorizedException("User not found")
 
     now = datetime.now(timezone.utc)
+    if user.deleted_at is not None or str(user.status or "").upper() == "DELETED":
+        await audit_repo.create(
+            "TOKEN_REFRESH_BLOCKED_DELETED",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        _ensure_authenticatable_user(user, now=now)
+
     if user.lock_until and user.lock_until > now:
         await audit_repo.create(
             "TOKEN_REFRESH_BLOCKED_LOCKED",
@@ -352,7 +396,7 @@ async def refresh(
             ip_address=ip_address,
             user_agent=user_agent,
         )
-        raise ForbiddenException("Account is locked. Please sign in again after the lock expires.")
+        _ensure_authenticatable_user(user, now=now)
 
     if not user.is_active:
         await audit_repo.create(
@@ -361,7 +405,7 @@ async def refresh(
             ip_address=ip_address,
             user_agent=user_agent,
         )
-        raise ForbiddenException("Account is inactive. Please contact support.")
+        _ensure_authenticatable_user(user, now=now)
 
     if not user.is_verified:
         await audit_repo.create(
@@ -370,7 +414,7 @@ async def refresh(
             ip_address=ip_address,
             user_agent=user_agent,
         )
-        raise ForbiddenException("Email not verified. Please verify your email and sign in again.")
+        _ensure_authenticatable_user(user, now=now)
 
     new_raw = generate_refresh_token()
     new_record = RefreshToken(
@@ -424,6 +468,7 @@ async def get_current_user(session: AsyncSession, user_id: uuid.UUID) -> UserRes
     user = await user_repo.get_by_id(user_id)
     if user is None:
         raise NotFoundException("User not found")
+    _ensure_authenticatable_user(user)
     permissions = await people_access_service.resolve_user_permissions(session, user)
     return _user_response(user, permissions)
 

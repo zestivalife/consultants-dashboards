@@ -5,11 +5,11 @@ Revises: c4d5e6f7a8b9
 Create Date: 2026-07-09 16:35:00
 """
 from typing import Sequence, Union
-import hashlib
 
-import bcrypt
 import sqlalchemy as sa
 from alembic import op
+
+from app.core.security import hash_password
 
 
 revision: str = "d7e8f9a0b1c2"
@@ -30,11 +30,6 @@ OWNER_USERS = [
         "first_name": "Lalit",
     },
 ]
-
-
-def _hash_password(password: str) -> str:
-    prehashed = hashlib.sha256(password.encode("utf-8")).hexdigest().encode("utf-8")
-    return bcrypt.hashpw(prehashed, bcrypt.gensalt(rounds=12)).decode("utf-8")
 
 
 def upgrade() -> None:
@@ -69,7 +64,7 @@ def upgrade() -> None:
                 ),
                 {
                     "email": owner["email"],
-                    "password_hash": _hash_password(owner["password"]),
+                    "password_hash": hash_password(owner["password"]),
                     "role_id": superuser_role_id,
                     "first_name": owner["first_name"],
                 },
@@ -92,7 +87,7 @@ def upgrade() -> None:
                 ),
                 {
                     "email": owner["email"],
-                    "password_hash": _hash_password(owner["password"]),
+                    "password_hash": hash_password(owner["password"]),
                     "role_id": superuser_role_id,
                     "first_name": owner["first_name"],
                 },

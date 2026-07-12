@@ -11,6 +11,8 @@ from datetime import date, datetime, timedelta, timezone
 from alembic import op
 import sqlalchemy as sa
 
+from app.core.security import hash_password
+
 
 revision: str = "b7d9e3f1a204"
 down_revision: Union[str, None] = "a8c4e2b7d901"
@@ -18,7 +20,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-DEFAULT_PASSWORD_HASH = "$2b$12$wfj/jVj9BpKVYx/BYJZo5OiPlsprNVaQfZvUKBk6SypoBYZtMB5l2"
+DEFAULT_PASSWORD = "PeopleAccess@123"
 OWNER_EMAILS = [
     "zestivapriyanshi@gmail.com",
     "lalitppaunikar26@gmail.com",
@@ -48,6 +50,7 @@ def _slug(value: str) -> str:
 
 def upgrade() -> None:
     bind = op.get_bind()
+    default_password_hash = hash_password(DEFAULT_PASSWORD)
     role_rows = bind.execute(sa.text("SELECT id, name FROM roles")).fetchall()
     product_rows = bind.execute(sa.text("SELECT id, key FROM products")).fetchall()
     package_rows = bind.execute(sa.text("SELECT id, product_id, code FROM package_catalog")).fetchall()
@@ -216,7 +219,7 @@ def upgrade() -> None:
             {
                 "id": owner_id,
                 "email": email,
-                "password_hash": DEFAULT_PASSWORD_HASH,
+                "password_hash": default_password_hash,
                 "company_name": "Nuetra Platform",
                 "location": "India",
                 "employees": None,
@@ -356,7 +359,7 @@ def upgrade() -> None:
                 "user": {
                     "id": user_id,
                     "email": f"{prefix}{idx}@example.com",
-                    "password_hash": DEFAULT_PASSWORD_HASH,
+                    "password_hash": default_password_hash,
                     "company_name": None,
                     "location": "India",
                     "employees": None,

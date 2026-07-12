@@ -19,6 +19,7 @@ from app.schemas.corporate import (
 from app.core.response import success_response
 from app.core.security import hash_password
 from app.core.email import get_email_service
+from app.repositories.audit_log_repository import AuditLogRepository
 
 
 async def _notify(db: AsyncSession, user_id: uuid.UUID, title: str, message: str, type: str = "system", priority: str = "low"):
@@ -205,6 +206,8 @@ async def invite_employee(employee: EmployeeInvite, db: AsyncSession = Depends(g
         is_verified=True,  # Invited by admin - no OTP needed, admin vouches for email
     )
     db.add(new_user)
+    await db.flush()
+    await AuditLogRepository(db).create("CORPORATE_EMPLOYEE_INVITED", user_id=new_user.id)
     await db.commit()
     await db.refresh(new_user)
 
@@ -284,6 +287,8 @@ async def invite_employees_bulk(employees: List[EmployeeInvite], db: AsyncSessio
                 is_verified=True,  # Invited by admin - no OTP needed, admin vouches for email
             )
             db.add(new_user)
+            await db.flush()
+            await AuditLogRepository(db).create("CORPORATE_EMPLOYEE_INVITED", user_id=new_user.id)
             invited_count += 1
             
             # Send invitation email
@@ -358,6 +363,8 @@ async def create_consultant(consultant: ConsultantInvite, db: AsyncSession = Dep
         permissions=ROLE_DEFAULT_AUTHORITIES.get(role_name_in, ["client_read"]),
     )
     db.add(new_user)
+    await db.flush()
+    await AuditLogRepository(db).create("CONSULTANT_ACCOUNT_CREATED", user_id=new_user.id)
     await db.commit()
     await db.refresh(new_user)
 
@@ -446,6 +453,8 @@ async def create_person(person: ManagedPersonCreate, db: AsyncSession = Depends(
         permissions=_normalize_authorities(role_name_in, person.authorities),
     )
     db.add(new_user)
+    await db.flush()
+    await AuditLogRepository(db).create("MANAGED_PERSON_CREATED", user_id=new_user.id)
     await db.commit()
     await db.refresh(new_user)
 
