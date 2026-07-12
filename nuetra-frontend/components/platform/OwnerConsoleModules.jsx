@@ -376,6 +376,7 @@ export function PeopleAccessModule({
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [isProfileDrawerOpen, setIsProfileDrawerOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [actionError, setActionError] = useState(null);
   const [noteDraft, setNoteDraft] = useState('');
   const [attachmentDraft, setAttachmentDraft] = useState({
     file_name: '',
@@ -512,6 +513,29 @@ export function PeopleAccessModule({
             : 'all';
 
   const updateForm = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const requireAction = (handler, label) => {
+    if (typeof handler !== 'function') {
+      setActionError(`${label} is not available. Refresh the page or contact support if this continues.`);
+      return null;
+    }
+    setActionError(null);
+    return handler;
+  };
+  const runAction = async (label, handler, ...args) => {
+    const action = requireAction(handler, label);
+    if (!action) return null;
+    try {
+      return await action(...args);
+    } catch (nextError) {
+      setActionError(nextError?.message || `${label} failed. Please try again.`);
+      return null;
+    }
+  };
+  const applyFilters = (patch) => {
+    const action = requireAction(onFilterChange, 'Filtering people');
+    if (!action) return;
+    action(patch);
+  };
   const toggleListValue = (key, value) => {
     setForm((current) => {
       const values = current[key] || [];
@@ -537,14 +561,16 @@ export function PeopleAccessModule({
   };
 
   const openUserDrawer = (userId) => {
-    onSelectUser?.(userId);
+    const action = requireAction(onSelectUser, 'Opening user profile');
+    if (!action) return;
+    action(userId);
     setIsProfileDrawerOpen(true);
   };
 
   const submitCreateUser = async () => {
     setIsSubmitting(true);
     try {
-      await onCreateUser?.({
+      const result = await runAction('Create user', onCreateUser, {
         ...form,
         organization_id: form.organization_id || null,
         department_id: form.department_id || null,
@@ -557,6 +583,7 @@ export function PeopleAccessModule({
         service_ids: form.service_ids,
         tags: form.tags.filter(Boolean),
       });
+      if (result === null) return;
       setShowCreateForm(false);
       setSelectedIds([]);
       setForm({
@@ -590,7 +617,7 @@ export function PeopleAccessModule({
     if (!selectedUser?.id) return;
     setIsSubmitting(true);
     try {
-      await onUpdateUser?.(selectedUser.id, {
+      await runAction('Update user', onUpdateUser, selectedUser.id, {
         first_name: form.first_name,
         last_name: form.last_name,
         phone: form.phone,
@@ -620,7 +647,7 @@ export function PeopleAccessModule({
     if (!targetIds.length) return;
     setIsSubmitting(true);
     try {
-      await onBulkAction?.({ action, user_ids: targetIds, ...extra });
+      await runAction('Bulk user action', onBulkAction, { action, user_ids: targetIds, ...extra });
       setSelectedIds([]);
     } finally {
       setIsSubmitting(false);
@@ -631,7 +658,8 @@ export function PeopleAccessModule({
     if (!selectedUser?.id || !noteDraft.trim()) return;
     setIsSubmitting(true);
     try {
-      await onAddNote?.(selectedUser.id, noteDraft.trim());
+      const result = await runAction('Add user note', onAddNote, selectedUser.id, noteDraft.trim());
+      if (result === null) return;
       setNoteDraft('');
       setProfileTab('Notes');
     } finally {
@@ -643,11 +671,12 @@ export function PeopleAccessModule({
     if (!selectedUser?.id || !attachmentDraft.file_name.trim() || !attachmentDraft.file_url.trim()) return;
     setIsSubmitting(true);
     try {
-      await onAddAttachment?.(selectedUser.id, {
+      const result = await runAction('Add attachment', onAddAttachment, selectedUser.id, {
         ...attachmentDraft,
         content_type: attachmentDraft.content_type || null,
         note: attachmentDraft.note || null,
       });
+      if (result === null) return;
       setAttachmentDraft({
         file_name: '',
         file_url: '',
@@ -665,13 +694,14 @@ export function PeopleAccessModule({
     if (!invitationDraft.email.trim()) return;
     setIsSubmitting(true);
     try {
-      await onCreateInvitation?.({
+      const result = await runAction('Create invitation', onCreateInvitation, {
         email: invitationDraft.email.trim(),
         role: invitationDraft.role,
         product_id: invitationDraft.product_id || null,
         organization_id: invitationDraft.organization_id || null,
         department_id: invitationDraft.department_id || null,
       });
+      if (result === null) return;
       setInvitationDraft({
         email: '',
         role: 'consultant',
@@ -689,7 +719,9 @@ export function PeopleAccessModule({
     if (!selectedUser?.id) return;
     setIsSubmitting(true);
     try {
-      await onAssignProducts?.(
+      const productResult = await runAction(
+        'Assign products',
+        onAssignProducts,
         selectedUser.id,
         form.product_ids.map((productId) => ({
           product_id: productId,
@@ -700,7 +732,10 @@ export function PeopleAccessModule({
           permissions: [],
         }))
       );
-      await onAssignPackages?.(
+      if (productResult === null) return;
+      const packageResult = await runAction(
+        'Assign packages',
+        onAssignPackages,
         selectedUser.id,
         form.package_ids.map((packageId) => ({
           package_id: packageId,
@@ -708,7 +743,10 @@ export function PeopleAccessModule({
           status: 'ACTIVE',
         }))
       );
-      await onAssignServices?.(
+      if (packageResult === null) return;
+      await runAction(
+        'Assign services',
+        onAssignServices,
         selectedUser.id,
         form.service_ids.map((serviceId) => ({
           service_id: serviceId,
@@ -722,7 +760,7 @@ export function PeopleAccessModule({
   };
 
   const handleCsvExport = async () => {
-    const csv = await onExportUsersCsv?.();
+    const csv = await runAction('Export users CSV', onExportUsersCsv);
     if (!csv || typeof window === 'undefined') return;
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -747,7 +785,8 @@ export function PeopleAccessModule({
     });
     setIsSubmitting(true);
     try {
-      await onImportUsers?.(rows);
+      const result = await runAction('Import users CSV', onImportUsers, rows);
+      if (result === null) return;
       setCsvDraft('');
       setShowImportModal(false);
     } finally {
@@ -764,7 +803,7 @@ export function PeopleAccessModule({
         <>
           <ActionButton icon={Upload} label="CSV Import" onClick={() => setShowImportModal(true)} />
           <ActionButton icon={Download} label="CSV Export" onClick={handleCsvExport} />
-          <ActionButton icon={UserCog} label="Refresh" onClick={() => onRefresh?.()} />
+          <ActionButton icon={UserCog} label="Refresh" onClick={() => runAction('Refresh People & Access', onRefresh)} />
           <ActionButton
             icon={Plus}
             label="Add mentor / consultant / admin"
@@ -785,7 +824,7 @@ export function PeopleAccessModule({
           <button
             key={metric.label}
             type="button"
-            onClick={() => onFilterChange?.(metric.patch)}
+            onClick={() => applyFilters(metric.patch)}
             className="text-left transition-transform hover:-translate-y-0.5"
           >
             <StatPill icon={metric.icon} label={metric.label} value={metric.value} tone={metric.tone} />
@@ -798,6 +837,11 @@ export function PeopleAccessModule({
           {error}
         </div>
       ) : null}
+      {actionError ? (
+        <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+          {actionError}
+        </div>
+      ) : null}
 
       <div className="mt-8 space-y-6">
           <ControlBar
@@ -805,7 +849,7 @@ export function PeopleAccessModule({
             searchValue={searchDraft}
             onSearchChange={setSearchDraft}
             onSearchKeyDown={(event) => {
-              if (event.key === 'Enter') onFilterChange?.({ search: searchDraft, page: 1 });
+              if (event.key === 'Enter') applyFilters({ search: searchDraft, page: 1 });
             }}
             filters={[
               { key: 'all', label: 'All' },
@@ -816,11 +860,11 @@ export function PeopleAccessModule({
             ]}
             activeFilter={activeRoleChip}
             onFilterChange={(key) => {
-              if (key === 'all') return onFilterChange?.({ role: '', page: 1 });
-              if (key === 'owners') return onFilterChange?.({ role: 'platform_owner', page: 1 });
-              if (key === 'mentors') return onFilterChange?.({ role: 'mentor', page: 1 });
-              if (key === 'employees') return onFilterChange?.({ role: 'employee', page: 1 });
-              return onFilterChange?.({ role: 'organization_admin', page: 1 });
+              if (key === 'all') return applyFilters({ role: '', page: 1 });
+              if (key === 'owners') return applyFilters({ role: 'platform_owner', page: 1 });
+              if (key === 'mentors') return applyFilters({ role: 'mentor', page: 1 });
+              if (key === 'employees') return applyFilters({ role: 'employee', page: 1 });
+              return applyFilters({ role: 'organization_admin', page: 1 });
             }}
             rightControls={
               <div className="ml-2 flex items-center gap-2">
@@ -834,7 +878,7 @@ export function PeopleAccessModule({
                 </button>
                 <select
                   value={activeFilterProduct}
-                  onChange={(event) => onFilterChange?.({ product_id: event.target.value, page: 1 })}
+                  onChange={(event) => applyFilters({ product_id: event.target.value, page: 1 })}
                   className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600 outline-none"
                 >
                   <option value="">All products</option>
@@ -844,7 +888,7 @@ export function PeopleAccessModule({
                 </select>
                 <select
                   value={activeFilterStatus}
-                  onChange={(event) => onFilterChange?.({ status: event.target.value, page: 1 })}
+                  onChange={(event) => applyFilters({ status: event.target.value, page: 1 })}
                   className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600 outline-none"
                 >
                   <option value="">All statuses</option>
@@ -857,7 +901,7 @@ export function PeopleAccessModule({
                 </select>
                 <select
                   value={activeFilterVerification}
-                  onChange={(event) => onFilterChange?.({ verification: event.target.value, page: 1 })}
+                  onChange={(event) => applyFilters({ verification: event.target.value, page: 1 })}
                   className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600 outline-none"
                 >
                   <option value="">All verification</option>
@@ -872,7 +916,7 @@ export function PeopleAccessModule({
                   Advanced
                 </button>
                 <button
-                  onClick={() => onFilterChange?.({ search: searchDraft, page: 1 })}
+                  onClick={() => applyFilters({ search: searchDraft, page: 1 })}
                   className="inline-flex items-center gap-2 rounded-xl border border-[#237afc] bg-[#f5f9ff] px-3 py-2 text-sm font-bold text-[#237afc]"
                 >
                   <Search className="h-4 w-4" />
@@ -954,14 +998,14 @@ export function PeopleAccessModule({
                 </p>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => onFilterChange?.({ page: Math.max(1, pagination.page - 1) })}
+                    onClick={() => applyFilters({ page: Math.max(1, pagination.page - 1) })}
                     disabled={pagination.page <= 1}
                     className="rounded-full border border-gray-200 bg-white px-4 py-2 font-bold text-gray-600 disabled:opacity-50"
                   >
                     Previous
                   </button>
                   <button
-                    onClick={() => onFilterChange?.({ page: Math.min(pagination.total_pages, pagination.page + 1) })}
+                    onClick={() => applyFilters({ page: Math.min(pagination.total_pages, pagination.page + 1) })}
                     disabled={pagination.page >= pagination.total_pages}
                     className="rounded-full border border-gray-200 bg-white px-4 py-2 font-bold text-gray-600 disabled:opacity-50"
                   >
@@ -989,8 +1033,8 @@ export function PeopleAccessModule({
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge tone={invitation.status === 'INVITED' ? 'blue' : invitation.status === 'ACCEPTED' ? 'green' : 'red'}>{invitation.status}</Badge>
-                      <button onClick={() => onResendInvitation?.(invitation.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Resend</button>
-                      <button onClick={() => onCancelInvitation?.(invitation.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Cancel</button>
+                      <button onClick={() => runAction('Resend invitation', onResendInvitation, invitation.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Resend</button>
+                      <button onClick={() => runAction('Cancel invitation', onCancelInvitation, invitation.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Cancel</button>
                     </div>
                   </div>
                 </div>
@@ -1225,19 +1269,19 @@ export function PeopleAccessModule({
               <button onClick={() => setShowAdvancedFilters(false)} className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500">Close</button>
             </div>
             <div className="mt-6 space-y-4">
-              <select value={filters?.role || ''} onChange={(event) => onFilterChange?.({ role: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+              <select value={filters?.role || ''} onChange={(event) => applyFilters({ role: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
                 <option value="">All roles</option>
                 {roleOptions.map((role) => (
                   <option key={role.id} value={role.name.toLowerCase().replace(/ /g, '_')}>{role.name}</option>
                 ))}
               </select>
-              <select value={activeFilterProduct} onChange={(event) => onFilterChange?.({ product_id: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+              <select value={activeFilterProduct} onChange={(event) => applyFilters({ product_id: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
                 <option value="">All products</option>
                 {productOptions.map((product) => (
                   <option key={product.id} value={product.id}>{product.name}</option>
                 ))}
               </select>
-              <select value={activeFilterStatus} onChange={(event) => onFilterChange?.({ status: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+              <select value={activeFilterStatus} onChange={(event) => applyFilters({ status: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
                 <option value="">All statuses</option>
                 <option value="ACTIVE">Active</option>
                 <option value="INVITED">Invited</option>
@@ -1246,7 +1290,7 @@ export function PeopleAccessModule({
                 <option value="LOCKED">Locked</option>
                 <option value="SUSPENDED">Suspended</option>
               </select>
-              <select value={activeFilterVerification} onChange={(event) => onFilterChange?.({ verification: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+              <select value={activeFilterVerification} onChange={(event) => applyFilters({ verification: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
                 <option value="">All verification</option>
                 <option value="verified">Verified</option>
                 <option value="pending">Pending</option>
@@ -1254,7 +1298,7 @@ export function PeopleAccessModule({
             </div>
             <div className="mt-6 flex gap-3">
               <ActionButton icon={Filter} label="Apply filters" tone="primary" onClick={() => setShowAdvancedFilters(false)} />
-              <ActionButton icon={XCircle} label="Reset" onClick={() => onFilterChange?.({ role: '', product_id: '', status: '', verification: '', search: '', page: 1 })} />
+              <ActionButton icon={XCircle} label="Reset" onClick={() => applyFilters({ role: '', product_id: '', status: '', verification: '', search: '', page: 1 })} />
             </div>
           </div>
         </div>
@@ -1368,7 +1412,7 @@ export function PeopleAccessModule({
                   <ActionButton icon={Save} label="Save profile changes" tone="primary" onClick={submitUpdateUser} disabled={isSubmitting} />
                   <ActionButton icon={CheckCircle2} label="Activate" onClick={() => applyBulkAction('activate', { user_ids: [safeSelectedUser.id] })} />
                   <ActionButton icon={XCircle} label="Suspend" onClick={() => applyBulkAction('suspend', { user_ids: [safeSelectedUser.id] })} />
-                  <ActionButton icon={KeyRound} label="Force logout" onClick={() => onForceLogout?.(safeSelectedUser.id)} />
+                  <ActionButton icon={KeyRound} label="Force logout" onClick={() => runAction('Force logout', onForceLogout, safeSelectedUser.id)} />
                   <ActionButton icon={Save} label="Sync assignments" onClick={syncProductAssignments} disabled={isSubmitting} />
                 </div>
 
@@ -1462,7 +1506,7 @@ export function PeopleAccessModule({
                             <p className="font-bold text-gray-900">{session.device_label || session.browser || 'Unknown browser'} · {session.platform || 'Unknown platform'}</p>
                             <p className="text-xs text-gray-500">{session.ip_address || 'Unknown IP'} · {session.status} · last seen {new Date(session.last_seen_at).toLocaleString()}</p>
                           </div>
-                          <button onClick={() => onRevokeSession?.(safeSelectedUser.id, session.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">
+                          <button onClick={() => runAction('Revoke session', onRevokeSession, safeSelectedUser.id, session.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">
                             Revoke
                           </button>
                         </div>
@@ -1617,6 +1661,7 @@ export function PermissionMatrixModule({
   const [roleDraft, setRoleDraft] = useState({ name: '', description: '' });
   const [cloneDraft, setCloneDraft] = useState({ name: '', description: '' });
   const [isSaving, setIsSaving] = useState(false);
+  const [matrixError, setMatrixError] = useState(null);
   const roleRows = metadata?.roles || [];
   const permissionGroups = useMemo(() => {
     const grouped = new Map();
@@ -1663,6 +1708,19 @@ export function PermissionMatrixModule({
 
   const selectedRole = roleRows.find((role) => role.id === selectedRoleId) || roleRows[0];
   const selectedRolePermissions = draftPermissions[selectedRole?.id] || selectedRole?.permissions || [];
+  const runMatrixAction = async (label, handler, ...args) => {
+    if (typeof handler !== 'function') {
+      setMatrixError(`${label} is not available. Refresh the page or contact support if this continues.`);
+      return null;
+    }
+    setMatrixError(null);
+    try {
+      return await handler(...args);
+    } catch (nextError) {
+      setMatrixError(nextError?.message || `${label} failed. Please try again.`);
+      return null;
+    }
+  };
   const toggleDraftPermission = (permissionKey) => {
     if (!selectedRole) return;
     setDraftPermissions((current) => {
@@ -1678,7 +1736,7 @@ export function PermissionMatrixModule({
     if (!selectedRole) return;
     setIsSaving(true);
     try {
-      await onUpdateRolePermissions?.(selectedRole.id, selectedRolePermissions);
+      await runMatrixAction('Save permission matrix', onUpdateRolePermissions, selectedRole.id, selectedRolePermissions);
     } finally {
       setIsSaving(false);
     }
@@ -1688,11 +1746,12 @@ export function PermissionMatrixModule({
     if (!roleDraft.name.trim()) return;
     setIsSaving(true);
     try {
-      await onCreateRole?.({
+      const result = await runMatrixAction('Create custom role', onCreateRole, {
         name: roleDraft.name.trim(),
         description: roleDraft.description.trim() || null,
         permission_keys: selectedRolePermissions,
       });
+      if (result === null) return;
       setRoleDraft({ name: '', description: '' });
     } finally {
       setIsSaving(false);
@@ -1703,10 +1762,11 @@ export function PermissionMatrixModule({
     if (!cloneDraft.name.trim()) return;
     setIsSaving(true);
     try {
-      await onCloneRole?.(roleId, {
+      const result = await runMatrixAction('Clone role', onCloneRole, roleId, {
         name: cloneDraft.name.trim(),
         description: cloneDraft.description.trim() || null,
       });
+      if (result === null) return;
       setCloneDraft({ name: '', description: '' });
     } finally {
       setIsSaving(false);
@@ -1725,6 +1785,11 @@ export function PermissionMatrixModule({
         </>
       }
     >
+      {matrixError ? (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+          {matrixError}
+        </div>
+      ) : null}
       <div className="grid gap-6 xl:grid-cols-[0.9fr_1.4fr]">
         <Panel title="Role library" subtitle="Cloneable and governed roles for enterprise operations.">
           <div className="space-y-3">
