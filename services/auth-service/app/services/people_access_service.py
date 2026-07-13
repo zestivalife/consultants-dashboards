@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.email import get_email_service
 from app.core.exceptions import ConflictException, ForbiddenException, NotFoundException
-from app.core.security import hash_password
 from app.db.models.owner_access import (
     AuditEvent,
     LoginSession,
@@ -74,6 +73,7 @@ from app.schemas.people_access import (
     PaginationMeta,
     ServiceCatalogItem,
 )
+from app.services.user_service import CreateUserCommand, user_service
 
 
 MANAGEABLE_STATUSES = {"INVITED", "PENDING_VERIFICATION", "ACTIVE", "INACTIVE", "LOCKED", "SUSPENDED", "DELETED"}
@@ -614,21 +614,25 @@ async def create_user(
             raise NotFoundException("Department not found")
 
     status = _normalize_status(payload.status)
-    temp_password = f"Nuetra@{secrets.token_hex(4)}"
-    user = User(
-        email=email,
-        password_hash=hash_password(temp_password),
-        role_id=role.id,
-        first_name=payload.first_name,
-        last_name=payload.last_name,
-        phone=payload.phone,
-        industry=role.name.replace("_", " ").title(),
-        permissions=payload.permissions,
-        is_active=status not in {"INACTIVE", "SUSPENDED", "DELETED"},
-        is_verified=status not in {"INVITED", "PENDING_VERIFICATION"},
-        status=status,
+    created = await user_service.create_user(
+        session,
+        CreateUserCommand(
+            email=email,
+            role_name=role.name,
+            first_name=payload.first_name,
+            last_name=payload.last_name,
+            phone=payload.phone,
+            industry=role.name.replace("_", " ").title(),
+            permissions=payload.permissions,
+            status=status,
+            is_active=status not in {"INACTIVE", "SUSPENDED", "DELETED"},
+            is_verified=status not in {"INVITED", "PENDING_VERIFICATION"},
+            actor_user_id=actor.id,
+            audit_event_type="PEOPLE_ACCESS_USER_CREATED",
+        ),
     )
-    await repo.create_user(user)
+    user = created.user
+    temp_password = created.plain_password
     await repo.clear_primary_roles(user.id)
     await repo.ensure_user_role(user.id, role.id, actor.id, is_primary=True)
 
@@ -841,6 +845,8 @@ async def update_user(
             request_id=request_id,
         )
     )
+    await session.flush()
+    await session.refresh(user, attribute_names=["role"])
     return await get_user_detail(session, user.id)
 
 

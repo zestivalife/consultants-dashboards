@@ -16,6 +16,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(
         String(255), unique=True, index=True, nullable=False
     )
+    mobile: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     company_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -26,6 +27,9 @@ class User(Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    mobile_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    remember_me: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
     lock_until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -42,6 +46,15 @@ class User(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    last_login: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    password_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    current_session_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    refresh_token_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

@@ -14,14 +14,11 @@ from app.core.exceptions import (
 )
 from app.core.logging import get_logger
 from app.core.otp import generate_otp, store_otp, verify_and_delete_otp
-from app.core.password_policy import validate_password
 from app.core.rate_limit import check_rate_limit
 from app.core.security import (
     create_access_token,
     generate_refresh_token,
-    hash_password,
     hash_token,
-    verify_password,
 )
 from app.db.models.otp_verification import OTPVerification
 from app.db.models.refresh_token import RefreshToken
@@ -31,7 +28,9 @@ from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.role_repository import RoleRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth import LoginResponse, RoleResponse, TokenResponse, UserResponse
+from app.services.password_service import password_service
 from app.services import people_access_service
+from app.services.user_service import CreateUserCommand, user_service
 
 logger = get_logger(__name__)
 
@@ -140,11 +139,8 @@ async def register(
     employees: int | None = None,
     industry: str | None = None,
 ) -> dict:
-    validate_password(password)
-
     user_repo = UserRepository(session)
     role_repo = RoleRepository(session)
-    audit_repo = AuditLogRepository(session)
 
     existing = await user_repo.get_by_email(email)
     if existing:
@@ -155,16 +151,23 @@ async def register(
     if role is None:
         raise NotFoundException(f"Role '{assigned_role_name}' not found. Run migrations first.")
 
-    user = User(
-        email=email,
-        password_hash=hash_password(password),
-        role_id=role.id,
-        company_name=company_name,
-        location=location,
-        employees=employees,
-        industry=industry,
+    created = await user_service.create_user(
+        session,
+        CreateUserCommand(
+            email=email,
+            password=password,
+            role_name=assigned_role_name,
+            company_name=company_name,
+            location=location,
+            employees=employees,
+            industry=industry,
+            status="PENDING_VERIFICATION",
+            is_active=True,
+            is_verified=False,
+            audit_event_type="USER_REGISTERED",
+        ),
     )
-    await user_repo.create(user)
+    user = created.user
 
     otp_code = generate_otp()
     await store_otp(email, otp_code)
@@ -184,7 +187,6 @@ async def register(
     otp_record = OTPVerification(user_id=user.id, purpose="email_verification")
     session.add(otp_record)
     await session.flush()
-    await audit_repo.create("USER_REGISTERED", user_id=user.id)
 
     # Note: Email will be sent in background. API returns success regardless of email status
     # This prevents 504 timeouts due to SMTP/SendGrid delays
@@ -214,6 +216,9 @@ async def verify_otp_action(session: AsyncSession, email: str, otp: str) -> dict
         raise UnauthorizedException("Invalid or expired OTP")
 
     user.is_verified = True
+    user.email_verified = True
+    if str(user.status or "").upper() in {"INVITED", "PENDING_VERIFICATION", "EMAIL_VERIFIED"}:
+        user.status = "ACTIVE"
     await user_repo.update(user)
 
     logger.info("user_verified", user_id=str(user.id))
@@ -305,7 +310,7 @@ async def login(
         )
         _ensure_authenticatable_user(user, now=now)
 
-    if not verify_password(password, user.password_hash):
+    if not password_service.verify_password(password, user.password_hash):
         user.failed_login_attempts += 1
         if user.failed_login_attempts >= settings.max_failed_login_attempts:
             user.lock_until = now + timedelta(minutes=settings.account_lock_minutes)
@@ -322,6 +327,7 @@ async def login(
     user.failed_login_attempts = 0
     user.lock_until = None
     user.last_login_at = now
+    user.last_login = now
     await user_repo.update(user)
 
     # ── Enforce email verification ─────────────────────────────────

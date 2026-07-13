@@ -17,9 +17,9 @@ from app.schemas.corporate import (
     AuthorityOption, ManagedPersonCreate, ManagedPersonResponse, ManagedPersonUpdate
 )
 from app.core.response import success_response
-from app.core.security import hash_password
 from app.core.email import get_email_service
 from app.repositories.audit_log_repository import AuditLogRepository
+from app.services.user_service import CreateUserCommand, user_service
 
 
 async def _notify(db: AsyncSession, user_id: uuid.UUID, title: str, message: str, type: str = "system", priority: str = "low"):
@@ -194,20 +194,23 @@ async def invite_employee(employee: EmployeeInvite, db: AsyncSession = Depends(g
     if existing:
         raise HTTPException(status_code=400, detail="User with this email already exists")
 
-    temp_password = "Temp@123password"
-    new_user = User(
-        email=employee.email,
-        first_name=employee.firstName,
-        last_name=employee.lastName,
-        phone=employee.phone,
-        password_hash=hash_password(temp_password),
-        role_id=roleObj.id,
-        company_id=_company_scope_id(current_user),
-        is_verified=True,  # Invited by admin - no OTP needed, admin vouches for email
+    created = await user_service.create_user(
+        db,
+        CreateUserCommand(
+            email=employee.email,
+            role_name=roleObj.name,
+            first_name=employee.firstName,
+            last_name=employee.lastName,
+            phone=employee.phone,
+            company_id=_company_scope_id(current_user),
+            status="ACTIVE",
+            is_verified=True,
+            actor_user_id=current_user.id,
+            audit_event_type="CORPORATE_EMPLOYEE_INVITED",
+        ),
     )
-    db.add(new_user)
-    await db.flush()
-    await AuditLogRepository(db).create("CORPORATE_EMPLOYEE_INVITED", user_id=new_user.id)
+    new_user = created.user
+    temp_password = created.plain_password
     await db.commit()
     await db.refresh(new_user)
 
@@ -275,20 +278,27 @@ async def invite_employees_bulk(employees: List[EmployeeInvite], db: AsyncSessio
                 errors.append(f"{emp.email} already exists")
                 continue
 
-            temp_password = "Temp@123password"
-            new_user = User(
-                email=emp.email,
-                first_name=emp.firstName,
-                last_name=emp.lastName,
-                phone=emp.phone,
-                password_hash=hash_password(temp_password),
-                role_id=role_id,
-                company_id=_company_scope_id(current_user),
-                is_verified=True,  # Invited by admin - no OTP needed, admin vouches for email
+            role_obj = await db.scalar(select(Role).where(Role.id == role_id))
+            if role_obj is None:
+                errors.append(f"{emp.email} role is not configured")
+                continue
+            created = await user_service.create_user(
+                db,
+                CreateUserCommand(
+                    email=emp.email,
+                    role_name=role_obj.name,
+                    first_name=emp.firstName,
+                    last_name=emp.lastName,
+                    phone=emp.phone,
+                    company_id=_company_scope_id(current_user),
+                    status="ACTIVE",
+                    is_verified=True,
+                    actor_user_id=current_user.id,
+                    audit_event_type="CORPORATE_EMPLOYEE_INVITED",
+                ),
             )
-            db.add(new_user)
-            await db.flush()
-            await AuditLogRepository(db).create("CORPORATE_EMPLOYEE_INVITED", user_id=new_user.id)
+            new_user = created.user
+            temp_password = created.plain_password
             invited_count += 1
             
             # Send invitation email
@@ -349,20 +359,25 @@ async def create_consultant(consultant: ConsultantInvite, db: AsyncSession = Dep
     if existing:
         raise HTTPException(status_code=400, detail="User with this email already exists")
 
-    temp_password = "Temp@123password"
-    new_user = User(
-        email=consultant.email,
-        first_name=consultant.firstName,
-        last_name=consultant.lastName,
-        phone=consultant.phone,
-        password_hash=hash_password(temp_password),
-        role_id=role_obj.id,
-        company_id=_company_scope_id(current_user),
-        industry=consultant.specialization,
-        is_verified=True,
-        permissions=ROLE_DEFAULT_AUTHORITIES.get(role_name_in, ["client_read"]),
+    created = await user_service.create_user(
+        db,
+        CreateUserCommand(
+            email=consultant.email,
+            role_name=role_obj.name,
+            first_name=consultant.firstName,
+            last_name=consultant.lastName,
+            phone=consultant.phone,
+            company_id=_company_scope_id(current_user),
+            industry=consultant.specialization,
+            permissions=ROLE_DEFAULT_AUTHORITIES.get(role_name_in, ["client_read"]),
+            status="ACTIVE",
+            is_verified=True,
+            actor_user_id=current_user.id,
+            audit_event_type="CORPORATE_CONSULTANT_INVITED",
+        ),
     )
-    db.add(new_user)
+    new_user = created.user
+    temp_password = created.plain_password
     await db.flush()
     await AuditLogRepository(db).create("CONSULTANT_ACCOUNT_CREATED", user_id=new_user.id)
     await db.commit()
@@ -439,20 +454,25 @@ async def create_person(person: ManagedPersonCreate, db: AsyncSession = Depends(
     if existing:
         raise HTTPException(status_code=400, detail="User with this email already exists")
 
-    temp_password = "Temp@123password"
-    new_user = User(
-        email=person.email,
-        first_name=person.firstName,
-        last_name=person.lastName,
-        phone=person.phone,
-        password_hash=hash_password(temp_password),
-        role_id=role_obj.id,
-        company_id=_company_scope_id(current_user),
-        industry=person.specialization,
-        is_verified=True,
-        permissions=_normalize_authorities(role_name_in, person.authorities),
+    created = await user_service.create_user(
+        db,
+        CreateUserCommand(
+            email=person.email,
+            role_name=role_obj.name,
+            first_name=person.firstName,
+            last_name=person.lastName,
+            phone=person.phone,
+            company_id=_company_scope_id(current_user),
+            industry=person.specialization,
+            permissions=_normalize_authorities(role_name_in, person.authorities),
+            status="ACTIVE",
+            is_verified=True,
+            actor_user_id=current_user.id,
+            audit_event_type="CORPORATE_PERSON_CREATED",
+        ),
     )
-    db.add(new_user)
+    new_user = created.user
+    temp_password = created.plain_password
     await db.flush()
     await AuditLogRepository(db).create("MANAGED_PERSON_CREATED", user_id=new_user.id)
     await db.commit()

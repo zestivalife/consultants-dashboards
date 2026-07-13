@@ -29,6 +29,18 @@ from app.db.models.owner_access import (
     UserInvitation,
     UserStatusHistory,
 )
+from app.db.models.identity_profile import (
+    ApprovalWorkflow,
+    ConsultantProfile,
+    CorporateAdminProfile,
+    MentorProfile,
+    OnboardingDocument,
+    OnboardingInstance,
+    OnboardingStep,
+    OnboardingTemplate,
+    OrganizationAdminProfile,
+    PractitionerProfile,
+)
 
 __all__ = [
     "Role",
@@ -62,4 +74,14 @@ __all__ = [
     "UserAttachment",
     "UserInvitation",
     "UserStatusHistory",
+    "ApprovalWorkflow",
+    "ConsultantProfile",
+    "CorporateAdminProfile",
+    "MentorProfile",
+    "OnboardingDocument",
+    "OnboardingInstance",
+    "OnboardingStep",
+    "OnboardingTemplate",
+    "OrganizationAdminProfile",
+    "PractitionerProfile",
 ]
