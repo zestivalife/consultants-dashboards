@@ -106,6 +106,35 @@ function redactHeaders(headers) {
   return { ...headers, Authorization: 'Bearer [redacted]' };
 }
 
+function requestWithXhr(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    if (typeof window === 'undefined' || typeof XMLHttpRequest === 'undefined') {
+      reject(new Error('XMLHttpRequest is not available.'));
+      return;
+    }
+
+    const xhr = new XMLHttpRequest();
+    xhr.open(options.method || 'GET', url, true);
+
+    Object.entries(options.headers || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        xhr.setRequestHeader(key, value);
+      }
+    });
+
+    xhr.onload = () => {
+      resolve({
+        ok: xhr.status >= 200 && xhr.status < 300,
+        status: xhr.status,
+        text: async () => xhr.responseText || '',
+      });
+    };
+    xhr.onerror = () => reject(new Error('Network error: XMLHttpRequest failed.'));
+    xhr.ontimeout = () => reject(new Error('Network error: XMLHttpRequest timed out.'));
+    xhr.send(options.body);
+  });
+}
+
 async function refreshAccessToken() {
   if (typeof window === 'undefined') return null;
 
@@ -203,11 +232,19 @@ export async function apiRequest(path, opts = {}) {
   } catch (networkErr) {
     // Re-throw AbortErrors unchanged so callers using AbortController can detect them.
     if (networkErr.name === 'AbortError') throw networkErr;
-    console.error(`[API NETWORK ERROR] ${fetchOptions.method || 'GET'} ${url}`, networkErr);
-    const err = new Error('Network error: please check if the server is running.');
-    err.status = 0;
-    err.cause = networkErr;
-    throw err;
+    try {
+      res = await requestWithXhr(url, {
+        method: fetchOptions.method || 'GET',
+        headers,
+        body: finalBody,
+      });
+    } catch (xhrErr) {
+      console.error(`[API NETWORK ERROR] ${fetchOptions.method || 'GET'} ${url}`, networkErr, xhrErr);
+      const err = new Error('Network error: please check if the server is running.');
+      err.status = 0;
+      err.cause = networkErr;
+      throw err;
+    }
   }
 
   let text = await res.text();
