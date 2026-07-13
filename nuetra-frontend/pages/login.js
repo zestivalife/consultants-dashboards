@@ -13,12 +13,12 @@ export default function LoginPage() {
   const groupedUsers = useMemo(() => sampleUsers || [], [sampleUsers]);
 
   useEffect(() => {
-    if (user?.role) {
+    if (!isLoading && user?.role) {
       window.location.replace(getDashboardPathForRole(user.role));
     }
-  }, [user]);
+  }, [isLoading, user]);
 
-  if (user?.role) {
+  if (!isLoading && user?.role) {
     return (
       <div className="fluent-page min-h-screen flex items-center justify-center">
         <div className="fluent-card rounded-[28px] px-8 py-7 text-center">
