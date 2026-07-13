@@ -19,7 +19,7 @@ export function getApiBaseUrl() {
   // In deployed browser sessions, use the app's own proxy route so the browser
   // never depends on cross-origin CORS headers from the backend gateway.
   if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
-    baseUrl = '/api/gateway';
+    baseUrl = `${window.location.origin}/api/gateway`;
   }
 
   // Fallbacks if not set
