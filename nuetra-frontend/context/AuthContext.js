@@ -110,7 +110,7 @@ export function AuthProvider({ children }) {
         setIsLoading(false);
 
         if (redirect) {
-          router.replace(getDashboardPathForRole(nextUser.role));
+          window.location.replace(getDashboardPathForRole(nextUser.role));
         }
 
         return { user: nextUser };
