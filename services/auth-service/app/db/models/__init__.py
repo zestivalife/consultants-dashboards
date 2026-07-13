@@ -41,6 +41,7 @@ from app.db.models.identity_profile import (
     OrganizationAdminProfile,
     PractitionerProfile,
 )
+from app.db.models.master_data import MasterDataCategory, MasterDataItem
 
 __all__ = [
     "Role",
@@ -84,4 +85,6 @@ __all__ = [
     "OnboardingTemplate",
     "OrganizationAdminProfile",
     "PractitionerProfile",
+    "MasterDataCategory",
+    "MasterDataItem",
 ]

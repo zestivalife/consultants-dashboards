@@ -22,6 +22,18 @@ OWNER_ACCESS_RULES: tuple[tuple[str, str, set[str]], ...] = (
     ("/api/v1/owner/people-access/users", "POST", {"users.create"}),
     ("/api/v1/owner/people-access/users", "GET", {"users.read"}),
     ("/api/v1/owner/people-access/organizations", "POST", {"organizations.manage"}),
+    ("/api/v1/owner/master-data/categories", "GET", {"master_data.read"}),
+    ("/api/v1/owner/master-data/categories", "POST", {"master_data.create"}),
+    ("/api/v1/owner/master-data/categories/", "PATCH", {"master_data.edit"}),
+    ("/api/v1/owner/master-data/categories/", "DELETE", {"master_data.delete"}),
+    ("/api/v1/owner/master-data/categories/*/restore", "POST", {"master_data.restore"}),
+    ("/api/v1/owner/master-data/items", "GET", {"master_data.read"}),
+    ("/api/v1/owner/master-data/items", "POST", {"master_data.create"}),
+    ("/api/v1/owner/master-data/items/import", "POST", {"master_data.import"}),
+    ("/api/v1/owner/master-data/items/export", "GET", {"master_data.export"}),
+    ("/api/v1/owner/master-data/items/", "PATCH", {"master_data.edit"}),
+    ("/api/v1/owner/master-data/items/", "DELETE", {"master_data.delete"}),
+    ("/api/v1/owner/master-data/items/*/restore", "POST", {"master_data.restore"}),
 )
 
 

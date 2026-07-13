@@ -6,6 +6,7 @@ import {
   BriefcaseBusiness,
   Building2,
   ClipboardList,
+  Database,
   FolderKanban,
   LayoutPanelTop,
   Settings,
@@ -26,6 +27,7 @@ const OWNER_NAV_ICONS = {
   organizations: Building2,
   'people-access': Users,
   permissions: Shield,
+  'master-data': Database,
   packages: FolderKanban,
   services: Blocks,
   practitioners: Stethoscope,
@@ -39,6 +41,7 @@ const OWNER_NAV_ICONS = {
 
 export default function OwnerConsoleLayout({ activeSlug, children }) {
   const router = useRouter();
+  const navItems = OWNER_ROUTE_DEFINITIONS.filter((item) => !item.hidden || item.slug === activeSlug);
 
   return (
     <div className="relative z-10 mx-auto flex max-w-[1600px] gap-6 px-4 pb-20 pt-6 sm:px-6 lg:px-8">
@@ -52,7 +55,7 @@ export default function OwnerConsoleLayout({ activeSlug, children }) {
         </div>
 
         <nav className="mt-5 space-y-1" aria-label="Platform owner navigation">
-          {OWNER_ROUTE_DEFINITIONS.map((item) => {
+          {navItems.map((item) => {
             const Icon = OWNER_NAV_ICONS[item.slug] || Sparkles;
             const isActive = item.slug === activeSlug || (item.slug === 'command-center' && !activeSlug);
             return (
@@ -85,7 +88,7 @@ export default function OwnerConsoleLayout({ activeSlug, children }) {
       <main className="min-w-0 flex-1">
         <div className="mb-4 overflow-x-auto rounded-3xl border border-white/70 bg-white/80 p-2 shadow-sm backdrop-blur lg:hidden">
           <div className="flex min-w-max items-center gap-2">
-            {OWNER_ROUTE_DEFINITIONS.map((item) => {
+            {navItems.map((item) => {
               const isActive = item.slug === activeSlug || (item.slug === 'command-center' && !activeSlug);
               return (
                 <button

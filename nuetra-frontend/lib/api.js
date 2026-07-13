@@ -539,6 +539,99 @@ export const ownerPeopleAccessAPI = {
   },
 };
 
+export const ownerMasterDataAPI = {
+  listCategories(params = {}) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      searchParams.set(key, String(value));
+    });
+    const suffix = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return apiRequest(`/owner/master-data/categories${suffix}`);
+  },
+
+  createCategory(payload) {
+    return apiRequest('/owner/master-data/categories', {
+      method: 'POST',
+      body: payload,
+    });
+  },
+
+  updateCategory(categoryId, payload) {
+    return apiRequest(`/owner/master-data/categories/${categoryId}`, {
+      method: 'PATCH',
+      body: payload,
+    });
+  },
+
+  deleteCategory(categoryId) {
+    return apiRequest(`/owner/master-data/categories/${categoryId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  restoreCategory(categoryId) {
+    return apiRequest(`/owner/master-data/categories/${categoryId}/restore`, {
+      method: 'POST',
+    });
+  },
+
+  listItems(params = {}) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      searchParams.set(key, String(value));
+    });
+    const suffix = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return apiRequest(`/owner/master-data/items${suffix}`);
+  },
+
+  createItem(payload) {
+    return apiRequest('/owner/master-data/items', {
+      method: 'POST',
+      body: payload,
+    });
+  },
+
+  updateItem(itemId, payload) {
+    return apiRequest(`/owner/master-data/items/${itemId}`, {
+      method: 'PATCH',
+      body: payload,
+    });
+  },
+
+  deleteItem(itemId) {
+    return apiRequest(`/owner/master-data/items/${itemId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  restoreItem(itemId) {
+    return apiRequest(`/owner/master-data/items/${itemId}/restore`, {
+      method: 'POST',
+    });
+  },
+
+  importItems(rows) {
+    return apiRequest('/owner/master-data/items/import', {
+      method: 'POST',
+      body: { rows },
+    });
+  },
+
+  exportItems(params = {}) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      searchParams.set(key, String(value));
+    });
+    const suffix = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return apiRequest(`/owner/master-data/items/export${suffix}`, {
+      responseType: 'text',
+    });
+  },
+};
+
 // ── Profile endpoints ──────────────────────────────────────────────
 
 export const profileAPI = {

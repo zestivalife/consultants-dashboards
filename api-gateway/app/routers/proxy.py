@@ -14,6 +14,7 @@ _client: httpx.AsyncClient | None = None
 
 DELEGATED_PERMISSION_PREFIXES: tuple[str, ...] = (
     "/api/v1/owner/people-access",
+    "/api/v1/owner/master-data",
 )
 
 async def get_http_client() -> httpx.AsyncClient:

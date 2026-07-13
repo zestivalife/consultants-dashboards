@@ -19,6 +19,7 @@ import {
   ServiceCatalogModule,
   SettingsModule,
 } from './OwnerConsoleModules';
+import MasterDataModule from './MasterDataModule';
 import OwnerConsoleLayout from './OwnerConsoleLayout';
 import { platformOwnerConsoleData } from '../../data/platformOwnerConsoleData';
 import { getOwnerBreadcrumbs, getOwnerRouteBySlug } from '../../lib/ownerConsoleRoutes';
@@ -136,6 +137,8 @@ export default function OwnerConsolePage({ moduleSlug = 'command-center' }) {
             onSearchQueryChange={handlePermissionQueryChange}
           />
         );
+      case 'master-data':
+        return <MasterDataModule />;
       case 'packages':
         return <PackageBuilderModule packages={platformOwnerConsoleData.packages} />;
       case 'services':

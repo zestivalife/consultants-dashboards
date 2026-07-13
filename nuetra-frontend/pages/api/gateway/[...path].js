@@ -3,6 +3,7 @@ const DEFAULT_AUTH_UPSTREAM = 'https://auth-service-production-ef64.up.railway.a
 const AUTH_SERVICE_PREFIXES = [
   'api/v1/auth',
   'api/v1/owner/people-access',
+  'api/v1/owner/master-data',
   'api/v1/corporate-admin',
   'api/v1/team-lead',
   'api/v1/team-member',
