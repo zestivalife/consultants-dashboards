@@ -463,6 +463,11 @@ export const ownerPeopleAccessAPI = {
       method: 'POST',
     });
   },
+  expireInvitation(invitationId) {
+    return apiRequest(`/owner/people-access/invitations/${invitationId}/expire`, {
+      method: 'POST',
+    });
+  },
 
   updateRolePermissions(roleId, permissionKeys) {
     return apiRequest(`/owner/people-access/roles/${roleId}/permissions`, {

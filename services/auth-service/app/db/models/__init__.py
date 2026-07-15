@@ -27,6 +27,7 @@ from app.db.models.owner_access import (
     UserNote,
     UserAttachment,
     UserInvitation,
+    InvitationEmailOutbox,
     UserStatusHistory,
 )
 from app.db.models.identity_profile import (
@@ -74,6 +75,7 @@ __all__ = [
     "UserNote",
     "UserAttachment",
     "UserInvitation",
+    "InvitationEmailOutbox",
     "UserStatusHistory",
     "ApprovalWorkflow",
     "ConsultantProfile",

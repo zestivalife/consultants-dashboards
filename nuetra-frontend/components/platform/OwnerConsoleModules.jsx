@@ -357,6 +357,7 @@ export function PeopleAccessModule({
   onCreateInvitation,
   onResendInvitation,
   onCancelInvitation,
+  onExpireInvitation,
   onAssignProducts,
   onAssignPackages,
   onAssignServices,
@@ -1048,6 +1049,7 @@ export function PeopleAccessModule({
                       <Badge tone={invitation.status === 'INVITED' ? 'blue' : invitation.status === 'ACCEPTED' ? 'green' : 'red'}>{invitation.status}</Badge>
                       <button onClick={() => runAction('Resend invitation', onResendInvitation, invitation.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Resend</button>
                       <button onClick={() => runAction('Cancel invitation', onCancelInvitation, invitation.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Cancel</button>
+                      <button onClick={() => runAction('Expire invitation', onExpireInvitation, invitation.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Expire</button>
                     </div>
                   </div>
                 </div>

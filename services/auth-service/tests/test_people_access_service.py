@@ -4,12 +4,12 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.owner_access import Permission, RolePermission, UserInvitation, UserRole
+from app.db.models.owner_access import AuditEvent, InvitationEmailOutbox, Permission, RolePermission, UserInvitation, UserRole
 from app.db.models.role import Role
 from app.db.models.user import User
-from app.core.exceptions import ForbiddenException
+from app.core.exceptions import ConflictException, ForbiddenException
 from app.schemas.auth import UserResponse
-from app.schemas.people_access import ManagedUserCreateRequest, ManagedUserUpdateRequest
+from app.schemas.people_access import InvitationCreateRequest, ManagedUserCreateRequest, ManagedUserUpdateRequest
 from app.services import people_access_service
 
 
@@ -145,6 +145,16 @@ async def test_create_user_creates_invitation_and_primary_role(session: AsyncSes
     invitation = await session.scalar(select(UserInvitation).where(UserInvitation.email == "consultant@nuetra.in"))
     assert invitation is not None
     assert invitation.status == "INVITED"
+    assert invitation.token.startswith("redacted:")
+    assert invitation.token_hash
+    assert invitation.token_hash != invitation.token
+
+    outbox = await session.scalar(
+        select(InvitationEmailOutbox).where(InvitationEmailOutbox.invitation_id == invitation.id)
+    )
+    assert outbox is not None
+    assert outbox.status == "PENDING"
+    assert outbox.payload["token_delivery"] == "minted_for_email_only_not_persisted"
 
     user_role = await session.scalar(
         select(UserRole)
@@ -152,6 +162,154 @@ async def test_create_user_creates_invitation_and_primary_role(session: AsyncSes
     )
     assert user_role is not None
     assert user_role.is_primary is True
+
+
+@pytest.mark.asyncio
+async def test_create_invitation_hashes_token_and_queues_email_event(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    consultant_role = await _create_role(session, "consultant")
+    owner = await _create_user(session, owner_role, "owner@nuetra.in", first_name="Owner")
+    actor = _actor_from_user(owner, permissions=["users.invite"])
+
+    invitation = await people_access_service.create_invitation(
+        session,
+        InvitationCreateRequest(email="new.consultant@zestiva.in", role="consultant"),
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-create",
+    )
+
+    invitation_row = await session.scalar(select(UserInvitation).where(UserInvitation.id == invitation.id))
+    assert invitation_row is not None
+    assert invitation_row.invited_role_id == consultant_role.id
+    assert invitation_row.token.startswith("redacted:")
+    assert invitation_row.token_hash
+    assert invitation_row.token_hash != invitation_row.token
+    assert invitation_row.token_fingerprint == invitation_row.token_hash[:12]
+
+    outbox = await session.scalar(
+        select(InvitationEmailOutbox).where(InvitationEmailOutbox.invitation_id == invitation_row.id)
+    )
+    assert outbox is not None
+    assert outbox.email == "new.consultant@zestiva.in"
+    assert outbox.event_type == "INVITATION_CREATED"
+    assert outbox.status == "PENDING"
+    assert "token" not in outbox.payload
+
+
+@pytest.mark.asyncio
+async def test_create_invitation_rejects_duplicate_open_invitation(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    await _create_role(session, "consultant")
+    owner = await _create_user(session, owner_role, "owner@nuetra.in", first_name="Owner")
+    actor = _actor_from_user(owner, permissions=["users.invite"])
+    payload = InvitationCreateRequest(email="duplicate@zestiva.in", role="consultant")
+
+    await people_access_service.create_invitation(
+        session,
+        payload,
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-duplicate-1",
+    )
+
+    with pytest.raises(ConflictException):
+        await people_access_service.create_invitation(
+            session,
+            payload,
+            actor=actor,
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+            request_id="req-invite-duplicate-2",
+        )
+
+
+@pytest.mark.asyncio
+async def test_resend_invitation_rotates_token_hash_and_queues_outbox(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    await _create_role(session, "consultant")
+    owner = await _create_user(session, owner_role, "owner@nuetra.in", first_name="Owner")
+    actor = _actor_from_user(owner, permissions=["users.invite"])
+
+    invitation = await people_access_service.create_invitation(
+        session,
+        InvitationCreateRequest(email="resend.consultant@zestiva.in", role="consultant"),
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-resend-create",
+    )
+    invitation_row = await session.scalar(select(UserInvitation).where(UserInvitation.id == invitation.id))
+    original_hash = invitation_row.token_hash
+
+    resent = await people_access_service.resend_invitation(
+        session,
+        invitation.id,
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-resend",
+    )
+
+    assert resent.status == "INVITED"
+    assert invitation_row.token.startswith("redacted:")
+    assert invitation_row.token_hash != original_hash
+    assert invitation_row.token_fingerprint == invitation_row.token_hash[:12]
+
+    outbox_events = (
+        await session.scalars(
+            select(InvitationEmailOutbox)
+            .where(InvitationEmailOutbox.invitation_id == invitation.id)
+            .order_by(InvitationEmailOutbox.created_at)
+        )
+    ).all()
+    assert [event.event_type for event in outbox_events] == ["INVITATION_CREATED", "INVITATION_RESENT"]
+    assert all(event.status == "PENDING" for event in outbox_events)
+
+
+@pytest.mark.asyncio
+async def test_expire_invitation_updates_status_and_audit(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    await _create_role(session, "consultant")
+    owner = await _create_user(session, owner_role, "owner@nuetra.in", first_name="Owner")
+    actor = _actor_from_user(owner, permissions=["users.invite"])
+
+    invitation = await people_access_service.create_invitation(
+        session,
+        InvitationCreateRequest(email="expire.consultant@zestiva.in", role="consultant"),
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-expire-create",
+    )
+
+    expired = await people_access_service.expire_invitation(
+        session,
+        invitation.id,
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-expire",
+    )
+
+    assert expired.status == "EXPIRED"
+    invitation_row = await session.scalar(select(UserInvitation).where(UserInvitation.id == invitation.id))
+    assert invitation_row.status == "EXPIRED"
+    assert invitation_row.expires_at is not None
+
+    audit_event = await session.scalar(
+        select(AuditEvent)
+        .where(
+            AuditEvent.entity_type == "user_invitation",
+            AuditEvent.entity_id == str(invitation.id),
+            AuditEvent.action == "users.invite",
+            AuditEvent.request_id == "req-invite-expire",
+        )
+    )
+    assert audit_event is not None
+    assert audit_event.after_state["status"] == "EXPIRED"
 
 
 @pytest.mark.asyncio

@@ -482,6 +482,8 @@ class UserInvitation(Base):
     )
     status: Mapped[str] = mapped_column(String(40), default="INVITED", nullable=False, index=True)
     token: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    token_fingerprint: Mapped[str | None] = mapped_column(String(16), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -489,10 +491,38 @@ class UserInvitation(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     role: Mapped["Role | None"] = relationship()  # noqa: F821
     product: Mapped["Product | None"] = relationship()
     organization: Mapped["Organization | None"] = relationship(back_populates="invitations")
+
+
+class InvitationEmailOutbox(Base):
+    __tablename__ = "invitation_email_outbox"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    invitation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_invitations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(40), default="PENDING", nullable=False, index=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    attempts: Mapped[int] = mapped_column(default=0, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
 
 class UserStatusHistory(Base):

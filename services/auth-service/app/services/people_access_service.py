@@ -6,10 +6,11 @@ import csv
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.email import get_email_service
 from app.core.exceptions import ConflictException, ForbiddenException, NotFoundException
+from app.core.security import hash_token
 from app.db.models.owner_access import (
     AuditEvent,
+    InvitationEmailOutbox,
     LoginSession,
     Organization,
     PackageCatalog,
@@ -84,6 +85,47 @@ ROLE_ALIASES = {
     "senior consultant": "senior_consultant",
     "support admin": "support_admin",
 }
+
+
+def _new_invitation_token() -> tuple[str, str, str]:
+    raw_token = secrets.token_urlsafe(48)
+    token_hash = hash_token(raw_token)
+    return raw_token, token_hash, token_hash[:12]
+
+
+def _legacy_token_reference(invitation_id: uuid.UUID) -> str:
+    return f"redacted:{invitation_id}"
+
+
+async def _queue_invitation_email(
+    repo: PeopleAccessRepository,
+    invitation: UserInvitation,
+    *,
+    event_type: str,
+    role_name: str | None,
+    actor: UserResponse,
+    request_id: str | None,
+) -> InvitationEmailOutbox:
+    return await repo.create_invitation_email_outbox(
+        InvitationEmailOutbox(
+            invitation_id=invitation.id,
+            email=invitation.email,
+            event_type=event_type,
+            status="PENDING",
+            payload={
+                "invitation_id": str(invitation.id),
+                "email": invitation.email,
+                "role": role_name,
+                "product_id": str(invitation.product_id) if invitation.product_id else None,
+                "organization_id": str(invitation.organization_id) if invitation.organization_id else None,
+                "expires_at": invitation.expires_at.isoformat() if invitation.expires_at else None,
+                "token_fingerprint": invitation.token_fingerprint,
+                "token_delivery": "minted_for_email_only_not_persisted",
+                "actor_user_id": str(actor.id),
+                "request_id": request_id,
+            },
+        )
+    )
 
 
 def normalize_role_name(role_name: str) -> str:
@@ -632,7 +674,6 @@ async def create_user(
         ),
     )
     user = created.user
-    temp_password = created.plain_password
     await repo.clear_primary_roles(user.id)
     await repo.ensure_user_role(user.id, role.id, actor.id, is_primary=True)
 
@@ -667,7 +708,10 @@ async def create_user(
         service_ids=payload.service_ids,
     )
 
+    _raw_token, token_hash, token_fingerprint = _new_invitation_token()
+    invitation_id = uuid.uuid4()
     invitation = UserInvitation(
+        id=invitation_id,
         user_id=user.id,
         email=user.email,
         invited_role_id=role.id,
@@ -676,11 +720,21 @@ async def create_user(
         department_id=payload.department_id,
         invited_by_user_id=actor.id,
         status="INVITED",
-        token=secrets.token_urlsafe(24),
+        token=_legacy_token_reference(invitation_id),
+        token_hash=token_hash,
+        token_fingerprint=token_fingerprint,
         expires_at=payload.invite_expires_at or (datetime.now(timezone.utc) + timedelta(days=7)),
         last_sent_at=datetime.now(timezone.utc),
     )
     await repo.create_invitation(invitation)
+    await _queue_invitation_email(
+        repo,
+        invitation,
+        event_type="INVITATION_CREATED",
+        role_name=role.name,
+        actor=actor,
+        request_id=request_id,
+    )
 
     await repo.add_status_history(
         UserStatusHistory(
@@ -708,10 +762,25 @@ async def create_user(
         )
     )
 
-    try:
-        get_email_service().send_invitation(user.email, temp_password, role.name)
-    except Exception:
-        pass
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="user_invitation",
+            entity_id=str(invitation.id),
+            action="users.invite",
+            product_id=payload.primary_product_id,
+            before_state=None,
+            after_state={
+                "email": user.email,
+                "role": role.name,
+                "email_outbox_status": "PENDING",
+                "token_fingerprint": token_fingerprint,
+            },
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
 
     return await get_user_detail(session, user.id)
 
@@ -947,9 +1016,23 @@ async def create_invitation(
     request_id: str | None,
 ) -> PeopleAccessInvitationItem:
     repo = PeopleAccessRepository(session)
+    now = datetime.now(timezone.utc)
+    email = payload.email.lower().strip()
     role = await repo.get_role_by_name(normalize_role_name(payload.role))
     if role is None:
         raise NotFoundException(f"Role '{payload.role}' not found")
+    existing_user = await repo.get_user_by_email(email)
+    if existing_user and existing_user.deleted_at is None and str(existing_user.status or "").upper() != "DELETED":
+        raise ConflictException("A user with this email already exists")
+    duplicate_invitation = await repo.find_open_invitation(
+        email=email,
+        role_id=role.id,
+        product_id=payload.product_id,
+        organization_id=payload.organization_id,
+        now=now,
+    )
+    if duplicate_invitation:
+        raise ConflictException("An active invitation already exists for this email, role, and scope")
     if payload.organization_id:
         organization = await repo.get_organization(payload.organization_id)
         if organization is None:
@@ -960,19 +1043,32 @@ async def create_invitation(
             raise NotFoundException("Product not found")
         if payload.organization_id:
             await repo.ensure_organization_product(payload.organization_id, payload.product_id)
+    _raw_token, token_hash, token_fingerprint = _new_invitation_token()
+    invitation_id = uuid.uuid4()
     invitation = UserInvitation(
-        email=payload.email.lower().strip(),
+        id=invitation_id,
+        email=email,
         invited_role_id=role.id,
         product_id=payload.product_id,
         organization_id=payload.organization_id,
         department_id=payload.department_id,
         invited_by_user_id=actor.id,
         status="INVITED",
-        token=secrets.token_urlsafe(24),
-        expires_at=payload.expires_at or (datetime.now(timezone.utc) + timedelta(days=7)),
-        last_sent_at=datetime.now(timezone.utc),
+        token=_legacy_token_reference(invitation_id),
+        token_hash=token_hash,
+        token_fingerprint=token_fingerprint,
+        expires_at=payload.expires_at or (now + timedelta(days=7)),
+        last_sent_at=now,
     )
     await repo.create_invitation(invitation)
+    await _queue_invitation_email(
+        repo,
+        invitation,
+        event_type="INVITATION_CREATED",
+        role_name=role.name,
+        actor=actor,
+        request_id=request_id,
+    )
     await repo.add_audit_event(
         AuditEvent(
             actor_user_id=actor.id,
@@ -981,7 +1077,12 @@ async def create_invitation(
             action="users.invite",
             product_id=payload.product_id,
             before_state=None,
-            after_state={"email": invitation.email, "role": role.name},
+            after_state={
+                "email": invitation.email,
+                "role": role.name,
+                "email_outbox_status": "PENDING",
+                "token_fingerprint": token_fingerprint,
+            },
             ip_address=ip_address,
             browser=user_agent,
             request_id=request_id,
@@ -1003,11 +1104,24 @@ async def resend_invitation(
     invitation = await repo.get_invitation(invitation_id)
     if invitation is None:
         raise NotFoundException("Invitation not found")
+    if invitation.status == "ACCEPTED":
+        raise ConflictException("Accepted invitations cannot be resent")
+    _raw_token, token_hash, token_fingerprint = _new_invitation_token()
     invitation.status = "INVITED"
-    invitation.token = secrets.token_urlsafe(24)
+    invitation.token = _legacy_token_reference(invitation.id)
+    invitation.token_hash = token_hash
+    invitation.token_fingerprint = token_fingerprint
     invitation.last_sent_at = datetime.now(timezone.utc)
     invitation.cancelled_at = None
     invitation.expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    await _queue_invitation_email(
+        repo,
+        invitation,
+        event_type="INVITATION_RESENT",
+        role_name=invitation.role.name if invitation.role else None,
+        actor=actor,
+        request_id=request_id,
+    )
     await repo.add_audit_event(
         AuditEvent(
             actor_user_id=actor.id,
@@ -1016,7 +1130,12 @@ async def resend_invitation(
             action="users.invite",
             product_id=invitation.product_id,
             before_state=None,
-            after_state={"status": invitation.status, "email": invitation.email},
+            after_state={
+                "status": invitation.status,
+                "email": invitation.email,
+                "email_outbox_status": "PENDING",
+                "token_fingerprint": token_fingerprint,
+            },
             ip_address=ip_address,
             browser=user_agent,
             request_id=request_id,
@@ -1038,6 +1157,8 @@ async def cancel_invitation(
     invitation = await repo.get_invitation(invitation_id)
     if invitation is None:
         raise NotFoundException("Invitation not found")
+    if invitation.status == "ACCEPTED":
+        raise ConflictException("Accepted invitations cannot be cancelled")
     invitation.status = "CANCELLED"
     invitation.cancelled_at = datetime.now(timezone.utc)
     await repo.add_audit_event(
@@ -1046,6 +1167,40 @@ async def cancel_invitation(
             entity_type="user_invitation",
             entity_id=str(invitation.id),
             action="users.edit",
+            product_id=invitation.product_id,
+            before_state=None,
+            after_state={"status": invitation.status, "email": invitation.email},
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    return _serialize_invitation(invitation)
+
+
+async def expire_invitation(
+    session: AsyncSession,
+    invitation_id: uuid.UUID,
+    *,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> PeopleAccessInvitationItem:
+    repo = PeopleAccessRepository(session)
+    invitation = await repo.get_invitation(invitation_id)
+    if invitation is None:
+        raise NotFoundException("Invitation not found")
+    if invitation.status == "ACCEPTED":
+        raise ConflictException("Accepted invitations cannot be expired")
+    invitation.status = "EXPIRED"
+    invitation.expires_at = datetime.now(timezone.utc)
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="user_invitation",
+            entity_id=str(invitation.id),
+            action="users.invite",
             product_id=invitation.product_id,
             before_state=None,
             after_state={"status": invitation.status, "email": invitation.email},

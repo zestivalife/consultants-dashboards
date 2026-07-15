@@ -280,6 +280,23 @@ async def cancel_invitation(
     return success_response(data=result.model_dump(mode="json"), message="Invitation cancelled")
 
 
+@router.post("/invitations/{invitation_id}/expire")
+async def expire_invitation(
+    invitation_id: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
+):
+    await _require_people_access(session, current_user, "users.invite")
+    result = await people_access_service.expire_invitation(
+        session,
+        invitation_id,
+        actor=current_user,
+        **_request_meta(request),
+    )
+    return success_response(data=result.model_dump(mode="json"), message="Invitation expired")
+
+
 @router.patch("/roles/{role_id}/permissions")
 async def update_role_permissions(
     role_id: uuid.UUID,

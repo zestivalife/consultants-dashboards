@@ -9,6 +9,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from app.db.models.owner_access import (
     AuditEvent,
     Department,
+    InvitationEmailOutbox,
     LoginSession,
     Organization,
     OrganizationMembership,
@@ -414,6 +415,38 @@ class PeopleAccessRepository:
         self._session.add(invitation)
         await self._session.flush()
         return invitation
+
+    async def find_open_invitation(
+        self,
+        *,
+        email: str,
+        role_id: uuid.UUID,
+        product_id: uuid.UUID | None,
+        organization_id: uuid.UUID | None,
+        now: datetime,
+    ) -> UserInvitation | None:
+        stmt = select(UserInvitation).where(
+            UserInvitation.email == email,
+            UserInvitation.invited_role_id == role_id,
+            UserInvitation.status == "INVITED",
+            or_(UserInvitation.expires_at.is_(None), UserInvitation.expires_at > now),
+        )
+        if product_id is None:
+            stmt = stmt.where(UserInvitation.product_id.is_(None))
+        else:
+            stmt = stmt.where(UserInvitation.product_id == product_id)
+        if organization_id is None:
+            stmt = stmt.where(UserInvitation.organization_id.is_(None))
+        else:
+            stmt = stmt.where(UserInvitation.organization_id == organization_id)
+
+        result = await self._session.execute(stmt.limit(1))
+        return result.scalar_one_or_none()
+
+    async def create_invitation_email_outbox(self, event: InvitationEmailOutbox) -> InvitationEmailOutbox:
+        self._session.add(event)
+        await self._session.flush()
+        return event
 
     async def list_invitations(
         self,

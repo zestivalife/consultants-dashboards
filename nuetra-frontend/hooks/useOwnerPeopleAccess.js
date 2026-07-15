@@ -234,6 +234,12 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     return invitation;
   }, [loadInvitations]);
 
+  const onExpireInvitation = useCallback(async (invitationId) => {
+    const invitation = await ownerPeopleAccessAPI.expireInvitation(invitationId);
+    await loadInvitations();
+    return invitation;
+  }, [loadInvitations]);
+
   const onAssignProducts = useCallback(async (userId, assignments) => {
     const result = await ownerPeopleAccessAPI.assignProducts(userId, assignments);
     if (selectedUserId === userId) {
@@ -328,6 +334,7 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     onCreateInvitation,
     onResendInvitation,
     onCancelInvitation,
+    onExpireInvitation,
     onAssignProducts,
     onAssignPackages,
     onAssignServices,
