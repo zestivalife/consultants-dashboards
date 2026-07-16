@@ -11,6 +11,11 @@ class ServiceRoutesTest(unittest.TestCase):
             config_source,
         )
 
+    def test_owner_master_data_auth_is_delegated_to_auth_service(self):
+        jwt_source = Path("app/middleware/jwt.py").read_text()
+
+        self.assertIn('"/api/v1/owner/master-data"', jwt_source)
+
 
 if __name__ == "__main__":
     unittest.main()

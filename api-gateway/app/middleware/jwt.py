@@ -35,6 +35,7 @@ DELEGATED_AUTH_PREFIXES: list[str] = [
     # reject them first with a potentially different deployment secret.
     "/api/v1/auth",
     "/api/v1/owner/people-access",
+    "/api/v1/owner/master-data",
     "/api/v1/corporate-admin",
     "/api/v1/team-lead",
     "/api/v1/team-member",
