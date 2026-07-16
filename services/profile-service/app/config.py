@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from pydantic import field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from functools import lru_cache
 
 
@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_debug: bool = False
     app_version: str = "0.1.0"
-    app_port: int = 8002
+    app_port: int = Field(default=8002, validation_alias=AliasChoices("PORT", "APP_PORT", "app_port"))
 
     database_url: str = "postgresql+asyncpg://nuetra:nuetra_secret@localhost:5432/nuetra_profile"
     db_pool_size: int = 20
