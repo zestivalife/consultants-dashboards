@@ -270,7 +270,78 @@ POST
 
 ---
 
-# 7. Password Setup APIs
+# 7. Invitation Acceptance APIs
+
+Slice 2 route family:
+
+```
+/api/v1/onboarding/invitations
+```
+
+Password creation, profile completion, document upload and workspace loading are out of scope for Slice 2.
+
+### Validate Invitation
+
+POST
+
+```
+/onboarding/invitations/validate
+```
+
+Validation
+
+- Token hash
+- Token expiry
+- Token status
+- Organization
+- Role
+
+Response
+
+- Invitation status
+- Organization metadata
+- Role metadata
+- Expiry metadata
+- Next step: Password Setup
+
+---
+
+### Accept Invitation
+
+POST
+
+```
+/onboarding/invitations/accept
+```
+
+Validation
+
+- Token hash
+- Single-use token
+- Non-expired token
+- Non-revoked token
+- Active organization
+- Valid role
+
+Audit Events
+
+- INVITATION_OPENED
+- INVITATION_ACCEPTED
+
+Notification Events
+
+- INVITATION_ACCEPTED
+
+Response
+
+- Invitation accepted
+- Redirect target for Password Setup
+
+---
+
+# 8. Password Setup APIs
+
+Slice 3 route family.
 
 Create Password
 
@@ -292,27 +363,15 @@ Password Confirmation
 
 ---
 
-# 8. Email Verification APIs
+# 9. Authentication & Session APIs
 
-Verify
-
-POST
-
-```
-/identity/email/verify
-```
-
-Resend
-
-POST
-
-```
-/identity/email/resend
-```
+Slice 4 route family.
 
 ---
 
-# 9. Onboarding APIs
+# 10. Profile Completion APIs
+
+Slice 5 route family.
 
 Start
 
@@ -329,6 +388,34 @@ GET
 ```
 /onboarding/session/{id}
 ```
+
+---
+
+# 11. Role-Specific Profile APIs
+
+Slice 6 route family.
+
+---
+
+# 12. Document Upload & Verification APIs
+
+Slice 7 route family.
+
+---
+
+# 13. Account Activation & Workspace Resolution APIs
+
+Slice 8 route family.
+
+Activate
+
+POST
+
+```
+/identity/activate
+```
+
+---
 
 Save Draft
 

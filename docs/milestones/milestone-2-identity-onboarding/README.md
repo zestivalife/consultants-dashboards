@@ -72,14 +72,13 @@ If two documents conflict, the higher document in this list wins unless `AGENTS.
 ## Implementation Slices
 
 1. Invitation Engine
-2. Invitation Acceptance and Password Setup
-3. Email Verification
-4. Template-driven Profile and Onboarding Engine
-5. Document Collection and Verification
-6. Approval Workflow
-7. Identity Activation
-8. Multi-role Assignment
-9. Production Hardening and Acceptance
+2. Invitation Acceptance
+3. Password Setup
+4. Authentication & Session
+5. Profile Completion
+6. Role-Specific Profiles
+7. Document Upload & Verification
+8. Account Activation & Workspace Resolution
 
 No slice may begin until the preceding slice passes the release checklist.
 

@@ -198,49 +198,59 @@ No regression.
 
 ---
 
-# Slice 2 — Password Setup
+# Slice 2 — Invitation Acceptance
 
 ## Task 2.1
 
-Password Policy
+Invitation Validation
 
 Validation
 
-Minimum length
+Token hash lookup
 
-Uppercase
+Token expiry
 
-Lowercase
+Token revocation
 
-Special
+Organization validation
 
-Number
+Role validation
 
 ---
 
 ## Task 2.2
 
-Password Service
+Invitation Status Transitions
 
-Hashing
+Accepted
 
-Verification
+Expired
 
-Expiry
+Revoked
+
+Invalid
+
+Audit events
+
+Notification events
 
 ---
 
 ## Task 2.3
 
-Password UI
+Invitation Acceptance UI
 
-Create
+Landing Page
 
-Confirm
+Expired Page
 
-Strength Meter
+Revoked Page
 
-Errors
+Invalid Page
+
+Accepted Page
+
+Redirect to Password Setup
 
 ---
 
@@ -248,35 +258,35 @@ Errors
 
 Regression
 
-Login
+Invitation Engine
 
-Logout
+People & Access
 
-Remember Me
+Gateway routes
 
-Session
+Token replay prevention
 
-Refresh
+Audit/outbox persistence
 
 ---
 
-# Slice 3 — Email Verification
+# Slice 3 — Password Setup
 
 ## Task 3.1
 
-Verification Token
+Password Policy
 
 ---
 
 ## Task 3.2
 
-Verification Service
+Password Service
 
 ---
 
 ## Task 3.3
 
-Verification UI
+Password UI
 
 ---
 
@@ -286,47 +296,45 @@ Regression
 
 Invitation
 
-Password
-
 Activation
 
 ---
 
-# Slice 4 — Generic Onboarding
+# Slice 4 — Authentication & Session
 
 ## Task 4.1
 
-Template Engine
+Login Regression
 
 ---
 
 ## Task 4.2
 
-Template Loader
+Session Restoration
 
 ---
 
 ## Task 4.3
 
-Wizard Engine
+Remember Me
 
 ---
 
 ## Task 4.4
 
-Autosave
+Refresh Token Lifecycle
 
 ---
 
 ## Task 4.5
 
-Resume
+Logout
 
 ---
 
 ## Task 4.6
 
-Submission
+Logout All Devices
 
 ---
 
@@ -338,43 +346,143 @@ Authentication
 
 Identity
 
-Draft Recovery
+Protected Routes
 
 ---
 
-# Slice 5 — Document Management
+# Slice 5 — Profile Completion
 
 ## Task 5.1
 
-Upload Service
+Template Engine
 
 ---
 
 ## Task 5.2
 
-Validation
+Template Loader
 
 ---
 
 ## Task 5.3
 
-Storage Integration
+Wizard Engine
 
 ---
 
 ## Task 5.4
 
-Preview
+Autosave
 
 ---
 
 ## Task 5.5
 
-Review Queue
+Resume
 
 ---
 
 ## Task 5.6
+
+Submission
+
+---
+
+## Task 5.7
+
+Regression
+
+Authentication
+
+Identity
+
+Draft Recovery
+
+---
+
+# Slice 6 — Role-Specific Profiles
+
+## Task 6.1
+
+Practitioner Profile Template
+
+---
+
+## Task 6.2
+
+Mentor Profile Template
+
+---
+
+## Task 6.3
+
+Consultant Profile Template
+
+---
+
+## Task 6.4
+
+Corporate Admin Profile Template
+
+---
+
+## Task 6.5
+
+Future Role Configurability
+
+---
+
+## Task 6.6
+
+Validation
+
+---
+
+## Task 6.7
+
+Regression
+
+Identity
+
+Profile Completion
+
+Permissions
+
+---
+
+# Slice 7 — Document Upload & Verification
+
+## Task 7.1
+
+Upload Service
+
+---
+
+## Task 7.2
+
+Validation
+
+---
+
+## Task 7.3
+
+Storage Integration
+
+---
+
+## Task 7.4
+
+Preview
+
+---
+
+## Task 7.5
+
+Review Queue
+
+---
+
+## Task 7.6
 
 Regression
 
@@ -386,83 +494,57 @@ Download
 
 ---
 
-# Slice 6 — Approval Workflow
+# Slice 8 — Account Activation & Workspace Resolution
 
-## Task 6.1
+## Task 8.1
 
 Approval Service
 
 ---
 
-## Task 6.2
+## Task 8.2
 
 Approval Queue
 
 ---
 
-## Task 6.3
+## Task 8.3
 
 Approve
 
 ---
 
-## Task 6.4
+## Task 8.4
 
 Reject
 
 ---
 
-## Task 6.5
+## Task 8.5
 
 Request Changes
 
 ---
 
-## Task 6.6
-
-Notifications
-
----
-
-## Task 6.7
-
-Regression
-
-Identity
-
-Workflow
-
-Audit
-
----
-
-# Slice 7 — Identity Activation
-
-## Task 7.1
+## Task 8.6
 
 Activation Service
 
 ---
 
-## Task 7.2
+## Task 8.7
 
-Initial Role Assignment
-
----
-
-## Task 7.3
-
-Enable Login
+Workspace Resolution
 
 ---
 
-## Task 7.4
+## Task 8.8
 
-Welcome Notification
+Dashboard Redirect
 
 ---
 
-## Task 7.5
+## Task 8.9
 
 Regression
 
@@ -470,83 +552,9 @@ Sessions
 
 Permissions
 
-Login
-
----
-
-# Slice 8 — Multi Role Assignment
-
-## Task 8.1
-
-Assign Role
-
----
-
-## Task 8.2
-
-Remove Role
-
----
-
-## Task 8.3
-
-Switch Active Role
-
----
-
-## Task 8.4
-
-Permission Recalculation
-
----
-
-## Task 8.5
-
-Regression
-
-RBAC
-
 Dashboard
 
 Navigation
-
----
-
-# Slice 9 — Production Hardening
-
-## Task 9.1
-
-Performance Review
-
----
-
-## Task 9.2
-
-Security Review
-
----
-
-## Task 9.3
-
-Accessibility Review
-
----
-
-## Task 9.4
-
-Regression Testing
-
----
-
-## Task 9.5
-
-Production Deployment
-
----
-
-## Task 9.6
-
-Production Acceptance
 
 ---
 

@@ -74,14 +74,16 @@ Allowed statuses:
 | `INVITATION_CREATED` | Invitation created | Email, WhatsApp template | Slice 1 |
 | `INVITATION_RESENT` | Invitation resent | Email, WhatsApp template | Slice 1 |
 | `INVITATION_EXPIRED` | Invitation expired | In-app, audit only | Slice 1 |
-| `INVITATION_ACCEPTED` | Invitee validates token | Email optional | Slice 2 |
-| `PASSWORD_CREATED` | Password saved | Email optional | Slice 2 |
-| `EMAIL_VERIFIED` | Email verification completed | Email optional | Slice 3 |
-| `ONBOARDING_SUBMITTED` | Invitee submits onboarding | Email, in-app | Slice 4 |
-| `DOCUMENT_SUBMITTED` | Document uploaded | In-app | Slice 5 |
-| `ONBOARDING_APPROVED` | Reviewer approves | Email, in-app | Slice 6 |
-| `ONBOARDING_REJECTED` | Reviewer rejects | Email, in-app | Slice 6 |
-| `ACCOUNT_ACTIVATED` | Identity activated | Email | Slice 7 |
+| `INVITATION_ACCEPTED` | Invitee accepts invitation token | Email optional | Slice 2 |
+| `INVITATION_REVOKED` | Invitation revoked | In-app, audit only | Slice 2 |
+| `INVITATION_OPENED` | Invitee opens invitation link | In-app, audit only | Slice 2 |
+| `PASSWORD_CREATED` | Password saved | Email optional | Slice 3 |
+| `SESSION_RESTORED` | Session restoration succeeds | In-app optional | Slice 4 |
+| `PROFILE_SUBMITTED` | Invitee submits profile | Email, in-app | Slice 5 |
+| `DOCUMENT_SUBMITTED` | Document uploaded | In-app | Slice 7 |
+| `ONBOARDING_APPROVED` | Reviewer approves | Email, in-app | Slice 8 |
+| `ONBOARDING_REJECTED` | Reviewer rejects | Email, in-app | Slice 8 |
+| `ACCOUNT_ACTIVATED` | Identity activated | Email | Slice 8 |
 
 ## Payload Rules
 

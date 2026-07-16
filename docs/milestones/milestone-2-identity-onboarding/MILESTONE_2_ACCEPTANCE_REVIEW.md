@@ -48,17 +48,19 @@ The milestone is considered complete only when:
 
 ✓ Invitation Engine accepted
 
+✓ Invitation Acceptance accepted
+
 ✓ Password Setup accepted
 
-✓ Email Verification accepted
+✓ Authentication & Session accepted
 
-✓ Generic Onboarding accepted
+✓ Profile Completion accepted
 
-✓ Document Management accepted
+✓ Role-Specific Profiles accepted
 
-✓ Approval Workflow accepted
+✓ Document Upload & Verification accepted
 
-✓ Identity Activation accepted
+✓ Account Activation & Workspace Resolution accepted
 
 ✓ Multi-role Assignment accepted
 

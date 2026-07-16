@@ -31,7 +31,7 @@ sequenceDiagram
     Gateway-->>UI: 201 Created
 ```
 
-## Invitation Acceptance And Password Setup
+## Invitation Acceptance
 
 ```mermaid
 sequenceDiagram
@@ -47,12 +47,28 @@ sequenceDiagram
     Gateway->>Auth: Forward token validation
     Auth->>DB: Lookup token fingerprint candidates
     Auth->>Auth: Verify token hash
-    Auth-->>UI: Token valid, required steps
+    Auth->>Auth: Validate status, expiry, organization and role
+    Auth->>DB: Mark invitation accepted
+    Auth->>Audit: Insert INVITATION_ACCEPTED
+    Auth-->>UI: Token accepted, redirect target for Password Setup
+```
+
+## Password Setup
+
+```mermaid
+sequenceDiagram
+    participant Invitee
+    participant UI as "Onboarding UI"
+    participant Gateway as "API Gateway"
+    participant Auth as "Auth Service"
+    participant DB as "PostgreSQL"
+    participant Audit as "Audit Log"
+
     Invitee->>UI: Create password
     UI->>Gateway: POST /api/v1/onboarding/password
     Auth->>Auth: Validate password policy
     Auth->>Auth: Hash password using shared PasswordService
-    Auth->>DB: Update user password and invitation status
+    Auth->>DB: Update user password
     Auth->>Audit: Insert PASSWORD_CREATED
     Auth-->>UI: Password accepted
 ```

@@ -260,35 +260,31 @@ Invitation Engine
         │
         ▼
 Slice 2
-Password Setup
+Invitation Acceptance
         │
         ▼
 Slice 3
-Email Verification
+Password Setup
         │
         ▼
 Slice 4
-Generic Onboarding Engine
+Authentication & Session
         │
         ▼
 Slice 5
-Document Management
+Profile Completion
         │
         ▼
 Slice 6
-Approval Workflow
+Role-Specific Profiles
         │
         ▼
 Slice 7
-Identity Activation
+Document Upload & Verification
         │
         ▼
 Slice 8
-Role Assignment
-        │
-        ▼
-Slice 9
-Production Hardening
+Account Activation & Workspace Resolution
         │
         ▼
 Milestone Acceptance
@@ -317,6 +313,30 @@ Deliverables
 
 ## Slice 2
 
+Invitation Acceptance
+
+Deliverables
+
+- Invitation validation
+- Token validation
+- Token expiry handling
+- Token revocation handling
+- Invitation status transitions
+- Invitation landing page
+- Invitation expired page
+- Invitation revoked page
+- Invitation invalid page
+- Audit events
+- Notification events
+- Organization validation
+- Role validation
+- Redirect to Password Setup
+- Tests
+
+---
+
+## Slice 3
+
 Password Setup
 
 Deliverables
@@ -324,43 +344,59 @@ Deliverables
 - Password creation
 - Password validation
 - Password policy
-- Secure activation
-- Tests
-
----
-
-## Slice 3
-
-Email Verification
-
-Deliverables
-
-- Verification flow
-- Expiration
-- Resend
-- Audit
+- Secure password setup initiation continuity
 - Tests
 
 ---
 
 ## Slice 4
 
-Generic Onboarding Engine
+Authentication & Session
 
 Deliverables
 
-- Wizard engine
-- Template loader
-- Draft saving
-- Resume
-- Submission
+- Login regression
+- Session restoration
+- Remember Me verification
+- Refresh token lifecycle verification
+- Logout verification
 - Tests
 
 ---
 
 ## Slice 5
 
-Document Management
+Profile Completion
+
+Deliverables
+
+- Template-driven profile fields
+- Draft saving
+- Resume
+- Submission
+- Validation
+- Tests
+
+---
+
+## Slice 6
+
+Role-Specific Profiles
+
+Deliverables
+
+- Practitioner profile template
+- Mentor profile template
+- Consultant profile template
+- Corporate Admin profile template
+- Future-role configurability
+- Tests
+
+---
+
+## Slice 7
+
+Document Upload & Verification
 
 Deliverables
 
@@ -373,9 +409,9 @@ Deliverables
 
 ---
 
-## Slice 6
+## Slice 8
 
-Approval Workflow
+Account Activation & Workspace Resolution
 
 Deliverables
 
@@ -383,50 +419,12 @@ Deliverables
 - Approve
 - Reject
 - Request changes
+- Activate account
+- Resolve workspace
+- Redirect to role-aware dashboard
 - Audit
 - Notifications
 - Tests
-
----
-
-## Slice 7
-
-Identity Activation
-
-Deliverables
-
-- Activate account
-- Assign initial roles
-- Enable login
-- Audit
-- Tests
-
----
-
-## Slice 8
-
-Role Assignment
-
-Deliverables
-
-- Multi-role assignment
-- Role switching
-- Permission recalculation
-- Tests
-
----
-
-## Slice 9
-
-Production Hardening
-
-Deliverables
-
-- Runtime verification
-- Regression testing
-- Performance validation
-- Security validation
-- Production acceptance
 
 ---
 

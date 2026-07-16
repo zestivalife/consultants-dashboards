@@ -187,37 +187,53 @@ Invitation History
 
 Screen 5
 
-Invitation Expired
+Invitation Landing
 
 Screen 6
 
-Password Setup
+Invitation Expired
 
 Screen 7
 
-Email Verification
+Invitation Revoked
 
 Screen 8
 
-Onboarding Dashboard
+Invitation Invalid
 
 Screen 9
 
-Onboarding Wizard
+Invitation Accepted
 
 Screen 10
 
-Document Upload
+Password Setup
 
 Screen 11
 
-Submission Summary
+Session Restoration
 
 Screen 12
 
-Review Queue
+Onboarding Dashboard
 
 Screen 13
+
+Onboarding Wizard
+
+Screen 14
+
+Document Upload
+
+Screen 15
+
+Submission Summary
+
+Screen 16
+
+Review Queue
+
+Screen 17
 
 Approval Details
 

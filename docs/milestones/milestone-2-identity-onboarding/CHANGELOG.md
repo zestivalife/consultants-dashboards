@@ -33,6 +33,38 @@ Related Documents
 
 ## 2026-07-16
 
+Status: Slice ordering alignment
+
+Branch:
+
+develop
+
+Changes:
+
+- Updated Milestone 2 Slice 2 to `Invitation Acceptance`.
+- Moved `Password Setup` to Slice 3.
+- Moved `Authentication & Session` to Slice 4.
+- Moved `Profile Completion` to Slice 5.
+- Moved `Role-Specific Profiles` to Slice 6.
+- Moved `Document Upload & Verification` to Slice 7.
+- Moved `Account Activation & Workspace Resolution` to Slice 8.
+- Clarified that Slice 2 excludes password creation, profile completion, document upload, workspace loading and dashboard resolution.
+
+Impact:
+
+- Documentation alignment only.
+- No application code changes.
+- No database schema changes.
+- No deployment changes.
+
+Final Status:
+
+IMPLEMENTED
+
+---
+
+## 2026-07-16
+
 Status: Documentation alignment
 
 Changes:

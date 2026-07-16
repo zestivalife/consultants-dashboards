@@ -84,11 +84,11 @@ ACTIVE
 
 **Current Sprint**
 
-Milestone 2 Slice 2 – Profile Completion Preparation
+Milestone 2 Slice 2 – Invitation Acceptance
 
 **Current Objective**
 
-Begin Slice 2 only after Slice 1 Invitation Engine local verification is accepted and deployment acceptance is scheduled.
+Implement invitation validation, acceptance, token state handling, invitation acceptance pages, audit events, notification events, organization validation, role validation and redirect to Password Setup.
 
 ---
 
@@ -145,7 +145,7 @@ Platform Services → Master Data (In Progress)
 
 ### Priority 1
 
-Prepare Slice 2 Profile Completion impact analysis and implementation plan.
+Implement Slice 2 Invitation Acceptance without starting password creation, profile completion, document upload, workspace loading or dashboard resolution.
 
 ### Priority 2
 
@@ -153,7 +153,7 @@ Deploy and production-verify Slice 1 Invitation Engine.
 
 ### Priority 3
 
-Implement Slice 2 only after Slice 1 production acceptance requirements are clear.
+Keep Slice 3 Password Setup separate from Slice 2 Invitation Acceptance.
 
 ### Priority 4
 
@@ -218,9 +218,13 @@ ACTIVE
 | Slice | Status |
 |----------|--------|
 | Slice 1 – Invitation Engine | LOCALLY_VERIFIED |
-| Slice 2 – Profile Completion | CURRENT |
-| Slice 3 – Document Upload | PLANNED |
-| Slice 4 – Onboarding Wizard | PLANNED |
+| Slice 2 – Invitation Acceptance | CURRENT |
+| Slice 3 – Password Setup | PLANNED |
+| Slice 4 – Authentication & Session | PLANNED |
+| Slice 5 – Profile Completion | PLANNED |
+| Slice 6 – Role-Specific Profiles | PLANNED |
+| Slice 7 – Document Upload & Verification | PLANNED |
+| Slice 8 – Account Activation & Workspace Resolution | PLANNED |
 
 ---
 

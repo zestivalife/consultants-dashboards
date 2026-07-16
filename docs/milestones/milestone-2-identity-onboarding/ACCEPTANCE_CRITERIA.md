@@ -17,14 +17,13 @@ This document provides implementation-ready acceptance criteria. The production 
 Milestone 2 is accepted only when all slices pass:
 
 - Invitation Engine
+- Invitation Acceptance
 - Password Setup
-- Email Verification
-- Generic Onboarding
-- Document Management
-- Approval Workflow
-- Identity Activation
-- Multi-role Assignment
-- Production Hardening
+- Authentication & Session
+- Profile Completion
+- Role-Specific Profiles
+- Document Upload & Verification
+- Account Activation & Workspace Resolution
 
 ## Slice Acceptance Template
 
@@ -60,6 +59,23 @@ Invitation Engine is accepted only when:
 - `INVITATION_CREATED`, `INVITATION_RESENT` and `INVITATION_EXPIRED` audit events exist.
 - Login, Remember Me, browser refresh and browser restart still work.
 - No browser console errors or unexpected failed network requests occur.
+
+## Slice 2 Acceptance
+
+Invitation Acceptance is accepted only when:
+
+- Invitation landing page validates a secure token without exposing plaintext token data.
+- Valid invitation token returns organization, role, expiry and next-step metadata.
+- Expired invitation renders the expired state and records the required audit event.
+- Revoked invitation renders the revoked state and records the required audit event.
+- Invalid invitation renders the invalid state without leaking token or account data.
+- Accepted invitation transitions status to `ACCEPTED`.
+- Accepted invitation cannot be replayed.
+- Organization validation and role validation pass before acceptance.
+- Notification outbox records are created for Slice 2 invitation acceptance events.
+- Redirect to Password Setup is returned without creating a password.
+- Password creation, profile completion, document upload and workspace loading are not implemented in this slice.
+- No authentication, session, RBAC, or gateway regressions occur.
 
 ## Non-negotiable Failure Conditions
 
