@@ -26,6 +26,79 @@ Everything must be product-aware.
 
 ---
 
+# SINGLE ENTERPRISE APPLICATION ARCHITECTURE
+
+The Zestiva Enterprise Platform SHALL be implemented as one application.
+
+There shall be:
+
+- one authentication system
+- one login page
+- one session management system
+- one identity service
+- one codebase
+- one routing system
+- one design system
+- one navigation framework
+
+Do NOT create separate applications, login pages, session systems, or routing systems for:
+
+- Super Admin
+- Corporate Admin
+- Practitioner
+- Mentor
+- Consultant
+- future roles
+
+Every user enters through `/login`.
+
+The platform resolves the user after authentication by:
+
+- identity
+- organization
+- role
+- permissions
+- licensed modules
+- assigned data
+- assigned workflows
+- feature flags
+
+The application shell remains consistent for every user.
+
+Navigation, dashboard widgets, workflows, and data visibility are generated dynamically from resolved identity context and permissions.
+
+Sidebar items MUST NOT be hardcoded by role.
+
+Sidebar navigation SHALL be built from:
+
+- role
+- permissions
+- licensed modules
+- organization configuration
+- feature flags
+
+Every page must verify:
+
+- authentication
+- authorization
+- organization
+- role
+- permission
+
+Adding future roles shall require configuration and permissions, not architectural redesign.
+
+Never introduce role-specific login routes such as:
+
+- `/login/admin`
+- `/login/practitioner`
+- `/login/consultant`
+- `/login/corporate`
+- `/login/mentor`
+
+This rule is architectural and applies to every future milestone unless explicitly changed by the Product Owner.
+
+---
+
 # YOUR ROLE
 
 You are simultaneously acting as:

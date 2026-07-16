@@ -6,6 +6,22 @@ Every feature must support enterprise scalability.
 
 ---
 
+## Single Application Platform
+
+Zestiva is one enterprise platform, not separate applications per role.
+
+All users must use the same login page, authentication system, session management system, identity service, routing system, design system and navigation framework.
+
+Role, organization, permissions, licensed modules, assigned data and assigned workflows determine what each user can see and do.
+
+The application shell remains consistent across Super Admin, Corporate Admin, Practitioner, Mentor, Consultant and future roles.
+
+Navigation must be dynamically generated from identity context, permissions, licensed modules, organization configuration and feature flags.
+
+Adding a future role must require configuration, not architectural redesign.
+
+---
+
 ## Security by Default
 
 Every API is authenticated.

@@ -62,11 +62,15 @@ The platform exists to remove manual account setup, prevent role-specific onboar
 
 The expected outcome is a template-driven onboarding engine that supports current and future roles without rebuilding authentication, RBAC, documents, approval workflows or notification flows.
 
+Milestone 2 MUST preserve the single application architecture: one login page, one authentication system, one session system, one identity service, one routing system and one design system for all roles.
+
 ---
 
 # Vision
 
 Create a reusable Identity & Onboarding Platform that supports every current and future platform role using one configurable onboarding engine.
+
+Every user enters through the same `/login` flow. After authentication, the platform resolves identity, organization, role, permissions, licensed modules, workspace and dashboard destination.
 
 ---
 
@@ -118,6 +122,8 @@ No reusable onboarding platform exists.
 
 - Invitation Engine
 - Identity Platform
+- Single shared login and dashboard resolution flow
+- Dynamic workspace resolution based on identity, organization, role, permissions and licensed modules
 - Generic Onboarding
 - Approval Workflow
 - Multi-role Assignment

@@ -86,12 +86,54 @@ The implementation SHALL:
 - Support multiple organizations.
 - Support multiple user roles.
 - Avoid duplicated business logic.
+- Preserve one shared application, login page, session system, identity service, routing system and design system.
+- Resolve role-specific workspaces through identity, organization, permissions, licensed modules and feature flags.
+- Generate navigation dynamically from resolved identity context instead of hardcoding sidebar items by role.
+
+The implementation SHALL NOT:
+
+- Create role-specific login pages.
+- Create role-specific applications.
+- Create role-specific session systems.
+- Fork navigation architecture by user type.
 
 ---
 
 # 3. High-Level Architecture
 
 Presentation Layer
+
+↓
+
+Shared Application Shell
+
+↓
+
+Login
+
+↓
+
+Identity Resolution
+
+↓
+
+Organization Resolution
+
+↓
+
+Role and Permission Resolution
+
+↓
+
+Workspace Resolution
+
+↓
+
+Dashboard Loader
+
+---
+
+Service Architecture
 
 ↓
 
