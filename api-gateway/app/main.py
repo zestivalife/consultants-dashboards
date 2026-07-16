@@ -142,13 +142,7 @@ def create_app() -> FastAPI:
         gateway_version = get_runtime_version(settings.app_name, settings.app_version, settings.app_env)
         services: dict[str, dict | str] = {"api-gateway": gateway_version}
 
-        upstreams: dict[str, str] = {
-            "auth-service": settings.auth_service_url.rstrip("/"),
-            "profile-service": settings.profile_service_url.rstrip("/"),
-            "assessment-service": settings.assessment_service_url.rstrip("/"),
-            "scoring-engine-service": settings.scoring_service_url.rstrip("/"),
-            "nutrition-service": settings.nutrition_service_url.rstrip("/"),
-        }
+        upstreams = settings.get_service_upstreams()
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
             for label, upstream in sorted(upstreams.items()):

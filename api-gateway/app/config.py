@@ -86,12 +86,22 @@ class Settings(BaseSettings):
         netloc = f"{parsed.hostname}:{default_port}"
         return urlunsplit((parsed.scheme, netloc, parsed.path.rstrip("/"), "", ""))
 
+    def get_service_upstreams(self) -> dict[str, str]:
+        return {
+            "auth-service": self._normalize_service_url(self.auth_service_url, 8001),
+            "profile-service": self._normalize_service_url(self.profile_service_url, 8002),
+            "assessment-service": self._normalize_service_url(self.assessment_service_url, 8003),
+            "scoring-engine-service": self._normalize_service_url(self.scoring_service_url, 8004),
+            "nutrition-service": self._normalize_service_url(self.nutrition_service_url, 8005),
+        }
+
     def get_service_routes(self) -> list[dict]:
-        auth_service_url = self._normalize_service_url(self.auth_service_url, 8001)
-        profile_service_url = self._normalize_service_url(self.profile_service_url, 8002)
-        assessment_service_url = self._normalize_service_url(self.assessment_service_url, 8003)
-        scoring_service_url = self._normalize_service_url(self.scoring_service_url, 8004)
-        nutrition_service_url = self._normalize_service_url(self.nutrition_service_url, 8005)
+        upstreams = self.get_service_upstreams()
+        auth_service_url = upstreams["auth-service"]
+        profile_service_url = upstreams["profile-service"]
+        assessment_service_url = upstreams["assessment-service"]
+        scoring_service_url = upstreams["scoring-engine-service"]
+        nutrition_service_url = upstreams["nutrition-service"]
 
         return [
             {"prefix": "/api/v1/corporate-admin", "upstream": auth_service_url},
