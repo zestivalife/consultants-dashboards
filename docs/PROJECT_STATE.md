@@ -84,11 +84,11 @@ ACTIVE
 
 **Current Sprint**
 
-Milestone 2 Slice 2 – Invitation Acceptance
+Milestone 2 Slice 3 – Password Setup
 
 **Current Objective**
 
-Implement invitation validation, acceptance, token state handling, invitation acceptance pages, audit events, notification events, organization validation, role validation and redirect to Password Setup.
+Plan and implement Password Setup without starting profile completion, document upload, workspace loading or dashboard resolution.
 
 ---
 
@@ -218,8 +218,8 @@ ACTIVE
 | Slice | Status |
 |----------|--------|
 | Slice 1 – Invitation Engine | LOCALLY_VERIFIED |
-| Slice 2 – Invitation Acceptance | CURRENT |
-| Slice 3 – Password Setup | PLANNED |
+| Slice 2 – Invitation Acceptance | LOCALLY_VERIFIED |
+| Slice 3 – Password Setup | CURRENT |
 | Slice 4 – Authentication & Session | PLANNED |
 | Slice 5 – Profile Completion | PLANNED |
 | Slice 6 – Role-Specific Profiles | PLANNED |
@@ -329,7 +329,7 @@ AI & Intelligence Platform
 - Email infrastructure is pending.
 - Notification engine is pending.
 - Workflow engine is pending.
-- Invitation engine is pending.
+- Invitation acceptance is locally verified; production acceptance is pending.
 - Generic onboarding engine is pending.
 - Package Builder uses mock data.
 - Service Catalog uses mock data.
@@ -398,7 +398,7 @@ The following items block production acceptance:
 - Production regression verification incomplete.
 - Mock business modules remain.
 - Email platform not implemented.
-- Invitation engine not implemented.
+- Invitation acceptance production verification is pending.
 
 ---
 
@@ -430,6 +430,6 @@ Protected Modules
 
 # CURRENT NEXT ACTION
 
-Complete Foundation Stabilization.
+Prepare Slice 3 – Password Setup implementation plan.
 
-After successful production acceptance, begin implementing the Master Data Platform as the first reusable Platform Service.
+Do not begin Slice 3 implementation until Product Owner approval is received.

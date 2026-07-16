@@ -33,6 +33,48 @@ Related Documents
 
 ## 2026-07-16
 
+Status: Slice 2 implementation
+
+Commit SHA:
+
+1c34b530602c45302b07b3407dbfdcc67f584dea
+
+Branch:
+
+feature/m2-slice2-invitation-acceptance
+
+Changes:
+
+- Implemented hash-only invitation validation with explicit expired, revoked, invalid and accepted-token handling.
+- Added invitation acceptance lifecycle behavior without starting password creation, profile completion, document upload, workspace loading or dashboard resolution.
+- Added organization, product and role validation during validation and acceptance.
+- Added Slice 2 audit events for `INVITATION_OPENED`, `INVITATION_ACCEPTED`, `INVITATION_EXPIRED` and `INVITATION_REVOKED`.
+- Added pending notification outbox records for invitation acceptance and revocation lifecycle events.
+- Updated the invite landing page to render valid, accepted, expired, revoked and invalid invitation states.
+- Ensured the invite landing page redirects conceptually to Password Setup through API response metadata while keeping password creation out of scope.
+
+Impact:
+
+- Auth-service invitation lifecycle logic updated.
+- Public onboarding validation route now records request metadata.
+- Frontend invite route updated.
+- No authentication, session, JWT, password hashing, profile completion, document upload or workspace loading changes.
+- No database schema changes.
+
+Verification:
+
+- Auth-service People & Access invitation tests passed.
+- API Gateway onboarding route tests passed.
+- Frontend production build passed.
+
+Final Status:
+
+LOCALLY VERIFIED
+
+---
+
+## 2026-07-16
+
 Status: Slice ordering alignment
 
 Branch:
