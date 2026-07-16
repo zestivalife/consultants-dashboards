@@ -74,6 +74,7 @@ class Settings(BaseSettings):
         return [
             {"prefix": "/api/v1/corporate-admin", "upstream": self.auth_service_url},
             {"prefix": "/api/v1/owner/people-access", "upstream": self.auth_service_url},
+            {"prefix": "/api/v1/owner/master-data", "upstream": self.auth_service_url},
             {"prefix": "/api/v1/team-lead", "upstream": self.auth_service_url},
             {"prefix": "/api/v1/team-member", "upstream": self.auth_service_url},
             {"prefix": "/api/v1/notifications", "upstream": self.auth_service_url},
