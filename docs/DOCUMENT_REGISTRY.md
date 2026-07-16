@@ -1,0 +1,77 @@
+# DOCUMENT REGISTRY
+
+Version: 1.0
+
+---
+
+## Governance
+
+| Document | Status | Source of Truth |
+|----------|--------|-----------------|
+| AGENTS.md | Active | ✅ |
+| API_GUIDELINES.md | Active | ✅ |
+| ARCHITECTURE.md | Active | ✅ |
+| CODING_STANDARDS.md | Active | ✅ |
+| DATABASE_GUIDELINES.md | Active | ✅ |
+| PRODUCT.md | Active | ✅ |
+| PROJECT_STATE.md | Active | ✅ |
+| ROADMAP.md | Active | ✅ |
+| PROJECT_PRINCIPLES.md | Active | ✅ |
+| RELEASE_CHECKLIST.md | Active | ✅ |
+| SECURITY.md | Active | ✅ |
+| TESTING_STRATEGY.md | Active | ✅ |
+| UI_UX_GUIDELINES.md | Active | ✅ |
+| milestones/milestone-2-identity-onboarding/ENGINEERING_OPERATING_MANUAL.md | Active | ✅ |
+| milestones/milestone-2-identity-onboarding/PRD.md | Approved | ✅ |
+| milestones/milestone-2-identity-onboarding/TDS.md | Approved | ✅ |
+| milestones/milestone-2-identity-onboarding/DEPLOYMENT_GUIDELINES.md | Approved | ✅ |
+
+---
+
+## Milestones
+
+| Milestone | Status |
+|------------|--------|
+| Milestone 1 | Complete |
+| Milestone 2 | Implementation |
+| Milestone 3 | Planned |
+| Milestone 4 | Planned |
+| ... | ... |
+
+---
+
+## Milestone 2 Documents
+
+milestones/milestone-2-identity-onboarding/README.md
+
+milestones/milestone-2-identity-onboarding/MILESTONE_2_IMPLEMENTATION_PLAN.md
+
+milestones/milestone-2-identity-onboarding/MILESTONE_2_ONBOARDING_WORKFLOW.md
+
+milestones/milestone-2-identity-onboarding/MILESTONE_2_API_SPECIFICATION.md
+
+milestones/milestone-2-identity-onboarding/MILESTONE_2_DATABASE_DESIGN.md
+
+milestones/milestone-2-identity-onboarding/MILESTONE_2_UX_SPECIFICATION.md
+
+milestones/milestone-2-identity-onboarding/RBAC_SPECIFICATION.md
+
+milestones/milestone-2-identity-onboarding/MILESTONE_2_ARCHITECTURE_REVIEW.md
+
+milestones/milestone-2-identity-onboarding/MILESTONE_2_ENGINEERING_TASK_BREAKDOWN.md
+
+milestones/milestone-2-identity-onboarding/NOTIFICATION_SPECIFICATION.md
+
+milestones/milestone-2-identity-onboarding/AUDIT_LOG_SPECIFICATION.md
+
+milestones/milestone-2-identity-onboarding/EMAIL_WHATSAPP_TEMPLATES.md
+
+milestones/milestone-2-identity-onboarding/SEQUENCE_DIAGRAMS.md
+
+milestones/milestone-2-identity-onboarding/EDGE_CASES.md
+
+milestones/milestone-2-identity-onboarding/TEST_SCENARIOS.md
+
+milestones/milestone-2-identity-onboarding/ACCEPTANCE_CRITERIA.md
+
+milestones/milestone-2-identity-onboarding/CHANGELOG.md
