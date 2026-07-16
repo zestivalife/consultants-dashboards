@@ -16,6 +16,8 @@ async def liveness():
         "status": "healthy",
         "service": settings.app_name,
         "version": settings.app_version,
+        "commit_sha": version["commit_sha"],
+        "environment": settings.app_env,
         "runtime": version,
     }
 

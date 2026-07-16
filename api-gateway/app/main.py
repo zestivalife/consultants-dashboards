@@ -124,6 +124,8 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "service": settings.app_name,
             "version": settings.app_version,
+            "commit_sha": version["commit_sha"],
+            "environment": settings.app_env,
             "runtime": version,
         }
 
