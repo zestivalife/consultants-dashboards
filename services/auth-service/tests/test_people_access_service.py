@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -378,6 +379,26 @@ async def test_cancel_invitation_updates_status_and_audit(session: AsyncSession)
     assert audit_event is not None
     assert audit_event.after_state["status"] == "CANCELLED"
 
+    revoked_event = await session.scalar(
+        select(AuditEvent)
+        .where(
+            AuditEvent.entity_type == "user_invitation",
+            AuditEvent.entity_id == str(invitation.id),
+            AuditEvent.action == "INVITATION_REVOKED",
+            AuditEvent.request_id == "req-invite-cancel",
+        )
+    )
+    assert revoked_event is not None
+
+    outbox_event = await session.scalar(
+        select(InvitationEmailOutbox).where(
+            InvitationEmailOutbox.invitation_id == invitation.id,
+            InvitationEmailOutbox.event_type == "INVITATION_REVOKED",
+        )
+    )
+    assert outbox_event is not None
+    assert outbox_event.status == "PENDING"
+
 
 @pytest.mark.asyncio
 async def test_validate_invitation_token_uses_hash_lookup(session: AsyncSession):
@@ -400,12 +421,29 @@ async def test_validate_invitation_token_uses_hash_lookup(session: AsyncSession)
     invitation_row.token_hash = hash_token(raw_token)
     invitation_row.token_fingerprint = invitation_row.token_hash[:12]
 
-    validated = await people_access_service.validate_invitation_token(session, raw_token)
+    validated = await people_access_service.validate_invitation_token(
+        session,
+        raw_token,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-validate-open",
+    )
 
     assert validated.invitation_id == invitation.id
     assert validated.email == "validate.consultant@zestiva.in"
     assert validated.role == "consultant"
     assert validated.next_step == "ACCEPT_INVITATION"
+    assert validated.redirect_url == "/onboarding/password/setup"
+
+    audit_event = await session.scalar(
+        select(AuditEvent).where(
+            AuditEvent.entity_id == str(invitation.id),
+            AuditEvent.action == "INVITATION_OPENED",
+            AuditEvent.request_id == "req-invite-validate-open",
+        )
+    )
+    assert audit_event is not None
+    assert audit_event.after_state["token_fingerprint"] == invitation_row.token_fingerprint
 
 
 @pytest.mark.asyncio
@@ -439,6 +477,7 @@ async def test_accept_invitation_creates_pending_user_and_audit(session: AsyncSe
     assert accepted.email == "accept.consultant@zestiva.in"
     assert accepted.status == "ACCEPTED"
     assert accepted.next_step == "PASSWORD_SETUP"
+    assert accepted.redirect_url == "/onboarding/password/setup"
     assert invitation_row.status == "ACCEPTED"
     assert invitation_row.accepted_at is not None
 
@@ -461,6 +500,66 @@ async def test_accept_invitation_creates_pending_user_and_audit(session: AsyncSe
     )
     assert audit_event is not None
     assert audit_event.after_state["next_step"] == "PASSWORD_SETUP"
+
+    outbox_event = await session.scalar(
+        select(InvitationEmailOutbox).where(
+            InvitationEmailOutbox.invitation_id == invitation.id,
+            InvitationEmailOutbox.event_type == "INVITATION_ACCEPTED",
+        )
+    )
+    assert outbox_event is not None
+    assert outbox_event.status == "PENDING"
+    assert outbox_event.payload["token_fingerprint"] == invitation_row.token_fingerprint
+
+    with pytest.raises(ConflictException, match="already been accepted"):
+        await people_access_service.accept_invitation(
+            session,
+            raw_token,
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+            request_id="req-invite-accept-replay",
+        )
+
+
+@pytest.mark.asyncio
+async def test_validate_invitation_token_expires_and_audits(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    await _create_role(session, "consultant")
+    owner = await _create_user(session, owner_role, "owner@nuetra.in", first_name="Owner")
+    actor = _actor_from_user(owner, permissions=["users.invite"])
+
+    invitation = await people_access_service.create_invitation(
+        session,
+        InvitationCreateRequest(email="expired.consultant@zestiva.in", role="consultant"),
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-expired-create",
+    )
+    raw_token = "test-invitation-token-" + "e" * 48
+    invitation_row = await session.scalar(select(UserInvitation).where(UserInvitation.id == invitation.id))
+    invitation_row.token_hash = hash_token(raw_token)
+    invitation_row.token_fingerprint = invitation_row.token_hash[:12]
+    invitation_row.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+
+    with pytest.raises(ConflictException, match="expired"):
+        await people_access_service.validate_invitation_token(
+            session,
+            raw_token,
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+            request_id="req-invite-expired-validate",
+        )
+
+    assert invitation_row.status == "EXPIRED"
+    audit_event = await session.scalar(
+        select(AuditEvent).where(
+            AuditEvent.entity_id == str(invitation.id),
+            AuditEvent.action == "INVITATION_EXPIRED",
+            AuditEvent.request_id == "req-invite-expired-validate",
+        )
+    )
+    assert audit_event is not None
 
 
 @pytest.mark.asyncio

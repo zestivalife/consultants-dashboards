@@ -28,9 +28,14 @@ def _request_meta(request: Request) -> dict[str, str | None]:
 @router.post("/invitations/validate")
 async def validate_invitation(
     body: InvitationTokenRequest,
+    request: Request,
     session: AsyncSession = Depends(get_db),
 ):
-    result = await people_access_service.validate_invitation_token(session, body.token)
+    result = await people_access_service.validate_invitation_token(
+        session,
+        body.token,
+        **_request_meta(request),
+    )
     return success_response(data=result.model_dump(mode="json"), message="Invitation is valid")
 
 

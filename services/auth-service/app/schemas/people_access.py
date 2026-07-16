@@ -72,6 +72,8 @@ class InvitationValidationResponse(BaseModel):
     status: str
     expires_at: datetime | None = None
     next_step: str
+    status_reason: str | None = None
+    redirect_url: str | None = None
 
 
 class InvitationAcceptResponse(BaseModel):
@@ -80,6 +82,7 @@ class InvitationAcceptResponse(BaseModel):
     email: str
     status: str
     next_step: str
+    redirect_url: str
 
 
 class PasswordSetupInitiationResponse(BaseModel):

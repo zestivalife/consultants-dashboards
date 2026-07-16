@@ -14,13 +14,34 @@ const STATE_COPY = {
   },
   accepted: {
     title: 'Invitation accepted',
-    description: 'Password setup has been initiated. The next onboarding slice will complete password creation.',
+    description: 'Your invitation is accepted. Password setup is the next onboarding step.',
+  },
+  expired: {
+    title: 'Invitation expired',
+    description: 'This secure invitation has expired. Please ask your organization or platform admin for a new invitation.',
+  },
+  revoked: {
+    title: 'Invitation revoked',
+    description: 'This invitation was revoked by an administrator and can no longer be used.',
+  },
+  invalid: {
+    title: 'Invitation invalid',
+    description: 'This invitation link is invalid or cannot be verified. Please check the link or request a new invitation.',
   },
   error: {
     title: 'Invitation unavailable',
     description: 'This invitation may be expired, cancelled, already used, or invalid.',
   },
 };
+
+function classifyInvitationError(err) {
+  const message = String(err?.message || '').toLowerCase();
+  if (message.includes('expired')) return 'expired';
+  if (message.includes('revoked') || message.includes('cancelled')) return 'revoked';
+  if (message.includes('accepted')) return 'accepted';
+  if (message.includes('invalid') || message.includes('not found')) return 'invalid';
+  return 'error';
+}
 
 export default function InvitationAcceptPage() {
   const router = useRouter();
@@ -49,7 +70,7 @@ export default function InvitationAcceptPage() {
       } catch (err) {
         if (cancelled) return;
         setError(err.message || 'Unable to validate invitation.');
-        setStatus('error');
+        setStatus(classifyInvitationError(err));
       }
     }
 
@@ -65,12 +86,11 @@ export default function InvitationAcceptPage() {
     setError('');
     try {
       const accepted = await onboardingAPI.acceptInvitation(token);
-      const passwordSetup = await onboardingAPI.initiatePasswordSetup(token);
-      setInvitation({ ...accepted, ...passwordSetup });
+      setInvitation(accepted);
       setStatus('accepted');
     } catch (err) {
       setError(err.message || 'Unable to accept invitation.');
-      setStatus('error');
+      setStatus(classifyInvitationError(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -135,13 +155,13 @@ export default function InvitationAcceptPage() {
             {status === 'accepted' ? (
               <button
                 type="button"
-                onClick={() => router.push('/login')}
+                disabled
                 className="rounded-full bg-[#3268a8] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-[#3268a8]/20 transition hover:bg-[#27558b]"
               >
-                Go to sign in
+                Password setup is next
               </button>
             ) : null}
-            {status === 'error' ? (
+            {['error', 'expired', 'revoked', 'invalid'].includes(status) ? (
               <button
                 type="button"
                 onClick={() => router.push('/login')}
