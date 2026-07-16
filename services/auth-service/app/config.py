@@ -19,7 +19,9 @@ class Settings(BaseSettings):
     db_pool_timeout: int = 30
 
     redis_url: str = "redis://localhost:6379/0"
-    trusted_hosts: str = "*.railway.app,localhost,127.0.0.1"
+    trusted_hosts: str = (
+        "*.railway.app,*.railway.internal,auth-service,api-gateway,localhost,127.0.0.1"
+    )
 
     jwt_secret_key: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"

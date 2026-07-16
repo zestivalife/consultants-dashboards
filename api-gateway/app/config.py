@@ -39,7 +39,9 @@ class Settings(BaseSettings):
         default_factory=lambda: DEFAULT_CORS_ORIGINS.copy(),
         validation_alias=AliasChoices("CORS_ORIGINS", "cors_origins"),
     )
-    trusted_hosts: str = "api.nuetra.in,*.railway.app,localhost,127.0.0.1"
+    trusted_hosts: str = (
+        "api.nuetra.in,*.railway.app,*.railway.internal,api-gateway,localhost,127.0.0.1"
+    )
 
     log_level: str = "INFO"
     log_format: str = "json"

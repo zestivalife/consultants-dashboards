@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from pydantic import field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from functools import lru_cache
 
 
@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_debug: bool = False
     app_version: str = "0.1.0"
-    app_port: int = 8005
+    app_port: int = Field(default=8005, validation_alias=AliasChoices("PORT", "APP_PORT", "app_port"))
 
     database_url: str = "postgresql+asyncpg://nuetra:nuetra_secret@localhost:5432/nuetra_nutrition"
     db_pool_size: int = 20
@@ -16,7 +16,9 @@ class Settings(BaseSettings):
     db_pool_recycle: int = 300
 
     redis_url: str = "redis://localhost:6379/0"
-    trusted_hosts: str = "*.railway.app,localhost,127.0.0.1"
+    trusted_hosts: str = (
+        "*.railway.app,*.railway.internal,nutrition-service,api-gateway,localhost,127.0.0.1"
+    )
 
     upload_backend: str = "local"
     upload_local_dir: str = "uploads"

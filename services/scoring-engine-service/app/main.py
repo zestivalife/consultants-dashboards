@@ -10,6 +10,7 @@ from app.config import get_settings
 from app.core.logging import setup_logging, get_logger
 from app.core.exceptions import register_exception_handlers
 from app.api.v1.router import api_router
+from app.api.v1.routes import health
 from app.db.session import dispose_engine
 from app.core.http_client import close_client
 from app.core.cache import close_redis
@@ -20,7 +21,17 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     setup_logging()
-    logger.info("service_starting", service=get_settings().app_name)
+    logger.info(
+        "service_starting",
+        service=get_settings().app_name,
+        routes=[
+            {
+                "path": getattr(route, "path", None),
+                "methods": sorted(getattr(route, "methods", []) or []),
+            }
+            for route in _app.routes
+        ],
+    )
     yield
     logger.info("service_shutting_down", service=get_settings().app_name)
     await close_client()
@@ -64,6 +75,7 @@ def create_app() -> FastAPI:
         return response
 
     app.include_router(api_router, prefix="/api/v1")
+    app.include_router(health.router)
 
     return app
 
