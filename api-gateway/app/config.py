@@ -1,4 +1,5 @@
 from functools import lru_cache
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
@@ -72,19 +73,38 @@ class Settings(BaseSettings):
             return parsed or DEFAULT_CORS_ORIGINS.copy()
         raise TypeError("cors_origins must be a comma-separated string or list of strings")
 
+    @staticmethod
+    def _normalize_service_url(url: str, default_port: int) -> str:
+        parsed = urlsplit(url.strip().rstrip("/"))
+        if parsed.scheme not in {"http", "https"}:
+            return url.strip().rstrip("/")
+        if parsed.port is not None:
+            return url.strip().rstrip("/")
+        if not parsed.hostname or not parsed.hostname.endswith(".railway.internal"):
+            return url.strip().rstrip("/")
+
+        netloc = f"{parsed.hostname}:{default_port}"
+        return urlunsplit((parsed.scheme, netloc, parsed.path.rstrip("/"), "", ""))
+
     def get_service_routes(self) -> list[dict]:
+        auth_service_url = self._normalize_service_url(self.auth_service_url, 8001)
+        profile_service_url = self._normalize_service_url(self.profile_service_url, 8002)
+        assessment_service_url = self._normalize_service_url(self.assessment_service_url, 8003)
+        scoring_service_url = self._normalize_service_url(self.scoring_service_url, 8004)
+        nutrition_service_url = self._normalize_service_url(self.nutrition_service_url, 8005)
+
         return [
-            {"prefix": "/api/v1/corporate-admin", "upstream": self.auth_service_url},
-            {"prefix": "/api/v1/owner/people-access", "upstream": self.auth_service_url},
-            {"prefix": "/api/v1/owner/master-data", "upstream": self.auth_service_url},
-            {"prefix": "/api/v1/team-lead", "upstream": self.auth_service_url},
-            {"prefix": "/api/v1/team-member", "upstream": self.auth_service_url},
-            {"prefix": "/api/v1/notifications", "upstream": self.auth_service_url},
-            {"prefix": "/api/v1/auth", "upstream": self.auth_service_url},
-            {"prefix": "/api/v1/profile", "upstream": self.profile_service_url},
-            {"prefix": "/api/v1/assessments", "upstream": self.assessment_service_url},
-            {"prefix": "/api/v1/scoring", "upstream": self.scoring_service_url},
-            {"prefix": "/api/v1/nutrition", "upstream": self.nutrition_service_url},
+            {"prefix": "/api/v1/corporate-admin", "upstream": auth_service_url},
+            {"prefix": "/api/v1/owner/people-access", "upstream": auth_service_url},
+            {"prefix": "/api/v1/owner/master-data", "upstream": auth_service_url},
+            {"prefix": "/api/v1/team-lead", "upstream": auth_service_url},
+            {"prefix": "/api/v1/team-member", "upstream": auth_service_url},
+            {"prefix": "/api/v1/notifications", "upstream": auth_service_url},
+            {"prefix": "/api/v1/auth", "upstream": auth_service_url},
+            {"prefix": "/api/v1/profile", "upstream": profile_service_url},
+            {"prefix": "/api/v1/assessments", "upstream": assessment_service_url},
+            {"prefix": "/api/v1/scoring", "upstream": scoring_service_url},
+            {"prefix": "/api/v1/nutrition", "upstream": nutrition_service_url},
         ]
 
 
