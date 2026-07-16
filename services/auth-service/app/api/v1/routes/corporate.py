@@ -18,8 +18,11 @@ from app.schemas.corporate import (
 )
 from app.core.response import success_response
 from app.core.email import get_email_service
+from app.core.logging import get_logger
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.services.user_service import CreateUserCommand, user_service
+
+logger = get_logger(__name__)
 
 
 async def _notify(db: AsyncSession, user_id: uuid.UUID, title: str, message: str, type: str = "system", priority: str = "low"):
@@ -217,8 +220,8 @@ async def invite_employee(employee: EmployeeInvite, db: AsyncSession = Depends(g
     # Send invitation email
     try:
         get_email_service().send_invitation(new_user.email, temp_password, roleObj.name)
-    except Exception as e:
-        print(f"Failed to send invitation email to {new_user.email}: {e}")
+    except Exception as exc:
+        logger.warning("corporate_invitation_email_failed", user_id=str(new_user.id), error=str(exc))
 
     # Welcome notification for the invited user
     await _notify(
@@ -304,10 +307,10 @@ async def invite_employees_bulk(employees: List[EmployeeInvite], db: AsyncSessio
             # Send invitation email
             try:
                 get_email_service().send_invitation(new_user.email, temp_password, emp.role)
-            except Exception as e:
-                print(f"Failed to send bulk invitation email to {new_user.email}: {e}")
-        except Exception as e:
-            errors.append(f"Failed to process {emp.email}: {str(e)}")
+            except Exception as exc:
+                logger.warning("corporate_bulk_invitation_email_failed", user_id=str(new_user.id), error=str(exc))
+        except Exception as exc:
+            errors.append(f"Failed to process {emp.email}: {str(exc)}")
             
     await db.commit()
     
@@ -385,8 +388,8 @@ async def create_consultant(consultant: ConsultantInvite, db: AsyncSession = Dep
 
     try:
         get_email_service().send_invitation(new_user.email, temp_password, role_obj.name)
-    except Exception as e:
-        print(f"Failed to send consultant invitation email to {new_user.email}: {e}")
+    except Exception as exc:
+        logger.warning("consultant_invitation_email_failed", user_id=str(new_user.id), error=str(exc))
 
     await _notify(
         db,
@@ -480,8 +483,8 @@ async def create_person(person: ManagedPersonCreate, db: AsyncSession = Depends(
 
     try:
         get_email_service().send_invitation(new_user.email, temp_password, role_obj.name)
-    except Exception as e:
-        print(f"Failed to send managed user invitation email to {new_user.email}: {e}")
+    except Exception as exc:
+        logger.warning("managed_user_invitation_email_failed", user_id=str(new_user.id), error=str(exc))
 
     await _notify(
         db,
@@ -530,7 +533,6 @@ async def update_person_authorities(
 
 @router.post("/sessions")
 async def request_session(session: SessionRequestCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    print(f"DEBUG PAYLOAD PARSED: {session.model_dump()}")
     new_request = SessionRequest(
         title=session.title,
         description=session.description,
