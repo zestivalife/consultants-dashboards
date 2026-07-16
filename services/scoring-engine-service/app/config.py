@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     db_pool_recycle: int = 300
 
     redis_url: str = "redis://localhost:6379/0"
+    trusted_hosts: str = "*.railway.app,localhost,127.0.0.1"
 
     profile_service_url: str = "http://profile-service:8002"
     assessment_service_url: str = "http://assessment-service:8003"

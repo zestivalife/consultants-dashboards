@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     db_pool_recycle: int = 300
 
     redis_url: str = "redis://localhost:6379/0"
+    trusted_hosts: str = "*.railway.app,localhost,127.0.0.1"
 
     upload_backend: str = "local"
     upload_local_dir: str = "uploads"
