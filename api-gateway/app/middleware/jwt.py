@@ -31,6 +31,7 @@ PUBLIC_PREFIXES: list[str] = [
     "/api/v1/onboarding/invitations/validate",
     "/api/v1/onboarding/invitations/accept",
     "/api/v1/onboarding/password/setup",
+    "/api/v1/identity/password/create",
 ]
 
 DELEGATED_AUTH_PREFIXES: list[str] = [

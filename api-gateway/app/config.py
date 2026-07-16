@@ -110,6 +110,7 @@ class Settings(BaseSettings):
             {"prefix": "/api/v1/team-lead", "upstream": auth_service_url},
             {"prefix": "/api/v1/team-member", "upstream": auth_service_url},
             {"prefix": "/api/v1/onboarding", "upstream": auth_service_url},
+            {"prefix": "/api/v1/identity", "upstream": auth_service_url},
             {"prefix": "/api/v1/notifications", "upstream": auth_service_url},
             {"prefix": "/api/v1/auth", "upstream": auth_service_url},
             {"prefix": "/api/v1/profile", "upstream": profile_service_url},

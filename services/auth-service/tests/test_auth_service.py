@@ -304,7 +304,7 @@ async def test_register_duplicate_email(session: AsyncSession, seed_user: User):
 @pytest.mark.asyncio
 async def test_register_success(session: AsyncSession, seed_role: Role):
     with patch(STORE_OTP_PATCH, new_callable=AsyncMock) as mock_otp, _mock_email():
-        result = await auth_service.register(session, "new@nuetra.com", "StrongP4ss")
+        result = await auth_service.register(session, "new@nuetra.com", "StrongP4ssword!")
         assert "user_id" in result
         mock_otp.assert_awaited_once()
 
@@ -321,20 +321,20 @@ async def test_register_success(session: AsyncSession, seed_role: Role):
 async def test_register_weak_password_no_uppercase(session: AsyncSession, seed_role: Role):
     with patch(STORE_OTP_PATCH, new_callable=AsyncMock), _mock_email():
         with pytest.raises(WeakPasswordException, match="uppercase"):
-            await auth_service.register(session, "weak1@nuetra.com", "alllower1")
+            await auth_service.register(session, "weak1@nuetra.com", "alllowercase1!")
 
 
 @pytest.mark.asyncio
 async def test_register_weak_password_no_digit(session: AsyncSession, seed_role: Role):
     with patch(STORE_OTP_PATCH, new_callable=AsyncMock), _mock_email():
         with pytest.raises(WeakPasswordException, match="digit"):
-            await auth_service.register(session, "weak2@nuetra.com", "NoDigitHere")
+            await auth_service.register(session, "weak2@nuetra.com", "NoDigitHere!")
 
 
 @pytest.mark.asyncio
 async def test_register_weak_password_too_short(session: AsyncSession, seed_role: Role):
     with patch(STORE_OTP_PATCH, new_callable=AsyncMock), _mock_email():
-        with pytest.raises(WeakPasswordException, match="8 characters"):
+        with pytest.raises(WeakPasswordException, match="12 characters"):
             await auth_service.register(session, "weak3@nuetra.com", "Ab1")
 
 

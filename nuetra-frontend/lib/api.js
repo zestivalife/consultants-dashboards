@@ -401,6 +401,14 @@ export const onboardingAPI = {
       skipAuthRefresh: true,
     });
   },
+
+  createCredentials(token, password, confirmPassword) {
+    return apiRequest('/identity/password/create', {
+      method: 'POST',
+      body: { token, password, confirm_password: confirmPassword },
+      skipAuthRefresh: true,
+    });
+  },
 };
 
 export const ownerPeopleAccessAPI = {
