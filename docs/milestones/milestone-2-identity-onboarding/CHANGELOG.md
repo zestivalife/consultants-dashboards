@@ -33,6 +33,52 @@ Related Documents
 
 ## 2026-07-16
 
+Status: Slice 3 implementation
+
+Commit SHA:
+
+dc2bb68
+
+Branch:
+
+feature/m2-slice3-credential-creation
+
+Changes:
+
+- Implemented credential creation as a complete vertical slice after invitation acceptance.
+- Added a public credential creation API under `/api/v1/identity/password/create`.
+- Added secure password policy enforcement with 12-character minimum, uppercase, lowercase, number, special character and common-password checks.
+- Added password history persistence and reuse prevention for the last five password hashes.
+- Added credential creation audit events for `INVITATION_CONSUMED`, `PASSWORD_CREATED`, `CREDENTIAL_CREATED`, `PASSWORD_VALIDATION_FAILED` and `CREDENTIAL_FAILED`.
+- Added pending notification outbox event generation for `PASSWORD_CREATED`.
+- Added the `/onboarding/password/setup` frontend route with password strength, policy checklist, confirmation validation, loading, success and terminal invitation states.
+- Updated the invitation acceptance page to route accepted invitations into credential creation.
+- Routed `/api/v1/identity` through the API Gateway and marked credential creation as a public invitation-token endpoint.
+
+Impact:
+
+- Auth-service credential creation, password policy, password history and invitation lifecycle updated.
+- API Gateway routing updated for the new identity endpoint.
+- Frontend onboarding invite and password setup routes updated.
+- No login, JWT, refresh token, Remember Me, session management, profile completion, document upload, workspace resolution or dashboard loading changes.
+
+Verification:
+
+- Auth-service focused tests passed: `60 passed`.
+- API Gateway route tests passed: `5 passed`.
+- Python compile check passed for auth-service and api-gateway app modules.
+- Auth-service Alembic head verified as `a7b8c9d0e1f2`.
+- Frontend production build passed and generated `/onboarding/password/setup`.
+- Browser route check passed for `/onboarding/password/setup` invalid-token recovery state with zero console errors.
+
+Final Status:
+
+LOCALLY VERIFIED
+
+---
+
+## 2026-07-16
+
 Status: Slice 2 implementation
 
 Commit SHA:

@@ -145,15 +145,15 @@ Platform Services → Master Data (In Progress)
 
 ### Priority 1
 
-Implement Slice 2 Invitation Acceptance without starting password creation, profile completion, document upload, workspace loading or dashboard resolution.
+Prepare Slice 4 Authentication & Session as the next planned Milestone 2 slice without modifying profile completion, document upload, workspace loading or dashboard resolution.
 
 ### Priority 2
 
-Deploy and production-verify Slice 1 Invitation Engine.
+Deploy and production-verify Slice 1 Invitation Engine, Slice 2 Invitation Acceptance and Slice 3 Credential Creation.
 
 ### Priority 3
 
-Keep Slice 3 Password Setup separate from Slice 2 Invitation Acceptance.
+Keep Slice 4 Authentication & Session separate from profile completion, document upload and workspace resolution.
 
 ### Priority 4
 
@@ -219,8 +219,8 @@ ACTIVE
 |----------|--------|
 | Slice 1 – Invitation Engine | LOCALLY_VERIFIED |
 | Slice 2 – Invitation Acceptance | LOCALLY_VERIFIED |
-| Slice 3 – Password Setup | CURRENT |
-| Slice 4 – Authentication & Session | PLANNED |
+| Slice 3 – Credential Creation | LOCALLY_VERIFIED |
+| Slice 4 – Authentication & Session | CURRENT |
 | Slice 5 – Profile Completion | PLANNED |
 | Slice 6 – Role-Specific Profiles | PLANNED |
 | Slice 7 – Document Upload & Verification | PLANNED |
@@ -330,6 +330,7 @@ AI & Intelligence Platform
 - Notification engine is pending.
 - Workflow engine is pending.
 - Invitation acceptance is locally verified; production acceptance is pending.
+- Credential creation is locally verified; production acceptance is pending.
 - Generic onboarding engine is pending.
 - Package Builder uses mock data.
 - Service Catalog uses mock data.
@@ -399,6 +400,7 @@ The following items block production acceptance:
 - Mock business modules remain.
 - Email platform not implemented.
 - Invitation acceptance production verification is pending.
+- Credential creation production verification is pending.
 
 ---
 
