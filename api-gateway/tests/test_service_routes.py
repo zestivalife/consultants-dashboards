@@ -22,12 +22,19 @@ class ServiceRoutesTest(unittest.TestCase):
 
         self.assertEqual(routes["/api/v1/onboarding"], "http://auth-service.railway.internal:8001")
 
+    def test_identity_routes_to_auth_service(self):
+        settings = Settings(auth_service_url="http://auth-service.railway.internal")
+        routes = {route["prefix"]: route["upstream"] for route in settings.get_service_routes()}
+
+        self.assertEqual(routes["/api/v1/identity"], "http://auth-service.railway.internal:8001")
+
     def test_invitation_onboarding_paths_are_public(self):
         jwt_source = Path("app/middleware/jwt.py").read_text()
 
         self.assertIn('"/api/v1/onboarding/invitations/validate"', jwt_source)
         self.assertIn('"/api/v1/onboarding/invitations/accept"', jwt_source)
         self.assertIn('"/api/v1/onboarding/password/setup"', jwt_source)
+        self.assertIn('"/api/v1/identity/password/create"', jwt_source)
 
 
 if __name__ == "__main__":

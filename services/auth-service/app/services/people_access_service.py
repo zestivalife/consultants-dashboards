@@ -7,6 +7,7 @@ import csv
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictException, ForbiddenException, NotFoundException
+from app.core.password_policy import WeakPasswordException
 from app.core.security import hash_token
 from app.db.models.owner_access import (
     AuditEvent,
@@ -25,7 +26,7 @@ from app.db.models.owner_access import (
     UserServiceAssignment,
     UserStatusHistory,
 )
-from app.db.models.user import User
+from app.db.models.user import PasswordHistory, User
 from app.repositories.people_access_repository import PeopleAccessRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.db.models.role import Role
@@ -34,6 +35,8 @@ from app.schemas.people_access import (
     BulkActionResponse,
     CsvImportRequest,
     CsvImportResponse,
+    CredentialCreateRequest,
+    CredentialCreateResponse,
     CustomRoleCreateRequest,
     InvitationCreateRequest,
     InvitationAcceptResponse,
@@ -77,10 +80,20 @@ from app.schemas.people_access import (
     PaginationMeta,
     ServiceCatalogItem,
 )
+from app.services.password_service import password_service
 from app.services.user_service import CreateUserCommand, user_service
 
 
-MANAGEABLE_STATUSES = {"INVITED", "PENDING_VERIFICATION", "ACTIVE", "INACTIVE", "LOCKED", "SUSPENDED", "DELETED"}
+MANAGEABLE_STATUSES = {
+    "INVITED",
+    "PENDING_VERIFICATION",
+    "PENDING_PROFILE",
+    "ACTIVE",
+    "INACTIVE",
+    "LOCKED",
+    "SUSPENDED",
+    "DELETED",
+}
 ROLE_ALIASES = {
     "platform owner": "platform_owner",
     "organization admin": "organization_admin",
@@ -1322,6 +1335,194 @@ async def initiate_password_setup(
         email=invitation.email,
         status=invitation.status,
         next_step="PASSWORD_CREATE",
+    )
+
+
+async def _audit_password_failure(
+    repo: PeopleAccessRepository,
+    invitation: UserInvitation,
+    *,
+    action: str,
+    reason: str,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> None:
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=invitation.user_id or invitation.invited_by_user_id,
+            entity_type="user_invitation",
+            entity_id=str(invitation.id),
+            action=action,
+            product_id=invitation.product_id,
+            before_state=None,
+            after_state={
+                "email": invitation.email,
+                "user_id": str(invitation.user_id) if invitation.user_id else None,
+                "organization_id": str(invitation.organization_id) if invitation.organization_id else None,
+                "reason": reason,
+                "token_fingerprint": invitation.token_fingerprint,
+            },
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+
+
+async def create_credentials(
+    session: AsyncSession,
+    body: CredentialCreateRequest,
+    *,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> CredentialCreateResponse:
+    repo = PeopleAccessRepository(session)
+    invitation = await _get_invitation_by_raw_token(
+        repo,
+        body.token,
+        allow_accepted=True,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        request_id=request_id,
+    )
+    await _validate_invitation_scope(invitation)
+
+    if invitation.status != "ACCEPTED":
+        raise ConflictException("Invitation must be accepted before credential creation")
+    if invitation.user_id is None:
+        raise ConflictException("Invitation has no linked user")
+
+    user = await repo.get_user(invitation.user_id)
+    if user is None or user.deleted_at is not None or str(user.status or "").upper() == "DELETED":
+        await _audit_password_failure(
+            repo,
+            invitation,
+            action="CREDENTIAL_FAILED",
+            reason="Linked user is no longer available",
+            ip_address=ip_address,
+            user_agent=user_agent,
+            request_id=request_id,
+        )
+        raise ConflictException("Linked user is no longer available")
+
+    if body.password != body.confirm_password:
+        await _audit_password_failure(
+            repo,
+            invitation,
+            action="PASSWORD_VALIDATION_FAILED",
+            reason="Password confirmation does not match",
+            ip_address=ip_address,
+            user_agent=user_agent,
+            request_id=request_id,
+        )
+        raise WeakPasswordException(["password and confirmation must match"])
+
+    previous_hashes = [user.password_hash, *(await repo.recent_password_hashes(user.id, limit=5))]
+    try:
+        password_service.validate_new_password(body.password)
+        password_service.ensure_not_reused(body.password, previous_hashes)
+    except WeakPasswordException as exc:
+        await _audit_password_failure(
+            repo,
+            invitation,
+            action="PASSWORD_VALIDATION_FAILED",
+            reason="; ".join(exc.reasons),
+            ip_address=ip_address,
+            user_agent=user_agent,
+            request_id=request_id,
+        )
+        raise
+
+    new_hash = password_service.hash_password(body.password)
+    now = datetime.now(timezone.utc)
+    old_status = invitation.status
+    user.password_hash = new_hash
+    user.password_changed_at = now
+    user.status = "PENDING_PROFILE"
+    user.is_active = False
+    user.is_verified = False
+    invitation.status = "PASSWORD_CREATED"
+    await repo.add_password_history(
+        PasswordHistory(
+            user_id=user.id,
+            password_hash=new_hash,
+            source="credential_creation",
+        )
+    )
+    await _queue_invitation_lifecycle_event(
+        repo,
+        invitation,
+        event_type="PASSWORD_CREATED",
+        request_id=request_id,
+        payload={
+            "user_id": str(user.id),
+            "next_step": "LOGIN",
+            "redirect_url": "/login",
+        },
+    )
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=user.id,
+            entity_type="user_invitation",
+            entity_id=str(invitation.id),
+            action="INVITATION_CONSUMED",
+            product_id=invitation.product_id,
+            before_state={"status": old_status},
+            after_state={"status": invitation.status, "email": invitation.email, "user_id": str(user.id)},
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=user.id,
+            entity_type="user",
+            entity_id=str(user.id),
+            action="PASSWORD_CREATED",
+            product_id=invitation.product_id,
+            before_state={"status": old_status},
+            after_state={
+                "email": invitation.email,
+                "status": user.status,
+                "invitation_id": str(invitation.id),
+                "organization_id": str(invitation.organization_id) if invitation.organization_id else None,
+                "token_fingerprint": invitation.token_fingerprint,
+            },
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=user.id,
+            entity_type="user",
+            entity_id=str(user.id),
+            action="CREDENTIAL_CREATED",
+            product_id=invitation.product_id,
+            before_state={"status": old_status},
+            after_state={
+                "email": invitation.email,
+                "status": user.status,
+                "invitation_id": str(invitation.id),
+                "organization_id": str(invitation.organization_id) if invitation.organization_id else None,
+                "token_fingerprint": invitation.token_fingerprint,
+            },
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    return CredentialCreateResponse(
+        invitation_id=invitation.id,
+        user_id=user.id,
+        email=invitation.email,
+        status=invitation.status,
+        next_step="LOGIN",
+        redirect_url="/login",
     )
 
 

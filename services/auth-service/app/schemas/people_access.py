@@ -93,6 +93,21 @@ class PasswordSetupInitiationResponse(BaseModel):
     next_step: str
 
 
+class CredentialCreateRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=512)
+    password: str = Field(min_length=1, max_length=256)
+    confirm_password: str = Field(min_length=1, max_length=256)
+
+
+class CredentialCreateResponse(BaseModel):
+    invitation_id: uuid.UUID
+    user_id: uuid.UUID
+    email: str
+    status: str
+    next_step: str
+    redirect_url: str
+
+
 class PeopleAccessAuditItem(BaseModel):
     id: uuid.UUID
     actor: str

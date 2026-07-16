@@ -5,14 +5,16 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import ConflictException, ForbiddenException
 from app.core.security import hash_token
+from app.core.password_policy import WeakPasswordException
 from app.db.models.owner_access import AuditEvent, InvitationEmailOutbox, Permission, RolePermission, UserInvitation, UserRole
 from app.db.models.role import Role
-from app.db.models.user import User
-from app.core.exceptions import ConflictException, ForbiddenException
+from app.db.models.user import PasswordHistory, User
 from app.schemas.auth import UserResponse
-from app.schemas.people_access import InvitationCreateRequest, ManagedUserCreateRequest, ManagedUserUpdateRequest
+from app.schemas.people_access import CredentialCreateRequest, InvitationCreateRequest, ManagedUserCreateRequest, ManagedUserUpdateRequest
 from app.services import people_access_service
+from app.services.password_service import password_service
 
 
 async def _create_role(session: AsyncSession, name: str, description: str = "") -> Role:
@@ -36,6 +38,36 @@ async def _create_user(session: AsyncSession, role: Role, email: str, **override
     session.add(user)
     await session.flush()
     return user
+
+
+async def _accepted_invitation(session: AsyncSession, email: str = "credential.consultant@zestiva.in") -> tuple[UserInvitation, str]:
+    owner_role = await _create_role(session, f"platform_owner_{uuid.uuid4().hex[:8]}")
+    consultant_role = await _create_role(session, f"consultant_{uuid.uuid4().hex[:8]}")
+    owner = await _create_user(session, owner_role, f"owner-{uuid.uuid4().hex[:8]}@zestiva.in", first_name="Owner")
+    actor = _actor_from_user(owner, permissions=["users.invite"])
+
+    invitation = await people_access_service.create_invitation(
+        session,
+        InvitationCreateRequest(email=email, role=consultant_role.name),
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id=f"req-invite-create-{uuid.uuid4().hex[:8]}",
+    )
+    raw_token = "test-invitation-token-" + uuid.uuid4().hex + uuid.uuid4().hex
+    invitation_row = await session.scalar(select(UserInvitation).where(UserInvitation.id == invitation.id))
+    invitation_row.token_hash = hash_token(raw_token)
+    invitation_row.token_fingerprint = invitation_row.token_hash[:12]
+    invitation_row.token = f"redacted:{invitation_row.id}"
+
+    await people_access_service.accept_invitation(
+        session,
+        raw_token,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id=f"req-invite-accept-{uuid.uuid4().hex[:8]}",
+    )
+    return invitation_row, raw_token
 
 
 def _actor_from_user(user: User, permissions: list[str] | None = None) -> UserResponse:
@@ -619,6 +651,170 @@ async def test_password_setup_initiation_requires_accepted_invitation(session: A
         )
     )
     assert audit_event is not None
+
+
+@pytest.mark.asyncio
+async def test_create_credentials_persists_password_history_outbox_and_audit(session: AsyncSession):
+    invitation, raw_token = await _accepted_invitation(session, "credential.success@zestiva.in")
+
+    result = await people_access_service.create_credentials(
+        session,
+        CredentialCreateRequest(
+            token=raw_token,
+            password="CredentialPass123!",
+            confirm_password="CredentialPass123!",
+        ),
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-credential-create",
+    )
+
+    user = await session.scalar(select(User).where(User.id == result.user_id))
+    assert result.invitation_id == invitation.id
+    assert result.email == "credential.success@zestiva.in"
+    assert result.status == "PASSWORD_CREATED"
+    assert result.next_step == "LOGIN"
+    assert result.redirect_url == "/login"
+    assert invitation.status == "PASSWORD_CREATED"
+    assert user is not None
+    assert password_service.verify_password("CredentialPass123!", user.password_hash)
+    assert user.password_changed_at is not None
+    assert user.status == "PENDING_PROFILE"
+    assert user.is_active is False
+    assert user.is_verified is False
+
+    history = await session.scalar(select(PasswordHistory).where(PasswordHistory.user_id == user.id))
+    assert history is not None
+    assert password_service.verify_password("CredentialPass123!", history.password_hash)
+    assert history.source == "credential_creation"
+
+    outbox_event = await session.scalar(
+        select(InvitationEmailOutbox).where(
+            InvitationEmailOutbox.invitation_id == invitation.id,
+            InvitationEmailOutbox.event_type == "PASSWORD_CREATED",
+        )
+    )
+    assert outbox_event is not None
+    assert outbox_event.status == "PENDING"
+    assert outbox_event.payload["next_step"] == "LOGIN"
+
+    consumed_audit = await session.scalar(
+        select(AuditEvent).where(
+            AuditEvent.entity_id == str(invitation.id),
+            AuditEvent.action == "INVITATION_CONSUMED",
+            AuditEvent.request_id == "req-credential-create",
+        )
+    )
+    assert consumed_audit is not None
+
+    password_audit = await session.scalar(
+        select(AuditEvent).where(
+            AuditEvent.entity_id == str(user.id),
+            AuditEvent.action == "PASSWORD_CREATED",
+            AuditEvent.request_id == "req-credential-create",
+        )
+    )
+    assert password_audit is not None
+    assert password_audit.after_state["token_fingerprint"] == invitation.token_fingerprint
+
+
+@pytest.mark.asyncio
+async def test_create_credentials_rejects_confirmation_mismatch_and_audits(session: AsyncSession):
+    invitation, raw_token = await _accepted_invitation(session, "credential.mismatch@zestiva.in")
+
+    with pytest.raises(WeakPasswordException, match="confirmation"):
+        await people_access_service.create_credentials(
+            session,
+            CredentialCreateRequest(
+                token=raw_token,
+                password="CredentialPass123!",
+                confirm_password="CredentialPass124!",
+            ),
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+            request_id="req-credential-mismatch",
+        )
+
+    audit_event = await session.scalar(
+        select(AuditEvent).where(
+            AuditEvent.entity_id == str(invitation.id),
+            AuditEvent.action == "PASSWORD_VALIDATION_FAILED",
+            AuditEvent.request_id == "req-credential-mismatch",
+        )
+    )
+    assert audit_event is not None
+    assert "confirmation" in audit_event.after_state["reason"]
+    assert invitation.status == "ACCEPTED"
+
+
+@pytest.mark.asyncio
+async def test_create_credentials_rejects_reused_password(session: AsyncSession):
+    invitation, raw_token = await _accepted_invitation(session, "credential.reuse@zestiva.in")
+    user = await session.scalar(select(User).where(User.id == invitation.user_id))
+    reused_hash = password_service.hash_password("CredentialPass123!")
+    user.password_hash = reused_hash
+    session.add(
+        PasswordHistory(
+            user_id=user.id,
+            password_hash=reused_hash,
+            source="previous_password",
+        )
+    )
+    await session.flush()
+
+    with pytest.raises(WeakPasswordException, match="last 5 passwords"):
+        await people_access_service.create_credentials(
+            session,
+            CredentialCreateRequest(
+                token=raw_token,
+                password="CredentialPass123!",
+                confirm_password="CredentialPass123!",
+            ),
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+            request_id="req-credential-reuse",
+        )
+
+    audit_event = await session.scalar(
+        select(AuditEvent).where(
+            AuditEvent.entity_id == str(invitation.id),
+            AuditEvent.action == "PASSWORD_VALIDATION_FAILED",
+            AuditEvent.request_id == "req-credential-reuse",
+        )
+    )
+    assert audit_event is not None
+    assert "last 5 passwords" in audit_event.after_state["reason"]
+    assert invitation.status == "ACCEPTED"
+
+
+@pytest.mark.asyncio
+async def test_create_credentials_rejects_replay_after_password_created(session: AsyncSession):
+    invitation, raw_token = await _accepted_invitation(session, "credential.replay@zestiva.in")
+
+    await people_access_service.create_credentials(
+        session,
+        CredentialCreateRequest(
+            token=raw_token,
+            password="CredentialPass123!",
+            confirm_password="CredentialPass123!",
+        ),
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-credential-replay-first",
+    )
+
+    with pytest.raises(ConflictException):
+        await people_access_service.create_credentials(
+            session,
+            CredentialCreateRequest(
+                token=raw_token,
+                password="AnotherPass123!",
+                confirm_password="AnotherPass123!",
+            ),
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+            request_id="req-credential-replay-second",
+        )
 
 
 @pytest.mark.asyncio

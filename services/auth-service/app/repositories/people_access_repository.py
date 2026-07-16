@@ -29,7 +29,7 @@ from app.db.models.owner_access import (
     UserStatusHistory,
 )
 from app.db.models.role import Role
-from app.db.models.user import User
+from app.db.models.user import PasswordHistory, User
 
 
 class PeopleAccessRepository:
@@ -289,6 +289,24 @@ class PeopleAccessRepository:
     async def get_user_by_email(self, email: str) -> User | None:
         result = await self._session.execute(select(User).options(joinedload(User.role)).where(User.email == email))
         return result.scalar_one_or_none()
+
+    async def get_user(self, user_id: uuid.UUID) -> User | None:
+        result = await self._session.execute(select(User).options(joinedload(User.role)).where(User.id == user_id))
+        return result.scalar_one_or_none()
+
+    async def recent_password_hashes(self, user_id: uuid.UUID, limit: int = 5) -> list[str]:
+        result = await self._session.execute(
+            select(PasswordHistory.password_hash)
+            .where(PasswordHistory.user_id == user_id)
+            .order_by(PasswordHistory.created_at.desc())
+            .limit(limit)
+        )
+        return [row for row in result.scalars().all()]
+
+    async def add_password_history(self, history: PasswordHistory) -> PasswordHistory:
+        self._session.add(history)
+        await self._session.flush()
+        return history
 
     async def get_role_by_name(self, role_name: str) -> Role | None:
         result = await self._session.execute(select(Role).where(Role.name == role_name))

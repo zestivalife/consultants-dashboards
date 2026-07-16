@@ -14,7 +14,7 @@ const STATE_COPY = {
   },
   accepted: {
     title: 'Invitation accepted',
-    description: 'Your invitation is accepted. Password setup is the next onboarding step.',
+    description: 'Your invitation is accepted. Create your credentials to secure this workspace account.',
   },
   expired: {
     title: 'Invitation expired',
@@ -97,6 +97,7 @@ export default function InvitationAcceptPage() {
   }
 
   const copy = STATE_COPY[status] || STATE_COPY.loading;
+  const passwordSetupPath = token ? `/onboarding/password/setup?token=${encodeURIComponent(token)}` : '/login';
 
   return (
     <main className="min-h-screen bg-[#f7f8f5] px-6 py-10 text-[#1f2722]">
@@ -155,10 +156,10 @@ export default function InvitationAcceptPage() {
             {status === 'accepted' ? (
               <button
                 type="button"
-                disabled
+                onClick={() => router.push(passwordSetupPath)}
                 className="rounded-full bg-[#3268a8] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-[#3268a8]/20 transition hover:bg-[#27558b]"
               >
-                Password setup is next
+                Create credentials
               </button>
             ) : null}
             {['error', 'expired', 'revoked', 'invalid'].includes(status) ? (
