@@ -356,6 +356,7 @@ export function PeopleAccessModule({
   onAddAttachment,
   onCreateInvitation,
   onResendInvitation,
+  onRegenerateInvitationLink,
   onCancelInvitation,
   onExpireInvitation,
   onAssignProducts,
@@ -372,6 +373,10 @@ export function PeopleAccessModule({
   const [searchDraft, setSearchDraft] = useState(filters?.search || '');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showInvitationModal, setShowInvitationModal] = useState(false);
+  const [invitationStep, setInvitationStep] = useState(0);
+  const [latestInvitation, setLatestInvitation] = useState(null);
+  const [invitationLinks, setInvitationLinks] = useState({});
+  const [invitationFilters, setInvitationFilters] = useState({ status: 'ALL', search: '', sort: 'newest' });
   const [showImportModal, setShowImportModal] = useState(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [isProfileDrawerOpen, setIsProfileDrawerOpen] = useState(false);
@@ -386,9 +391,14 @@ export function PeopleAccessModule({
     note: '',
   });
   const [invitationDraft, setInvitationDraft] = useState({
+    first_name: '',
+    last_name: '',
     email: '',
+    mobile_number: '',
+    country_code: '+91',
     role: 'consultant',
     product_id: '',
+    product_ids: [],
     organization_id: '',
     department_id: '',
   });
@@ -427,6 +437,51 @@ export function PeopleAccessModule({
   const practitioners = metadata?.practitioners || [];
   const mentors = metadata?.mentors || [];
   const consultants = metadata?.consultants || [];
+  const invitationRoles = useMemo(() => {
+    const allowed = new Set(['practitioner', 'mentor', 'consultant', 'corporate_admin']);
+    const fromMetadata = roleOptions
+      .map((role) => ({
+        id: role.id,
+        value: role.name.toLowerCase().replace(/ /g, '_'),
+        label: role.name.replace(/_/g, ' '),
+      }))
+      .filter((role) => allowed.has(role.value));
+    if (fromMetadata.length) return fromMetadata;
+    return [
+      { id: 'practitioner', value: 'practitioner', label: 'Practitioner' },
+      { id: 'mentor', value: 'mentor', label: 'Mentor' },
+      { id: 'consultant', value: 'consultant', label: 'Consultant' },
+      { id: 'corporate_admin', value: 'corporate_admin', label: 'Corporate Admin' },
+    ];
+  }, [roleOptions]);
+  const invitationWorkspaces = useMemo(
+    () => departmentOptions.filter((department) => !invitationDraft.organization_id || department.organization_id === invitationDraft.organization_id),
+    [departmentOptions, invitationDraft.organization_id]
+  );
+  const selectedInvitationProductIdSet = useMemo(() => new Set(invitationDraft.product_ids || []), [invitationDraft.product_ids]);
+  const visibleInvitations = useMemo(() => {
+    const search = invitationFilters.search.trim().toLowerCase();
+    const status = invitationFilters.status;
+    return [...invitations]
+      .filter((invitation) => status === 'ALL' || invitation.status === status)
+      .filter((invitation) => {
+        if (!search) return true;
+        return [
+          invitation.email,
+          invitation.first_name,
+          invitation.last_name,
+          invitation.role,
+          invitation.product,
+          invitation.organization,
+          invitation.status,
+        ].filter(Boolean).join(' ').toLowerCase().includes(search);
+      })
+      .sort((a, b) => {
+        const left = new Date(a.created_at || 0).getTime();
+        const right = new Date(b.created_at || 0).getTime();
+        return invitationFilters.sort === 'oldest' ? left - right : right - left;
+      });
+  }, [invitationFilters, invitations]);
   const safeSelectedUser = useMemo(() => {
     if (!selectedUser) return null;
     const displayName =
@@ -544,6 +599,67 @@ export function PeopleAccessModule({
         [key]: values.includes(value) ? values.filter((item) => item !== value) : [...values, value],
       };
     });
+  };
+  const toggleInvitationProduct = (productId) => {
+    setInvitationDraft((current) => {
+      const values = current.product_ids || [];
+      const nextValues = values.includes(productId)
+        ? values.filter((item) => item !== productId)
+        : [...values, productId];
+      return {
+        ...current,
+        product_ids: nextValues,
+        product_id: nextValues[0] || '',
+      };
+    });
+  };
+  const resetInvitationDraft = (role = 'consultant') => {
+    setInvitationDraft({
+      first_name: '',
+      last_name: '',
+      email: '',
+      mobile_number: '',
+      country_code: '+91',
+      role,
+      product_id: '',
+      product_ids: [],
+      organization_id: '',
+      department_id: '',
+    });
+    setInvitationStep(0);
+    setLatestInvitation(null);
+  };
+  const openInvitationWizard = (role = 'consultant') => {
+    resetInvitationDraft(role);
+    setShowInvitationModal(true);
+  };
+  const invitationLinkFor = (invitation) => invitation?.invitation_url || invitationLinks[invitation?.id] || '';
+  const rememberInvitationLink = (invitation) => {
+    if (!invitation?.id || !invitation?.invitation_url) return;
+    setInvitationLinks((current) => ({ ...current, [invitation.id]: invitation.invitation_url }));
+  };
+  const copyInvitationLink = async (invitation) => {
+    const url = invitationLinkFor(invitation);
+    if (!url) {
+      setActionError('Generate or resend the invitation link before copying.');
+      return;
+    }
+    if (typeof navigator === 'undefined' || !navigator.clipboard) {
+      setActionError('Clipboard access is unavailable. Use Open Link and copy from the browser address bar.');
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+    setActionError('Invitation link copied.');
+  };
+  const openInvitationLink = (invitation) => {
+    const url = invitationLinkFor(invitation);
+    if (!url) {
+      setActionError('Generate or resend the invitation link before opening.');
+      return;
+    }
+    if (typeof window !== 'undefined') {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
   };
   const togglePermission = (permissionKey) => {
     setForm((current) => ({
@@ -704,31 +820,83 @@ export function PeopleAccessModule({
   };
 
   const submitInvitation = async () => {
-    if (!invitationDraft.email.trim()) {
-      setActionError('Create invitation requires an invitee email.');
+    if (!invitationDraft.organization_id) {
+      setActionError('Select an organization before sending the invitation.');
+      setInvitationStep(0);
+      return;
+    }
+    if (!invitationDraft.role) {
+      setActionError('Select a role before sending the invitation.');
+      setInvitationStep(1);
+      return;
+    }
+    if (!invitationDraft.first_name.trim() || !invitationDraft.last_name.trim() || !invitationDraft.email.trim()) {
+      setActionError('First name, last name, and email are required.');
+      setInvitationStep(2);
+      return;
+    }
+    if (!invitationDraft.product_ids.length) {
+      setActionError('Select at least one product before sending the invitation.');
+      setInvitationStep(3);
+      return;
+    }
+    if (invitationWorkspaces.length && !invitationDraft.department_id) {
+      setActionError('Select a workspace before sending the invitation.');
+      setInvitationStep(4);
       return;
     }
     setIsSubmitting(true);
     try {
       const result = await runAction('Create invitation', onCreateInvitation, {
+        first_name: invitationDraft.first_name.trim(),
+        last_name: invitationDraft.last_name.trim(),
         email: invitationDraft.email.trim(),
+        mobile_number: invitationDraft.mobile_number.trim() || null,
+        country_code: invitationDraft.country_code.trim() || null,
         role: invitationDraft.role,
-        product_id: invitationDraft.product_id || null,
+        product_id: invitationDraft.product_id || invitationDraft.product_ids[0] || null,
+        product_ids: invitationDraft.product_ids,
         organization_id: invitationDraft.organization_id || null,
-        department_id: invitationDraft.department_id || null,
+        department_id: invitationWorkspaces.length ? invitationDraft.department_id || null : null,
       });
       if (result === null) return;
-      setInvitationDraft({
-        email: '',
-        role: 'consultant',
-        product_id: '',
-        organization_id: '',
-        department_id: '',
-      });
-      setShowInvitationModal(false);
+      rememberInvitationLink(result);
+      setLatestInvitation(result);
+      setInvitationStep(6);
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const resendInvitationWithLink = async (invitation) => {
+    const result = await runAction('Resend invitation', onResendInvitation, invitation.id);
+    if (result) {
+      rememberInvitationLink(result);
+      setLatestInvitation(result);
+    }
+    return result;
+  };
+
+  const regenerateInvitationLink = async (invitation) => {
+    const result = await runAction('Regenerate invitation link', onRegenerateInvitationLink, invitation.id);
+    if (result) {
+      rememberInvitationLink(result);
+      setLatestInvitation(result);
+    }
+    return result;
+  };
+
+  const revokeInvitation = async (invitation) => {
+    const result = await runAction('Revoke invitation', onCancelInvitation, invitation.id);
+    if (result) {
+      setLatestInvitation(result);
+      setInvitationLinks((current) => {
+        const nextLinks = { ...current };
+        delete nextLinks[invitation.id];
+        return nextLinks;
+      });
+    }
+    return result;
   };
 
   const syncProductAssignments = async () => {
@@ -826,12 +994,10 @@ export function PeopleAccessModule({
           <ActionButton icon={Upload} label="CSV Import" onClick={() => setShowImportModal(true)} />
           <ActionButton icon={Download} label="CSV Export" onClick={handleCsvExport} />
           <ActionButton icon={UserCog} label="Refresh" onClick={() => runAction('Refresh People & Access', onRefresh)} />
-          <ActionButton
-            icon={Plus}
-            label="Add mentor / consultant / admin"
-            tone="primary"
-            onClick={() => setShowCreateForm(true)}
-          />
+          <ActionButton icon={Plus} label="Add Practitioner" onClick={() => openInvitationWizard('practitioner')} />
+          <ActionButton icon={Plus} label="Add Mentor" onClick={() => openInvitationWizard('mentor')} />
+          <ActionButton icon={Plus} label="Add Consultant" onClick={() => openInvitationWizard('consultant')} />
+          <ActionButton icon={Plus} label="Add Corporate Admin" tone="primary" onClick={() => openInvitationWizard('corporate_admin')} />
         </>
       }
     >
@@ -1032,28 +1198,101 @@ export function PeopleAccessModule({
 
           <Panel
             title="Invitation lifecycle"
-            subtitle="Track pending, accepted, expired, and cancelled invitations without keeping the invite form on the page."
-            action={<ActionButton icon={Mail} label="New invitation" tone="primary" onClick={() => setShowInvitationModal(true)} />}
+            subtitle="Create, test, resend, revoke, and open onboarding invitations from the application UI."
+            action={<ActionButton icon={Mail} label="New invitation" tone="primary" onClick={() => openInvitationWizard('consultant')} />}
           >
-            <div className="mt-5 space-y-3">
-              {invitations.length ? invitations.map((invitation) => (
-                <div key={invitation.id} className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <p className="font-bold text-gray-900">{invitation.email}</p>
-                      <p className="mt-1 text-xs text-gray-500">
-                        {(invitation.role || 'Unassigned').replace(/_/g, ' ')} · {invitation.product || 'No product'} · {invitation.organization || 'No organization'}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge tone={invitation.status === 'INVITED' ? 'blue' : invitation.status === 'ACCEPTED' ? 'green' : 'red'}>{invitation.status}</Badge>
-                      <button onClick={() => runAction('Resend invitation', onResendInvitation, invitation.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Resend</button>
-                      <button onClick={() => runAction('Cancel invitation', onCancelInvitation, invitation.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Cancel</button>
-                      <button onClick={() => runAction('Expire invitation', onExpireInvitation, invitation.id)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Expire</button>
-                    </div>
-                  </div>
+            <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_160px_150px]">
+              <input
+                value={invitationFilters.search}
+                onChange={(event) => setInvitationFilters((current) => ({ ...current, search: event.target.value }))}
+                placeholder="Search invitee, role, organization, product..."
+                className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none"
+              />
+              <select
+                value={invitationFilters.status}
+                onChange={(event) => setInvitationFilters((current) => ({ ...current, status: event.target.value }))}
+                className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-600 outline-none"
+              >
+                {['ALL', 'INVITED', 'ACCEPTED', 'EXPIRED', 'CANCELLED', 'REVOKED', 'PASSWORD_CREATED'].map((status) => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
+              <select
+                value={invitationFilters.sort}
+                onChange={(event) => setInvitationFilters((current) => ({ ...current, sort: event.target.value }))}
+                className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-600 outline-none"
+              >
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+              </select>
+            </div>
+
+            <div className="mt-5 overflow-hidden rounded-2xl border border-gray-100">
+              <table className="min-w-full divide-y divide-gray-100">
+                <thead className="bg-gray-50 text-left text-xs font-black uppercase tracking-[0.18em] text-gray-400">
+                  <tr>
+                    <th className="px-4 py-3">Invitee</th>
+                    <th className="px-4 py-3">Scope</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Link</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 bg-white">
+                  {visibleInvitations.map((invitation) => {
+                    const link = invitationLinkFor(invitation);
+                    const canOperate = !['ACCEPTED', 'PASSWORD_CREATED'].includes(invitation.status);
+                    return (
+                      <tr key={invitation.id} className="align-top">
+                        <td className="px-4 py-4">
+                          <p className="font-bold text-gray-900">
+                            {[invitation.first_name, invitation.last_name].filter(Boolean).join(' ') || invitation.email}
+                          </p>
+                          <p className="mt-1 text-xs text-gray-500">{invitation.email}</p>
+                          {invitation.mobile_number ? (
+                            <p className="mt-1 text-xs text-gray-500">{invitation.country_code || ''} {invitation.mobile_number}</p>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-gray-600">
+                          <p className="font-bold capitalize text-gray-900">{(invitation.role || 'Unassigned').replace(/_/g, ' ')}</p>
+                          <p className="mt-1 text-xs text-gray-500">{invitation.product || 'No product'} · {invitation.organization || 'No organization'}</p>
+                          {invitation.token_fingerprint ? <p className="mt-1 text-[11px] text-gray-400">Fingerprint {invitation.token_fingerprint}</p> : null}
+                        </td>
+                        <td className="px-4 py-4">
+                          <Badge tone={invitation.status === 'INVITED' ? 'blue' : invitation.status === 'ACCEPTED' || invitation.status === 'PASSWORD_CREATED' ? 'green' : 'red'}>{invitation.status}</Badge>
+                        </td>
+                        <td className="px-4 py-4">
+                          <button
+                            type="button"
+                            onClick={() => (link ? copyInvitationLink(invitation) : regenerateInvitationLink(invitation))}
+                            disabled={!canOperate}
+                            className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 disabled:opacity-40"
+                          >
+                            {link ? 'Copy Link' : 'Generate Link'}
+                          </button>
+                          {link ? <p className="mt-2 max-w-[220px] truncate text-[11px] text-gray-400">{link}</p> : null}
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <button onClick={() => openInvitationLink(invitation)} disabled={!link} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 disabled:opacity-40">Open</button>
+                            <button onClick={() => resendInvitationWithLink(invitation)} disabled={!canOperate} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 disabled:opacity-40">Resend</button>
+                            <button onClick={() => regenerateInvitationLink(invitation)} disabled={!canOperate} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 disabled:opacity-40">Regenerate</button>
+                            <button onClick={() => revokeInvitation(invitation)} disabled={!canOperate} className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-red-600 disabled:opacity-40">Revoke</button>
+                            <button onClick={() => runAction('Expire invitation', onExpireInvitation, invitation.id)} disabled={!canOperate} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 disabled:opacity-40">Expire</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {!visibleInvitations.length ? (
+                <div className="bg-white p-6">
+                  <EmptyState icon={Mail} title="No invitations match this view" description="Create a new invitation or adjust the filters to see pending, accepted, expired, or revoked records." />
                 </div>
-              )) : <p className="text-sm text-gray-500">No invitations created yet.</p>}
+              ) : null}
+            </div>
+            <div className="mt-4 space-y-2">
               {invitationPagination ? (
                 <p className="text-xs text-gray-500">
                   {invitationPagination.total} invitations · page {invitationPagination.page} of {invitationPagination.total_pages}
@@ -1210,39 +1449,234 @@ export function PeopleAccessModule({
 
       {showInvitationModal ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-6">
-          <div className="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-2xl">
+          <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.24em] text-[#237afc]">Invitation workflow</p>
-                <h3 className="mt-2 text-2xl font-black text-gray-900">Create a new product-scoped invitation</h3>
+                <h3 className="mt-2 text-2xl font-black text-gray-900">Invite a practitioner, mentor, consultant, or corporate admin</h3>
+                <p className="mt-2 text-sm text-gray-500">Complete every step, send the invitation, then copy or open the secure onboarding link without leaving the app.</p>
               </div>
               <button onClick={() => setShowInvitationModal(false)} className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500">Close</button>
             </div>
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
-              <input value={invitationDraft.email} onChange={(event) => setInvitationDraft((current) => ({ ...current, email: event.target.value }))} placeholder="Invitee email" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
-              <select value={invitationDraft.role} onChange={(event) => setInvitationDraft((current) => ({ ...current, role: event.target.value }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                {roleOptions.map((role) => (
-                  <option key={role.id} value={role.name.toLowerCase().replace(/ /g, '_')}>{role.name}</option>
-                ))}
-              </select>
-              <select value={invitationDraft.product_id} onChange={(event) => setInvitationDraft((current) => ({ ...current, product_id: event.target.value }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                <option value="">Select product</option>
-                {productOptions.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
-              </select>
-              <select value={invitationDraft.organization_id} onChange={(event) => setInvitationDraft((current) => ({ ...current, organization_id: event.target.value, department_id: '' }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                <option value="">Select organization</option>
-                {organizationOptions.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
-              </select>
-              <select value={invitationDraft.department_id} onChange={(event) => setInvitationDraft((current) => ({ ...current, department_id: event.target.value }))} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none md:col-span-2">
-                <option value="">Select department</option>
-                {departmentOptions
-                  .filter((department) => !invitationDraft.organization_id || department.organization_id === invitationDraft.organization_id)
-                  .map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-              </select>
+            <div className="mt-6 grid gap-2 md:grid-cols-7">
+              {['Organization', 'Role', 'Contact', 'Products', 'Workspace', 'Review', 'Send'].map((label, index) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => !latestInvitation && setInvitationStep(index)}
+                  className={cn(
+                    'rounded-2xl border px-3 py-2 text-left text-xs font-black',
+                    invitationStep === index ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-100 bg-gray-50 text-gray-400'
+                  )}
+                >
+                  <span className="block text-[10px] uppercase tracking-[0.2em]">Step {index + 1}</span>
+                  {label}
+                </button>
+              ))}
             </div>
-            <div className="mt-6 flex gap-3">
-              <ActionButton icon={Mail} label="Create invitation" tone="primary" onClick={submitInvitation} disabled={isSubmitting} />
-              <ActionButton icon={XCircle} label="Cancel" onClick={() => setShowInvitationModal(false)} />
+
+            <div className="mt-6 rounded-[24px] border border-gray-100 bg-gray-50 p-5">
+              {invitationStep === 0 ? (
+                <div>
+                  <h4 className="text-lg font-black text-gray-900">Select Organization</h4>
+                  <p className="mt-1 text-sm text-gray-500">Choose the organization this user will belong to.</p>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    {organizationOptions.map((organization) => (
+                      <button
+                        key={organization.id}
+                        type="button"
+                        onClick={() => setInvitationDraft((current) => ({ ...current, organization_id: organization.id, department_id: '' }))}
+                        className={cn(
+                          'rounded-2xl border px-4 py-4 text-left transition',
+                          invitationDraft.organization_id === organization.id ? 'border-[#237afc] bg-white text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
+                        )}
+                      >
+                        <span className="block font-black">{organization.name}</span>
+                        <span className="mt-1 block text-xs text-gray-500">{organization.status || 'Organization'} workspace</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {invitationStep === 1 ? (
+                <div>
+                  <h4 className="text-lg font-black text-gray-900">Select Role</h4>
+                  <p className="mt-1 text-sm text-gray-500">The same onboarding flow adapts by role and permissions.</p>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    {invitationRoles.map((role) => (
+                      <button
+                        key={role.value}
+                        type="button"
+                        onClick={() => setInvitationDraft((current) => ({ ...current, role: role.value }))}
+                        className={cn(
+                          'rounded-2xl border px-4 py-4 text-left capitalize transition',
+                          invitationDraft.role === role.value ? 'border-[#237afc] bg-white text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
+                        )}
+                      >
+                        <span className="block font-black">{role.label.replace(/_/g, ' ')}</span>
+                        <span className="mt-1 block text-xs normal-case text-gray-500">Permission-scoped onboarding</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {invitationStep === 2 ? (
+                <div>
+                  <h4 className="text-lg font-black text-gray-900">Enter Invitee Details</h4>
+                  <p className="mt-1 text-sm text-gray-500">These details are stored with the invitation and carried into onboarding.</p>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <input value={invitationDraft.first_name} onChange={(event) => setInvitationDraft((current) => ({ ...current, first_name: event.target.value }))} placeholder="First Name" className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none" />
+                    <input value={invitationDraft.last_name} onChange={(event) => setInvitationDraft((current) => ({ ...current, last_name: event.target.value }))} placeholder="Last Name" className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none" />
+                    <input value={invitationDraft.email} onChange={(event) => setInvitationDraft((current) => ({ ...current, email: event.target.value }))} placeholder="Email" className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none" />
+                    <div className="grid grid-cols-[100px_1fr] gap-2">
+                      <input value={invitationDraft.country_code} onChange={(event) => setInvitationDraft((current) => ({ ...current, country_code: event.target.value }))} placeholder="+91" className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none" />
+                      <input value={invitationDraft.mobile_number} onChange={(event) => setInvitationDraft((current) => ({ ...current, mobile_number: event.target.value }))} placeholder="Mobile Number" className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none" />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {invitationStep === 3 ? (
+                <div>
+                  <h4 className="text-lg font-black text-gray-900">Select Products</h4>
+                  <p className="mt-1 text-sm text-gray-500">Select one or more products for the invite. The current backend stores the primary product scope first.</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {productOptions.map((product) => (
+                      <button
+                        key={product.id}
+                        type="button"
+                        onClick={() => toggleInvitationProduct(product.id)}
+                        className={cn(
+                          'rounded-full border px-4 py-3 text-sm font-bold',
+                          selectedInvitationProductIdSet.has(product.id) ? 'border-[#237afc] bg-white text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
+                        )}
+                      >
+                        {product.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {invitationStep === 4 ? (
+                <div>
+                  <h4 className="text-lg font-black text-gray-900">Select Workspace</h4>
+                  <p className="mt-1 text-sm text-gray-500">Choose the workspace or department where this invitee will start.</p>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    {invitationWorkspaces.map((department) => (
+                      <button
+                        key={department.id}
+                        type="button"
+                        onClick={() => setInvitationDraft((current) => ({ ...current, department_id: department.id }))}
+                        className={cn(
+                          'rounded-2xl border px-4 py-4 text-left transition',
+                          invitationDraft.department_id === department.id ? 'border-[#237afc] bg-white text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
+                        )}
+                      >
+                        <span className="block font-black">{department.name}</span>
+                        <span className="mt-1 block text-xs text-gray-500">Workspace assignment</span>
+                      </button>
+                    ))}
+                    {!invitationWorkspaces.length ? (
+                      <button
+                        type="button"
+                        disabled
+                        className="rounded-2xl border border-[#237afc] bg-white px-4 py-4 text-left text-[#237afc] shadow-sm"
+                      >
+                        <span className="block font-black">Organization default workspace</span>
+                        <span className="mt-1 block text-xs text-gray-500">No departments are configured yet, so the invite will start at the organization workspace.</span>
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              {invitationStep === 5 ? (
+                <div>
+                  <h4 className="text-lg font-black text-gray-900">Review Invitation</h4>
+                  <p className="mt-1 text-sm text-gray-500">Confirm scope and delivery details before sending.</p>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    {[
+                      ['Organization', organizationOptions.find((item) => item.id === invitationDraft.organization_id)?.name || 'Not selected'],
+                      ['Role', invitationDraft.role.replace(/_/g, ' ')],
+                      ['Invitee', `${invitationDraft.first_name} ${invitationDraft.last_name}`.trim() || 'Not added'],
+                      ['Email', invitationDraft.email || 'Not added'],
+                      ['Mobile', `${invitationDraft.country_code || ''} ${invitationDraft.mobile_number || ''}`.trim() || 'Not added'],
+                      ['Products', productOptions.filter((item) => invitationDraft.product_ids.includes(item.id)).map((item) => item.name).join(', ') || 'Not selected'],
+                      ['Workspace', invitationWorkspaces.find((item) => item.id === invitationDraft.department_id)?.name || 'Organization default workspace'],
+                    ].map(([label, value]) => (
+                      <div key={label} className="rounded-2xl bg-white px-4 py-3">
+                        <p className="text-xs font-black uppercase tracking-[0.18em] text-gray-400">{label}</p>
+                        <p className="mt-1 font-bold text-gray-900">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {invitationStep === 6 ? (
+                latestInvitation ? (
+                  <div>
+                    <div className="flex items-start gap-3">
+                      <CheckCircle2 className="mt-1 h-6 w-6 text-emerald-500" />
+                      <div>
+                        <h4 className="text-lg font-black text-gray-900">Invitation created</h4>
+                        <p className="mt-1 text-sm text-gray-500">Email/WhatsApp delivery is queued when providers are unavailable, and this secure link is available for Product Owner testing.</p>
+                      </div>
+                    </div>
+                    <div className="mt-5 rounded-2xl border border-emerald-100 bg-white p-4">
+                      <p className="text-xs font-black uppercase tracking-[0.18em] text-gray-400">Secure invitation URL</p>
+                      <p className="mt-2 break-all text-sm font-bold text-gray-900">{invitationLinkFor(latestInvitation) || 'Generate a fresh link to continue.'}</p>
+                    </div>
+                    <div className="mt-5 flex flex-wrap gap-3">
+                      <ActionButton icon={Copy} label="Copy Invitation Link" tone="primary" onClick={() => copyInvitationLink(latestInvitation)} disabled={!invitationLinkFor(latestInvitation)} />
+                      <ActionButton icon={ArrowUpRight} label="Open Invitation Link" onClick={() => openInvitationLink(latestInvitation)} disabled={!invitationLinkFor(latestInvitation)} />
+                      <ActionButton icon={Mail} label="Resend Invitation" onClick={() => resendInvitationWithLink(latestInvitation)} disabled={isSubmitting} />
+                      <ActionButton icon={KeyRound} label="Regenerate Invitation" onClick={() => regenerateInvitationLink(latestInvitation)} disabled={isSubmitting} />
+                      <ActionButton icon={XCircle} label="Revoke Invitation" onClick={() => revokeInvitation(latestInvitation)} disabled={isSubmitting} />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => resetInvitationDraft(invitationDraft.role)}
+                      className="mt-5 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-600"
+                    >
+                      Create another invitation
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <h4 className="text-lg font-black text-gray-900">Send Invitation</h4>
+                    <p className="mt-1 text-sm text-gray-500">This will persist the invitation, create audit events, queue notification outbox records, and generate a secure testable invitation URL.</p>
+                    <div className="mt-5 rounded-2xl bg-white p-4 text-sm text-gray-600">
+                      <p><span className="font-bold text-gray-900">Invitee:</span> {invitationDraft.email || 'Not added'}</p>
+                      <p><span className="font-bold text-gray-900">Role:</span> {invitationDraft.role.replace(/_/g, ' ')}</p>
+                      <p><span className="font-bold text-gray-900">Organization:</span> {organizationOptions.find((item) => item.id === invitationDraft.organization_id)?.name || 'Not selected'}</p>
+                    </div>
+                  </div>
+                )
+              ) : null}
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setInvitationStep((current) => Math.max(0, current - 1))}
+                disabled={invitationStep === 0 || Boolean(latestInvitation)}
+                className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-600 disabled:opacity-40"
+              >
+                Back
+              </button>
+              <div className="flex flex-wrap gap-3">
+                <ActionButton icon={XCircle} label="Close" onClick={() => setShowInvitationModal(false)} />
+                {!latestInvitation && invitationStep < 6 ? (
+                  <ActionButton icon={ArrowUpRight} label="Next" tone="primary" onClick={() => setInvitationStep((current) => Math.min(6, current + 1))} />
+                ) : null}
+                {!latestInvitation && invitationStep === 6 ? (
+                  <ActionButton icon={Mail} label="Send Invitation" tone="primary" onClick={submitInvitation} disabled={isSubmitting} />
+                ) : null}
+              </div>
             </div>
           </div>
         </div>

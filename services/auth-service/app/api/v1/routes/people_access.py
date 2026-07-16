@@ -263,6 +263,23 @@ async def resend_invitation(
     return success_response(data=result.model_dump(mode="json"), message="Invitation resent")
 
 
+@router.post("/invitations/{invitation_id}/regenerate-link")
+async def regenerate_invitation_link(
+    invitation_id: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
+):
+    await _require_people_access(session, current_user, "users.invite")
+    result = await people_access_service.regenerate_invitation_link(
+        session,
+        invitation_id,
+        actor=current_user,
+        **_request_meta(request),
+    )
+    return success_response(data=result.model_dump(mode="json"), message="Invitation link regenerated")
+
+
 @router.post("/invitations/{invitation_id}/cancel")
 async def cancel_invitation(
     invitation_id: uuid.UUID,

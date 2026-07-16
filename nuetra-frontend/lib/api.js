@@ -492,6 +492,12 @@ export const ownerPeopleAccessAPI = {
     });
   },
 
+  regenerateInvitationLink(invitationId) {
+    return apiRequest(`/owner/people-access/invitations/${invitationId}/regenerate-link`, {
+      method: 'POST',
+    });
+  },
+
   cancelInvitation(invitationId) {
     return apiRequest(`/owner/people-access/invitations/${invitationId}/cancel`, {
       method: 'POST',

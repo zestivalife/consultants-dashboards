@@ -112,6 +112,7 @@ export default function OwnerConsolePage({ moduleSlug = 'command-center' }) {
             onAddAttachment={peopleAccess.onAddAttachment}
             onCreateInvitation={peopleAccess.onCreateInvitation}
             onResendInvitation={peopleAccess.onResendInvitation}
+            onRegenerateInvitationLink={peopleAccess.onRegenerateInvitationLink}
             onCancelInvitation={peopleAccess.onCancelInvitation}
             onExpireInvitation={peopleAccess.onExpireInvitation}
             onAssignProducts={peopleAccess.onAssignProducts}

@@ -228,6 +228,12 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     return invitation;
   }, [loadInvitations]);
 
+  const onRegenerateInvitationLink = useCallback(async (invitationId) => {
+    const invitation = await ownerPeopleAccessAPI.regenerateInvitationLink(invitationId);
+    await loadInvitations();
+    return invitation;
+  }, [loadInvitations]);
+
   const onCancelInvitation = useCallback(async (invitationId) => {
     const invitation = await ownerPeopleAccessAPI.cancelInvitation(invitationId);
     await loadInvitations();
@@ -333,6 +339,7 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     onAddAttachment,
     onCreateInvitation,
     onResendInvitation,
+    onRegenerateInvitationLink,
     onCancelInvitation,
     onExpireInvitation,
     onAssignProducts,

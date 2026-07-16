@@ -47,7 +47,7 @@ class OwnerPeopleAccessPermissionRulesTest(unittest.TestCase):
         self.assertEqual(permissions, {"users.read"})
 
     def test_invitation_lifecycle_requires_invite_permission(self):
-        for action in ("resend", "cancel", "expire"):
+        for action in ("resend", "cancel", "expire", "regenerate-link"):
             permissions = required_owner_permissions(
                 f"/api/v1/owner/people-access/invitations/11111111-1111-1111-1111-111111111111/{action}",
                 "POST",

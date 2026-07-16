@@ -33,6 +33,51 @@ Related Documents
 
 ## 2026-07-16
 
+Status: Slice 3 invitation workflow completion
+
+Commit SHA:
+
+Pending current implementation commit
+
+Branch:
+
+feature/m2-invitation-workflow-completion
+
+Changes:
+
+- Added a Product Owner-testable Invitation Wizard from People & Access actions for Practitioner, Mentor, Consultant and Corporate Admin invites.
+- Added wizard steps for organization, role, invitee details, product selection, workspace selection, review and send.
+- Added transient secure invitation URL return for invitation creation, resend and link regeneration without persisting plaintext tokens.
+- Added Invitation Management controls for search, status filter, sorting, resend, copy link, open link, regenerate link, revoke and expire.
+- Added invitation contact fields for first name, last name, mobile number and country code.
+- Added a regenerate invitation link API and gateway permission mapping using the existing `users.invite` permission.
+- Added notification outbox and audit coverage for regenerated invitation links.
+- Preserved hash-only token storage; `user_invitations.token` remains redacted and `token_hash` remains the validation source.
+
+Impact:
+
+- Auth-service invitation schema, service, route, model and Alembic migration updated.
+- API Gateway owner permission routing updated for invitation link regeneration.
+- Frontend People & Access module, API client and hook updated.
+- No login, JWT, refresh token, Remember Me, session management, profile completion, document upload, workspace resolution or dashboard loading changes.
+
+Verification:
+
+- Auth-service People & Access focused tests passed: `20 passed`.
+- API Gateway owner permission tests passed: `7 passed`.
+- Auth-service Python compile check passed.
+- Auth-service Alembic head verified as `b8c9d0e1f2a3`.
+- Frontend production build passed and generated `/invite/[token]` and `/onboarding/password/setup`.
+- Full Product Owner UI demonstration is still pending.
+
+Final Status:
+
+IMPLEMENTED
+
+---
+
+## 2026-07-16
+
 Status: Slice 3 implementation
 
 Commit SHA:

@@ -210,7 +210,14 @@ async def test_create_invitation_hashes_token_and_queues_email_event(session: As
 
     invitation = await people_access_service.create_invitation(
         session,
-        InvitationCreateRequest(email="new.consultant@zestiva.in", role="consultant"),
+        InvitationCreateRequest(
+            email="new.consultant@zestiva.in",
+            role="consultant",
+            first_name="Nisha",
+            last_name="Rao",
+            country_code="+91",
+            mobile_number="9876543210",
+        ),
         actor=actor,
         ip_address="127.0.0.1",
         user_agent="pytest",
@@ -220,10 +227,22 @@ async def test_create_invitation_hashes_token_and_queues_email_event(session: As
     invitation_row = await session.scalar(select(UserInvitation).where(UserInvitation.id == invitation.id))
     assert invitation_row is not None
     assert invitation_row.invited_role_id == consultant_role.id
+    assert invitation.first_name == "Nisha"
+    assert invitation.last_name == "Rao"
+    assert invitation.mobile_number == "9876543210"
+    assert invitation.country_code == "+91"
+    assert invitation.invitation_url.endswith(f"/invite/{invitation.invitation_url.rsplit('/', 1)[-1]}")
+    assert invitation_row.first_name == "Nisha"
+    assert invitation_row.last_name == "Rao"
+    assert invitation_row.mobile_number == "9876543210"
+    assert invitation_row.country_code == "+91"
     assert invitation_row.token.startswith("redacted:")
     assert invitation_row.token_hash
     assert invitation_row.token_hash != invitation_row.token
     assert invitation_row.token_fingerprint == invitation_row.token_hash[:12]
+    assert invitation.token_fingerprint == invitation_row.token_fingerprint
+    assert invitation.invitation_url
+    assert invitation_row.token_hash not in invitation.invitation_url
 
     outbox = await session.scalar(
         select(InvitationEmailOutbox).where(
@@ -248,6 +267,66 @@ async def test_create_invitation_hashes_token_and_queues_email_event(session: As
     assert whatsapp_outbox.payload["delivery_channel"] == "WHATSAPP"
     assert whatsapp_outbox.payload["requires_phone_number"] is True
     assert "token" not in whatsapp_outbox.payload
+
+
+@pytest.mark.asyncio
+async def test_regenerate_invitation_link_rotates_hash_and_returns_transient_url(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    await _create_role(session, "consultant")
+    owner = await _create_user(session, owner_role, "owner@nuetra.in", first_name="Owner")
+    actor = _actor_from_user(owner, permissions=["users.invite"])
+
+    invitation = await people_access_service.create_invitation(
+        session,
+        InvitationCreateRequest(email="regenerate.consultant@zestiva.in", role="consultant"),
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-regenerate-create",
+    )
+    invitation_row = await session.scalar(select(UserInvitation).where(UserInvitation.id == invitation.id))
+    original_hash = invitation_row.token_hash
+    original_fingerprint = invitation_row.token_fingerprint
+
+    regenerated = await people_access_service.regenerate_invitation_link(
+        session,
+        invitation.id,
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-regenerate",
+    )
+
+    assert regenerated.status == "INVITED"
+    assert regenerated.invitation_url
+    assert regenerated.invitation_url.startswith("http")
+    assert invitation_row.token.startswith("redacted:")
+    assert invitation_row.token_hash != original_hash
+    assert invitation_row.token_fingerprint != original_fingerprint
+    assert invitation_row.token_fingerprint == invitation_row.token_hash[:12]
+    assert invitation_row.token_hash not in regenerated.invitation_url
+
+    outbox_event = await session.scalar(
+        select(InvitationEmailOutbox).where(
+            InvitationEmailOutbox.invitation_id == invitation.id,
+            InvitationEmailOutbox.event_type == "INVITATION_LINK_REGENERATED",
+        )
+    )
+    assert outbox_event is not None
+    assert outbox_event.status == "PENDING"
+    assert "token" not in outbox_event.payload
+
+    audit_event = await session.scalar(
+        select(AuditEvent)
+        .where(
+            AuditEvent.entity_type == "user_invitation",
+            AuditEvent.entity_id == str(invitation.id),
+            AuditEvent.action == "INVITATION_LINK_REGENERATED",
+            AuditEvent.request_id == "req-invite-regenerate",
+        )
+    )
+    assert audit_event is not None
+    assert audit_event.after_state["token_fingerprint"] == invitation_row.token_fingerprint
 
 
 @pytest.mark.asyncio
@@ -309,6 +388,8 @@ async def test_resend_invitation_rotates_token_hash_and_queues_outbox(session: A
     assert invitation_row.token.startswith("redacted:")
     assert invitation_row.token_hash != original_hash
     assert invitation_row.token_fingerprint == invitation_row.token_hash[:12]
+    assert resent.invitation_url
+    assert invitation_row.token_hash not in resent.invitation_url
 
     outbox_events = (
         await session.scalars(

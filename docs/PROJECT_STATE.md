@@ -84,11 +84,11 @@ ACTIVE
 
 **Current Sprint**
 
-Milestone 2 Slice 3 – Password Setup
+Milestone 2 Slice 3 – Credential Creation + Invitation Workflow Demonstrability
 
 **Current Objective**
 
-Plan and implement Password Setup without starting profile completion, document upload, workspace loading or dashboard resolution.
+Complete the demonstrable invitation workflow required to verify Credential Creation through the application UI, without starting authentication/session, profile completion, document upload, workspace loading or dashboard resolution.
 
 ---
 
@@ -145,7 +145,7 @@ Platform Services → Master Data (In Progress)
 
 ### Priority 1
 
-Prepare Slice 4 Authentication & Session as the next planned Milestone 2 slice without modifying profile completion, document upload, workspace loading or dashboard resolution.
+Complete Product Owner-testable invitation creation, link handling, invitation acceptance and credential creation before starting Slice 4 Authentication & Session.
 
 ### Priority 2
 
@@ -153,7 +153,7 @@ Deploy and production-verify Slice 1 Invitation Engine, Slice 2 Invitation Accep
 
 ### Priority 3
 
-Keep Slice 4 Authentication & Session separate from profile completion, document upload and workspace resolution.
+Keep Slice 4 Authentication & Session separate from invitation workflow completion, profile completion, document upload and workspace resolution.
 
 ### Priority 4
 
@@ -219,8 +219,8 @@ ACTIVE
 |----------|--------|
 | Slice 1 – Invitation Engine | LOCALLY_VERIFIED |
 | Slice 2 – Invitation Acceptance | LOCALLY_VERIFIED |
-| Slice 3 – Credential Creation | LOCALLY_VERIFIED |
-| Slice 4 – Authentication & Session | CURRENT |
+| Slice 3 – Credential Creation | IMPLEMENTED |
+| Slice 4 – Authentication & Session | PLANNED |
 | Slice 5 – Profile Completion | PLANNED |
 | Slice 6 – Role-Specific Profiles | PLANNED |
 | Slice 7 – Document Upload & Verification | PLANNED |
@@ -330,7 +330,7 @@ AI & Intelligence Platform
 - Notification engine is pending.
 - Workflow engine is pending.
 - Invitation acceptance is locally verified; production acceptance is pending.
-- Credential creation is locally verified; production acceptance is pending.
+- Credential creation is implemented; local verification remains pending until the Product Owner can complete invitation creation, invitation acceptance and password setup through the UI without Postman, Swagger, SQL, Railway or browser developer tools.
 - Generic onboarding engine is pending.
 - Package Builder uses mock data.
 - Service Catalog uses mock data.

@@ -4,6 +4,7 @@ OWNER_ACCESS_RULES: tuple[tuple[str, str, set[str]], ...] = (
     ("/api/v1/owner/people-access/invitations", "GET", {"users.read"}),
     ("/api/v1/owner/people-access/invitations", "POST", {"users.invite"}),
     ("/api/v1/owner/people-access/invitations/", "POST", {"users.invite"}),
+    ("/api/v1/owner/people-access/invitations/*/regenerate-link", "POST", {"users.invite"}),
     ("/api/v1/owner/people-access/roles", "POST", {"settings.manage"}),
     ("/api/v1/owner/people-access/roles/", "POST", {"settings.manage"}),
     ("/api/v1/owner/people-access/roles/", "PATCH", {"settings.manage"}),

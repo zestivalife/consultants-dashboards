@@ -47,10 +47,16 @@ class ServiceCatalogItem(BaseModel):
 class PeopleAccessInvitationItem(BaseModel):
     id: uuid.UUID
     email: str
+    first_name: str | None = None
+    last_name: str | None = None
+    mobile_number: str | None = None
+    country_code: str | None = None
     user_id: uuid.UUID | None = None
     role: str | None = None
     product: str | None = None
     organization: str | None = None
+    invitation_url: str | None = None
+    token_fingerprint: str | None = None
     status: str
     created_at: datetime
     expires_at: datetime | None = None
@@ -420,7 +426,12 @@ class BulkActionResponse(BaseModel):
 class InvitationCreateRequest(BaseModel):
     email: EmailStr
     role: str
+    first_name: str | None = Field(default=None, max_length=120)
+    last_name: str | None = Field(default=None, max_length=120)
+    mobile_number: str | None = Field(default=None, max_length=40)
+    country_code: str | None = Field(default=None, max_length=8)
     product_id: uuid.UUID | None = None
+    product_ids: list[uuid.UUID] = Field(default_factory=list)
     organization_id: uuid.UUID | None = None
     department_id: uuid.UUID | None = None
     expires_at: datetime | None = None
