@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from functools import lru_cache
 
 
@@ -44,6 +44,16 @@ class Settings(BaseSettings):
         if value.startswith("postgres://"):
             return "postgresql+asyncpg://" + value[len("postgres://"):]
         return value
+
+    @model_validator(mode="after")
+    def validate_production_settings(self) -> "Settings":
+        if self.app_env.lower() != "production":
+            return self
+        if "localhost" in self.database_url or "127.0.0.1" in self.database_url:
+            raise ValueError("DATABASE_URL must be set to a production PostgreSQL connection")
+        if "localhost" in self.redis_url or "127.0.0.1" in self.redis_url:
+            raise ValueError("REDIS_URL must be set to a production Redis connection")
+        return self
 
 
 @lru_cache
