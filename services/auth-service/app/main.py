@@ -48,9 +48,8 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
-        # Always expose docs — makes /test-email discoverable in Swagger
-        docs_url="/docs",
-        redoc_url="/redoc",
+        docs_url="/docs" if settings.app_debug else None,
+        redoc_url="/redoc" if settings.app_debug else None,
         lifespan=lifespan,
     )
 

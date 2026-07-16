@@ -17,6 +17,10 @@ from app.api.v1.dependencies import get_current_user
 router = APIRouter(tags=["auth"])
 
 
+def _without_sensitive_fields(payload: dict) -> dict:
+    return {key: value for key, value in payload.items() if key not in {"otp_code"}}
+
+
 def _client_ip(request: Request) -> str | None:
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
@@ -49,13 +53,13 @@ async def register(
             otp_code=result["otp_code"],
         )
 
-    return success_response(data=result, message="Registration successful", status_code=201)
+    return success_response(data=_without_sensitive_fields(result), message="Registration successful", status_code=201)
 
 
 @router.post("/verify-otp")
 async def verify_otp(body: VerifyOtpRequest, session: AsyncSession = Depends(get_db)):
     result = await auth_service.verify_otp_action(session, body.email, body.otp)
-    return success_response(data=result, message=result["message"])
+    return success_response(data=_without_sensitive_fields(result), message=result["message"])
 
 
 @router.post("/resend-otp")
@@ -74,7 +78,7 @@ async def resend_otp(
             otp_code=result["otp_code"],
         )
 
-    return success_response(data=result, message=result["message"])
+    return success_response(data=_without_sensitive_fields(result), message=result["message"])
 
 
 @router.post("/forgot-password")
@@ -94,7 +98,7 @@ async def forgot_password(
             otp_code=result["otp_code"],
         )
 
-    return success_response(data=result, message=result["message"])
+    return success_response(data=_without_sensitive_fields(result), message=result["message"])
 
 
 @router.post("/login")

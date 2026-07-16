@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -72,6 +72,12 @@ class Settings(BaseSettings):
         if value.startswith("postgres://"):
             return "postgresql+asyncpg://" + value[len("postgres://"):]
         return value
+
+    @model_validator(mode="after")
+    def validate_production_settings(self) -> "Settings":
+        if self.app_env.lower() == "production" and self.jwt_secret_key == "change-me-in-production":
+            raise ValueError("JWT_SECRET_KEY must be set in production")
+        return self
 
 
 @lru_cache

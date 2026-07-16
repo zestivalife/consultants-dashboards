@@ -173,15 +173,13 @@ async def register(
     await store_otp(email, otp_code)
 
     settings = get_settings()
-    # Always log OTP — visible in `docker compose logs auth-service`
-    # In production, remove this line and ensure SMTP is configured.
-    logger.info(
-        "OTP_FOR_VERIFICATION",
-        email=email,
-        otp=otp_code,
-        note="DEV ONLY — remove in production",
-    )
     if settings.app_env == "development":
+        logger.info(
+            "OTP_FOR_VERIFICATION",
+            email=email,
+            otp=otp_code,
+            note="DEV ONLY",
+        )
         print(f"\n{'='*60}\n[DEV] OTP for {email}: {otp_code}\n{'='*60}\n", flush=True)
 
     otp_record = OTPVerification(user_id=user.id, purpose="email_verification")
@@ -239,8 +237,8 @@ async def resend_otp(session: AsyncSession, email: str) -> dict:
     await store_otp(email, otp_code)
 
     settings = get_settings()
-    logger.info("OTP_RESENT", email=email, otp=otp_code, note="DEV ONLY — remove in production")
     if settings.app_env == "development":
+        logger.info("OTP_RESENT", email=email, otp=otp_code, note="DEV ONLY")
         print(f"\n{'='*60}\n[DEV] RESENT OTP for {email}: {otp_code}\n{'='*60}\n", flush=True)
 
     # Note: Email will be sent in background. API returns success regardless of email status
@@ -262,8 +260,8 @@ async def forgot_password(session: AsyncSession, email: str) -> dict:
     await store_otp(email, otp_code)
 
     settings = get_settings()
-    logger.info("password_reset_otp_generated", email=email, otp=otp_code)
     if settings.app_env == "development":
+        logger.info("password_reset_otp_generated", email=email, otp=otp_code, note="DEV ONLY")
         print(f"\n{'='*60}\n[DEV] PASSWORD RESET OTP for {email}: {otp_code}\n{'='*60}\n", flush=True)
 
     return {"message": "OTP sent to your email for password reset.", "otp_code": otp_code}
