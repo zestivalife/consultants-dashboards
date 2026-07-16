@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import hash_token
 from app.db.models.owner_access import AuditEvent, InvitationEmailOutbox, Permission, RolePermission, UserInvitation, UserRole
 from app.db.models.role import Role
 from app.db.models.user import User
@@ -150,7 +151,10 @@ async def test_create_user_creates_invitation_and_primary_role(session: AsyncSes
     assert invitation.token_hash != invitation.token
 
     outbox = await session.scalar(
-        select(InvitationEmailOutbox).where(InvitationEmailOutbox.invitation_id == invitation.id)
+        select(InvitationEmailOutbox).where(
+            InvitationEmailOutbox.invitation_id == invitation.id,
+            InvitationEmailOutbox.event_type == "INVITATION_CREATED",
+        )
     )
     assert outbox is not None
     assert outbox.status == "PENDING"
@@ -189,13 +193,28 @@ async def test_create_invitation_hashes_token_and_queues_email_event(session: As
     assert invitation_row.token_fingerprint == invitation_row.token_hash[:12]
 
     outbox = await session.scalar(
-        select(InvitationEmailOutbox).where(InvitationEmailOutbox.invitation_id == invitation_row.id)
+        select(InvitationEmailOutbox).where(
+            InvitationEmailOutbox.invitation_id == invitation_row.id,
+            InvitationEmailOutbox.event_type == "INVITATION_CREATED",
+        )
     )
     assert outbox is not None
     assert outbox.email == "new.consultant@zestiva.in"
     assert outbox.event_type == "INVITATION_CREATED"
     assert outbox.status == "PENDING"
     assert "token" not in outbox.payload
+
+    whatsapp_outbox = await session.scalar(
+        select(InvitationEmailOutbox).where(
+            InvitationEmailOutbox.invitation_id == invitation_row.id,
+            InvitationEmailOutbox.event_type == "INVITATION_CREATED_WHATSAPP",
+        )
+    )
+    assert whatsapp_outbox is not None
+    assert whatsapp_outbox.status == "PENDING"
+    assert whatsapp_outbox.payload["delivery_channel"] == "WHATSAPP"
+    assert whatsapp_outbox.payload["requires_phone_number"] is True
+    assert "token" not in whatsapp_outbox.payload
 
 
 @pytest.mark.asyncio
@@ -265,7 +284,12 @@ async def test_resend_invitation_rotates_token_hash_and_queues_outbox(session: A
             .order_by(InvitationEmailOutbox.created_at)
         )
     ).all()
-    assert [event.event_type for event in outbox_events] == ["INVITATION_CREATED", "INVITATION_RESENT"]
+    assert sorted(event.event_type for event in outbox_events) == sorted([
+        "INVITATION_CREATED",
+        "INVITATION_CREATED_WHATSAPP",
+        "INVITATION_RESENT",
+        "INVITATION_RESENT_WHATSAPP",
+    ])
     assert all(event.status == "PENDING" for event in outbox_events)
 
 
@@ -304,12 +328,198 @@ async def test_expire_invitation_updates_status_and_audit(session: AsyncSession)
         .where(
             AuditEvent.entity_type == "user_invitation",
             AuditEvent.entity_id == str(invitation.id),
-            AuditEvent.action == "users.invite",
+            AuditEvent.action == "INVITATION_EXPIRED",
             AuditEvent.request_id == "req-invite-expire",
         )
     )
     assert audit_event is not None
     assert audit_event.after_state["status"] == "EXPIRED"
+
+
+@pytest.mark.asyncio
+async def test_cancel_invitation_updates_status_and_audit(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    await _create_role(session, "consultant")
+    owner = await _create_user(session, owner_role, "owner@nuetra.in", first_name="Owner")
+    actor = _actor_from_user(owner, permissions=["users.invite"])
+
+    invitation = await people_access_service.create_invitation(
+        session,
+        InvitationCreateRequest(email="cancel.consultant@zestiva.in", role="consultant"),
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-cancel-create",
+    )
+
+    cancelled = await people_access_service.cancel_invitation(
+        session,
+        invitation.id,
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-cancel",
+    )
+
+    assert cancelled.status == "CANCELLED"
+    invitation_row = await session.scalar(select(UserInvitation).where(UserInvitation.id == invitation.id))
+    assert invitation_row.status == "CANCELLED"
+    assert invitation_row.cancelled_at is not None
+
+    audit_event = await session.scalar(
+        select(AuditEvent)
+        .where(
+            AuditEvent.entity_type == "user_invitation",
+            AuditEvent.entity_id == str(invitation.id),
+            AuditEvent.action == "INVITATION_CANCELLED",
+            AuditEvent.request_id == "req-invite-cancel",
+        )
+    )
+    assert audit_event is not None
+    assert audit_event.after_state["status"] == "CANCELLED"
+
+
+@pytest.mark.asyncio
+async def test_validate_invitation_token_uses_hash_lookup(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    await _create_role(session, "consultant")
+    owner = await _create_user(session, owner_role, "owner@nuetra.in", first_name="Owner")
+    actor = _actor_from_user(owner, permissions=["users.invite"])
+
+    invitation = await people_access_service.create_invitation(
+        session,
+        InvitationCreateRequest(email="validate.consultant@zestiva.in", role="consultant"),
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-validate-create",
+    )
+    raw_token = "test-invitation-token-" + "x" * 48
+    invitation_row = await session.scalar(select(UserInvitation).where(UserInvitation.id == invitation.id))
+    invitation_row.token = f"redacted:{invitation_row.id}"
+    invitation_row.token_hash = hash_token(raw_token)
+    invitation_row.token_fingerprint = invitation_row.token_hash[:12]
+
+    validated = await people_access_service.validate_invitation_token(session, raw_token)
+
+    assert validated.invitation_id == invitation.id
+    assert validated.email == "validate.consultant@zestiva.in"
+    assert validated.role == "consultant"
+    assert validated.next_step == "ACCEPT_INVITATION"
+
+
+@pytest.mark.asyncio
+async def test_accept_invitation_creates_pending_user_and_audit(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    consultant_role = await _create_role(session, "consultant")
+    owner = await _create_user(session, owner_role, "owner@nuetra.in", first_name="Owner")
+    actor = _actor_from_user(owner, permissions=["users.invite"])
+
+    invitation = await people_access_service.create_invitation(
+        session,
+        InvitationCreateRequest(email="accept.consultant@zestiva.in", role="consultant"),
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-accept-create",
+    )
+    raw_token = "test-invitation-token-" + "y" * 48
+    invitation_row = await session.scalar(select(UserInvitation).where(UserInvitation.id == invitation.id))
+    invitation_row.token_hash = hash_token(raw_token)
+    invitation_row.token_fingerprint = invitation_row.token_hash[:12]
+
+    accepted = await people_access_service.accept_invitation(
+        session,
+        raw_token,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-accept",
+    )
+
+    assert accepted.email == "accept.consultant@zestiva.in"
+    assert accepted.status == "ACCEPTED"
+    assert accepted.next_step == "PASSWORD_SETUP"
+    assert invitation_row.status == "ACCEPTED"
+    assert invitation_row.accepted_at is not None
+
+    user = await session.scalar(select(User).where(User.email == "accept.consultant@zestiva.in"))
+    assert user is not None
+    assert user.id == accepted.user_id
+    assert user.role_id == consultant_role.id
+    assert user.status == "PENDING_VERIFICATION"
+    assert user.is_active is False
+    assert user.is_verified is False
+
+    audit_event = await session.scalar(
+        select(AuditEvent)
+        .where(
+            AuditEvent.entity_type == "user_invitation",
+            AuditEvent.entity_id == str(invitation.id),
+            AuditEvent.action == "INVITATION_ACCEPTED",
+            AuditEvent.request_id == "req-invite-accept",
+        )
+    )
+    assert audit_event is not None
+    assert audit_event.after_state["next_step"] == "PASSWORD_SETUP"
+
+
+@pytest.mark.asyncio
+async def test_password_setup_initiation_requires_accepted_invitation(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    await _create_role(session, "consultant")
+    owner = await _create_user(session, owner_role, "owner@nuetra.in", first_name="Owner")
+    actor = _actor_from_user(owner, permissions=["users.invite"])
+
+    invitation = await people_access_service.create_invitation(
+        session,
+        InvitationCreateRequest(email="password.consultant@zestiva.in", role="consultant"),
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-password-create",
+    )
+    raw_token = "test-invitation-token-" + "z" * 48
+    invitation_row = await session.scalar(select(UserInvitation).where(UserInvitation.id == invitation.id))
+    invitation_row.token_hash = hash_token(raw_token)
+    invitation_row.token_fingerprint = invitation_row.token_hash[:12]
+
+    with pytest.raises(ConflictException):
+        await people_access_service.initiate_password_setup(
+            session,
+            raw_token,
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+            request_id="req-invite-password-early",
+        )
+
+    accepted = await people_access_service.accept_invitation(
+        session,
+        raw_token,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-password-accept",
+    )
+    initiated = await people_access_service.initiate_password_setup(
+        session,
+        raw_token,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-invite-password-init",
+    )
+
+    assert initiated.user_id == accepted.user_id
+    assert initiated.next_step == "PASSWORD_CREATE"
+
+    audit_event = await session.scalar(
+        select(AuditEvent)
+        .where(
+            AuditEvent.entity_type == "user_invitation",
+            AuditEvent.entity_id == str(invitation.id),
+            AuditEvent.action == "PASSWORD_SETUP_INITIATED",
+            AuditEvent.request_id == "req-invite-password-init",
+        )
+    )
+    assert audit_event is not None
 
 
 @pytest.mark.asyncio

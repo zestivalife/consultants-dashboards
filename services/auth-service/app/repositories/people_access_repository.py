@@ -487,6 +487,19 @@ class PeopleAccessRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_invitation_by_token_hash(self, token_hash: str) -> UserInvitation | None:
+        stmt = (
+            select(UserInvitation)
+            .options(
+                joinedload(UserInvitation.role),
+                joinedload(UserInvitation.product),
+                joinedload(UserInvitation.organization),
+            )
+            .where(UserInvitation.token_hash == token_hash)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def add_status_history(self, history: UserStatusHistory) -> UserStatusHistory:
         self._session.add(history)
         await self._session.flush()

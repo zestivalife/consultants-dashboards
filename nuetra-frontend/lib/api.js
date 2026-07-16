@@ -377,6 +377,32 @@ export const authAPI = {
   },
 };
 
+export const onboardingAPI = {
+  validateInvitation(token) {
+    return apiRequest('/onboarding/invitations/validate', {
+      method: 'POST',
+      body: { token },
+      skipAuthRefresh: true,
+    });
+  },
+
+  acceptInvitation(token) {
+    return apiRequest('/onboarding/invitations/accept', {
+      method: 'POST',
+      body: { token },
+      skipAuthRefresh: true,
+    });
+  },
+
+  initiatePasswordSetup(token) {
+    return apiRequest('/onboarding/password/setup', {
+      method: 'POST',
+      body: { token },
+      skipAuthRefresh: true,
+    });
+  },
+};
+
 export const ownerPeopleAccessAPI = {
   summary() {
     return apiRequest('/owner/people-access/summary');

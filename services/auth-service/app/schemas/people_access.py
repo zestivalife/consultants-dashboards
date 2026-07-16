@@ -59,6 +59,37 @@ class PeopleAccessInvitationItem(BaseModel):
     cancelled_at: datetime | None = None
 
 
+class InvitationTokenRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=512)
+
+
+class InvitationValidationResponse(BaseModel):
+    invitation_id: uuid.UUID
+    email: str
+    role: str | None = None
+    product: str | None = None
+    organization: str | None = None
+    status: str
+    expires_at: datetime | None = None
+    next_step: str
+
+
+class InvitationAcceptResponse(BaseModel):
+    invitation_id: uuid.UUID
+    user_id: uuid.UUID
+    email: str
+    status: str
+    next_step: str
+
+
+class PasswordSetupInitiationResponse(BaseModel):
+    invitation_id: uuid.UUID
+    user_id: uuid.UUID
+    email: str
+    status: str
+    next_step: str
+
+
 class PeopleAccessAuditItem(BaseModel):
     id: uuid.UUID
     actor: str

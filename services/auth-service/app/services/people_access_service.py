@@ -36,6 +36,8 @@ from app.schemas.people_access import (
     CsvImportResponse,
     CustomRoleCreateRequest,
     InvitationCreateRequest,
+    InvitationAcceptResponse,
+    InvitationValidationResponse,
     ManagedUserCreateRequest,
     ManagedUserUpdateRequest,
     OrganizationCreateRequest,
@@ -48,6 +50,7 @@ from app.schemas.people_access import (
     PeopleAccessSummaryResponse,
     PeopleAccessUserRow,
     PeopleAccessUsersResponse,
+    PasswordSetupInitiationResponse,
     ProductOption,
     PermissionCatalogItem,
     RoleCloneRequest,
@@ -121,6 +124,39 @@ async def _queue_invitation_email(
                 "expires_at": invitation.expires_at.isoformat() if invitation.expires_at else None,
                 "token_fingerprint": invitation.token_fingerprint,
                 "token_delivery": "minted_for_email_only_not_persisted",
+                "actor_user_id": str(actor.id),
+                "request_id": request_id,
+            },
+        )
+    )
+
+
+async def _queue_invitation_whatsapp(
+    repo: PeopleAccessRepository,
+    invitation: UserInvitation,
+    *,
+    event_type: str,
+    role_name: str | None,
+    actor: UserResponse,
+    request_id: str | None,
+) -> InvitationEmailOutbox:
+    return await repo.create_invitation_email_outbox(
+        InvitationEmailOutbox(
+            invitation_id=invitation.id,
+            email=invitation.email,
+            event_type=f"{event_type}_WHATSAPP",
+            status="PENDING",
+            payload={
+                "invitation_id": str(invitation.id),
+                "email": invitation.email,
+                "role": role_name,
+                "product_id": str(invitation.product_id) if invitation.product_id else None,
+                "organization_id": str(invitation.organization_id) if invitation.organization_id else None,
+                "expires_at": invitation.expires_at.isoformat() if invitation.expires_at else None,
+                "token_fingerprint": invitation.token_fingerprint,
+                "delivery_channel": "WHATSAPP",
+                "requires_phone_number": True,
+                "token_delivery": "minted_for_whatsapp_only_not_persisted",
                 "actor_user_id": str(actor.id),
                 "request_id": request_id,
             },
@@ -235,6 +271,19 @@ def _serialize_invitation(invitation: UserInvitation) -> PeopleAccessInvitationI
         last_sent_at=invitation.last_sent_at,
         accepted_at=invitation.accepted_at,
         cancelled_at=invitation.cancelled_at,
+    )
+
+
+def _serialize_invitation_validation(invitation: UserInvitation, next_step: str) -> InvitationValidationResponse:
+    return InvitationValidationResponse(
+        invitation_id=invitation.id,
+        email=invitation.email,
+        role=invitation.role.name if invitation.role else None,
+        product=invitation.product.name if getattr(invitation, "product", None) else None,
+        organization=invitation.organization.name if invitation.organization else None,
+        status=invitation.status,
+        expires_at=invitation.expires_at,
+        next_step=next_step,
     )
 
 
@@ -735,6 +784,14 @@ async def create_user(
         actor=actor,
         request_id=request_id,
     )
+    await _queue_invitation_whatsapp(
+        repo,
+        invitation,
+        event_type="INVITATION_CREATED",
+        role_name=role.name,
+        actor=actor,
+        request_id=request_id,
+    )
 
     await repo.add_status_history(
         UserStatusHistory(
@@ -767,7 +824,7 @@ async def create_user(
             actor_user_id=actor.id,
             entity_type="user_invitation",
             entity_id=str(invitation.id),
-            action="users.invite",
+            action="INVITATION_CREATED",
             product_id=payload.primary_product_id,
             before_state=None,
             after_state={
@@ -1006,6 +1063,149 @@ async def list_invitations(
     return [ _serialize_invitation(item) for item in invitations ], PaginationMeta(**repo.build_pagination(page, page_size, total))
 
 
+async def _get_invitation_by_raw_token(
+    repo: PeopleAccessRepository,
+    token: str,
+    *,
+    allow_accepted: bool = False,
+) -> UserInvitation:
+    normalized_token = token.strip()
+    if not normalized_token:
+        raise NotFoundException("Invitation not found or expired")
+
+    invitation = await repo.get_invitation_by_token_hash(hash_token(normalized_token))
+    if invitation is None:
+        raise NotFoundException("Invitation not found or expired")
+
+    now = datetime.now(timezone.utc)
+    expires_at = invitation.expires_at
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at and expires_at <= now:
+        invitation.status = "EXPIRED"
+        raise ConflictException("Invitation has expired")
+
+    if invitation.status == "ACCEPTED" and allow_accepted:
+        return invitation
+
+    if invitation.status != "INVITED":
+        raise ConflictException(f"Invitation is {invitation.status.lower()}")
+
+    return invitation
+
+
+async def validate_invitation_token(session: AsyncSession, token: str) -> InvitationValidationResponse:
+    repo = PeopleAccessRepository(session)
+    invitation = await _get_invitation_by_raw_token(repo, token)
+    return _serialize_invitation_validation(invitation, "ACCEPT_INVITATION")
+
+
+async def accept_invitation(
+    session: AsyncSession,
+    token: str,
+    *,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> InvitationAcceptResponse:
+    repo = PeopleAccessRepository(session)
+    invitation = await _get_invitation_by_raw_token(repo, token)
+    role_name = invitation.role.name if invitation.role else None
+    if not role_name:
+        raise ConflictException("Invitation role is no longer available")
+
+    user = await repo.get_user_by_email(invitation.email)
+    if user is not None and user.deleted_at is None and str(user.status or "").upper() != "DELETED":
+        if user.id != invitation.user_id:
+            invitation.user_id = user.id
+    else:
+        created = await user_service.create_user(
+            session,
+            CreateUserCommand(
+                email=invitation.email,
+                role_name=role_name,
+                status="PENDING_VERIFICATION",
+                is_active=False,
+                is_verified=False,
+                actor_user_id=invitation.invited_by_user_id,
+                audit_event_type="INVITATION_ACCEPTED_USER_PREPARED",
+            ),
+        )
+        user = created.user
+        invitation.user_id = user.id
+
+    invitation.status = "ACCEPTED"
+    invitation.accepted_at = datetime.now(timezone.utc)
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=invitation.invited_by_user_id,
+            entity_type="user_invitation",
+            entity_id=str(invitation.id),
+            action="INVITATION_ACCEPTED",
+            product_id=invitation.product_id,
+            before_state=None,
+            after_state={
+                "email": invitation.email,
+                "user_id": str(user.id),
+                "status": invitation.status,
+                "next_step": "PASSWORD_SETUP",
+            },
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    return InvitationAcceptResponse(
+        invitation_id=invitation.id,
+        user_id=user.id,
+        email=invitation.email,
+        status=invitation.status,
+        next_step="PASSWORD_SETUP",
+    )
+
+
+async def initiate_password_setup(
+    session: AsyncSession,
+    token: str,
+    *,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> PasswordSetupInitiationResponse:
+    repo = PeopleAccessRepository(session)
+    invitation = await _get_invitation_by_raw_token(repo, token, allow_accepted=True)
+    if invitation.status != "ACCEPTED":
+        raise ConflictException("Invitation must be accepted before password setup")
+    if invitation.user_id is None:
+        raise ConflictException("Invitation has no linked user")
+
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=invitation.invited_by_user_id,
+            entity_type="user_invitation",
+            entity_id=str(invitation.id),
+            action="PASSWORD_SETUP_INITIATED",
+            product_id=invitation.product_id,
+            before_state=None,
+            after_state={
+                "email": invitation.email,
+                "user_id": str(invitation.user_id),
+                "next_step": "PASSWORD_CREATE",
+            },
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    return PasswordSetupInitiationResponse(
+        invitation_id=invitation.id,
+        user_id=invitation.user_id,
+        email=invitation.email,
+        status=invitation.status,
+        next_step="PASSWORD_CREATE",
+    )
+
+
 async def create_invitation(
     session: AsyncSession,
     payload: InvitationCreateRequest,
@@ -1069,12 +1269,20 @@ async def create_invitation(
         actor=actor,
         request_id=request_id,
     )
+    await _queue_invitation_whatsapp(
+        repo,
+        invitation,
+        event_type="INVITATION_CREATED",
+        role_name=role.name,
+        actor=actor,
+        request_id=request_id,
+    )
     await repo.add_audit_event(
         AuditEvent(
             actor_user_id=actor.id,
             entity_type="user_invitation",
             entity_id=str(invitation.id),
-            action="users.invite",
+            action="INVITATION_CREATED",
             product_id=payload.product_id,
             before_state=None,
             after_state={
@@ -1122,12 +1330,20 @@ async def resend_invitation(
         actor=actor,
         request_id=request_id,
     )
+    await _queue_invitation_whatsapp(
+        repo,
+        invitation,
+        event_type="INVITATION_RESENT",
+        role_name=invitation.role.name if invitation.role else None,
+        actor=actor,
+        request_id=request_id,
+    )
     await repo.add_audit_event(
         AuditEvent(
             actor_user_id=actor.id,
             entity_type="user_invitation",
             entity_id=str(invitation.id),
-            action="users.invite",
+            action="INVITATION_RESENT",
             product_id=invitation.product_id,
             before_state=None,
             after_state={
@@ -1166,7 +1382,7 @@ async def cancel_invitation(
             actor_user_id=actor.id,
             entity_type="user_invitation",
             entity_id=str(invitation.id),
-            action="users.edit",
+            action="INVITATION_CANCELLED",
             product_id=invitation.product_id,
             before_state=None,
             after_state={"status": invitation.status, "email": invitation.email},
@@ -1200,7 +1416,7 @@ async def expire_invitation(
             actor_user_id=actor.id,
             entity_type="user_invitation",
             entity_id=str(invitation.id),
-            action="users.invite",
+            action="INVITATION_EXPIRED",
             product_id=invitation.product_id,
             before_state=None,
             after_state={"status": invitation.status, "email": invitation.email},
