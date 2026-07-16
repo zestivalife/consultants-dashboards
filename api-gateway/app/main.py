@@ -129,6 +129,10 @@ def create_app() -> FastAPI:
             "runtime": version,
         }
 
+    @app.get("/api/v1/health")
+    async def api_health():
+        return await health()
+
     @app.get("/version")
     async def version():
         return get_runtime_version(settings.app_name, settings.app_version, settings.app_env)
