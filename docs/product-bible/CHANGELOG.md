@@ -2,6 +2,30 @@
 
 ## 17 July 2026
 
+### ZEPO Operating Model
+
+Status: Active
+
+Created:
+
+- `APPENDICES/ZEPO_OPERATING_MODEL.md`
+
+Updated:
+
+- `README.md`
+- `docs/DOCUMENT_REGISTRY.md`
+
+Summary:
+
+- Established the Zestiva Enterprise Product Office operating model.
+- Defined context review, impact analysis, architecture review, planning, execution, validation and completion reporting lifecycle.
+- Captured Product Bible authority, quality standards, capability registry rules and product registry rules.
+- Confirmed Product Owner approval is required before continuing to subsequent phases.
+
+Final Status: IMPLEMENTED
+
+---
+
 ### Phase 1 Business Foundation
 
 Status: Complete, pending Product Owner approval
@@ -24,4 +48,3 @@ Summary:
 - Confirmed future phases require Product Owner approval before continuing.
 
 Final Status: IMPLEMENTED
-

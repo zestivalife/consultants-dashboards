@@ -22,6 +22,7 @@ Version: 1.0
 | product-bible/01_VISION_AND_STRATEGY.md | Active | ✅ |
 | product-bible/02_BUSINESS_CAPABILITIES.md | Active | ✅ |
 | product-bible/APPENDICES/GLOSSARY.md | Active | ✅ |
+| product-bible/APPENDICES/ZEPO_OPERATING_MODEL.md | Active | ✅ |
 | RELEASE_CHECKLIST.md | Active | ✅ |
 | SECURITY.md | Active | ✅ |
 | TESTING_STRATEGY.md | Active | ✅ |

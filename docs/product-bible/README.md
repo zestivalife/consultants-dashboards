@@ -87,7 +87,8 @@ Products must consume shared platform capabilities instead of rebuilding:
 | 13 | `13_ENGINEERING_STANDARDS.md` | Planned |
 | 14 | `14_AI_STRATEGY.md` | Planned |
 | 15 | `15_IMPLEMENTATION_ROADMAP.md` | Planned |
-| Appendices | `APPENDICES/` | In Progress |
+| Appendices | `APPENDICES/GLOSSARY.md` | Active |
+| Appendices | `APPENDICES/ZEPO_OPERATING_MODEL.md` | Active |
 
 ---
 
@@ -120,6 +121,7 @@ Do not proceed to the next phase until the Product Owner approves the current ph
 - `docs/ROADMAP.md`
 - `docs/PROJECT_STATE.md`
 - `docs/milestones/milestone-2-identity-onboarding/IAM_ECOSYSTEM_BLUEPRINT.md`
+- `docs/product-bible/APPENDICES/ZEPO_OPERATING_MODEL.md`
 
 ---
 
@@ -139,4 +141,3 @@ Every phase must conclude with:
 - Implementation Readiness Score.
 - Production Readiness Score.
 - Recommendation to Proceed or Rework.
-
