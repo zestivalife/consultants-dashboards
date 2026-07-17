@@ -2,6 +2,33 @@
 
 ## 17 July 2026
 
+### EPIC-001 Enterprise Onboarding Platform
+
+Status: Active, pending Product Owner approval
+
+Created:
+
+- `epics/EPIC-001_ENTERPRISE_ONBOARDING_PLATFORM.md`
+
+Updated:
+
+- `02_BUSINESS_CAPABILITIES.md`
+- `APPENDICES/ENTERPRISE_META_MODEL.md`
+- `README.md`
+- `docs/DOCUMENT_REGISTRY.md`
+
+Summary:
+
+- Established EPIC-001 as the canonical enterprise identity, invitation, provisioning and persona-based onboarding platform.
+- Confirmed onboarding is a reusable platform capability, not consultant-specific or product-specific.
+- Added Persona, Invitation, Permission Template, Capability Bundle, Onboarding Session, Activation and First Business Outcome to the Enterprise Meta Model.
+- Added Onboarding, Persona Engine and Activation capabilities to the Product Bible capability map.
+- Defined implementation outputs required before code is generated.
+
+Final Status: IMPLEMENTED
+
+---
+
 ### Platform Program Office and Enterprise Meta Model
 
 Status: Active, pending Product Owner approval

@@ -50,11 +50,14 @@ Business capabilities sit between product strategy and technical services.
 | People | Manage users and members | People Platform | All products |
 | Invitations | Invite users into scoped access contexts | Identity Platform | All products |
 | Provisioning | Convert intent into assignments and access | IAM Platform | All products |
+| Onboarding | Orchestrate persona-based onboarding journeys | Onboarding Platform | All products |
+| Persona Engine | Resolve persona-specific requirements and workflows | Product Office | All products |
 | Workflow | Execute stateful business processes | Workflow Platform | All products |
 | Documents | Store and manage documents | Document Platform | Product workflows |
 | Verification | Review documents and approvals | Workflow Platform | Product workflows |
 | Notifications | Route communication events | Notification Platform | All products |
 | Communication | Manage channels and templates | Communication Platform | All products |
+| Activation | Track readiness and first business outcome | Onboarding Platform | All products |
 | Dashboard | Generate dashboards by access context | Experience Platform | All products |
 | Navigation | Generate menus and routes dynamically | Experience Platform | All products |
 | Widgets | Reusable dashboard components | Experience Platform | All products |
@@ -149,9 +152,12 @@ The Product Registry maps product configuration to platform capabilities.
 | People | L2 Implemented | Partial owner console support |
 | Invitations | L3 Locally Verified | Product Owner workflow still requires production acceptance |
 | Provisioning | L1 Designed | Future slices |
+| Onboarding | L1 Designed | EPIC-001 defines the platform onboarding engine |
+| Persona Engine | L1 Designed | EPIC-001 defines persona-driven configuration |
 | Workflow | L0 Concept | Planned platform service |
 | Documents | L0 Concept | Planned |
 | Notifications | L1 Designed | Outbox pattern exists in milestone docs |
+| Activation | L1 Designed | EPIC-001 defines activation and first business outcome |
 | Dashboard | L1 Designed | Dynamic engine not yet implemented |
 | Navigation | L1 Designed | Dynamic engine not yet implemented |
 | Audit | L2 Implemented | Partial |
@@ -174,4 +180,3 @@ A capability may not be marked enterprise ready until:
 - Audit events are defined.
 - Failure handling is defined.
 - Runtime verification is possible through the application UI.
-

@@ -70,6 +70,13 @@ Approved identifiers must not be renamed.
 | ENT-028 | Audit Log | Immutable record of critical action | Audit Platform | Created, retained, exported |
 | ENT-029 | AI Agent | AI-enabled automation actor | AI Platform | Draft, active, paused, retired |
 | ENT-030 | Settings | Scoped configuration values | Platform Operations | Active, updated, archived |
+| ENT-031 | Invitation | Secure onboarding invitation and access intent | Identity Platform | Draft, sent, accepted, expired, revoked |
+| ENT-032 | Persona | Business identity archetype that drives onboarding and workspace behavior | Product Office | Proposed, active, deprecated |
+| ENT-033 | Permission Template | Reusable permission set assigned during provisioning | Access Platform | Draft, active, deprecated |
+| ENT-034 | Capability Bundle | Reusable bundle of platform capabilities assigned to a user context | Capability Owner | Draft, active, deprecated |
+| ENT-035 | Onboarding Session | Stateful onboarding journey for an invited or created identity | Onboarding Platform | Draft, in_progress, blocked, completed, abandoned |
+| ENT-036 | Activation | Readiness state that confirms a user can operate in a workspace | Onboarding Platform | Not_started, in_progress, ready, completed |
+| ENT-037 | First Business Outcome | Persona-specific event that proves onboarding success | Product Office | Pending, completed, failed |
 
 ## Capability Identifier Seed
 
@@ -100,6 +107,9 @@ Approved identifiers must not be renamed.
 | CAP-023 | Developer Platform | Platform Engineering |
 | CAP-024 | AI | AI Platform |
 | CAP-025 | Integrations | Integration Platform |
+| CAP-026 | Onboarding | Onboarding Platform |
+| CAP-027 | Persona Engine | Product Office |
+| CAP-028 | Activation | Onboarding Platform |
 
 ## Product Identifier Seed
 
@@ -123,6 +133,7 @@ Approved identifiers must not be renamed.
 - New identifiers require Product Bible and Document Registry updates where applicable.
 - Approved identifiers are permanent.
 - Data ownership must be clear before implementation.
+- Persona-specific onboarding behavior must be configuration-driven through Persona, Permission Template, Capability Bundle, Onboarding Session and Activation concepts.
 
 ## Inputs
 
@@ -163,4 +174,3 @@ Approved identifiers must not be renamed.
 ## Related ADRs
 
 - None at creation.
-
