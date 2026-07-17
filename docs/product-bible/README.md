@@ -90,6 +90,7 @@ Products must consume shared platform capabilities instead of rebuilding:
 | Appendices | `APPENDICES/GLOSSARY.md` | Active |
 | Appendices | `APPENDICES/ZEPO_OPERATING_MODEL.md` | Active |
 | Appendices | `APPENDICES/PPO_OPERATING_MODEL.md` | Active |
+| Appendices | `APPENDICES/EDO_PRODUCTION_ENGINEERING_MODE.md` | Active |
 | Appendices | `APPENDICES/ENTERPRISE_META_MODEL.md` | Active |
 | Governance | `../governance/README.md` | Active |
 | Epics | `epics/EPIC-001_ENTERPRISE_ONBOARDING_PLATFORM.md` | Active |
@@ -127,6 +128,7 @@ Do not proceed to the next phase until the Product Owner approves the current ph
 - `docs/milestones/milestone-2-identity-onboarding/IAM_ECOSYSTEM_BLUEPRINT.md`
 - `docs/product-bible/APPENDICES/ZEPO_OPERATING_MODEL.md`
 - `docs/product-bible/APPENDICES/PPO_OPERATING_MODEL.md`
+- `docs/product-bible/APPENDICES/EDO_PRODUCTION_ENGINEERING_MODE.md`
 - `docs/product-bible/APPENDICES/ENTERPRISE_META_MODEL.md`
 - `docs/product-bible/epics/EPIC-001_ENTERPRISE_ONBOARDING_PLATFORM.md`
 - `docs/governance/README.md`

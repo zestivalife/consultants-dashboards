@@ -2,6 +2,31 @@
 
 ## 17 July 2026
 
+### MP-002 Enterprise Delivery Office Production Engineering Mode
+
+Status: Active, pending Product Owner approval
+
+Created:
+
+- `APPENDICES/EDO_PRODUCTION_ENGINEERING_MODE.md`
+
+Updated:
+
+- `README.md`
+- `docs/DOCUMENT_REGISTRY.md`
+
+Summary:
+
+- Established the Enterprise Delivery Office production engineering mode as the bridge between approved Product Bible direction and implementation-ready engineering.
+- Defined mandatory phased delivery across Production Foundation, Shared Platform Services and Product Capabilities.
+- Added product, UX, architecture, engineering, database, API, event, security, infrastructure, DevOps, observability and QA deliverable expectations.
+- Added mandatory production gates and standard delivery output format for future implementation work.
+- Reinforced that no application code is generated unless explicitly instructed.
+
+Final Status: IMPLEMENTED
+
+---
+
 ### EPIC-001 Enterprise Onboarding Platform
 
 Status: Active, pending Product Owner approval

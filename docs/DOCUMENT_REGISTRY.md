@@ -25,6 +25,7 @@ Version: 1.0
 | product-bible/APPENDICES/GLOSSARY.md | Active | ✅ |
 | product-bible/APPENDICES/ZEPO_OPERATING_MODEL.md | Active | ✅ |
 | product-bible/APPENDICES/PPO_OPERATING_MODEL.md | Active | ✅ |
+| product-bible/APPENDICES/EDO_PRODUCTION_ENGINEERING_MODE.md | Active | ✅ |
 | product-bible/APPENDICES/ENTERPRISE_META_MODEL.md | Active | ✅ |
 | governance/README.md | Active | ✅ |
 | governance/01_DELIVERY_LIFECYCLE.md | Active | ✅ |
