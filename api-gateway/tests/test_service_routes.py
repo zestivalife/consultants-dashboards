@@ -34,10 +34,12 @@ class ServiceRoutesTest(unittest.TestCase):
             jwt_secret_key="test-secret",
             auth_service_url="https://auth-service-production-ef64.up.railway.app",
         )
-        routes = {route["prefix"]: route["upstream"] for route in settings.get_service_routes()}
+        routes = {route["prefix"]: route for route in settings.get_service_routes()}
 
-        self.assertEqual(routes["/api/v1/owner/people-access"], "http://auth-service.railway.internal:8080")
-        self.assertEqual(routes["/api/v1/auth"], "http://auth-service.railway.internal:8080")
+        self.assertEqual(routes["/api/v1/owner/people-access"]["upstream"], "http://auth-service.railway.internal:8080")
+        self.assertEqual(routes["/api/v1/owner/people-access"]["host_header"], "auth-service-production-ef64.up.railway.app")
+        self.assertEqual(routes["/api/v1/auth"]["upstream"], "http://auth-service.railway.internal:8080")
+        self.assertEqual(routes["/api/v1/auth"]["host_header"], "auth-service-production-ef64.up.railway.app")
 
     def test_invitation_onboarding_paths_are_public(self):
         jwt_source = Path("app/middleware/jwt.py").read_text()

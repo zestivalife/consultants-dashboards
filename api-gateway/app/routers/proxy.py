@@ -32,8 +32,8 @@ async def close_http_client() -> None:
         _client = None
 
 
-def _resolve_upstream(path: str) -> tuple[str, str] | None:
-    """Match the request path to an upstream service URL. Returns (upstream_base, remaining_path)."""
+def _resolve_upstream(path: str) -> tuple[str, str, str | None] | None:
+    """Match the request path to an upstream service URL."""
     settings = get_settings()
     routes = settings.get_service_routes()
     for route in routes:
@@ -41,7 +41,7 @@ def _resolve_upstream(path: str) -> tuple[str, str] | None:
         if path == prefix or path.startswith(prefix + "/"):
             remaining = path[len(prefix):]
             logger.debug("route_match_success", path=path, prefix=prefix, upstream=route["upstream"])
-            return route["upstream"], remaining
+            return route["upstream"], remaining, route.get("host_header")
     logger.warning("route_match_failure", path=path)
     return None
 
@@ -84,7 +84,7 @@ async def proxy(request: Request, path: str):
             },
         )
 
-    upstream_base, _ = resolved
+    upstream_base, _, host_header = resolved
     target_url = f"{upstream_base}{full_path}"
     if request.url.query:
         target_url = f"{target_url}?{request.url.query}"
@@ -93,7 +93,7 @@ async def proxy(request: Request, path: str):
     headers.pop("host", None)
     upstream_host = urlsplit(upstream_base).hostname or ""
     if upstream_host.endswith(".railway.internal"):
-        headers["host"] = upstream_host.split(".", 1)[0]
+        headers["host"] = host_header or upstream_host.split(".", 1)[0]
 
     request_id = getattr(request.state, "request_id", None)
     if request_id:

@@ -105,6 +105,19 @@ class Settings(BaseSettings):
 
         return f"http://{service_name}.railway.internal:{railway_port or default_port}"
 
+    @staticmethod
+    def _railway_host_header(configured_url: str) -> str | None:
+        """Preserve Railway public hosts when proxying over private DNS.
+
+        Some services validate the original public Railway hostname with
+        TrustedHostMiddleware while the gateway connects over private DNS.
+        """
+        parsed = urlsplit(configured_url.strip().rstrip("/"))
+        hostname = parsed.hostname or ""
+        if hostname.endswith(".up.railway.app"):
+            return hostname
+        return None
+
     def get_service_upstreams(self) -> dict[str, str]:
         return {
             "auth-service": self._railway_internal_url(
@@ -132,15 +145,51 @@ class Settings(BaseSettings):
         nutrition_service_url = upstreams["nutrition-service"]
 
         return [
-            {"prefix": "/api/v1/corporate-admin", "upstream": auth_service_url},
-            {"prefix": "/api/v1/owner/people-access", "upstream": auth_service_url},
-            {"prefix": "/api/v1/owner/master-data", "upstream": auth_service_url},
-            {"prefix": "/api/v1/team-lead", "upstream": auth_service_url},
-            {"prefix": "/api/v1/team-member", "upstream": auth_service_url},
-            {"prefix": "/api/v1/onboarding", "upstream": auth_service_url},
-            {"prefix": "/api/v1/identity", "upstream": auth_service_url},
-            {"prefix": "/api/v1/notifications", "upstream": auth_service_url},
-            {"prefix": "/api/v1/auth", "upstream": auth_service_url},
+            {
+                "prefix": "/api/v1/corporate-admin",
+                "upstream": auth_service_url,
+                "host_header": self._railway_host_header(self.auth_service_url),
+            },
+            {
+                "prefix": "/api/v1/owner/people-access",
+                "upstream": auth_service_url,
+                "host_header": self._railway_host_header(self.auth_service_url),
+            },
+            {
+                "prefix": "/api/v1/owner/master-data",
+                "upstream": auth_service_url,
+                "host_header": self._railway_host_header(self.auth_service_url),
+            },
+            {
+                "prefix": "/api/v1/team-lead",
+                "upstream": auth_service_url,
+                "host_header": self._railway_host_header(self.auth_service_url),
+            },
+            {
+                "prefix": "/api/v1/team-member",
+                "upstream": auth_service_url,
+                "host_header": self._railway_host_header(self.auth_service_url),
+            },
+            {
+                "prefix": "/api/v1/onboarding",
+                "upstream": auth_service_url,
+                "host_header": self._railway_host_header(self.auth_service_url),
+            },
+            {
+                "prefix": "/api/v1/identity",
+                "upstream": auth_service_url,
+                "host_header": self._railway_host_header(self.auth_service_url),
+            },
+            {
+                "prefix": "/api/v1/notifications",
+                "upstream": auth_service_url,
+                "host_header": self._railway_host_header(self.auth_service_url),
+            },
+            {
+                "prefix": "/api/v1/auth",
+                "upstream": auth_service_url,
+                "host_header": self._railway_host_header(self.auth_service_url),
+            },
             {"prefix": "/api/v1/profile", "upstream": profile_service_url},
             {"prefix": "/api/v1/assessments", "upstream": assessment_service_url},
             {"prefix": "/api/v1/scoring", "upstream": scoring_service_url},
