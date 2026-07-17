@@ -64,6 +64,15 @@ textarea {
   text-transform: none !important;
 }
 
+/* Enterprise typography standard: reduce legacy heavy Tailwind weights globally. */
+.font-black {
+  font-weight: 600 !important;
+}
+
+.font-bold {
+  font-weight: 500 !important;
+}
+
 .fluent-page {
   background: var(--fluent-color-neutral-background-canvas);
   color: var(--fluent-color-neutral-foreground-1);

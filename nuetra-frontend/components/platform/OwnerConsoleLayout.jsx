@@ -45,11 +45,11 @@ export default function OwnerConsoleLayout({ activeSlug, children }) {
 
   return (
     <div className="relative z-10 mx-auto flex max-w-[1600px] gap-6 px-4 pb-20 pt-6 sm:px-6 lg:px-8">
-      <aside className="sticky top-24 hidden h-[calc(100vh-7rem)] w-[280px] shrink-0 overflow-y-auto rounded-[32px] border border-white/70 bg-white/85 p-5 shadow-sm backdrop-blur lg:block">
+      <aside className="sticky top-24 hidden h-[calc(100vh-7rem)] w-[280px] shrink-0 overflow-y-auto rounded-[32px] border border-white/70 bg-white/85 p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur lg:block">
         <div className="border-b border-gray-100 pb-4">
-          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-gray-400">Platform Owner</p>
-          <h2 className="mt-2 text-xl font-black tracking-tight text-gray-900">Enterprise Console</h2>
-          <p className="mt-2 text-sm text-gray-500">
+          <p className="z-label tracking-[0.14em] text-gray-400">Platform Owner</p>
+          <h2 className="mt-2 z-h2 text-gray-900">Enterprise Console</h2>
+          <p className="mt-2 z-body text-gray-500">
             Route-backed navigation for platform operations, workforce governance, and system oversight.
           </p>
         </div>
@@ -63,9 +63,9 @@ export default function OwnerConsoleLayout({ activeSlug, children }) {
                 key={item.slug}
                 href={getOwnerConsolePath(item.slug)}
                 className={cn(
-                  'flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition-all',
+                  'flex items-center gap-3 rounded-2xl px-4 py-3 z-body font-medium transition-all',
                   isActive
-                    ? 'bg-[#237afc] text-white shadow-[0_10px_28px_rgba(35,122,252,0.25)]'
+                    ? 'bg-[#237afc] text-white shadow-[0_8px_20px_rgba(35,122,252,0.18)]'
                     : 'text-gray-600 hover:bg-[#f5f9ff] hover:text-[#237afc]'
                 )}
               >
@@ -77,9 +77,9 @@ export default function OwnerConsoleLayout({ activeSlug, children }) {
         </nav>
 
         <div className="mt-6 rounded-3xl border border-gray-100 bg-gray-50 p-4">
-          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-gray-400">Navigation state</p>
-          <p className="mt-2 text-sm font-semibold text-gray-800">URL-backed modules</p>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="z-label tracking-[0.14em] text-gray-400">Navigation state</p>
+          <p className="mt-2 z-body font-medium text-gray-800">URL-backed modules</p>
+          <p className="mt-1 z-body text-gray-500">
             Refresh, bookmarks, and browser history now follow the active module route instead of local tab state.
           </p>
         </div>
@@ -96,7 +96,7 @@ export default function OwnerConsoleLayout({ activeSlug, children }) {
                   type="button"
                   onClick={() => router.push(getOwnerConsolePath(item.slug))}
                   className={cn(
-                    'rounded-full px-3 py-2 text-xs font-bold whitespace-nowrap transition-all',
+                    'rounded-full px-3 py-2 z-label whitespace-nowrap transition-all',
                     isActive
                       ? 'bg-[#237afc] text-white shadow-sm'
                       : 'border border-gray-200 bg-white text-gray-600'

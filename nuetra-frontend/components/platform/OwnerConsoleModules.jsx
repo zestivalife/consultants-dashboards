@@ -475,6 +475,7 @@ export function PeopleAccessModule({
       { id: 'contact', label: 'Contact' },
       { id: 'platform', label: 'Platform' },
     ];
+    if (!selectedInvitationPrimaryProduct) return baseSteps;
     if (isFiteatsyInvitation) {
       return [
         ...baseSteps,
@@ -487,13 +488,14 @@ export function PeopleAccessModule({
       ...baseSteps,
       { id: 'organization', label: 'Organization' },
       { id: 'workspace', label: 'Workspace' },
-      { id: 'scope', label: 'Services & packages' },
+      { id: 'scope', label: 'Access Scope' },
       { id: 'review', label: 'Review' },
       { id: 'send', label: 'Send' },
     ];
-  }, [isFiteatsyInvitation]);
+  }, [isFiteatsyInvitation, selectedInvitationPrimaryProduct]);
   const invitationStepId = invitationSteps[invitationStep]?.id || invitationSteps[0]?.id || 'role';
-  const invitationSendStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'send'));
+  const invitationSendStepIndex = invitationSteps.findIndex((step) => step.id === 'send');
+  const invitationLastStepIndex = invitationSendStepIndex >= 0 ? invitationSendStepIndex : Math.max(0, invitationSteps.length - 1);
   const invitationProductStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'platform'));
   const invitationRoleStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'role'));
   const invitationContactStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'contact'));
@@ -1537,16 +1539,16 @@ export function PeopleAccessModule({
                 <button type="button" className="z-btn z-btn-secondary" onClick={() => setShowInvitationModal(false)}>
                   Cancel
                 </button>
-                {!latestInvitation && invitationStep < invitationSendStepIndex ? (
+                {!latestInvitation && invitationStep < invitationLastStepIndex ? (
                   <button
                     type="button"
                     className="z-btn z-btn-primary"
-                    onClick={() => setInvitationStep((current) => Math.min(invitationSendStepIndex, current + 1))}
+                    onClick={() => setInvitationStep((current) => Math.min(invitationLastStepIndex, current + 1))}
                   >
                     Next
                   </button>
                 ) : null}
-                {!latestInvitation && invitationStep === invitationSendStepIndex ? (
+                {!latestInvitation && invitationSendStepIndex >= 0 && invitationStep === invitationSendStepIndex ? (
                   <ActionButton icon={Mail} label="Send invitation" tone="primary" onClick={submitInvitation} disabled={isSubmitting} />
                 ) : null}
               </div>
@@ -1708,8 +1710,8 @@ export function PeopleAccessModule({
 
           {invitationStepId === 'products' || invitationStepId === 'scope' ? (
             <WorkflowCard
-              title={isFiteatsyInvitation ? 'Select products' : 'Select services, packages, and products'}
-              description={isFiteatsyInvitation ? 'Confirm the Fiteatsy product scope for this invitation.' : 'Confirm product scope and review the available service and package context for this Nuetra invitation.'}
+              title={isFiteatsyInvitation ? 'Select products' : 'Configure access scope'}
+              description={isFiteatsyInvitation ? 'Confirm the Fiteatsy product scope for this invitation.' : 'Review product, package, service, and permission context for this Nuetra invitation.'}
             >
               <div className="space-y-5">
                 <div>
@@ -1733,7 +1735,7 @@ export function PeopleAccessModule({
 
                 {!isFiteatsyInvitation ? (
                   <div className="grid gap-4 lg:grid-cols-2">
-                    <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                    <div className="rounded-2xl border border-gray-100/80 bg-gray-50/80 p-4">
                       <p className="z-label text-gray-500">Available packages</p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         {packageOptions.length ? packageOptions.slice(0, 8).map((pkg) => (
@@ -1741,12 +1743,22 @@ export function PeopleAccessModule({
                         )) : <span className="z-subtitle text-gray-500">No packages configured yet.</span>}
                       </div>
                     </div>
-                    <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                    <div className="rounded-2xl border border-gray-100/80 bg-gray-50/80 p-4">
                       <p className="z-label text-gray-500">Available services</p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         {serviceOptions.length ? serviceOptions.slice(0, 8).map((service) => (
                           <span key={service.id} className="rounded-full border border-gray-200 bg-white px-3 py-2 z-subtitle text-gray-600">{service.name}</span>
                         )) : <span className="z-subtitle text-gray-500">No services configured yet.</span>}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-gray-100/80 bg-gray-50/80 p-4 lg:col-span-2">
+                      <p className="z-label text-gray-500">Available permissions</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {permissionOptions.length ? permissionOptions.slice(0, 10).map((permission) => (
+                          <span key={permission.key || permission.id} className="rounded-full border border-gray-200 bg-white px-3 py-2 z-subtitle text-gray-600">
+                            {permission.label || permission.key}
+                          </span>
+                        )) : <span className="z-subtitle text-gray-500">No permissions configured yet.</span>}
                       </div>
                     </div>
                   </div>
