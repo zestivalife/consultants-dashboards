@@ -21,6 +21,7 @@ Version: 1.0
 | SECURITY.md | Active | ✅ |
 | TESTING_STRATEGY.md | Active | ✅ |
 | UI_UX_GUIDELINES.md | Active | ✅ |
+| ZESTIVA_ONE_PLATFORM_BLUEPRINT.md | Active | ✅ |
 | milestones/milestone-2-identity-onboarding/ENGINEERING_OPERATING_MANUAL.md | Active | ✅ |
 | milestones/milestone-2-identity-onboarding/PRD.md | Approved | ✅ |
 | milestones/milestone-2-identity-onboarding/TDS.md | Approved | ✅ |
