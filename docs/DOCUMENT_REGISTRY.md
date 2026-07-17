@@ -23,6 +23,8 @@ Version: 1.0
 | product-bible/02_BUSINESS_CAPABILITIES.md | Active | ✅ |
 | product-bible/APPENDICES/GLOSSARY.md | Active | ✅ |
 | product-bible/APPENDICES/ZEPO_OPERATING_MODEL.md | Active | ✅ |
+| product-bible/APPENDICES/PPO_OPERATING_MODEL.md | Active | ✅ |
+| product-bible/APPENDICES/ENTERPRISE_META_MODEL.md | Active | ✅ |
 | governance/README.md | Active | ✅ |
 | governance/01_DELIVERY_LIFECYCLE.md | Active | ✅ |
 | governance/02_DEFINITION_OF_READY.md | Active | ✅ |
