@@ -86,13 +86,30 @@ class Settings(BaseSettings):
         netloc = f"{parsed.hostname}:{default_port}"
         return urlunsplit((parsed.scheme, netloc, parsed.path.rstrip("/"), "", ""))
 
+    def _railway_internal_url(self, service_name: str, configured_url: str, default_port: int) -> str:
+        """Prefer Railway private DNS over stale public deployment URLs in production."""
+        normalized = self._normalize_service_url(configured_url, default_port)
+        if self.app_env.lower() != "production":
+            return normalized
+
+        parsed = urlsplit(normalized)
+        hostname = parsed.hostname or ""
+        if not hostname.endswith(".up.railway.app"):
+            return normalized
+
+        return f"http://{service_name}.railway.internal:{default_port}"
+
     def get_service_upstreams(self) -> dict[str, str]:
         return {
-            "auth-service": self._normalize_service_url(self.auth_service_url, 8001),
-            "profile-service": self._normalize_service_url(self.profile_service_url, 8002),
-            "assessment-service": self._normalize_service_url(self.assessment_service_url, 8003),
-            "scoring-engine-service": self._normalize_service_url(self.scoring_service_url, 8004),
-            "nutrition-service": self._normalize_service_url(self.nutrition_service_url, 8005),
+            "auth-service": self._railway_internal_url("auth-service", self.auth_service_url, 8001),
+            "profile-service": self._railway_internal_url("profile-service", self.profile_service_url, 8002),
+            "assessment-service": self._railway_internal_url("assessment-service", self.assessment_service_url, 8003),
+            "scoring-engine-service": self._railway_internal_url(
+                "scoring-engine-service",
+                self.scoring_service_url,
+                8004,
+            ),
+            "nutrition-service": self._railway_internal_url("nutrition-service", self.nutrition_service_url, 8005),
         }
 
     def get_service_routes(self) -> list[dict]:

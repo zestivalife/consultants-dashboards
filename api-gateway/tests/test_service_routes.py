@@ -28,6 +28,17 @@ class ServiceRoutesTest(unittest.TestCase):
 
         self.assertEqual(routes["/api/v1/identity"], "http://auth-service.railway.internal:8001")
 
+    def test_production_railway_public_urls_route_to_private_dns(self):
+        settings = Settings(
+            app_env="production",
+            jwt_secret_key="test-secret",
+            auth_service_url="https://auth-service-production-ef64.up.railway.app",
+        )
+        routes = {route["prefix"]: route["upstream"] for route in settings.get_service_routes()}
+
+        self.assertEqual(routes["/api/v1/owner/people-access"], "http://auth-service.railway.internal:8001")
+        self.assertEqual(routes["/api/v1/auth"], "http://auth-service.railway.internal:8001")
+
     def test_invitation_onboarding_paths_are_public(self):
         jwt_source = Path("app/middleware/jwt.py").read_text()
 
