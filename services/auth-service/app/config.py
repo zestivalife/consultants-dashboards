@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     redis_url: str = "redis://localhost:6379/0"
     trusted_hosts: str = (
-        "*.railway.app,*.railway.internal,auth-service,api-gateway,localhost,127.0.0.1"
+        "*.railway.app,*.railway.internal,auth-service.railway.internal,auth-service,api-gateway,localhost,127.0.0.1"
     )
 
     jwt_secret_key: str = "change-me-in-production"
