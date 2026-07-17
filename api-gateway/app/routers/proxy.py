@@ -2,6 +2,7 @@ import httpx
 import structlog
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse, JSONResponse
+from urllib.parse import urlsplit
 
 from app.config import get_settings
 from app.routers.owner_permissions import required_owner_permissions
@@ -90,6 +91,9 @@ async def proxy(request: Request, path: str):
 
     headers = dict(request.headers)
     headers.pop("host", None)
+    upstream_host = urlsplit(upstream_base).hostname or ""
+    if upstream_host.endswith(".railway.internal"):
+        headers["host"] = upstream_host.split(".", 1)[0]
 
     request_id = getattr(request.state, "request_id", None)
     if request_id:
