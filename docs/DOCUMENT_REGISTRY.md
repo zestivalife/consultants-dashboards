@@ -17,6 +17,11 @@ Version: 1.0
 | PROJECT_STATE.md | Active | ✅ |
 | ROADMAP.md | Active | ✅ |
 | PROJECT_PRINCIPLES.md | Active | ✅ |
+| product-bible/README.md | Active | ✅ |
+| product-bible/00_EXECUTIVE_SUMMARY.md | Active | ✅ |
+| product-bible/01_VISION_AND_STRATEGY.md | Active | ✅ |
+| product-bible/02_BUSINESS_CAPABILITIES.md | Active | ✅ |
+| product-bible/APPENDICES/GLOSSARY.md | Active | ✅ |
 | RELEASE_CHECKLIST.md | Active | ✅ |
 | SECURITY.md | Active | ✅ |
 | TESTING_STRATEGY.md | Active | ✅ |
