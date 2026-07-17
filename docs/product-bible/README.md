@@ -89,6 +89,7 @@ Products must consume shared platform capabilities instead of rebuilding:
 | 15 | `15_IMPLEMENTATION_ROADMAP.md` | Planned |
 | Appendices | `APPENDICES/GLOSSARY.md` | Active |
 | Appendices | `APPENDICES/ZEPO_OPERATING_MODEL.md` | Active |
+| Governance | `../governance/README.md` | Active |
 
 ---
 
@@ -122,6 +123,7 @@ Do not proceed to the next phase until the Product Owner approves the current ph
 - `docs/PROJECT_STATE.md`
 - `docs/milestones/milestone-2-identity-onboarding/IAM_ECOSYSTEM_BLUEPRINT.md`
 - `docs/product-bible/APPENDICES/ZEPO_OPERATING_MODEL.md`
+- `docs/governance/README.md`
 
 ---
 
