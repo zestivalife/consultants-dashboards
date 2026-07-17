@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     app_name: str = "auth-service"
     app_env: str = "development"
     app_debug: bool = False
-    app_version: str = "0.1.0"
+    app_version: str = "0.1.1"
     app_port: int = Field(default=8001, validation_alias=AliasChoices("PORT", "APP_PORT", "app_port"))
     frontend_url: str = "http://localhost:3000"
 
