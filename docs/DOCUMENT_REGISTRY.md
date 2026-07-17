@@ -46,6 +46,8 @@ milestones/milestone-2-identity-onboarding/README.md
 
 milestones/milestone-2-identity-onboarding/MILESTONE_2_IMPLEMENTATION_PLAN.md
 
+milestones/milestone-2-identity-onboarding/IAM_ECOSYSTEM_BLUEPRINT.md
+
 milestones/milestone-2-identity-onboarding/MILESTONE_2_ONBOARDING_WORKFLOW.md
 
 milestones/milestone-2-identity-onboarding/MILESTONE_2_API_SPECIFICATION.md

@@ -28,17 +28,18 @@ The platform must support Nuetra, FitEatsy and future Zestiva products without c
 1. `README.md`
 2. `PRD.md`
 3. `TDS.md`
-4. `MILESTONE_2_ONBOARDING_WORKFLOW.md`
-5. `RBAC_SPECIFICATION.md`
-6. `MILESTONE_2_API_SPECIFICATION.md`
-7. `MILESTONE_2_DATABASE_DESIGN.md`
-8. `MILESTONE_2_UX_SPECIFICATION.md`
-9. `NOTIFICATION_SPECIFICATION.md`
-10. `AUDIT_LOG_SPECIFICATION.md`
-11. `EDGE_CASES.md`
-12. `TEST_SCENARIOS.md`
-13. `ACCEPTANCE_CRITERIA.md`
-14. Existing review and task breakdown documents
+4. `IAM_ECOSYSTEM_BLUEPRINT.md`
+5. `MILESTONE_2_ONBOARDING_WORKFLOW.md`
+6. `RBAC_SPECIFICATION.md`
+7. `MILESTONE_2_API_SPECIFICATION.md`
+8. `MILESTONE_2_DATABASE_DESIGN.md`
+9. `MILESTONE_2_UX_SPECIFICATION.md`
+10. `NOTIFICATION_SPECIFICATION.md`
+11. `AUDIT_LOG_SPECIFICATION.md`
+12. `EDGE_CASES.md`
+13. `TEST_SCENARIOS.md`
+14. `ACCEPTANCE_CRITERIA.md`
+15. Existing review and task breakdown documents
 
 If two documents conflict, the higher document in this list wins unless `AGENTS.md` or `PROJECT_STATE.md` says otherwise.
 
@@ -47,6 +48,7 @@ If two documents conflict, the higher document in this list wins unless `AGENTS.
 - `PRD.md`
 - `TDS.md`
 - `MILESTONE_2_IMPLEMENTATION_PLAN.md`
+- `IAM_ECOSYSTEM_BLUEPRINT.md`
 - `MILESTONE_2_ONBOARDING_WORKFLOW.md`
 - `MILESTONE_2_API_SPECIFICATION.md`
 - `MILESTONE_2_DATABASE_DESIGN.md`

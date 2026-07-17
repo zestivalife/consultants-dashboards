@@ -166,6 +166,35 @@ LOCALLY VERIFIED
 
 ## 2026-07-17
 
+Status: IAM ecosystem architecture alignment
+
+Branch:
+
+feature/m2-invitation-workflow-completion
+
+Changes:
+
+- Added `IAM_ECOSYSTEM_BLUEPRINT.md` as the Milestone 2 access-context architecture companion.
+- Documented the rule that dashboard provisioning and navigation generation must use product, organization, workspace, role, permission set, feature flags, subscription, assignments and business policies, not role alone.
+- Defined the enterprise invitation workflow including member type, member information, product cards, organization, workspace, access control, provisioning review, email preview, send channels and success actions.
+- Added canonical onboarding, document-management, notification, audit, security, state-machine, API, database and QA expectations for future implementation slices.
+- Registered the new blueprint in the Milestone 2 README and document registry.
+
+Impact:
+
+- Documentation only.
+- No application code changes.
+- No database schema changes.
+- No authentication, session, JWT, API Gateway or invitation API behavior changes.
+
+Final Status:
+
+IMPLEMENTED
+
+---
+
+## 2026-07-17
+
 Status: Invitation workflow UX refinement
 
 Commit SHA:
