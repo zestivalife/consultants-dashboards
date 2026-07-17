@@ -31,6 +31,16 @@
   --color-neutral-900: #212121;
   
   /* Spacing */
+  --space-4: 0.25rem;
+  --space-8: 0.5rem;
+  --space-12: 0.75rem;
+  --space-16: 1rem;
+  --space-20: 1.25rem;
+  --space-24: 1.5rem;
+  --space-32: 2rem;
+  --space-40: 2.5rem;
+  --space-48: 3rem;
+  --space-64: 4rem;
   --spacing-xs: 0.25rem;
   --spacing-sm: 0.5rem;
   --spacing-md: 1rem;
@@ -69,6 +79,135 @@
   --z-modal: 1050;
   --z-popover: 1060;
   --z-tooltip: 1070;
+}
+
+/* Zestiva platform typography */
+.z-h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 2rem;
+  letter-spacing: -0.02em;
+}
+
+.z-h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.75rem;
+  letter-spacing: -0.015em;
+}
+
+.z-h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.5rem;
+}
+
+.z-h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.5rem;
+}
+
+.z-body {
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.5rem;
+}
+
+.z-subtitle {
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.125rem;
+}
+
+.z-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1rem;
+}
+
+.z-table-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1rem;
+}
+
+.z-table-content {
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.25rem;
+}
+
+.z-input {
+  width: 100%;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  background: white;
+  padding: var(--space-12) var(--space-16);
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.25rem;
+  color: var(--color-neutral-900);
+  outline: none;
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+}
+
+.z-input::placeholder {
+  color: var(--color-neutral-500);
+}
+
+.z-input:focus {
+  border-color: #237afc;
+  box-shadow: 0 0 0 3px rgba(35, 122, 252, 0.12);
+}
+
+.z-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  min-height: 2.75rem;
+  border-radius: var(--radius-lg);
+  padding: var(--space-12) var(--space-16);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  transition: background-color var(--transition-base), border-color var(--transition-base), color var(--transition-base), box-shadow var(--transition-base);
+}
+
+.z-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.z-btn-primary {
+  border: 1px solid #237afc;
+  background: #237afc;
+  color: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.z-btn-primary:hover:not(:disabled) {
+  background: #1a62d6;
+  border-color: #1a62d6;
+}
+
+.z-btn-secondary {
+  border: 1px solid var(--color-neutral-200);
+  background: white;
+  color: var(--color-neutral-700);
+}
+
+.z-btn-secondary:hover:not(:disabled) {
+  border-color: #237afc;
+  color: #237afc;
+}
+
+.z-card {
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-2xl);
+  background: white;
+  box-shadow: var(--shadow-card);
 }
 
 /* Glassmorphism Effects */
@@ -422,4 +561,3 @@
     display: none !important;
   }
 }
-

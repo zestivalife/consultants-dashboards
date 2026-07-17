@@ -41,11 +41,14 @@ import {
   cn,
   ControlBar,
   EmptyState,
+  Field,
   formatCurrency,
   MiniBarChart,
   ModuleFrame,
   Panel,
   StatPill,
+  WorkflowCard,
+  WorkflowModal,
 } from './OwnerConsolePrimitives';
 
 export function CommandCenterModule({ data }) {
@@ -459,6 +462,48 @@ export function PeopleAccessModule({
     [departmentOptions, invitationDraft.organization_id]
   );
   const selectedInvitationProductIdSet = useMemo(() => new Set(invitationDraft.product_ids || []), [invitationDraft.product_ids]);
+  const selectedInvitationPrimaryProduct = useMemo(() => {
+    const primaryId = invitationDraft.product_id || invitationDraft.product_ids?.[0] || '';
+    return productOptions.find((product) => product.id === primaryId) || null;
+  }, [invitationDraft.product_id, invitationDraft.product_ids, productOptions]);
+  const isFiteatsyInvitation = /fiteatsy/i.test(selectedInvitationPrimaryProduct?.name || '');
+  const invitationSteps = useMemo(() => {
+    const baseSteps = [
+      { id: 'role', label: 'Role' },
+      { id: 'contact', label: 'Contact' },
+      { id: 'product', label: 'Product' },
+    ];
+    if (isFiteatsyInvitation) {
+      return [
+        ...baseSteps,
+        { id: 'products', label: 'Products' },
+        { id: 'review', label: 'Review' },
+        { id: 'send', label: 'Send' },
+      ];
+    }
+    return [
+      ...baseSteps,
+      { id: 'organization', label: 'Organization' },
+      { id: 'workspace', label: 'Workspace' },
+      { id: 'scope', label: 'Services & packages' },
+      { id: 'review', label: 'Review' },
+      { id: 'send', label: 'Send' },
+    ];
+  }, [isFiteatsyInvitation]);
+  const invitationStepId = invitationSteps[invitationStep]?.id || invitationSteps[0]?.id || 'role';
+  const invitationSendStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'send'));
+  const invitationProductStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'product'));
+  const invitationRoleStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'role'));
+  const invitationContactStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'contact'));
+  const invitationOrganizationStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'organization'));
+  const invitationWorkspaceStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'workspace'));
+  const invitationScopeStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === (isFiteatsyInvitation ? 'products' : 'scope')));
+  const humanizeLabel = (value = '') =>
+    value
+      .toString()
+      .replace(/_/g, ' ')
+      .toLowerCase()
+      .replace(/(^|\s)\S/g, (match) => match.toUpperCase());
   const visibleInvitations = useMemo(() => {
     const search = invitationFilters.search.trim().toLowerCase();
     const status = invitationFilters.status;
@@ -513,6 +558,10 @@ export function PeopleAccessModule({
   useEffect(() => {
     setSearchDraft(filters?.search || '');
   }, [filters?.search]);
+
+  useEffect(() => {
+    setInvitationStep((current) => Math.min(current, Math.max(0, invitationSteps.length - 1)));
+  }, [invitationSteps.length]);
 
   useEffect(() => {
     if (!safeSelectedUser) return;
@@ -612,6 +661,17 @@ export function PeopleAccessModule({
         product_id: nextValues[0] || '',
       };
     });
+  };
+  const selectInvitationPrimaryProduct = (productId) => {
+    const product = productOptions.find((item) => item.id === productId);
+    const isFiteatsyProduct = /fiteatsy/i.test(product?.name || '');
+    setInvitationDraft((current) => ({
+      ...current,
+      product_id: productId,
+      product_ids: [productId],
+      organization_id: isFiteatsyProduct ? '' : current.organization_id,
+      department_id: isFiteatsyProduct ? '' : current.department_id,
+    }));
   };
   const resetInvitationDraft = (role = 'consultant') => {
     setInvitationDraft({
@@ -820,29 +880,34 @@ export function PeopleAccessModule({
   };
 
   const submitInvitation = async () => {
-    if (!invitationDraft.organization_id) {
-      setActionError('Select an organization before sending the invitation.');
-      setInvitationStep(0);
-      return;
-    }
     if (!invitationDraft.role) {
       setActionError('Select a role before sending the invitation.');
-      setInvitationStep(1);
+      setInvitationStep(invitationRoleStepIndex);
       return;
     }
     if (!invitationDraft.first_name.trim() || !invitationDraft.last_name.trim() || !invitationDraft.email.trim()) {
       setActionError('First name, last name, and email are required.');
-      setInvitationStep(2);
+      setInvitationStep(invitationContactStepIndex);
+      return;
+    }
+    if (!invitationDraft.product_id) {
+      setActionError('Select Nuetra or Fiteatsy before sending the invitation.');
+      setInvitationStep(invitationProductStepIndex);
       return;
     }
     if (!invitationDraft.product_ids.length) {
       setActionError('Select at least one product before sending the invitation.');
-      setInvitationStep(3);
+      setInvitationStep(invitationScopeStepIndex);
       return;
     }
-    if (invitationWorkspaces.length && !invitationDraft.department_id) {
+    if (!isFiteatsyInvitation && !invitationDraft.organization_id) {
+      setActionError('Select an organization before sending the invitation.');
+      setInvitationStep(invitationOrganizationStepIndex);
+      return;
+    }
+    if (!isFiteatsyInvitation && invitationWorkspaces.length && !invitationDraft.department_id) {
       setActionError('Select a workspace before sending the invitation.');
-      setInvitationStep(4);
+      setInvitationStep(invitationWorkspaceStepIndex);
       return;
     }
     setIsSubmitting(true);
@@ -862,7 +927,7 @@ export function PeopleAccessModule({
       if (result === null) return;
       rememberInvitationLink(result);
       setLatestInvitation(result);
-      setInvitationStep(6);
+      setInvitationStep(invitationSendStepIndex);
     } finally {
       setIsSubmitting(false);
     }
@@ -991,13 +1056,13 @@ export function PeopleAccessModule({
       description="Search, filter, bulk-edit, import, export, and govern platform identities across owners, admins, mentors, consultants, practitioners, and employees."
       actions={
         <>
-          <ActionButton icon={Upload} label="CSV Import" onClick={() => setShowImportModal(true)} />
-          <ActionButton icon={Download} label="CSV Export" onClick={handleCsvExport} />
+          <ActionButton icon={Upload} label="CSV import" onClick={() => setShowImportModal(true)} />
+          <ActionButton icon={Download} label="CSV export" onClick={handleCsvExport} />
           <ActionButton icon={UserCog} label="Refresh" onClick={() => runAction('Refresh People & Access', onRefresh)} />
-          <ActionButton icon={Plus} label="Add Practitioner" onClick={() => openInvitationWizard('practitioner')} />
-          <ActionButton icon={Plus} label="Add Mentor" onClick={() => openInvitationWizard('mentor')} />
-          <ActionButton icon={Plus} label="Add Consultant" onClick={() => openInvitationWizard('consultant')} />
-          <ActionButton icon={Plus} label="Add Corporate Admin" tone="primary" onClick={() => openInvitationWizard('corporate_admin')} />
+          <ActionButton icon={Plus} label="Add practitioner" onClick={() => openInvitationWizard('practitioner')} />
+          <ActionButton icon={Plus} label="Add mentor" onClick={() => openInvitationWizard('mentor')} />
+          <ActionButton icon={Plus} label="Add consultant" onClick={() => openInvitationWizard('consultant')} />
+          <ActionButton icon={Plus} label="Add corporate admin" tone="primary" onClick={() => openInvitationWizard('corporate_admin')} />
         </>
       }
     >
@@ -1214,7 +1279,7 @@ export function PeopleAccessModule({
                 className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-600 outline-none"
               >
                 {['ALL', 'INVITED', 'ACCEPTED', 'EXPIRED', 'CANCELLED', 'REVOKED', 'PASSWORD_CREATED'].map((status) => (
-                  <option key={status} value={status}>{status}</option>
+                  <option key={status} value={status}>{status === 'ALL' ? 'All' : humanizeLabel(status)}</option>
                 ))}
               </select>
               <select
@@ -1229,7 +1294,7 @@ export function PeopleAccessModule({
 
             <div className="mt-5 overflow-hidden rounded-2xl border border-gray-100">
               <table className="min-w-full divide-y divide-gray-100">
-                <thead className="bg-gray-50 text-left text-xs font-black uppercase tracking-[0.18em] text-gray-400">
+                <thead className="bg-gray-50 text-left z-table-header text-gray-500">
                   <tr>
                     <th className="px-4 py-3">Invitee</th>
                     <th className="px-4 py-3">Scope</th>
@@ -1259,7 +1324,7 @@ export function PeopleAccessModule({
                           {invitation.token_fingerprint ? <p className="mt-1 text-[11px] text-gray-400">Fingerprint {invitation.token_fingerprint}</p> : null}
                         </td>
                         <td className="px-4 py-4">
-                          <Badge tone={invitation.status === 'INVITED' ? 'blue' : invitation.status === 'ACCEPTED' || invitation.status === 'PASSWORD_CREATED' ? 'green' : 'red'}>{invitation.status}</Badge>
+                          <Badge tone={invitation.status === 'INVITED' ? 'blue' : invitation.status === 'ACCEPTED' || invitation.status === 'PASSWORD_CREATED' ? 'green' : 'red'}>{humanizeLabel(invitation.status)}</Badge>
                         </td>
                         <td className="px-4 py-4">
                           <button
@@ -1268,7 +1333,7 @@ export function PeopleAccessModule({
                             disabled={!canOperate}
                             className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 disabled:opacity-40"
                           >
-                            {link ? 'Copy Link' : 'Generate Link'}
+                            {link ? 'Copy link' : 'Generate link'}
                           </button>
                           {link ? <p className="mt-2 max-w-[220px] truncate text-[11px] text-gray-400">{link}</p> : null}
                         </td>
@@ -1448,109 +1513,212 @@ export function PeopleAccessModule({
       ) : null}
 
       {showInvitationModal ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-6">
-          <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.24em] text-[#237afc]">Invitation workflow</p>
-                <h3 className="mt-2 text-2xl font-black text-gray-900">Invite a practitioner, mentor, consultant, or corporate admin</h3>
-                <p className="mt-2 text-sm text-gray-500">Complete every step, send the invitation, then copy or open the secure onboarding link without leaving the app.</p>
-              </div>
-              <button onClick={() => setShowInvitationModal(false)} className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500">Close</button>
-            </div>
-            <div className="mt-6 grid gap-2 md:grid-cols-7">
-              {['Organization', 'Role', 'Contact', 'Products', 'Workspace', 'Review', 'Send'].map((label, index) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => !latestInvitation && setInvitationStep(index)}
-                  className={cn(
-                    'rounded-2xl border px-3 py-2 text-left text-xs font-black',
-                    invitationStep === index ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-100 bg-gray-50 text-gray-400'
-                  )}
-                >
-                  <span className="block text-[10px] uppercase tracking-[0.2em]">Step {index + 1}</span>
-                  {label}
+        <WorkflowModal
+          eyebrow="Invitation workflow"
+          title="Invite a practitioner, mentor, consultant, or corporate admin"
+          description="Complete the invitation path, send it, then copy or open the secure onboarding link without leaving the application."
+          steps={invitationSteps}
+          activeStep={invitationStep}
+          onStepChange={(index) => !latestInvitation && setInvitationStep(index)}
+          onClose={() => setShowInvitationModal(false)}
+          footer={
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setInvitationStep((current) => Math.max(0, current - 1))}
+                disabled={invitationStep === 0 || Boolean(latestInvitation)}
+                className="z-btn z-btn-secondary"
+              >
+                Back
+              </button>
+              <div className="flex flex-wrap gap-3">
+                <button type="button" className="z-btn z-btn-secondary" onClick={() => setShowInvitationModal(false)}>
+                  Close
                 </button>
-              ))}
+                {!latestInvitation && invitationStep < invitationSendStepIndex ? (
+                  <button
+                    type="button"
+                    className="z-btn z-btn-primary"
+                    onClick={() => setInvitationStep((current) => Math.min(invitationSendStepIndex, current + 1))}
+                  >
+                    Next
+                  </button>
+                ) : null}
+                {!latestInvitation && invitationStep === invitationSendStepIndex ? (
+                  <ActionButton icon={Mail} label="Send invitation" tone="primary" onClick={submitInvitation} disabled={isSubmitting} />
+                ) : null}
+              </div>
             </div>
+          }
+        >
+          {invitationStepId === 'role' ? (
+            <WorkflowCard
+              title="Select role"
+              description="Choose the operational role. The invitation remains part of the same platform identity workflow."
+            >
+              <div className="grid gap-3 md:grid-cols-2">
+                {invitationRoles.map((role) => (
+                  <button
+                    key={role.value}
+                    type="button"
+                    onClick={() => setInvitationDraft((current) => ({ ...current, role: role.value }))}
+                    className={cn(
+                      'rounded-2xl border px-4 py-4 text-left transition',
+                      invitationDraft.role === role.value ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
+                    )}
+                  >
+                    <span className="block z-h4">{humanizeLabel(role.label)}</span>
+                    <span className="mt-1 block z-subtitle text-gray-500">Permission-scoped onboarding</span>
+                  </button>
+                ))}
+              </div>
+            </WorkflowCard>
+          ) : null}
 
-            <div className="mt-6 rounded-[24px] border border-gray-100 bg-gray-50 p-5">
-              {invitationStep === 0 ? (
-                <div>
-                  <h4 className="text-lg font-black text-gray-900">Select Organization</h4>
-                  <p className="mt-1 text-sm text-gray-500">Choose the organization this user will belong to.</p>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    {organizationOptions.map((organization) => (
-                      <button
-                        key={organization.id}
-                        type="button"
-                        onClick={() => setInvitationDraft((current) => ({ ...current, organization_id: organization.id, department_id: '' }))}
-                        className={cn(
-                          'rounded-2xl border px-4 py-4 text-left transition',
-                          invitationDraft.organization_id === organization.id ? 'border-[#237afc] bg-white text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
-                        )}
-                      >
-                        <span className="block font-black">{organization.name}</span>
-                        <span className="mt-1 block text-xs text-gray-500">{organization.status || 'Organization'} workspace</span>
-                      </button>
-                    ))}
-                  </div>
+          {invitationStepId === 'contact' ? (
+            <WorkflowCard
+              title="Enter contact information"
+              description="These details are stored with the invitation and carried into onboarding."
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="First name">
+                  <input
+                    value={invitationDraft.first_name}
+                    onChange={(event) => setInvitationDraft((current) => ({ ...current, first_name: event.target.value }))}
+                    placeholder="Enter first name"
+                    className="z-input"
+                  />
+                </Field>
+                <Field label="Last name">
+                  <input
+                    value={invitationDraft.last_name}
+                    onChange={(event) => setInvitationDraft((current) => ({ ...current, last_name: event.target.value }))}
+                    placeholder="Enter last name"
+                    className="z-input"
+                  />
+                </Field>
+                <Field label="Email">
+                  <input
+                    value={invitationDraft.email}
+                    onChange={(event) => setInvitationDraft((current) => ({ ...current, email: event.target.value }))}
+                    placeholder="name@company.com"
+                    className="z-input"
+                    type="email"
+                  />
+                </Field>
+                <div className="grid grid-cols-[112px_1fr] gap-3">
+                  <Field label="Country code">
+                    <input
+                      value={invitationDraft.country_code}
+                      onChange={(event) => setInvitationDraft((current) => ({ ...current, country_code: event.target.value }))}
+                      placeholder="+91"
+                      className="z-input"
+                    />
+                  </Field>
+                  <Field label="Mobile number">
+                    <input
+                      value={invitationDraft.mobile_number}
+                      onChange={(event) => setInvitationDraft((current) => ({ ...current, mobile_number: event.target.value }))}
+                      placeholder="Enter mobile number"
+                      className="z-input"
+                    />
+                  </Field>
                 </div>
-              ) : null}
+              </div>
+            </WorkflowCard>
+          ) : null}
 
-              {invitationStep === 1 ? (
-                <div>
-                  <h4 className="text-lg font-black text-gray-900">Select Role</h4>
-                  <p className="mt-1 text-sm text-gray-500">The same onboarding flow adapts by role and permissions.</p>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    {invitationRoles.map((role) => (
-                      <button
-                        key={role.value}
-                        type="button"
-                        onClick={() => setInvitationDraft((current) => ({ ...current, role: role.value }))}
-                        className={cn(
-                          'rounded-2xl border px-4 py-4 text-left capitalize transition',
-                          invitationDraft.role === role.value ? 'border-[#237afc] bg-white text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
-                        )}
-                      >
-                        <span className="block font-black">{role.label.replace(/_/g, ' ')}</span>
-                        <span className="mt-1 block text-xs normal-case text-gray-500">Permission-scoped onboarding</span>
-                      </button>
-                    ))}
+          {invitationStepId === 'product' ? (
+            <WorkflowCard
+              title="Select product"
+              description="Choose the primary product first. The next steps adapt automatically for Nuetra or Fiteatsy."
+            >
+              <div className="grid gap-3 md:grid-cols-2">
+                {productOptions.map((product) => (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => selectInvitationPrimaryProduct(product.id)}
+                    className={cn(
+                      'rounded-2xl border px-4 py-4 text-left transition',
+                      invitationDraft.product_id === product.id ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
+                    )}
+                  >
+                    <span className="block z-h4">{product.name}</span>
+                    <span className="mt-1 block z-subtitle text-gray-500">
+                      {/fiteatsy/i.test(product.name) ? 'Short product-scoped invitation path' : 'Organization and workspace-scoped invitation path'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </WorkflowCard>
+          ) : null}
+
+          {invitationStepId === 'organization' ? (
+            <WorkflowCard title="Select organization" description="Choose the Nuetra organization this user will belong to.">
+              <div className="grid gap-3 md:grid-cols-2">
+                {organizationOptions.map((organization) => (
+                  <button
+                    key={organization.id}
+                    type="button"
+                    onClick={() => setInvitationDraft((current) => ({ ...current, organization_id: organization.id, department_id: '' }))}
+                    className={cn(
+                      'rounded-2xl border px-4 py-4 text-left transition',
+                      invitationDraft.organization_id === organization.id ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
+                    )}
+                  >
+                    <span className="block z-h4">{organization.name}</span>
+                    <span className="mt-1 block z-subtitle text-gray-500">{organization.status || 'Organization'} workspace</span>
+                  </button>
+                ))}
+              </div>
+            </WorkflowCard>
+          ) : null}
+
+          {invitationStepId === 'workspace' ? (
+            <WorkflowCard title="Select workspace" description="Choose the department or workspace where this invitee will start.">
+              <div className="grid gap-3 md:grid-cols-2">
+                {invitationWorkspaces.map((department) => (
+                  <button
+                    key={department.id}
+                    type="button"
+                    onClick={() => setInvitationDraft((current) => ({ ...current, department_id: department.id }))}
+                    className={cn(
+                      'rounded-2xl border px-4 py-4 text-left transition',
+                      invitationDraft.department_id === department.id ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
+                    )}
+                  >
+                    <span className="block z-h4">{department.name}</span>
+                    <span className="mt-1 block z-subtitle text-gray-500">Workspace assignment</span>
+                  </button>
+                ))}
+                {!invitationWorkspaces.length ? (
+                  <div className="rounded-2xl border border-[#237afc] bg-[#f5f9ff] px-4 py-4 text-left text-[#237afc] shadow-sm">
+                    <span className="block z-h4">Organization default workspace</span>
+                    <span className="mt-1 block z-subtitle text-gray-500">No departments are configured yet, so this invite will start at the organization workspace.</span>
                   </div>
-                </div>
-              ) : null}
+                ) : null}
+              </div>
+            </WorkflowCard>
+          ) : null}
 
-              {invitationStep === 2 ? (
+          {invitationStepId === 'products' || invitationStepId === 'scope' ? (
+            <WorkflowCard
+              title={isFiteatsyInvitation ? 'Select products' : 'Select services, packages, and products'}
+              description={isFiteatsyInvitation ? 'Confirm the Fiteatsy product scope for this invitation.' : 'Confirm product scope and review the available service and package context for this Nuetra invitation.'}
+            >
+              <div className="space-y-5">
                 <div>
-                  <h4 className="text-lg font-black text-gray-900">Enter Invitee Details</h4>
-                  <p className="mt-1 text-sm text-gray-500">These details are stored with the invitation and carried into onboarding.</p>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    <input value={invitationDraft.first_name} onChange={(event) => setInvitationDraft((current) => ({ ...current, first_name: event.target.value }))} placeholder="First Name" className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none" />
-                    <input value={invitationDraft.last_name} onChange={(event) => setInvitationDraft((current) => ({ ...current, last_name: event.target.value }))} placeholder="Last Name" className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none" />
-                    <input value={invitationDraft.email} onChange={(event) => setInvitationDraft((current) => ({ ...current, email: event.target.value }))} placeholder="Email" className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none" />
-                    <div className="grid grid-cols-[100px_1fr] gap-2">
-                      <input value={invitationDraft.country_code} onChange={(event) => setInvitationDraft((current) => ({ ...current, country_code: event.target.value }))} placeholder="+91" className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none" />
-                      <input value={invitationDraft.mobile_number} onChange={(event) => setInvitationDraft((current) => ({ ...current, mobile_number: event.target.value }))} placeholder="Mobile Number" className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none" />
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
-              {invitationStep === 3 ? (
-                <div>
-                  <h4 className="text-lg font-black text-gray-900">Select Products</h4>
-                  <p className="mt-1 text-sm text-gray-500">Select one or more products for the invite. The current backend stores the primary product scope first.</p>
-                  <div className="mt-4 flex flex-wrap gap-2">
+                  <p className="z-label text-gray-500">Products</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
                     {productOptions.map((product) => (
                       <button
                         key={product.id}
                         type="button"
                         onClick={() => toggleInvitationProduct(product.id)}
                         className={cn(
-                          'rounded-full border px-4 py-3 text-sm font-bold',
-                          selectedInvitationProductIdSet.has(product.id) ? 'border-[#237afc] bg-white text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
+                          'rounded-full border px-4 py-3 z-btn',
+                          selectedInvitationProductIdSet.has(product.id) ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
                         )}
                       >
                         {product.name}
@@ -1558,128 +1726,100 @@ export function PeopleAccessModule({
                     ))}
                   </div>
                 </div>
-              ) : null}
 
-              {invitationStep === 4 ? (
-                <div>
-                  <h4 className="text-lg font-black text-gray-900">Select Workspace</h4>
-                  <p className="mt-1 text-sm text-gray-500">Choose the workspace or department where this invitee will start.</p>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    {invitationWorkspaces.map((department) => (
-                      <button
-                        key={department.id}
-                        type="button"
-                        onClick={() => setInvitationDraft((current) => ({ ...current, department_id: department.id }))}
-                        className={cn(
-                          'rounded-2xl border px-4 py-4 text-left transition',
-                          invitationDraft.department_id === department.id ? 'border-[#237afc] bg-white text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
-                        )}
-                      >
-                        <span className="block font-black">{department.name}</span>
-                        <span className="mt-1 block text-xs text-gray-500">Workspace assignment</span>
-                      </button>
-                    ))}
-                    {!invitationWorkspaces.length ? (
-                      <button
-                        type="button"
-                        disabled
-                        className="rounded-2xl border border-[#237afc] bg-white px-4 py-4 text-left text-[#237afc] shadow-sm"
-                      >
-                        <span className="block font-black">Organization default workspace</span>
-                        <span className="mt-1 block text-xs text-gray-500">No departments are configured yet, so the invite will start at the organization workspace.</span>
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
-              {invitationStep === 5 ? (
-                <div>
-                  <h4 className="text-lg font-black text-gray-900">Review Invitation</h4>
-                  <p className="mt-1 text-sm text-gray-500">Confirm scope and delivery details before sending.</p>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    {[
-                      ['Organization', organizationOptions.find((item) => item.id === invitationDraft.organization_id)?.name || 'Not selected'],
-                      ['Role', invitationDraft.role.replace(/_/g, ' ')],
-                      ['Invitee', `${invitationDraft.first_name} ${invitationDraft.last_name}`.trim() || 'Not added'],
-                      ['Email', invitationDraft.email || 'Not added'],
-                      ['Mobile', `${invitationDraft.country_code || ''} ${invitationDraft.mobile_number || ''}`.trim() || 'Not added'],
-                      ['Products', productOptions.filter((item) => invitationDraft.product_ids.includes(item.id)).map((item) => item.name).join(', ') || 'Not selected'],
-                      ['Workspace', invitationWorkspaces.find((item) => item.id === invitationDraft.department_id)?.name || 'Organization default workspace'],
-                    ].map(([label, value]) => (
-                      <div key={label} className="rounded-2xl bg-white px-4 py-3">
-                        <p className="text-xs font-black uppercase tracking-[0.18em] text-gray-400">{label}</p>
-                        <p className="mt-1 font-bold text-gray-900">{value}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              {invitationStep === 6 ? (
-                latestInvitation ? (
-                  <div>
-                    <div className="flex items-start gap-3">
-                      <CheckCircle2 className="mt-1 h-6 w-6 text-emerald-500" />
-                      <div>
-                        <h4 className="text-lg font-black text-gray-900">Invitation created</h4>
-                        <p className="mt-1 text-sm text-gray-500">Email/WhatsApp delivery is queued when providers are unavailable, and this secure link is available for Product Owner testing.</p>
+                {!isFiteatsyInvitation ? (
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                      <p className="z-label text-gray-500">Available packages</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {packageOptions.length ? packageOptions.slice(0, 8).map((pkg) => (
+                          <span key={pkg.id} className="rounded-full border border-gray-200 bg-white px-3 py-2 z-subtitle text-gray-600">{pkg.name}</span>
+                        )) : <span className="z-subtitle text-gray-500">No packages configured yet.</span>}
                       </div>
                     </div>
-                    <div className="mt-5 rounded-2xl border border-emerald-100 bg-white p-4">
-                      <p className="text-xs font-black uppercase tracking-[0.18em] text-gray-400">Secure invitation URL</p>
-                      <p className="mt-2 break-all text-sm font-bold text-gray-900">{invitationLinkFor(latestInvitation) || 'Generate a fresh link to continue.'}</p>
-                    </div>
-                    <div className="mt-5 flex flex-wrap gap-3">
-                      <ActionButton icon={Copy} label="Copy Invitation Link" tone="primary" onClick={() => copyInvitationLink(latestInvitation)} disabled={!invitationLinkFor(latestInvitation)} />
-                      <ActionButton icon={ArrowUpRight} label="Open Invitation Link" onClick={() => openInvitationLink(latestInvitation)} disabled={!invitationLinkFor(latestInvitation)} />
-                      <ActionButton icon={Mail} label="Resend Invitation" onClick={() => resendInvitationWithLink(latestInvitation)} disabled={isSubmitting} />
-                      <ActionButton icon={KeyRound} label="Regenerate Invitation" onClick={() => regenerateInvitationLink(latestInvitation)} disabled={isSubmitting} />
-                      <ActionButton icon={XCircle} label="Revoke Invitation" onClick={() => revokeInvitation(latestInvitation)} disabled={isSubmitting} />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => resetInvitationDraft(invitationDraft.role)}
-                      className="mt-5 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-600"
-                    >
-                      Create another invitation
-                    </button>
-                  </div>
-                ) : (
-                  <div>
-                    <h4 className="text-lg font-black text-gray-900">Send Invitation</h4>
-                    <p className="mt-1 text-sm text-gray-500">This will persist the invitation, create audit events, queue notification outbox records, and generate a secure testable invitation URL.</p>
-                    <div className="mt-5 rounded-2xl bg-white p-4 text-sm text-gray-600">
-                      <p><span className="font-bold text-gray-900">Invitee:</span> {invitationDraft.email || 'Not added'}</p>
-                      <p><span className="font-bold text-gray-900">Role:</span> {invitationDraft.role.replace(/_/g, ' ')}</p>
-                      <p><span className="font-bold text-gray-900">Organization:</span> {organizationOptions.find((item) => item.id === invitationDraft.organization_id)?.name || 'Not selected'}</p>
+                    <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                      <p className="z-label text-gray-500">Available services</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {serviceOptions.length ? serviceOptions.slice(0, 8).map((service) => (
+                          <span key={service.id} className="rounded-full border border-gray-200 bg-white px-3 py-2 z-subtitle text-gray-600">{service.name}</span>
+                        )) : <span className="z-subtitle text-gray-500">No services configured yet.</span>}
+                      </div>
                     </div>
                   </div>
-                )
-              ) : null}
-            </div>
-
-            <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={() => setInvitationStep((current) => Math.max(0, current - 1))}
-                disabled={invitationStep === 0 || Boolean(latestInvitation)}
-                className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-600 disabled:opacity-40"
-              >
-                Back
-              </button>
-              <div className="flex flex-wrap gap-3">
-                <ActionButton icon={XCircle} label="Close" onClick={() => setShowInvitationModal(false)} />
-                {!latestInvitation && invitationStep < 6 ? (
-                  <ActionButton icon={ArrowUpRight} label="Next" tone="primary" onClick={() => setInvitationStep((current) => Math.min(6, current + 1))} />
-                ) : null}
-                {!latestInvitation && invitationStep === 6 ? (
-                  <ActionButton icon={Mail} label="Send Invitation" tone="primary" onClick={submitInvitation} disabled={isSubmitting} />
                 ) : null}
               </div>
-            </div>
-          </div>
-        </div>
+            </WorkflowCard>
+          ) : null}
+
+          {invitationStepId === 'review' ? (
+            <WorkflowCard title="Review invitation" description="Confirm the invitation details before sending.">
+              <div className="grid gap-3 md:grid-cols-2">
+                {[
+                  ['Role', humanizeLabel(invitationDraft.role)],
+                  ['Invitee', `${invitationDraft.first_name} ${invitationDraft.last_name}`.trim() || 'Not added'],
+                  ['Email', invitationDraft.email || 'Not added'],
+                  ['Mobile', `${invitationDraft.country_code || ''} ${invitationDraft.mobile_number || ''}`.trim() || 'Not added'],
+                  ['Product', selectedInvitationPrimaryProduct?.name || 'Not selected'],
+                  ['Products', productOptions.filter((item) => invitationDraft.product_ids.includes(item.id)).map((item) => item.name).join(', ') || 'Not selected'],
+                  ['Organization', isFiteatsyInvitation ? 'Not required for Fiteatsy' : organizationOptions.find((item) => item.id === invitationDraft.organization_id)?.name || 'Not selected'],
+                  ['Workspace', isFiteatsyInvitation ? 'Product workspace' : invitationWorkspaces.find((item) => item.id === invitationDraft.department_id)?.name || 'Organization default workspace'],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-2xl bg-gray-50 px-4 py-3">
+                    <p className="z-label text-gray-500">{label}</p>
+                    <p className="mt-1 z-table-content font-semibold text-gray-900">{value}</p>
+                  </div>
+                ))}
+              </div>
+            </WorkflowCard>
+          ) : null}
+
+          {invitationStepId === 'send' ? (
+            latestInvitation ? (
+              <WorkflowCard title="Invitation created" description="Delivery is queued when providers are unavailable, and this secure link is available for Product Owner testing.">
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="mt-1 h-6 w-6 text-emerald-500" />
+                    <div>
+                      <p className="z-h4 text-gray-900">Secure invitation URL is ready</p>
+                      <p className="mt-2 break-all z-body font-semibold text-gray-900">{invitationLinkFor(latestInvitation) || 'Generate a fresh link to continue.'}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <ActionButton icon={Copy} label="Copy invitation link" tone="primary" onClick={() => copyInvitationLink(latestInvitation)} disabled={!invitationLinkFor(latestInvitation)} />
+                  <ActionButton icon={ArrowUpRight} label="Open invitation link" onClick={() => openInvitationLink(latestInvitation)} disabled={!invitationLinkFor(latestInvitation)} />
+                  <ActionButton icon={Mail} label="Resend invitation" onClick={() => resendInvitationWithLink(latestInvitation)} disabled={isSubmitting} />
+                  <ActionButton icon={KeyRound} label="Regenerate invitation" onClick={() => regenerateInvitationLink(latestInvitation)} disabled={isSubmitting} />
+                  <ActionButton icon={XCircle} label="Revoke invitation" onClick={() => revokeInvitation(latestInvitation)} disabled={isSubmitting} />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => resetInvitationDraft(invitationDraft.role)}
+                  className="mt-5 z-btn z-btn-secondary"
+                >
+                  Create another invitation
+                </button>
+              </WorkflowCard>
+            ) : (
+              <WorkflowCard title="Send invitation" description="This persists the invitation, creates audit events, queues notification outbox records, and generates a secure testable invitation URL.">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-2xl bg-gray-50 p-4">
+                    <p className="z-label text-gray-500">Invitee</p>
+                    <p className="mt-1 z-table-content font-semibold text-gray-900">{invitationDraft.email || 'Not added'}</p>
+                  </div>
+                  <div className="rounded-2xl bg-gray-50 p-4">
+                    <p className="z-label text-gray-500">Role</p>
+                    <p className="mt-1 z-table-content font-semibold text-gray-900">{humanizeLabel(invitationDraft.role)}</p>
+                  </div>
+                  <div className="rounded-2xl bg-gray-50 p-4">
+                    <p className="z-label text-gray-500">Product</p>
+                    <p className="mt-1 z-table-content font-semibold text-gray-900">{selectedInvitationPrimaryProduct?.name || 'Not selected'}</p>
+                  </div>
+                </div>
+              </WorkflowCard>
+            )
+          ) : null}
+        </WorkflowModal>
       ) : null}
 
       {showImportModal ? (

@@ -174,3 +174,88 @@ export function EmptyState({ icon: Icon, title, description, action }) {
     </div>
   );
 }
+
+export function WorkflowModal({
+  eyebrow,
+  title,
+  description,
+  steps = [],
+  activeStep = 0,
+  onStepChange,
+  onClose,
+  footer,
+  children,
+}) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4 md:p-6">
+      <div className="flex h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl md:h-[760px]">
+        <div className="shrink-0 border-b border-gray-100 bg-white px-6 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              {eyebrow ? <p className="z-label text-[#237afc]">{eyebrow}</p> : null}
+              <h3 className="mt-2 z-h1 text-gray-900">{title}</h3>
+              {description ? <p className="mt-2 max-w-3xl z-body text-gray-500">{description}</p> : null}
+            </div>
+            <button type="button" onClick={onClose} className="z-btn z-btn-secondary">
+              Close
+            </button>
+          </div>
+        </div>
+
+        <div className="shrink-0 border-b border-gray-100 bg-white px-6 py-4">
+          <WizardStepper steps={steps} activeStep={activeStep} onStepChange={onStepChange} />
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto bg-gray-50 px-6 py-6">{children}</div>
+
+        {footer ? <div className="shrink-0 border-t border-gray-100 bg-white px-6 py-4">{footer}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+export function WizardStepper({ steps = [], activeStep = 0, onStepChange }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+      {steps.map((step, index) => (
+        <button
+          key={step.id || step.label}
+          type="button"
+          onClick={() => onStepChange?.(index)}
+          className={cn(
+            'rounded-2xl border px-3 py-2 text-left transition',
+            activeStep === index
+              ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]'
+              : index < activeStep
+                ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                : 'border-gray-100 bg-gray-50 text-gray-500'
+          )}
+        >
+          <span className="block z-label text-current">Step {index + 1}</span>
+          <span className="mt-1 block z-table-content font-semibold">{step.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function WorkflowCard({ title, description, children }) {
+  return (
+    <section className="rounded-[24px] border border-gray-100 bg-white p-5 shadow-sm">
+      {title ? <h4 className="z-h3 text-gray-900">{title}</h4> : null}
+      {description ? <p className="mt-2 z-body text-gray-500">{description}</p> : null}
+      <div className="mt-5">{children}</div>
+    </section>
+  );
+}
+
+export function Field({ label, helper, error, children }) {
+  return (
+    <label className="block">
+      {label ? <span className="mb-2 block z-label text-gray-500">{label}</span> : null}
+      {children}
+      {helper ? <span className="mt-2 block z-subtitle text-gray-500">{helper}</span> : null}
+      {error ? <span className="mt-2 block z-subtitle text-red-600">{error}</span> : null}
+    </label>
+  );
+}
