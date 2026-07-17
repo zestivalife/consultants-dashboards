@@ -42,10 +42,12 @@ import {
   ControlBar,
   EmptyState,
   Field,
+  FormSection,
   formatCurrency,
   MiniBarChart,
   ModuleFrame,
   Panel,
+  ReviewCard,
   StatPill,
   WorkflowCard,
   WorkflowModal,
@@ -454,7 +456,7 @@ export function PeopleAccessModule({
       { id: 'practitioner', value: 'practitioner', label: 'Practitioner' },
       { id: 'mentor', value: 'mentor', label: 'Mentor' },
       { id: 'consultant', value: 'consultant', label: 'Consultant' },
-      { id: 'corporate_admin', value: 'corporate_admin', label: 'Corporate Admin' },
+      { id: 'corporate_admin', value: 'corporate_admin', label: 'Corporate admin' },
     ];
   }, [roleOptions]);
   const invitationWorkspaces = useMemo(
@@ -471,7 +473,7 @@ export function PeopleAccessModule({
     const baseSteps = [
       { id: 'role', label: 'Role' },
       { id: 'contact', label: 'Contact' },
-      { id: 'product', label: 'Product' },
+      { id: 'platform', label: 'Platform' },
     ];
     if (isFiteatsyInvitation) {
       return [
@@ -492,7 +494,7 @@ export function PeopleAccessModule({
   }, [isFiteatsyInvitation]);
   const invitationStepId = invitationSteps[invitationStep]?.id || invitationSteps[0]?.id || 'role';
   const invitationSendStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'send'));
-  const invitationProductStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'product'));
+  const invitationProductStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'platform'));
   const invitationRoleStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'role'));
   const invitationContactStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'contact'));
   const invitationOrganizationStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'organization'));
@@ -503,7 +505,7 @@ export function PeopleAccessModule({
       .toString()
       .replace(/_/g, ' ')
       .toLowerCase()
-      .replace(/(^|\s)\S/g, (match) => match.toUpperCase());
+      .replace(/^./, (match) => match.toUpperCase());
   const visibleInvitations = useMemo(() => {
     const search = invitationFilters.search.trim().toLowerCase();
     const status = invitationFilters.status;
@@ -1533,7 +1535,7 @@ export function PeopleAccessModule({
               </button>
               <div className="flex flex-wrap gap-3">
                 <button type="button" className="z-btn z-btn-secondary" onClick={() => setShowInvitationModal(false)}>
-                  Close
+                  Cancel
                 </button>
                 {!latestInvitation && invitationStep < invitationSendStepIndex ? (
                   <button
@@ -1580,57 +1582,59 @@ export function PeopleAccessModule({
               title="Enter contact information"
               description="These details are stored with the invitation and carried into onboarding."
             >
-              <div className="grid gap-4 md:grid-cols-2">
-                <Field label="First name">
-                  <input
-                    value={invitationDraft.first_name}
-                    onChange={(event) => setInvitationDraft((current) => ({ ...current, first_name: event.target.value }))}
-                    placeholder="Enter first name"
-                    className="z-input"
-                  />
-                </Field>
-                <Field label="Last name">
-                  <input
-                    value={invitationDraft.last_name}
-                    onChange={(event) => setInvitationDraft((current) => ({ ...current, last_name: event.target.value }))}
-                    placeholder="Enter last name"
-                    className="z-input"
-                  />
-                </Field>
-                <Field label="Email">
-                  <input
-                    value={invitationDraft.email}
-                    onChange={(event) => setInvitationDraft((current) => ({ ...current, email: event.target.value }))}
-                    placeholder="name@company.com"
-                    className="z-input"
-                    type="email"
-                  />
-                </Field>
-                <div className="grid grid-cols-[112px_1fr] gap-3">
-                  <Field label="Country code">
+              <FormSection title="Invitee details" description="Use the person’s legal or work profile details for onboarding continuity.">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field label="First name">
                     <input
-                      value={invitationDraft.country_code}
-                      onChange={(event) => setInvitationDraft((current) => ({ ...current, country_code: event.target.value }))}
-                      placeholder="+91"
+                      value={invitationDraft.first_name}
+                      onChange={(event) => setInvitationDraft((current) => ({ ...current, first_name: event.target.value }))}
+                      placeholder="Enter first name"
                       className="z-input"
                     />
                   </Field>
-                  <Field label="Mobile number">
+                  <Field label="Last name">
                     <input
-                      value={invitationDraft.mobile_number}
-                      onChange={(event) => setInvitationDraft((current) => ({ ...current, mobile_number: event.target.value }))}
-                      placeholder="Enter mobile number"
+                      value={invitationDraft.last_name}
+                      onChange={(event) => setInvitationDraft((current) => ({ ...current, last_name: event.target.value }))}
+                      placeholder="Enter last name"
                       className="z-input"
                     />
                   </Field>
+                  <Field label="Email">
+                    <input
+                      value={invitationDraft.email}
+                      onChange={(event) => setInvitationDraft((current) => ({ ...current, email: event.target.value }))}
+                      placeholder="name@company.com"
+                      className="z-input"
+                      type="email"
+                    />
+                  </Field>
+                  <div className="grid grid-cols-[112px_1fr] gap-3">
+                    <Field label="Country code">
+                      <input
+                        value={invitationDraft.country_code}
+                        onChange={(event) => setInvitationDraft((current) => ({ ...current, country_code: event.target.value }))}
+                        placeholder="+91"
+                        className="z-input"
+                      />
+                    </Field>
+                    <Field label="Mobile number">
+                      <input
+                        value={invitationDraft.mobile_number}
+                        onChange={(event) => setInvitationDraft((current) => ({ ...current, mobile_number: event.target.value }))}
+                        placeholder="Enter mobile number"
+                        className="z-input"
+                      />
+                    </Field>
+                  </div>
                 </div>
-              </div>
+              </FormSection>
             </WorkflowCard>
           ) : null}
 
-          {invitationStepId === 'product' ? (
+          {invitationStepId === 'platform' ? (
             <WorkflowCard
-              title="Select product"
+              title="Select platform"
               description="Choose the primary product first. The next steps adapt automatically for Nuetra or Fiteatsy."
             >
               <div className="grid gap-3 md:grid-cols-2">
@@ -1759,16 +1763,11 @@ export function PeopleAccessModule({
                   ['Invitee', `${invitationDraft.first_name} ${invitationDraft.last_name}`.trim() || 'Not added'],
                   ['Email', invitationDraft.email || 'Not added'],
                   ['Mobile', `${invitationDraft.country_code || ''} ${invitationDraft.mobile_number || ''}`.trim() || 'Not added'],
-                  ['Product', selectedInvitationPrimaryProduct?.name || 'Not selected'],
+                  ['Platform', selectedInvitationPrimaryProduct?.name || 'Not selected'],
                   ['Products', productOptions.filter((item) => invitationDraft.product_ids.includes(item.id)).map((item) => item.name).join(', ') || 'Not selected'],
                   ['Organization', isFiteatsyInvitation ? 'Not required for Fiteatsy' : organizationOptions.find((item) => item.id === invitationDraft.organization_id)?.name || 'Not selected'],
                   ['Workspace', isFiteatsyInvitation ? 'Product workspace' : invitationWorkspaces.find((item) => item.id === invitationDraft.department_id)?.name || 'Organization default workspace'],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-2xl bg-gray-50 px-4 py-3">
-                    <p className="z-label text-gray-500">{label}</p>
-                    <p className="mt-1 z-table-content font-semibold text-gray-900">{value}</p>
-                  </div>
-                ))}
+                ].map(([label, value]) => <ReviewCard key={label} label={label} value={value} />)}
               </div>
             </WorkflowCard>
           ) : null}
@@ -1790,7 +1789,7 @@ export function PeopleAccessModule({
                   <ActionButton icon={ArrowUpRight} label="Open invitation link" onClick={() => openInvitationLink(latestInvitation)} disabled={!invitationLinkFor(latestInvitation)} />
                   <ActionButton icon={Mail} label="Resend invitation" onClick={() => resendInvitationWithLink(latestInvitation)} disabled={isSubmitting} />
                   <ActionButton icon={KeyRound} label="Regenerate invitation" onClick={() => regenerateInvitationLink(latestInvitation)} disabled={isSubmitting} />
-                  <ActionButton icon={XCircle} label="Revoke invitation" onClick={() => revokeInvitation(latestInvitation)} disabled={isSubmitting} />
+                  <ActionButton icon={XCircle} label="Revoke invitation" tone="danger" onClick={() => revokeInvitation(latestInvitation)} disabled={isSubmitting} />
                 </div>
                 <button
                   type="button"

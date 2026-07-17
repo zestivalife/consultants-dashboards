@@ -41,9 +41,22 @@
 }
 
 body {
+  font-family: 'Poppins', sans-serif;
   text-rendering: optimizeLegibility;
   background: var(--fluent-color-neutral-background-canvas);
   color: var(--fluent-color-neutral-foreground-1);
+}
+
+html,
+body,
+*,
+*::before,
+*::after,
+button,
+input,
+select,
+textarea {
+  font-family: 'Poppins', sans-serif !important;
 }
 
 .fluent-page {

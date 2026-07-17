@@ -50,16 +50,22 @@ export function ModuleFrame({ badge, title, description, actions, children }) {
 }
 
 export function ActionButton({ icon: Icon, label, tone = 'secondary', onClick, type = 'button', disabled = false }) {
+  const toneClasses = {
+    primary: 'border-[#237afc] bg-[#237afc] text-white shadow-md hover:bg-[#1a62d6]',
+    secondary: 'border border-gray-200 bg-white text-gray-700 hover:border-[#237afc] hover:text-[#237afc]',
+    ghost: 'border border-transparent bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-900',
+    text: 'border border-transparent bg-transparent text-[#237afc] hover:bg-blue-50',
+    danger: 'border border-red-200 bg-red-50 text-red-700 hover:border-red-300 hover:bg-red-100',
+  };
+
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-60',
-        tone === 'primary'
-          ? 'bg-[#237afc] text-white shadow-md hover:bg-[#1a62d6]'
-          : 'border border-gray-200 bg-white text-gray-700 hover:border-[#237afc] hover:text-[#237afc]'
+        'inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+        toneClasses[tone] || toneClasses.secondary
       )}
     >
       <Icon className="h-4 w-4" />
@@ -187,43 +193,57 @@ export function WorkflowModal({
   children,
 }) {
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4 md:p-6">
-      <div className="flex h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl md:h-[760px]">
-        <div className="shrink-0 border-b border-gray-100 bg-white px-6 py-5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              {eyebrow ? <p className="z-label text-[#237afc]">{eyebrow}</p> : null}
-              <h3 className="mt-2 z-h1 text-gray-900">{title}</h3>
-              {description ? <p className="mt-2 max-w-3xl z-body text-gray-500">{description}</p> : null}
-            </div>
-            <button type="button" onClick={onClose} className="z-btn z-btn-secondary">
-              Close
-            </button>
-          </div>
-        </div>
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-0 md:p-6">
+      <div className="flex h-dvh w-full flex-col overflow-hidden bg-white shadow-2xl md:h-[760px] md:max-h-[92vh] md:max-w-5xl md:rounded-[28px]">
+        <WorkflowHeader eyebrow={eyebrow} title={title} description={description} onClose={onClose} />
 
-        <div className="shrink-0 border-b border-gray-100 bg-white px-6 py-4">
+        <div className="sticky top-0 z-10 shrink-0 border-b border-gray-100 bg-white px-5 py-3 md:px-6">
           <WizardStepper steps={steps} activeStep={activeStep} onStepChange={onStepChange} />
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto bg-gray-50 px-6 py-6">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto bg-gray-50 px-5 py-5 md:px-6 md:py-6">{children}</div>
 
-        {footer ? <div className="shrink-0 border-t border-gray-100 bg-white px-6 py-4">{footer}</div> : null}
+        {footer ? <WorkflowFooter>{footer}</WorkflowFooter> : null}
       </div>
     </div>
   );
 }
 
+export function WorkflowHeader({ eyebrow, title, description, onClose }) {
+  return (
+    <header className="sticky top-0 z-20 shrink-0 border-b border-gray-100 bg-white px-5 py-5 md:px-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          {eyebrow ? <p className="z-label text-[#237afc]">{eyebrow}</p> : null}
+          <h3 className="mt-2 z-h1 text-gray-900">{title}</h3>
+          {description ? <p className="mt-2 max-w-3xl z-body text-gray-500">{description}</p> : null}
+        </div>
+        <button type="button" onClick={onClose} className="z-btn z-btn-secondary">
+          Cancel
+        </button>
+      </div>
+    </header>
+  );
+}
+
+export function WorkflowFooter({ children }) {
+  return (
+    <footer className="sticky bottom-0 z-20 shrink-0 border-t border-gray-100 bg-white px-5 py-4 md:px-6">
+      {children}
+    </footer>
+  );
+}
+
 export function WizardStepper({ steps = [], activeStep = 0, onStepChange }) {
   return (
-    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+    <div className="-mx-1 flex min-h-[72px] gap-2 overflow-x-auto px-1 pb-1" aria-label="Workflow steps">
       {steps.map((step, index) => (
         <button
           key={step.id || step.label}
           type="button"
           onClick={() => onStepChange?.(index)}
           className={cn(
-            'rounded-2xl border px-3 py-2 text-left transition',
+            'min-w-[132px] rounded-2xl border px-3 py-2 text-left transition md:min-w-[148px]',
             activeStep === index
               ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]'
               : index < activeStep
@@ -242,10 +262,37 @@ export function WizardStepper({ steps = [], activeStep = 0, onStepChange }) {
 export function WorkflowCard({ title, description, children }) {
   return (
     <section className="rounded-[24px] border border-gray-100 bg-white p-5 shadow-sm">
-      {title ? <h4 className="z-h3 text-gray-900">{title}</h4> : null}
-      {description ? <p className="mt-2 z-body text-gray-500">{description}</p> : null}
+      <SectionHeader title={title} description={description} />
       <div className="mt-5">{children}</div>
     </section>
+  );
+}
+
+export function FormSection({ title, description, children }) {
+  return (
+    <section className="space-y-4">
+      <SectionHeader title={title} description={description} />
+      {children}
+    </section>
+  );
+}
+
+export function SectionHeader({ title, description }) {
+  if (!title && !description) return null;
+  return (
+    <div>
+      {title ? <h4 className="z-h3 text-gray-900">{title}</h4> : null}
+      {description ? <p className="mt-2 z-body text-gray-500">{description}</p> : null}
+    </div>
+  );
+}
+
+export function ReviewCard({ label, value }) {
+  return (
+    <div className="rounded-2xl bg-gray-50 px-4 py-3">
+      <p className="z-label text-gray-500">{label}</p>
+      <p className="mt-1 z-table-content font-semibold text-gray-900">{value}</p>
+    </div>
   );
 }
 
