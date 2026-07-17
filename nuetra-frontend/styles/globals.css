@@ -59,6 +59,11 @@ textarea {
   font-family: 'Poppins', sans-serif !important;
 }
 
+/* Enterprise copy standard: use sentence case visually unless text is a true acronym. */
+.uppercase {
+  text-transform: none !important;
+}
+
 .fluent-page {
   background: var(--fluent-color-neutral-background-canvas);
   color: var(--fluent-color-neutral-foreground-1);
