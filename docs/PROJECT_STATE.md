@@ -432,6 +432,8 @@ Protected Modules
 
 # CURRENT NEXT ACTION
 
-Prepare Slice 3 – Password Setup implementation plan.
+Complete Product Owner acceptance for the invitation workflow and credential creation UX.
 
-Do not begin Slice 3 implementation until Product Owner approval is received.
+Current UX refinement deployed in frontend commit `19b996a2ceb89cb1e92ed632d5e7bf0007d28c59`.
+
+Do not begin Slice 4 Authentication & Session until the invitation and credential creation workflow is demonstrable through the deployed application.

@@ -164,6 +164,46 @@ LOCALLY VERIFIED
 
 ---
 
+## 2026-07-17
+
+Status: Invitation workflow UX refinement
+
+Commit SHA:
+
+19b996a2ceb89cb1e92ed632d5e7bf0007d28c59
+
+Branch:
+
+main, develop, feature/m2-invitation-workflow-completion
+
+Changes:
+
+- Reduced the invitation wizard desktop modal to a 900-1000px class width and 75-80vh height range.
+- Kept wizard header, stepper, and footer sticky while only the content area scrolls.
+- Made the invitation stepper dynamic: Role, Contact, and Platform render first, then Nuetra and FitEatsy show only their relevant downstream steps.
+- Renamed the Nuetra scope step to Access Scope and expanded the UI language to cover products, packages, services, and permissions.
+- Applied the approved Poppins typography scale and reduced excessive visual weight across shared owner-console primitives.
+- Lightened dashboard cards, stat cards, sidebar navigation, panels, badges, and workflow cards through shared components.
+
+Impact:
+
+- Frontend UX and design-system implementation only.
+- No authentication, session, invitation API, backend, gateway, or database changes.
+- Existing backend People & Access production route availability remains a separate acceptance blocker for full workflow completion.
+
+Verification:
+
+- Frontend production build passed.
+- Vercel production version endpoint reports commit `19b996a2ceb89cb1e92ed632d5e7bf0007d28c59`.
+- `/dashboard/owner/people-access` returned HTTP 200 after deployment.
+- Browser click-through automation was not available in the current local tool environment.
+
+Final Status:
+
+DEPLOYED
+
+---
+
 ## 2026-07-16
 
 Status: Slice ordering alignment
