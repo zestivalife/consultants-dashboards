@@ -17,11 +17,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "users",
-        sa.Column("permissions", sa.JSON(), nullable=False, server_default="[]"),
-    )
-    op.alter_column("users", "permissions", server_default=None)
+    bind = op.get_bind()
+    user_columns = {column["name"] for column in sa.inspect(bind).get_columns("users")}
+    if "permissions" not in user_columns:
+        op.add_column(
+            "users",
+            sa.Column("permissions", sa.JSON(), nullable=False, server_default="[]"),
+        )
+        op.alter_column("users", "permissions", server_default=None)
     op.execute(
         "INSERT INTO roles (id, name, description, created_at, updated_at) "
         "VALUES (gen_random_uuid(), 'mentor', 'Mentor access for supervision and support workflows', now(), now()) "
@@ -31,4 +34,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("DELETE FROM roles WHERE name = 'mentor'")
-    op.drop_column("users", "permissions")
+    bind = op.get_bind()
+    user_columns = {column["name"] for column in sa.inspect(bind).get_columns("users")}
+    if "permissions" in user_columns:
+        op.drop_column("users", "permissions")
