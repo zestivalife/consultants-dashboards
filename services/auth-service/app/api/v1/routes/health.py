@@ -7,11 +7,28 @@ from app.version import get_runtime_version
 router = APIRouter(tags=["health"])
 
 
+async def _get_database_migration_version() -> str:
+    try:
+        engine = get_engine()
+        async with engine.connect() as conn:
+            result = await conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1"))
+            version = result.scalar_one_or_none()
+            return str(version) if version else "missing"
+    except Exception:
+        return "unavailable"
+
+
+async def _get_runtime_with_database_version(service: str, app_version: str, environment: str) -> dict[str, str]:
+    runtime = get_runtime_version(service, app_version, environment)
+    runtime["migration_version"] = await _get_database_migration_version()
+    return runtime
+
+
 @router.get("/health")
 async def liveness():
     from app.config import get_settings
     settings = get_settings()
-    version = get_runtime_version(settings.app_name, settings.app_version, settings.app_env)
+    version = await _get_runtime_with_database_version(settings.app_name, settings.app_version, settings.app_env)
     return {
         "status": "healthy",
         "service": settings.app_name,
@@ -27,7 +44,7 @@ async def version():
     from app.config import get_settings
 
     settings = get_settings()
-    return get_runtime_version(settings.app_name, settings.app_version, settings.app_env)
+    return await _get_runtime_with_database_version(settings.app_name, settings.app_version, settings.app_env)
 
 
 @router.get("/ready")
@@ -58,12 +75,13 @@ async def readiness():
     from app.config import get_settings
     from fastapi.responses import JSONResponse
     settings = get_settings()
+    runtime = await _get_runtime_with_database_version(settings.app_name, settings.app_version, settings.app_env)
     if all_ok:
         return {
             "status": "ready",
             "service": settings.app_name,
             "version": settings.app_version,
-            "runtime": get_runtime_version(settings.app_name, settings.app_version, settings.app_env),
+            "runtime": runtime,
             "checks": checks,
         }
     return JSONResponse(
@@ -72,7 +90,7 @@ async def readiness():
             "status": "degraded",
             "service": settings.app_name,
             "version": settings.app_version,
-            "runtime": get_runtime_version(settings.app_name, settings.app_version, settings.app_env),
+            "runtime": runtime,
             "checks": checks,
         },
     )
