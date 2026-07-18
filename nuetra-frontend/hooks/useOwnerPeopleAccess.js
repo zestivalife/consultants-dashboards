@@ -289,6 +289,15 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     return result;
   }, [loadSelectedUser, selectedUserId]);
 
+  const onResetUserPassword = useCallback(async (userId) => {
+    const result = await ownerPeopleAccessAPI.resetUserPassword(userId);
+    if (selectedUserId === userId) {
+      await loadSelectedUser(userId);
+    }
+    await refresh();
+    return result;
+  }, [loadSelectedUser, refresh, selectedUserId]);
+
   const onExportUsersCsv = useCallback(async () => ownerPeopleAccessAPI.exportUsersCsv(), []);
 
   const onImportUsers = useCallback(async (rows) => {
@@ -347,6 +356,7 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     onAssignServices,
     onRevokeSession,
     onForceLogout,
+    onResetUserPassword,
     onExportUsersCsv,
     onImportUsers,
     onUpdateRolePermissions,

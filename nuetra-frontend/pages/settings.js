@@ -133,8 +133,8 @@ function SettingsPage() {
       return;
     }
 
-    if (passwordData.newPassword.length < 8) {
-      setError('Password must be at least 8 characters long');
+    if (passwordData.newPassword.length < 12) {
+      setError('Password must be at least 12 characters long');
       return;
     }
 
@@ -145,6 +145,7 @@ function SettingsPage() {
         body: {
           current_password: passwordData.currentPassword,
           new_password: passwordData.newPassword,
+          confirm_password: passwordData.confirmPassword,
         },
       });
 
@@ -574,4 +575,3 @@ function SettingsPage() {
 }
 
 export default SettingsPage;
-

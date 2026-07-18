@@ -41,10 +41,12 @@ from app.schemas.people_access import (
     CredentialCreateRequest,
     CredentialCreateResponse,
     CustomRoleCreateRequest,
+    AdminPasswordResetResponse,
     InvitationCreateRequest,
     InvitationAcceptResponse,
     InvitationValidationResponse,
     ManagedUserCreateRequest,
+    ManagedUserCreateResponse,
     ManagedUserUpdateRequest,
     OrganizationCreateRequest,
     OrganizationResponse,
@@ -63,6 +65,7 @@ from app.schemas.people_access import (
     RolePermissionUpdateRequest,
     RolePermissionMatrixRow,
     ServiceCatalogItem,
+    TemporaryCredentialResponse,
     UserAttachmentItem,
     UserAttachmentCreateRequest,
     UserPackageAssignmentItem,
@@ -705,6 +708,7 @@ async def get_user_detail(session: AsyncSession, user_id: uuid.UUID) -> UserProf
         professional_title=user.industry,
         status=user.status,
         verification="Verified" if user.is_verified else "Pending verification",
+        must_change_password=user.must_change_password,
         last_login_at=user.last_login_at,
         created_at=user.created_at,
         memberships=[_membership_to_summary(membership) for membership in user.organization_memberships],
@@ -840,7 +844,7 @@ async def create_user(
     ip_address: str | None,
     user_agent: str | None,
     request_id: str | None,
-) -> UserProfileDetail:
+) -> ManagedUserCreateResponse:
     repo = PeopleAccessRepository(session)
     email = payload.email.lower().strip()
     if await repo.get_user_by_email(email):
@@ -862,7 +866,8 @@ async def create_user(
         if department is None:
             raise NotFoundException("Department not found")
 
-    status = _normalize_status(payload.status)
+    requested_status = _normalize_status(payload.status)
+    status = "ACTIVE" if requested_status in {"INVITED", "PENDING_VERIFICATION"} else requested_status
     created = await user_service.create_user(
         session,
         CreateUserCommand(
@@ -878,6 +883,7 @@ async def create_user(
             is_verified=status not in {"INVITED", "PENDING_VERIFICATION"},
             actor_user_id=actor.id,
             audit_event_type="PEOPLE_ACCESS_USER_CREATED",
+            must_change_password=True,
         ),
     )
     user = created.user
@@ -915,56 +921,6 @@ async def create_user(
         service_ids=payload.service_ids,
     )
 
-    _raw_token, token_hash, token_fingerprint = _new_invitation_token()
-    invitation_id = uuid.uuid4()
-    invitation = UserInvitation(
-        id=invitation_id,
-        user_id=user.id,
-        email=user.email,
-        invited_role_id=role.id,
-        product_id=payload.primary_product_id,
-        organization_id=payload.organization_id,
-        department_id=payload.department_id,
-        invited_by_user_id=actor.id,
-        status="INVITED",
-        token=_legacy_token_reference(invitation_id),
-        token_hash=token_hash,
-        token_fingerprint=token_fingerprint,
-        expires_at=payload.invite_expires_at or (datetime.now(timezone.utc) + timedelta(days=7)),
-        last_sent_at=datetime.now(timezone.utc),
-    )
-    await repo.create_invitation(invitation)
-    product = await repo.get_product(payload.primary_product_id) if payload.primary_product_id else None
-    organization = await repo.get_organization(payload.organization_id) if payload.organization_id else None
-    email_outbox = await _queue_invitation_email(
-        repo,
-        invitation,
-        event_type="INVITATION_CREATED",
-        role_name=role.name,
-        product_name=product.name if product else None,
-        organization_name=organization.name if organization else None,
-        actor=actor,
-        request_id=request_id,
-    )
-    await _send_invitation_email(
-        repo,
-        email_outbox,
-        invitation,
-        invitation_url=_build_invitation_url(_raw_token),
-        role_name=role.name,
-        product_name=product.name if product else None,
-        organization_name=organization.name if organization else None,
-        request_id=request_id,
-    )
-    await _queue_invitation_whatsapp(
-        repo,
-        invitation,
-        event_type="INVITATION_CREATED",
-        role_name=role.name,
-        actor=actor,
-        request_id=request_id,
-    )
-
     await repo.add_status_history(
         UserStatusHistory(
             user_id=user.id,
@@ -984,34 +940,41 @@ async def create_user(
             entity_id=str(user.id),
             action="users.create",
             before_state=None,
-            after_state={"email": user.email, "role": role.name, "status": status},
-            ip_address=ip_address,
-            browser=user_agent,
-            request_id=request_id,
-        )
-    )
-
-    await repo.add_audit_event(
-        AuditEvent(
-            actor_user_id=actor.id,
-            entity_type="user_invitation",
-            entity_id=str(invitation.id),
-            action="INVITATION_CREATED",
-            product_id=payload.primary_product_id,
-            before_state=None,
             after_state={
                 "email": user.email,
                 "role": role.name,
-                "email_outbox_status": email_outbox.status,
-                "token_fingerprint": token_fingerprint,
+                "status": status,
+                "must_change_password": True,
+                "temporary_password_returned_once": True,
             },
             ip_address=ip_address,
             browser=user_agent,
             request_id=request_id,
         )
     )
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="user",
+            entity_id=str(user.id),
+            action="PASSWORD_RESET_BY_ADMIN",
+            before_state=None,
+            after_state={"email": user.email, "temporary_password_returned_once": True},
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
 
-    return await get_user_detail(session, user.id)
+    user_detail = await get_user_detail(session, user.id)
+    return ManagedUserCreateResponse(
+        **user_detail.model_dump(),
+        temporary_credentials=TemporaryCredentialResponse(
+            username=user.email,
+            temporary_password=created.plain_password,
+            must_change_password=True,
+        ),
+    )
 
 
 async def update_user(
@@ -1146,6 +1109,63 @@ async def update_user(
     await session.flush()
     await session.refresh(user, attribute_names=["role"])
     return await get_user_detail(session, user.id)
+
+
+async def reset_user_password(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> AdminPasswordResetResponse:
+    repo = PeopleAccessRepository(session)
+    user = await repo.get_user(user_id)
+    if user is None or user.deleted_at is not None or str(user.status or "").upper() == "DELETED":
+        raise NotFoundException("User not found")
+
+    temporary_password = password_service.generate_temporary_password()
+    user.password_hash = password_service.hash_password(temporary_password)
+    user.must_change_password = True
+    user.password_changed_at = None
+    user.failed_login_attempts = 0
+    user.lock_until = None
+    if str(user.status or "").upper() in {"INVITED", "PENDING_VERIFICATION"}:
+        user.status = "ACTIVE"
+        user.is_active = True
+        user.is_verified = True
+        user.email_verified = True
+    await repo.add_password_history(
+        PasswordHistory(
+            user_id=user.id,
+            password_hash=user.password_hash,
+            source="admin_password_reset",
+        )
+    )
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="user",
+            entity_id=str(user.id),
+            action="PASSWORD_RESET_BY_ADMIN",
+            before_state=None,
+            after_state={
+                "email": user.email,
+                "must_change_password": True,
+                "temporary_password_returned_once": True,
+            },
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    return AdminPasswordResetResponse(
+        user_id=user.id,
+        username=user.email,
+        temporary_password=temporary_password,
+        must_change_password=True,
+    )
 
 
 async def add_note(

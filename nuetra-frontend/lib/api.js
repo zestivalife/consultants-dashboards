@@ -368,6 +368,28 @@ export const authAPI = {
     });
   },
 
+  changeTemporaryPassword(currentPassword, newPassword, confirmPassword) {
+    return apiRequest('/auth/change-temporary-password', {
+      method: 'POST',
+      body: {
+        current_password: currentPassword,
+        new_password: newPassword,
+        confirm_password: confirmPassword,
+      },
+    });
+  },
+
+  changePassword(currentPassword, newPassword, confirmPassword) {
+    return apiRequest('/auth/change-password', {
+      method: 'POST',
+      body: {
+        current_password: currentPassword,
+        new_password: newPassword,
+        confirm_password: confirmPassword,
+      },
+    });
+  },
+
   me() {
     return apiRequest('/auth/me');
   },
@@ -445,6 +467,12 @@ export const ownerPeopleAccessAPI = {
     return apiRequest(`/owner/people-access/users/${userId}`, {
       method: 'PATCH',
       body: payload,
+    });
+  },
+
+  resetUserPassword(userId) {
+    return apiRequest(`/owner/people-access/users/${userId}/reset-password`, {
+      method: 'POST',
     });
   },
 

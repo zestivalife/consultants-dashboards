@@ -32,6 +32,12 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=1, max_length=256)
+    confirm_password: str = Field(min_length=1, max_length=256)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
@@ -51,6 +57,7 @@ class UserResponse(BaseModel):
     last_name: str | None = None
     phone: str | None = None
     permissions: list[str] = Field(default_factory=list)
+    must_change_password: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

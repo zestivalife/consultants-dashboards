@@ -44,12 +44,12 @@ export const INVITATION_STEP_DEFINITIONS = {
   review: {
     id: 'review',
     label: 'Review',
-    title: 'Review invitation',
+    title: 'Review user',
   },
   send: {
     id: 'send',
-    label: 'Send',
-    title: 'Send invitation',
+    label: 'Create',
+    title: 'Create user',
   },
 };
 

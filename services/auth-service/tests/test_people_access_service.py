@@ -161,7 +161,7 @@ async def test_ensure_owner_access_allows_any_permission_match(session: AsyncSes
 
 
 @pytest.mark.asyncio
-async def test_create_user_creates_invitation_and_primary_role(session: AsyncSession):
+async def test_create_user_generates_temporary_credentials_and_primary_role(session: AsyncSession):
     owner_role = await _create_role(session, "platform_owner")
     consultant_role = await _create_role(session, "consultant")
     owner = await _create_user(session, owner_role, "owner@nuetra.in", first_name="Owner")
@@ -187,24 +187,28 @@ async def test_create_user_creates_invitation_and_primary_role(session: AsyncSes
 
     assert detail.email == "consultant@nuetra.in"
     assert detail.role == "consultant"
+    assert detail.status == "ACTIVE"
+    assert detail.must_change_password is True
+    assert detail.temporary_credentials.username == "consultant@nuetra.in"
+    assert detail.temporary_credentials.temporary_password
 
     invitation = await session.scalar(select(UserInvitation).where(UserInvitation.email == "consultant@nuetra.in"))
-    assert invitation is not None
-    assert invitation.status == "INVITED"
-    assert invitation.token.startswith("redacted:")
-    assert invitation.token_hash
-    assert invitation.token_hash != invitation.token
+    assert invitation is None
 
-    outbox = await session.scalar(
-        select(InvitationEmailOutbox).where(
-            InvitationEmailOutbox.invitation_id == invitation.id,
-            InvitationEmailOutbox.event_type == "INVITATION_CREATED",
+    created_user = await session.scalar(select(User).where(User.email == "consultant@nuetra.in"))
+    assert created_user is not None
+    assert created_user.status == "ACTIVE"
+    assert created_user.must_change_password is True
+    assert password_service.verify_password(detail.temporary_credentials.temporary_password, created_user.password_hash)
+
+    password_history = await session.scalar(
+        select(PasswordHistory).where(
+            PasswordHistory.user_id == created_user.id,
+            PasswordHistory.source == "temporary_user_creation",
         )
     )
-    assert outbox is not None
-    assert outbox.status == "SENT"
-    assert outbox.sent_at is not None
-    assert outbox.payload["token_delivery"] == "minted_for_email_only_not_persisted"
+    assert password_history is not None
+    assert password_history.password_hash == created_user.password_hash
 
     user_role = await session.scalar(
         select(UserRole)
@@ -212,6 +216,16 @@ async def test_create_user_creates_invitation_and_primary_role(session: AsyncSes
     )
     assert user_role is not None
     assert user_role.is_primary is True
+
+    audit_event = await session.scalar(
+        select(AuditEvent).where(
+            AuditEvent.entity_id == str(created_user.id),
+            AuditEvent.action == "PASSWORD_RESET_BY_ADMIN",
+        )
+    )
+    assert audit_event is not None
+    assert audit_event.after_state["temporary_password_returned_once"] is True
+    assert detail.temporary_credentials.temporary_password not in str(audit_event.after_state)
 
 
 @pytest.mark.asyncio
@@ -783,10 +797,14 @@ async def test_create_credentials_persists_password_history_outbox_and_audit(ses
     assert user.is_active is False
     assert user.is_verified is False
 
-    history = await session.scalar(select(PasswordHistory).where(PasswordHistory.user_id == user.id))
+    history = await session.scalar(
+        select(PasswordHistory).where(
+            PasswordHistory.user_id == user.id,
+            PasswordHistory.source == "credential_creation",
+        )
+    )
     assert history is not None
     assert password_service.verify_password("CredentialPass123!", history.password_hash)
-    assert history.source == "credential_creation"
 
     outbox_event = await session.scalar(
         select(InvitationEmailOutbox).where(

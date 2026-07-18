@@ -291,6 +291,7 @@ class UserProfileDetail(BaseModel):
     professional_title: str | None = None
     status: str
     verification: str
+    must_change_password: bool = False
     last_login_at: datetime | None = None
     created_at: datetime
     memberships: list[MembershipSummary] = Field(default_factory=list)
@@ -302,6 +303,25 @@ class UserProfileDetail(BaseModel):
     attachments: list[UserAttachmentItem] = Field(default_factory=list)
     status_history: list[UserStatusHistoryItem] = Field(default_factory=list)
     audit_events: list[PeopleAccessAuditItem] = Field(default_factory=list)
+
+
+class TemporaryCredentialResponse(BaseModel):
+    username: str
+    temporary_password: str
+    must_change_password: bool = True
+    message: str = "Copy this temporary password now. It will not be shown again."
+
+
+class ManagedUserCreateResponse(UserProfileDetail):
+    temporary_credentials: TemporaryCredentialResponse
+
+
+class AdminPasswordResetResponse(BaseModel):
+    user_id: uuid.UUID
+    username: str
+    temporary_password: str
+    must_change_password: bool = True
+    message: str = "Copy this temporary password now. It will not be shown again."
 
 
 class PermissionCatalogItem(BaseModel):

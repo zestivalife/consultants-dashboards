@@ -120,6 +120,7 @@ export default function OwnerConsolePage({ moduleSlug = 'command-center' }) {
             onAssignServices={peopleAccess.onAssignServices}
             onRevokeSession={peopleAccess.onRevokeSession}
             onForceLogout={peopleAccess.onForceLogout}
+            onResetUserPassword={peopleAccess.onResetUserPassword}
             onExportUsersCsv={peopleAccess.onExportUsersCsv}
             onImportUsers={peopleAccess.onImportUsers}
             onRefresh={peopleAccess.refresh}

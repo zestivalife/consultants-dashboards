@@ -373,6 +373,7 @@ export function PeopleAccessModule({
   onAssignServices,
   onRevokeSession,
   onForceLogout,
+  onResetUserPassword,
   onExportUsersCsv,
   onImportUsers,
   onRefresh,
@@ -384,6 +385,7 @@ export function PeopleAccessModule({
   const [showInvitationModal, setShowInvitationModal] = useState(false);
   const [invitationStep, setInvitationStep] = useState(0);
   const [latestInvitation, setLatestInvitation] = useState(null);
+  const [latestTemporaryCredentials, setLatestTemporaryCredentials] = useState(null);
   const [invitationLinks, setInvitationLinks] = useState({});
   const [invitationFilters, setInvitationFilters] = useState({ status: 'ALL', search: '', sort: 'newest' });
   const [showImportModal, setShowImportModal] = useState(false);
@@ -431,7 +433,7 @@ export function PeopleAccessModule({
     product_ids: [],
     package_ids: [],
     service_ids: [],
-    status: 'INVITED',
+    status: 'ACTIVE',
     permissions: [],
     tags: [],
     note: '',
@@ -736,6 +738,7 @@ export function PeopleAccessModule({
     });
     setInvitationStep(0);
     setLatestInvitation(null);
+    setLatestTemporaryCredentials(null);
   };
   const openInvitationWizard = (role = 'consultant') => {
     resetInvitationDraft(role);
@@ -758,6 +761,18 @@ export function PeopleAccessModule({
     }
     await navigator.clipboard.writeText(url);
     setActionError('Invitation link copied.');
+  };
+  const copyTemporaryCredential = async (value, label) => {
+    if (!value) {
+      setActionError(`${label} is not available.`);
+      return;
+    }
+    if (typeof navigator === 'undefined' || !navigator.clipboard) {
+      setActionError('Clipboard access is unavailable. Select and copy the value manually.');
+      return;
+    }
+    await navigator.clipboard.writeText(value);
+    setActionError(`${label} copied.`);
   };
   const openInvitationLink = (invitation) => {
     const url = invitationLinkFor(invitation);
@@ -812,6 +827,9 @@ export function PeopleAccessModule({
         tags: form.tags.filter(Boolean),
       });
       if (result === null) return;
+      if (result?.temporary_credentials) {
+        setLatestTemporaryCredentials(result.temporary_credentials);
+      }
       setShowCreateForm(false);
       setSelectedIds([]);
       setForm({
@@ -831,7 +849,7 @@ export function PeopleAccessModule({
         product_ids: [],
         package_ids: [],
         service_ids: [],
-        status: 'INVITED',
+        status: 'ACTIVE',
         permissions: [],
         tags: [],
         note: '',
@@ -927,6 +945,24 @@ export function PeopleAccessModule({
     }
   };
 
+  const resetSelectedUserPassword = async () => {
+    if (!selectedUser?.id) return;
+    setIsSubmitting(true);
+    try {
+      const result = await runAction('Reset password', onResetUserPassword, selectedUser.id);
+      if (result === null) return;
+      setLatestTemporaryCredentials({
+        username: result.username,
+        temporary_password: result.temporary_password,
+        must_change_password: result.must_change_password,
+        message: result.message,
+      });
+      setActionError('Temporary password generated. Copy it before closing the credential panel.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const submitInvitation = async () => {
     if (!invitationDraft.role) {
       setActionError('Select a role before sending the invitation.');
@@ -960,21 +996,21 @@ export function PeopleAccessModule({
     }
     setIsSubmitting(true);
     try {
-      const result = await runAction('Create invitation', onCreateInvitation, {
+      const result = await runAction('Create user', onCreateUser, {
         first_name: invitationDraft.first_name.trim(),
         last_name: invitationDraft.last_name.trim(),
         email: invitationDraft.email.trim(),
-        mobile_number: invitationDraft.mobile_number.trim() || null,
-        country_code: invitationDraft.country_code.trim() || null,
+        phone: [invitationDraft.country_code.trim(), invitationDraft.mobile_number.trim()].filter(Boolean).join(' ') || null,
         role: invitationDraft.role,
-        product_id: invitationDraft.product_id || invitationDraft.product_ids[0] || null,
+        primary_product_id: invitationDraft.product_id || invitationDraft.product_ids[0] || null,
         product_ids: invitationDraft.product_ids,
         organization_id: invitationDraft.organization_id || null,
         department_id: invitationWorkspaces.length ? invitationDraft.department_id || null : null,
+        status: 'ACTIVE',
       });
       if (result === null) return;
-      rememberInvitationLink(result);
       setLatestInvitation(result);
+      setLatestTemporaryCredentials(result?.temporary_credentials || null);
       setInvitationStep(invitationSendStepIndex >= 0 ? invitationSendStepIndex : invitationLastStepIndex);
     } finally {
       setIsSubmitting(false);
@@ -1562,9 +1598,9 @@ export function PeopleAccessModule({
 
       {showInvitationModal ? (
         <WorkflowModal
-          eyebrow="Invitation workflow"
-          title="Invite a practitioner, mentor, consultant, or corporate admin"
-          description="Complete the invitation path, send it, then copy or open the secure onboarding link without leaving the application."
+          eyebrow="User credential workflow"
+          title="Create a practitioner, mentor, consultant, or corporate admin"
+          description="Create the user account immediately, then copy the one-time temporary password for manual secure sharing."
           steps={invitationSteps}
           activeStep={invitationStep}
           onStepChange={(index) => !latestInvitation && setInvitationStep(index)}
@@ -1593,7 +1629,7 @@ export function PeopleAccessModule({
                   </button>
                 ) : null}
                 {!latestInvitation && invitationSendStepIndex >= 0 && invitationStep === invitationSendStepIndex ? (
-                  <ActionButton icon={Mail} label="Send invitation" tone="primary" onClick={submitInvitation} disabled={isSubmitting} />
+                  <ActionButton icon={KeyRound} label="Create user" tone="primary" onClick={submitInvitation} disabled={isSubmitting} />
                 ) : null}
               </div>
             </div>
@@ -1602,7 +1638,7 @@ export function PeopleAccessModule({
           {invitationStepId === 'role' ? (
             <WorkflowCard
               title="Select role"
-              description="Choose the operational role. The invitation remains part of the same platform identity workflow."
+              description="Choose the operational role. The user remains part of the same platform identity workflow."
             >
               <div className="grid gap-3 md:grid-cols-2">
                 {invitationRoles.map((role) => (
@@ -1626,7 +1662,7 @@ export function PeopleAccessModule({
           {invitationStepId === 'contact' ? (
             <WorkflowCard
               title="Enter contact information"
-              description="These details are stored with the invitation and carried into onboarding."
+              description="These details are stored on the user profile and carried into onboarding."
             >
               <FormSection title="Invitee details" description="Use the person’s legal or work profile details for onboarding continuity.">
                 <div className="grid gap-4 md:grid-cols-2">
@@ -1727,7 +1763,7 @@ export function PeopleAccessModule({
                 {!organizationOptions.length ? (
                   <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-4 text-left">
                     <span className="block z-h4 text-amber-800">No organizations available</span>
-                    <span className="mt-1 block z-subtitle text-amber-700">Organization metadata could not be loaded for this Nuetra invitation.</span>
+                    <span className="mt-1 block z-subtitle text-amber-700">Organization metadata could not be loaded for this Nuetra user.</span>
                   </div>
                 ) : null}
               </div>
@@ -1756,8 +1792,8 @@ export function PeopleAccessModule({
                     <span className="block z-h4">{departmentOptions.length ? 'Organization default workspace' : 'No workspaces available'}</span>
                     <span className="mt-1 block z-subtitle text-gray-500">
                       {departmentOptions.length
-                        ? 'No departments are configured for this organization, so this invite will start at the organization workspace.'
-                        : 'Workspace metadata could not be loaded for this Nuetra invitation.'}
+                        ? 'No departments are configured for this organization, so this user will start at the organization workspace.'
+                        : 'Workspace metadata could not be loaded for this Nuetra user.'}
                     </span>
                   </div>
                 ) : null}
@@ -1768,7 +1804,7 @@ export function PeopleAccessModule({
           {invitationStepId === 'products' || invitationStepId === 'scope' ? (
             <WorkflowCard
               title="Select products"
-              description={isFiteatsyInvitation ? 'Confirm the Fiteatsy product scope for this invitation.' : 'Configure products, packages, services, and permission context for this Nuetra invitation.'}
+              description={isFiteatsyInvitation ? 'Confirm the Fiteatsy product scope for this user.' : 'Configure products, packages, services, and permission context for this Nuetra user.'}
             >
               <div className="space-y-5">
                 <div>
@@ -1831,7 +1867,7 @@ export function PeopleAccessModule({
           ) : null}
 
           {invitationStepId === 'review' ? (
-            <WorkflowCard title="Review invitation" description="Confirm the invitation details before sending.">
+            <WorkflowCard title="Review user" description="Confirm the account details before creating temporary credentials.">
               <div className="grid gap-3 md:grid-cols-2">
                 {[
                   ['Role', humanizeLabel(invitationDraft.role)],
@@ -1849,36 +1885,57 @@ export function PeopleAccessModule({
 
           {invitationStepId === 'send' ? (
             latestInvitation ? (
-              <WorkflowCard title="Invitation created" description="Delivery is queued when providers are unavailable, and this secure link is available for Product Owner testing.">
+              <WorkflowCard title="User created" description="Copy these credentials now. The temporary password will not be shown again after you close this workflow.">
                 <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
                   <div className="flex items-start gap-3">
                     <CheckCircle2 className="mt-1 h-6 w-6 text-emerald-500" />
                     <div>
-                      <p className="z-h4 text-gray-900">Secure invitation URL is ready</p>
-                      <p className="mt-2 break-all z-body font-semibold text-gray-900">{invitationLinkFor(latestInvitation) || 'Generate a fresh link to continue.'}</p>
+                      <p className="z-h4 text-gray-900">Temporary credentials are ready</p>
+                      <p className="mt-2 z-body text-gray-700">
+                        Share them through your approved secure channel. The user must change this password before entering the workspace.
+                      </p>
                     </div>
                   </div>
                 </div>
-                <div className="mt-5 flex flex-wrap gap-3">
-                  <ActionButton icon={Copy} label="Copy invitation link" tone="primary" onClick={() => copyInvitationLink(latestInvitation)} disabled={!invitationLinkFor(latestInvitation)} />
-                  <ActionButton icon={ArrowUpRight} label="Open invitation link" onClick={() => openInvitationLink(latestInvitation)} disabled={!invitationLinkFor(latestInvitation)} />
-                  <ActionButton icon={Mail} label="Resend invitation" onClick={() => resendInvitationWithLink(latestInvitation)} disabled={isSubmitting} />
-                  <ActionButton icon={KeyRound} label="Regenerate invitation" onClick={() => regenerateInvitationLink(latestInvitation)} disabled={isSubmitting} />
-                  <ActionButton icon={XCircle} label="Revoke invitation" tone="danger" onClick={() => revokeInvitation(latestInvitation)} disabled={isSubmitting} />
+                <div className="mt-5 grid gap-3 md:grid-cols-2">
+                  <div className="rounded-2xl border border-gray-100 bg-white p-4">
+                    <p className="z-label text-gray-500">Username</p>
+                    <p className="mt-2 break-all z-table-content font-semibold text-gray-900">
+                      {latestTemporaryCredentials?.username || latestInvitation.email || 'Not available'}
+                    </p>
+                    <ActionButton
+                      icon={Copy}
+                      label="Copy username"
+                      onClick={() => copyTemporaryCredential(latestTemporaryCredentials?.username || latestInvitation.email, 'Username')}
+                    />
+                  </div>
+                  <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+                    <p className="z-label text-amber-700">Temporary password</p>
+                    <p className="mt-2 break-all font-mono text-lg font-black text-gray-900">
+                      {latestTemporaryCredentials?.temporary_password || 'Not returned'}
+                    </p>
+                    <ActionButton
+                      icon={Copy}
+                      label="Copy temporary password"
+                      tone="primary"
+                      onClick={() => copyTemporaryCredential(latestTemporaryCredentials?.temporary_password, 'Temporary password')}
+                      disabled={!latestTemporaryCredentials?.temporary_password}
+                    />
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => resetInvitationDraft(invitationDraft.role)}
                   className="mt-5 z-btn z-btn-secondary"
                 >
-                  Create another invitation
+                  Create another user
                 </button>
               </WorkflowCard>
             ) : (
-              <WorkflowCard title="Send invitation" description="This persists the invitation, creates audit events, queues notification outbox records, and generates a secure testable invitation URL.">
+              <WorkflowCard title="Create user" description="This persists the user, creates audit events, and generates a one-time temporary password without requiring email delivery.">
                 <div className="grid gap-3 md:grid-cols-3">
                   <div className="rounded-2xl bg-gray-50 p-4">
-                    <p className="z-label text-gray-500">Invitee</p>
+                    <p className="z-label text-gray-500">User</p>
                     <p className="mt-1 z-table-content font-semibold text-gray-900">{invitationDraft.email || 'Not added'}</p>
                   </div>
                   <div className="rounded-2xl bg-gray-50 p-4">
@@ -1892,6 +1949,9 @@ export function PeopleAccessModule({
                       <p className="mt-2 text-xs font-semibold text-amber-700">Unable to load product metadata for submission.</p>
                     ) : null}
                   </div>
+                </div>
+                <div className="mt-5 rounded-2xl border border-amber-100 bg-amber-50 p-4 text-sm text-amber-800">
+                  The temporary password is returned once. Copy it from the success screen before closing this workflow.
                 </div>
               </WorkflowCard>
             )
@@ -1919,6 +1979,50 @@ export function PeopleAccessModule({
             <div className="mt-6 flex gap-3">
               <ActionButton icon={Upload} label="Run import" tone="primary" onClick={handleCsvImport} disabled={isSubmitting || !csvDraft.trim()} />
               <ActionButton icon={Download} label="Export current roster" onClick={handleCsvExport} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {latestTemporaryCredentials && !showInvitationModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-6">
+          <div className="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-[#237afc]">One-time credentials</p>
+                <h3 className="mt-2 text-2xl font-black text-gray-900">Temporary password generated</h3>
+                <p className="mt-2 text-sm text-gray-500">
+                  Copy this password now. It is never stored in plaintext and will not be shown again after this panel closes.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLatestTemporaryCredentials(null)}
+                className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500"
+              >
+                Close
+              </button>
+            </div>
+            <div className="mt-6 grid gap-3 md:grid-cols-2">
+              <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                <p className="z-label text-gray-500">Username</p>
+                <p className="mt-2 break-all z-table-content font-semibold text-gray-900">{latestTemporaryCredentials.username}</p>
+                <ActionButton icon={Copy} label="Copy username" onClick={() => copyTemporaryCredential(latestTemporaryCredentials.username, 'Username')} />
+              </div>
+              <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+                <p className="z-label text-amber-700">Temporary password</p>
+                <p className="mt-2 break-all font-mono text-lg font-black text-gray-900">{latestTemporaryCredentials.temporary_password}</p>
+                <ActionButton
+                  icon={Copy}
+                  label="Copy temporary password"
+                  tone="primary"
+                  onClick={() => copyTemporaryCredential(latestTemporaryCredentials.temporary_password, 'Temporary password')}
+                  disabled={!latestTemporaryCredentials.temporary_password}
+                />
+              </div>
+            </div>
+            <div className="mt-5 rounded-2xl border border-amber-100 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+              The user must sign in with this temporary password and complete mandatory password change before reaching the workspace.
             </div>
           </div>
         </div>
@@ -2078,6 +2182,7 @@ export function PeopleAccessModule({
                   <ActionButton icon={Save} label="Save profile changes" tone="primary" onClick={submitUpdateUser} disabled={isSubmitting} />
                   <ActionButton icon={CheckCircle2} label="Activate" onClick={() => applyBulkAction('activate', { user_ids: [safeSelectedUser.id] })} />
                   <ActionButton icon={XCircle} label="Suspend" onClick={() => applyBulkAction('suspend', { user_ids: [safeSelectedUser.id] })} />
+                  <ActionButton icon={KeyRound} label="Reset password" onClick={resetSelectedUserPassword} disabled={isSubmitting} />
                   <ActionButton icon={KeyRound} label="Force logout" onClick={() => runAction('Force logout', onForceLogout, safeSelectedUser.id)} />
                   <ActionButton icon={Save} label="Sync assignments" onClick={syncProductAssignments} disabled={isSubmitting} />
                 </div>

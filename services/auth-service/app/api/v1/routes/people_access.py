@@ -162,6 +162,23 @@ async def update_user(
     return success_response(data=result.model_dump(mode="json"), message="User updated")
 
 
+@router.post("/users/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
+):
+    await _require_people_access(session, current_user, "users.reset_password")
+    result = await people_access_service.reset_user_password(
+        session,
+        user_id,
+        actor=current_user,
+        **_request_meta(request),
+    )
+    return success_response(data=result.model_dump(mode="json"), message="Temporary password generated")
+
+
 @router.post("/users/{user_id}/notes")
 async def add_note(
     user_id: uuid.UUID,
