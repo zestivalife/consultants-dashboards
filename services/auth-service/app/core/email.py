@@ -1,4 +1,5 @@
 import smtplib
+import socket
 from abc import ABC, abstractmethod
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
@@ -100,8 +101,11 @@ class EmailProviderBase(ABC):
 class SMTPEmailProvider(EmailProviderBase):
     """SMTP-based email provider (local/dev)"""
 
+    _TIMEOUT_SECONDS = 10
+
     def send(self, to: str, subject: str, html_body: str) -> None:
         s = self._settings
+        server: smtplib.SMTP | None = None
         
         logger.info(
             "smtp_email_sending",
@@ -110,6 +114,7 @@ class SMTPEmailProvider(EmailProviderBase):
             subject=subject,
             host=s.smtp_host,
             port=s.smtp_port,
+            timeout_seconds=self._TIMEOUT_SECONDS,
         )
         
         msg = MIMEMultipart("alternative")
@@ -120,12 +125,17 @@ class SMTPEmailProvider(EmailProviderBase):
 
         try:
             # Connect to SMTP server
-            server = smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=15)
+            server = smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=self._TIMEOUT_SECONDS)
+            # Keep all follow-up SMTP operations bounded as well, including auth.
+            if server.sock is not None:
+                server.sock.settimeout(self._TIMEOUT_SECONDS)
             server.ehlo()
             
             # Start TLS if configured
             if s.smtp_use_tls:
                 server.starttls()
+                if server.sock is not None:
+                    server.sock.settimeout(self._TIMEOUT_SECONDS)
                 server.ehlo()
 
             # Authenticate if credentials provided
@@ -134,7 +144,6 @@ class SMTPEmailProvider(EmailProviderBase):
 
             # Send email
             server.sendmail(s.smtp_from_email, to, msg.as_string())
-            server.quit()
             
             logger.info(
                 "smtp_email_sent_successfully",
@@ -142,14 +151,47 @@ class SMTPEmailProvider(EmailProviderBase):
                 subject=subject,
                 provider="SMTP",
             )
+        except (socket.timeout, TimeoutError) as exc:
+            logger.error(
+                "smtp_timeout",
+                to=to,
+                subject=subject,
+                error=str(exc),
+                exception_type=type(exc).__name__,
+                timeout_seconds=self._TIMEOUT_SECONDS,
+                provider="SMTP",
+            )
+            raise TimeoutError(
+                f"SMTP server did not respond within {self._TIMEOUT_SECONDS} seconds"
+            ) from exc
         except smtplib.SMTPAuthenticationError as exc:
-            logger.error("smtp_auth_failed", to=to, detail=str(exc), provider="SMTP")
+            logger.error(
+                "smtp_auth_failed",
+                to=to,
+                detail=str(exc),
+                exception_type=type(exc).__name__,
+                timeout_seconds=self._TIMEOUT_SECONDS,
+                provider="SMTP",
+            )
             raise
         except smtplib.SMTPRecipientsRefused as exc:
-            logger.error("smtp_recipient_refused", to=to, detail=str(exc), provider="SMTP")
+            logger.error(
+                "smtp_recipient_refused",
+                to=to,
+                detail=str(exc),
+                exception_type=type(exc).__name__,
+                provider="SMTP",
+            )
             raise
         except smtplib.SMTPException as exc:
-            logger.error("smtp_exception", to=to, detail=str(exc), provider="SMTP")
+            logger.error(
+                "smtp_exception",
+                to=to,
+                detail=str(exc),
+                exception_type=type(exc).__name__,
+                timeout_seconds=self._TIMEOUT_SECONDS,
+                provider="SMTP",
+            )
             raise
         except Exception as exc:
             logger.error(
@@ -157,9 +199,27 @@ class SMTPEmailProvider(EmailProviderBase):
                 to=to,
                 subject=subject,
                 error=str(exc),
+                exception_type=type(exc).__name__,
+                timeout_seconds=self._TIMEOUT_SECONDS,
                 provider="SMTP",
             )
             raise
+        finally:
+            if server is not None:
+                try:
+                    server.quit()
+                except Exception as exc:
+                    logger.warning(
+                        "smtp_connection_cleanup_failed",
+                        to=to,
+                        error=str(exc),
+                        exception_type=type(exc).__name__,
+                        provider="SMTP",
+                    )
+                    try:
+                        server.close()
+                    except Exception:
+                        pass
 
 
 class SendGridEmailProvider(EmailProviderBase):
