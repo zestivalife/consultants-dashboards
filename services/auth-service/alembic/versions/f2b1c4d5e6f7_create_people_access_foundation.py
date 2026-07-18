@@ -65,244 +65,44 @@ ROLE_PERMISSION_MAP = {
 
 
 def upgrade() -> None:
-    op.add_column("users", sa.Column("avatar_url", sa.String(length=500), nullable=True))
-    op.add_column(
-        "users",
-        sa.Column("status", sa.String(length=40), nullable=False, server_default="ACTIVE"),
-    )
-    op.add_column("users", sa.Column("last_login_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("users", sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True))
-    op.create_index("ix_users_status", "users", ["status"], unique=False)
-    op.alter_column("users", "status", server_default=None)
-
-    op.create_table(
-        "permissions",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("key", sa.String(length=120), nullable=False),
-        sa.Column("module", sa.String(length=80), nullable=False),
-        sa.Column("label", sa.String(length=120), nullable=False),
-        sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("key"),
-    )
-    op.create_index("ix_permissions_key", "permissions", ["key"], unique=True)
-    op.create_index("ix_permissions_module", "permissions", ["module"], unique=False)
-
-    op.create_table(
-        "role_permissions",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("role_id", sa.Uuid(), nullable=False),
-        sa.Column("permission_id", sa.Uuid(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["permission_id"], ["permissions.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["role_id"], ["roles.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("role_id", "permission_id", name="uq_role_permission"),
-    )
-
-    op.create_table(
-        "user_roles",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("user_id", sa.Uuid(), nullable=False),
-        sa.Column("role_id", sa.Uuid(), nullable=False),
-        sa.Column("assigned_by_user_id", sa.Uuid(), nullable=True),
-        sa.Column("is_primary", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["assigned_by_user_id"], ["users.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["role_id"], ["roles.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("user_id", "role_id", name="uq_user_role"),
-    )
-
-    op.create_table(
-        "organizations",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("name", sa.String(length=255), nullable=False),
-        sa.Column("logo_url", sa.Text(), nullable=True),
-        sa.Column("industry", sa.String(length=255), nullable=True),
-        sa.Column("company_size", sa.String(length=80), nullable=True),
-        sa.Column("gst_number", sa.String(length=50), nullable=True),
-        sa.Column("address", sa.Text(), nullable=True),
-        sa.Column("timezone_name", sa.String(length=80), nullable=True),
-        sa.Column("country", sa.String(length=100), nullable=True),
-        sa.Column("subscription_name", sa.String(length=255), nullable=True),
-        sa.Column("renewal_date", sa.Date(), nullable=True),
-        sa.Column("primary_contact_name", sa.String(length=255), nullable=True),
-        sa.Column("primary_contact_email", sa.String(length=255), nullable=True),
-        sa.Column("status", sa.String(length=40), nullable=False),
-        sa.Column("created_by_user_id", sa.Uuid(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("deactivated_at", sa.DateTime(timezone=True), nullable=True),
-        sa.ForeignKeyConstraint(["created_by_user_id"], ["users.id"], ondelete="SET NULL"),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("name"),
-    )
-    op.create_index("ix_organizations_name", "organizations", ["name"], unique=True)
-    op.create_index("ix_organizations_status", "organizations", ["status"], unique=False)
-
-    op.create_table(
-        "departments",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("organization_id", sa.Uuid(), nullable=False),
-        sa.Column("name", sa.String(length=150), nullable=False),
-        sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("organization_id", "name", name="uq_department_org_name"),
-    )
-
-    op.create_table(
-        "organization_memberships",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("user_id", sa.Uuid(), nullable=False),
-        sa.Column("organization_id", sa.Uuid(), nullable=False),
-        sa.Column("department_id", sa.Uuid(), nullable=True),
-        sa.Column("employee_id", sa.String(length=80), nullable=True),
-        sa.Column("package_name", sa.String(length=255), nullable=True),
-        sa.Column("assigned_practitioner_id", sa.Uuid(), nullable=True),
-        sa.Column("assigned_mentor_id", sa.Uuid(), nullable=True),
-        sa.Column("assigned_consultant_id", sa.Uuid(), nullable=True),
-        sa.Column("status", sa.String(length=40), nullable=False),
-        sa.Column("is_verified", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-        sa.Column("tags", postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default=sa.text("'[]'::jsonb")),
-        sa.Column("created_by_user_id", sa.Uuid(), nullable=True),
-        sa.Column("joined_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("deactivated_at", sa.DateTime(timezone=True), nullable=True),
-        sa.ForeignKeyConstraint(["assigned_consultant_id"], ["users.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["assigned_mentor_id"], ["users.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["assigned_practitioner_id"], ["users.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["created_by_user_id"], ["users.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["department_id"], ["departments.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("user_id", "organization_id", name="uq_user_organization_membership"),
-    )
-    op.create_index("ix_organization_memberships_employee_id", "organization_memberships", ["employee_id"], unique=False)
-    op.create_index("ix_organization_memberships_status", "organization_memberships", ["status"], unique=False)
-    op.alter_column("organization_memberships", "tags", server_default=None)
-    op.alter_column("organization_memberships", "is_verified", server_default=None)
-
-    op.create_table(
-        "audit_events",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("actor_user_id", sa.Uuid(), nullable=True),
-        sa.Column("entity_type", sa.String(length=100), nullable=False),
-        sa.Column("entity_id", sa.String(length=100), nullable=False),
-        sa.Column("action", sa.String(length=100), nullable=False),
-        sa.Column("before_state", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("after_state", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("ip_address", sa.String(length=45), nullable=True),
-        sa.Column("browser", sa.Text(), nullable=True),
-        sa.Column("request_id", sa.String(length=120), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["actor_user_id"], ["users.id"], ondelete="SET NULL"),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index("ix_audit_events_actor_user_id", "audit_events", ["actor_user_id"], unique=False)
-    op.create_index("ix_audit_events_entity_id", "audit_events", ["entity_id"], unique=False)
-    op.create_index("ix_audit_events_entity_type", "audit_events", ["entity_type"], unique=False)
-    op.create_index("ix_audit_events_action", "audit_events", ["action"], unique=False)
-    op.create_index("ix_audit_events_created_at", "audit_events", ["created_at"], unique=False)
-    op.create_index("ix_audit_events_request_id", "audit_events", ["request_id"], unique=False)
-
-    op.create_table(
-        "login_sessions",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("user_id", sa.Uuid(), nullable=False),
-        sa.Column("refresh_token_id", sa.Uuid(), nullable=True),
-        sa.Column("ip_address", sa.String(length=45), nullable=True),
-        sa.Column("user_agent", sa.Text(), nullable=True),
-        sa.Column("browser", sa.String(length=120), nullable=True),
-        sa.Column("platform", sa.String(length=120), nullable=True),
-        sa.Column("status", sa.String(length=40), nullable=False),
-        sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
-        sa.ForeignKeyConstraint(["refresh_token_id"], ["refresh_tokens.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index("ix_login_sessions_user_id", "login_sessions", ["user_id"], unique=False)
-    op.create_index("ix_login_sessions_status", "login_sessions", ["status"], unique=False)
-
-    op.create_table(
-        "user_notes",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("user_id", sa.Uuid(), nullable=False),
-        sa.Column("author_user_id", sa.Uuid(), nullable=True),
-        sa.Column("body", sa.Text(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["author_user_id"], ["users.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index("ix_user_notes_user_id", "user_notes", ["user_id"], unique=False)
-
-    op.create_table(
-        "user_attachments",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("user_id", sa.Uuid(), nullable=False),
-        sa.Column("uploaded_by_user_id", sa.Uuid(), nullable=True),
-        sa.Column("file_name", sa.String(length=255), nullable=False),
-        sa.Column("file_url", sa.Text(), nullable=False),
-        sa.Column("content_type", sa.String(length=120), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["uploaded_by_user_id"], ["users.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index("ix_user_attachments_user_id", "user_attachments", ["user_id"], unique=False)
-
-    op.create_table(
-        "user_invitations",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("email", sa.String(length=255), nullable=False),
-        sa.Column("invited_role_id", sa.Uuid(), nullable=True),
-        sa.Column("organization_id", sa.Uuid(), nullable=True),
-        sa.Column("department_id", sa.Uuid(), nullable=True),
-        sa.Column("invited_by_user_id", sa.Uuid(), nullable=True),
-        sa.Column("status", sa.String(length=40), nullable=False),
-        sa.Column("token", sa.String(length=120), nullable=False),
-        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("accepted_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["department_id"], ["departments.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["invited_by_user_id"], ["users.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["invited_role_id"], ["roles.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"], ondelete="SET NULL"),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("token"),
-    )
-    op.create_index("ix_user_invitations_email", "user_invitations", ["email"], unique=False)
-    op.create_index("ix_user_invitations_status", "user_invitations", ["status"], unique=False)
-
-    op.create_table(
-        "user_status_history",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("user_id", sa.Uuid(), nullable=False),
-        sa.Column("previous_status", sa.String(length=40), nullable=True),
-        sa.Column("new_status", sa.String(length=40), nullable=False),
-        sa.Column("reason", sa.Text(), nullable=True),
-        sa.Column("changed_by_user_id", sa.Uuid(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["changed_by_user_id"], ["users.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index("ix_user_status_history_user_id", "user_status_history", ["user_id"], unique=False)
-    op.create_index("ix_user_status_history_new_status", "user_status_history", ["new_status"], unique=False)
-
     conn = op.get_bind()
+    _add_column_if_missing(conn, "users", "avatar_url", "VARCHAR(500)")
+    _add_column_if_missing(conn, "users", "status", "VARCHAR(40) NOT NULL DEFAULT 'ACTIVE'")
+    _add_column_if_missing(conn, "users", "last_login_at", "TIMESTAMPTZ")
+    _add_column_if_missing(conn, "users", "deleted_at", "TIMESTAMPTZ")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_users_status ON users (status)")
+    op.execute("CREATE TABLE IF NOT EXISTS permissions (id UUID PRIMARY KEY, key VARCHAR(120) NOT NULL UNIQUE, module VARCHAR(80) NOT NULL, label VARCHAR(120) NOT NULL, description TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_permissions_key ON permissions (key)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_permissions_module ON permissions (module)")
+    op.execute("CREATE TABLE IF NOT EXISTS role_permissions (id UUID PRIMARY KEY, role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE, permission_id UUID NOT NULL REFERENCES permissions(id) ON DELETE CASCADE, created_at TIMESTAMPTZ NOT NULL, CONSTRAINT uq_role_permission UNIQUE (role_id, permission_id))")
+    op.execute("CREATE TABLE IF NOT EXISTS user_roles (id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE, assigned_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL, is_primary BOOLEAN NOT NULL DEFAULT false, created_at TIMESTAMPTZ NOT NULL, CONSTRAINT uq_user_role UNIQUE (user_id, role_id))")
+    op.execute("CREATE TABLE IF NOT EXISTS organizations (id UUID PRIMARY KEY, name VARCHAR(255) NOT NULL UNIQUE, logo_url TEXT, industry VARCHAR(255), company_size VARCHAR(80), gst_number VARCHAR(50), address TEXT, timezone_name VARCHAR(80), country VARCHAR(100), subscription_name VARCHAR(255), renewal_date DATE, primary_contact_name VARCHAR(255), primary_contact_email VARCHAR(255), status VARCHAR(40) NOT NULL, created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL, deactivated_at TIMESTAMPTZ)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_organizations_name ON organizations (name)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_organizations_status ON organizations (status)")
+    op.execute("CREATE TABLE IF NOT EXISTS departments (id UUID PRIMARY KEY, organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, name VARCHAR(150) NOT NULL, description TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL, CONSTRAINT uq_department_org_name UNIQUE (organization_id, name))")
+    op.execute("CREATE TABLE IF NOT EXISTS organization_memberships (id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, department_id UUID REFERENCES departments(id) ON DELETE SET NULL, employee_id VARCHAR(80), package_name VARCHAR(255), assigned_practitioner_id UUID REFERENCES users(id) ON DELETE SET NULL, assigned_mentor_id UUID REFERENCES users(id) ON DELETE SET NULL, assigned_consultant_id UUID REFERENCES users(id) ON DELETE SET NULL, status VARCHAR(40) NOT NULL, is_verified BOOLEAN NOT NULL DEFAULT false, tags JSONB NOT NULL DEFAULT '[]'::jsonb, created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL, joined_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL, deactivated_at TIMESTAMPTZ, CONSTRAINT uq_user_organization_membership UNIQUE (user_id, organization_id))")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_organization_memberships_employee_id ON organization_memberships (employee_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_organization_memberships_status ON organization_memberships (status)")
+    op.execute("CREATE TABLE IF NOT EXISTS audit_events (id UUID PRIMARY KEY, actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL, entity_type VARCHAR(100) NOT NULL, entity_id VARCHAR(100) NOT NULL, action VARCHAR(100) NOT NULL, before_state JSONB, after_state JSONB, ip_address VARCHAR(45), browser TEXT, request_id VARCHAR(120), created_at TIMESTAMPTZ NOT NULL)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_audit_events_actor_user_id ON audit_events (actor_user_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_audit_events_entity_id ON audit_events (entity_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_audit_events_entity_type ON audit_events (entity_type)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_audit_events_action ON audit_events (action)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_audit_events_created_at ON audit_events (created_at)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_audit_events_request_id ON audit_events (request_id)")
+    op.execute("CREATE TABLE IF NOT EXISTS login_sessions (id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, refresh_token_id UUID REFERENCES refresh_tokens(id) ON DELETE SET NULL, ip_address VARCHAR(45), user_agent TEXT, browser VARCHAR(120), platform VARCHAR(120), status VARCHAR(40) NOT NULL, last_seen_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL, revoked_at TIMESTAMPTZ)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_login_sessions_user_id ON login_sessions (user_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_login_sessions_status ON login_sessions (status)")
+    op.execute("CREATE TABLE IF NOT EXISTS user_notes (id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, author_user_id UUID REFERENCES users(id) ON DELETE SET NULL, body TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_user_notes_user_id ON user_notes (user_id)")
+    op.execute("CREATE TABLE IF NOT EXISTS user_attachments (id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, uploaded_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL, file_name VARCHAR(255) NOT NULL, file_url TEXT NOT NULL, content_type VARCHAR(120), created_at TIMESTAMPTZ NOT NULL)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_user_attachments_user_id ON user_attachments (user_id)")
+    op.execute("CREATE TABLE IF NOT EXISTS user_invitations (id UUID PRIMARY KEY, email VARCHAR(255) NOT NULL, invited_role_id UUID REFERENCES roles(id) ON DELETE SET NULL, organization_id UUID REFERENCES organizations(id) ON DELETE SET NULL, department_id UUID REFERENCES departments(id) ON DELETE SET NULL, invited_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL, status VARCHAR(40) NOT NULL, token VARCHAR(120) NOT NULL UNIQUE, expires_at TIMESTAMPTZ, accepted_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_user_invitations_email ON user_invitations (email)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_user_invitations_status ON user_invitations (status)")
+    op.execute("CREATE TABLE IF NOT EXISTS user_status_history (id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, previous_status VARCHAR(40), new_status VARCHAR(40) NOT NULL, reason TEXT, changed_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_user_status_history_user_id ON user_status_history (user_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_user_status_history_new_status ON user_status_history (new_status)")
     for role_name, description in ROLE_SEEDS:
         conn.execute(
             sa.text(
@@ -387,6 +187,12 @@ def upgrade() -> None:
             "ON CONFLICT (user_id, organization_id) DO NOTHING"
         )
     )
+
+
+def _add_column_if_missing(conn: sa.Connection, table_name: str, column_name: str, column_sql: str) -> None:
+    existing_columns = {column["name"] for column in sa.inspect(conn).get_columns(table_name)}
+    if column_name not in existing_columns:
+        op.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
 
 
 def downgrade() -> None:
