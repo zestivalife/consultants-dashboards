@@ -79,6 +79,8 @@ class Settings(BaseSettings):
     def validate_production_settings(self) -> "Settings":
         if self.app_env.lower() == "production" and self.jwt_secret_key == "change-me-in-production":
             raise ValueError("JWT_SECRET_KEY must be set in production")
+        if self.app_env.lower() == "production" and self.frontend_url.startswith(("http://localhost", "http://127.0.0.1")):
+            self.frontend_url = "https://consultant.nuetra.in"
         return self
 
 
