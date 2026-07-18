@@ -412,6 +412,47 @@ async def reconcile() -> None:
         await _execute(
             conn,
             """
+            INSERT INTO organizations (
+                id, name, industry, company_size, address, timezone_name, country,
+                subscription_name, primary_contact_name, primary_contact_email,
+                status, created_by_user_id, created_at, updated_at
+            )
+            SELECT '20000000-0000-0000-0000-000000000001',
+                   'Zestiva LLP',
+                   'Enterprise Wellness',
+                   'Platform',
+                   'India',
+                   'Asia/Kolkata',
+                   'India',
+                   'Platform Owner',
+                   COALESCE(
+                       NULLIF(TRIM(COALESCE(owner.first_name, '') || ' ' || COALESCE(owner.last_name, '')), ''),
+                       'Platform Owner'
+                   ),
+                   owner.email,
+                   'ACTIVE',
+                   owner.id,
+                   now(),
+                   now()
+            FROM users owner
+            WHERE owner.email IN ('lalitppaunikar26@gmail.com', 'zestivapriyanshi@gmail.com')
+            ORDER BY CASE WHEN owner.email = 'lalitppaunikar26@gmail.com' THEN 0 ELSE 1 END
+            LIMIT 1
+            ON CONFLICT (name) DO UPDATE
+            SET industry = EXCLUDED.industry,
+                company_size = EXCLUDED.company_size,
+                timezone_name = EXCLUDED.timezone_name,
+                country = EXCLUDED.country,
+                subscription_name = EXCLUDED.subscription_name,
+                primary_contact_name = EXCLUDED.primary_contact_name,
+                primary_contact_email = EXCLUDED.primary_contact_email,
+                status = 'ACTIVE',
+                updated_at = now()
+            """,
+        )
+        await _execute(
+            conn,
+            """
             CREATE TABLE IF NOT EXISTS departments (
                 id UUID PRIMARY KEY,
                 organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -425,6 +466,24 @@ async def reconcile() -> None:
         await _execute(
             conn,
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_department_org_name ON departments (organization_id, name)",
+        )
+        await _execute(
+            conn,
+            """
+            INSERT INTO departments (id, organization_id, name, description, created_at, updated_at)
+            SELECT seed.id, org.id, seed.name, seed.description, now(), now()
+            FROM organizations org
+            CROSS JOIN (
+                VALUES
+                    ('21000000-0000-0000-0000-000000000001'::uuid, 'Platform Operations', 'Default workspace for platform owner invitations'),
+                    ('21000000-0000-0000-0000-000000000002'::uuid, 'Care Delivery', 'Workspace for practitioners, mentors, and consultants'),
+                    ('21000000-0000-0000-0000-000000000003'::uuid, 'Corporate Programs', 'Workspace for corporate admins and employee onboarding')
+            ) AS seed(id, name, description)
+            WHERE org.name = 'Zestiva LLP'
+            ON CONFLICT (organization_id, name) DO UPDATE
+            SET description = EXCLUDED.description,
+                updated_at = now()
+            """,
         )
 
         await _execute(
