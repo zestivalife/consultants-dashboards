@@ -21,6 +21,16 @@ FROM deps AS runtime
 
 COPY . .
 
+RUN set -eu; \
+    test -f app/api/v1/routes/people_access.py; \
+    test -f app/api/v1/routes/identity.py; \
+    test -f app/api/v1/routes/master_data.py; \
+    test -f app/api/v1/routes/onboarding.py; \
+    test -f app/api/v1/router.py; \
+    grep -q "people_access" app/api/v1/router.py; \
+    grep -q "onboarding" app/api/v1/router.py; \
+    grep -q "master_data" app/api/v1/router.py
+
 RUN chown -R appuser:appuser /app
 USER appuser
 
