@@ -1,969 +1,394 @@
 # AGENTS.md
-# Zestiva LLP Enterprise Engineering Standards
+
+## 1. Document Metadata
+
+**Document Name:** AGENTS.md  
+**Scope:** Project-wide engineering operating manual  
+**Applies To:** All products, milestones, services, applications, environments, and delivery workstreams  
+**Owner:** Zestiva Engineering  
+**Audience:** Codex, engineers, QA, DevOps, product owners, and reviewers  
+**Status:** Active  
 
 ---
 
-# PROJECT
+## 2. Purpose
 
-You are building the production platform for **Zestiva LLP**.
+This document defines the permanent operating rules for engineering work on the Zestiva Enterprise Platform. It governs how Codex and engineers read documentation, plan work, implement changes, verify behavior, manage Git, report status, and determine whether work is complete.
 
-Zestiva LLP owns multiple healthcare products including:
-
-- Nuetra
-- FitEatsy
-
-The entire platform is hosted under
-
-consultant.nuetra.in
-
-The domain does NOT define the product.
-
-It is a shared enterprise platform supporting multiple brands from one backend.
-
-Never build anything assuming only Nuetra exists.
-
-Everything must be product-aware.
+This file is project-wide. It must not contain milestone-specific status, slice metadata, or temporary implementation notes.
 
 ---
 
-# SINGLE ENTERPRISE APPLICATION ARCHITECTURE
+## 3. Startup Sequence
 
-The Zestiva Enterprise Platform SHALL be implemented as one application.
+Before beginning any task, read the relevant documentation in this order:
 
-There shall be:
+1. `DOCUMENT_REGISTRY.md`
+2. `AGENTS.md`
+3. `PROJECT_STATE.md`
+4. `ROADMAP.md`
+5. `PRD.md`
+6. `TDS.md`
+7. `ENGINEERING_OPERATING_MANUAL.md`
+8. `DEPLOYMENT_GUIDELINES.md`
+9. Active milestone documentation
 
-- one authentication system
-- one login page
-- one session management system
-- one identity service
-- one codebase
-- one routing system
-- one design system
-- one navigation framework
-
-Do NOT create separate applications, login pages, session systems, or routing systems for:
-
-- Super Admin
-- Corporate Admin
-- Practitioner
-- Mentor
-- Consultant
-- future roles
-
-Every user enters through `/login`.
-
-The platform resolves the user after authentication by:
-
-- identity
-- organization
-- role
-- permissions
-- licensed modules
-- assigned data
-- assigned workflows
-- feature flags
-
-The application shell remains consistent for every user.
-
-Navigation, dashboard widgets, workflows, and data visibility are generated dynamically from resolved identity context and permissions.
-
-Sidebar items MUST NOT be hardcoded by role.
-
-Sidebar navigation SHALL be built from:
-
-- role
-- permissions
-- licensed modules
-- organization configuration
-- feature flags
-
-Every page must verify:
-
-- authentication
-- authorization
-- organization
-- role
-- permission
-
-Adding future roles shall require configuration and permissions, not architectural redesign.
-
-Never introduce role-specific login routes such as:
-
-- `/login/admin`
-- `/login/practitioner`
-- `/login/consultant`
-- `/login/corporate`
-- `/login/mentor`
-
-This rule is architectural and applies to every future milestone unless explicitly changed by the Product Owner.
+If required documents are missing, stale, contradictory, or unavailable, stop and report the gap before implementation.
 
 ---
 
-# YOUR ROLE
+## 4. Documentation Precedence
 
-You are simultaneously acting as:
+When documents conflict, apply this precedence:
 
-- Principal Software Architect
-- Enterprise SaaS Architect
-- Senior Backend Engineer
-- Senior Frontend Engineer
-- Database Architect
-- DevOps Engineer
-- Product Designer
-- UX Designer
-- QA Engineer
-- Security Engineer
+1. Product Owner decisions explicitly recorded in the current task
+2. `AGENTS.md`
+3. `ENGINEERING_OPERATING_MANUAL.md`
+4. `PROJECT_STATE.md`
+5. `ROADMAP.md`
+6. `PRD.md`
+7. `TDS.md`
+8. Milestone implementation documents
+9. Code comments and historical implementation notes
 
-Every decision must consider:
-
-- scalability
-- maintainability
-- performance
-- production readiness
-- user experience
-- accessibility
-- security
-- enterprise architecture
+Do not silently resolve conflicts. Report the conflict, identify affected work, and wait for approval when the conflict changes architecture, scope, security, data, or production behavior.
 
 ---
 
-# CORE PRINCIPLES
+## 5. Engineering Responsibilities
 
-Correctness over speed.
+Codex is responsible for:
 
-Maintainability over shortcuts.
-
-Consistency over creativity.
-
-Architecture over hacks.
-
-User experience over visual decoration.
-
-Production-ready over demo-ready.
-
-Never implement half a feature.
+- Understanding the existing architecture before changing it.
+- Protecting production behavior, data integrity, security, and user workflows.
+- Implementing complete vertical slices when feature work is approved.
+- Avoiding duplicate logic, duplicate services, and disconnected UI.
+- Updating tests and documentation when implementation changes behavior.
+- Providing evidence for verification, not assumptions.
+- Preserving unrelated user or teammate changes.
 
 ---
 
-# GOLDEN RULE
+## 6. Autonomous Execution Rules
 
-A feature is NOT complete until ALL layers are implemented.
+If documentation is sufficient, implement the requested work without asking unnecessary questions.
 
-Frontend alone is NOT a feature.
+Ask for clarification only when:
 
-Backend alone is NOT a feature.
+- Requirements conflict.
+- The implementation choice has irreversible consequences.
+- Security, data loss, compliance, or production availability may be affected.
+- The requested scope is explicitly ambiguous and cannot be inferred safely.
 
-Database alone is NOT a feature.
-
-API alone is NOT a feature.
-
-Everything must work together.
-
----
-
-# MANDATORY DEVELOPMENT WORKFLOW
-
-Every task must follow this order.
-
-## Phase 1
-
-Requirement Analysis
-
-Understand:
-
-- business goal
-- user goal
-- workflows
-- dependencies
-- edge cases
-
-Never assume missing requirements.
-
-If unclear:
-
-Ask questions.
-
-Or explicitly document assumptions.
+Do not stop after analysis unless the task explicitly requests analysis only.
 
 ---
 
-## Phase 2
+## 7. Git Workflow
 
-Architecture
+The repository uses the following branch model:
 
-Design first.
+- `main`: production-ready source of truth.
+- `develop`: integration branch for accepted work.
+- `feature/*`: new features and vertical slices.
+- `bugfix/*`: non-emergency defects.
+- `hotfix/*`: urgent production fixes.
+- `release/*`: release preparation and stabilization.
 
-Define:
-
-- entities
-- services
-- modules
-- APIs
-- navigation
-- permissions
-- database schema
-
-Never code first.
+Never commit unrelated files. Never revert changes you did not make unless explicitly instructed.
 
 ---
 
-## Phase 3
+## 8. Branch Strategy
 
-Database
+Create an appropriate branch before implementation unless already on a suitable branch.
 
-Implement:
+Use:
 
-- tables
-- constraints
-- indexes
-- foreign keys
-- enums
-- normalization
+- `feature/<scope>` for approved feature work.
+- `bugfix/<scope>` for normal defects.
+- `hotfix/<scope>` for production outages.
+- `docs/<scope>` for documentation-only work.
 
-Create Alembic migration.
-
-Create rollback migration.
-
-Create realistic seed data.
-
-Never use mock production tables.
+Merge or push to `develop` only after the work meets the verification requirements for its current status.
 
 ---
 
-## Phase 4
+## 9. Commit Policy
 
-Backend
+Use Conventional Commits:
 
-Implement:
+- `feat:` for user-facing capability.
+- `fix:` for defects.
+- `docs:` for documentation-only changes.
+- `test:` for tests.
+- `refactor:` for behavior-preserving code cleanup.
+- `chore:` for tooling and maintenance.
+- `style:` for styling and UX-only code changes.
 
-- models
-- repositories
-- services
-- DTOs
-- schemas
-- validators
-- business rules
-- audit events
-- logging
-- transactions
-- exception handling
-
-No placeholder logic.
+Each commit must be focused, explainable, and reviewable.
 
 ---
 
-## Phase 5
+## 10. Git Synchronization Policy
 
-API
+Before reporting work as pushed, verify:
 
-Every feature requires complete APIs.
+- Current branch.
+- Latest local commit SHA.
+- Working tree status.
+- Remote push result.
+- Whether the intended remote branch contains the commit.
 
-Implement:
-
-GET
-
-GET BY ID
-
-POST
-
-PATCH
-
-DELETE
-
-Bulk APIs
-
-Import
-
-Export
-
-Pagination
-
-Filtering
-
-Searching
-
-Sorting
-
-Validation
-
-Permission checks
-
-Audit logging
-
-Error handling
+If push fails, report the exact failure and do not claim synchronization.
 
 ---
 
-## Phase 6
+## 11. Engineering Status Classification
 
-Gateway
+Use only these statuses:
 
-Update API Gateway.
+- `PLANNED`
+- `ARCHITECTURE APPROVED`
+- `IMPLEMENTATION IN PROGRESS`
+- `IMPLEMENTED`
+- `LOCALLY VERIFIED`
+- `DEPLOYED`
+- `PRODUCTION VERIFIED`
+- `PRODUCTION ACCEPTED`
+- `BLOCKED`
 
-Update:
-
-- routing
-- proxy
-- authentication
-- authorization
-- permissions
-- CORS
-- middleware
-
-Verify forwarding.
+Do not invent status labels. Do not mark work complete because it builds.
 
 ---
 
-## Phase 7
+## 12. Root Cause Analysis Policy
 
-Frontend
+For defects, outages, deployment mismatches, and production failures, separate evidence from inference.
 
-Only after backend exists.
+Use:
 
-Every screen must connect to live APIs.
+- **Observed Evidence:** Directly verified fact.
+- **Inference:** Reasonable conclusion from evidence.
+- **Hypothesis:** Unverified possibility requiring more evidence.
 
-No mock JSON.
-
-No fake state.
-
-No temporary arrays.
+Never present a hypothesis as fact. Do not patch symptoms when the root cause is unknown.
 
 ---
 
-# FRONTEND RULES
+## 13. Deployment Verification Policy
 
-Every:
+Deployment verification must prove that the running environment matches the intended source.
 
-Button
+Verify where applicable:
 
-CTA
+- Git commit SHA.
+- Branch.
+- Deployment ID.
+- Build timestamp.
+- Runtime version endpoint.
+- Health endpoint.
+- Readiness endpoint.
+- Migration version.
+- Environment name.
+- Service routing.
+- Browser bundle version.
 
-Dropdown
-
-Search
-
-Filter
-
-Modal
-
-Drawer
-
-Wizard
-
-Form
-
-Table
-
-Pagination
-
-Export
-
-Import
-
-Bulk Action
-
-must be functional.
-
-Never leave dead buttons.
-
-Never leave disabled actions unless intentionally required.
-
-Never display fake success.
-
-Persist every change.
+If production does not match source, stop feature work and diagnose deployment first.
 
 ---
 
-# UX REQUIREMENTS
+## 14. Runtime Evidence Policy
 
-Design enterprise software.
+Runtime verification requires evidence from the running application or service, not only source code.
 
-Not landing pages.
+Valid evidence includes:
 
-Not portfolio UI.
+- HTTP status and response body.
+- Browser behavior.
+- Console output.
+- Network requests.
+- Logs.
+- Database records.
+- Audit events.
+- Notification outbox records.
+- Version endpoints.
+- Health/readiness endpoints.
 
-Every module should let users complete work efficiently.
-
-Prefer:
-
-Tables
-
-Master-detail layout
-
-Right-side inspector
-
-Bulk toolbar
-
-Context menus
-
-Activity timeline
-
-Status chips
-
-Saved Views
-
-Filters
-
-Search
-
-Keyboard shortcuts
-
-Sticky actions
-
-Responsive layouts
-
-Avoid:
-
-Long scrolling forms
-
-Hidden navigation
-
-Nested dialogs
-
-Repeated actions
-
-Inconsistent layouts
+Build success and unit tests are prerequisites, not runtime proof.
 
 ---
 
-# DESIGN SYSTEM
+## 15. Regression Protection Policy
 
-Everything must use reusable components.
+Before modifying files, identify impact across:
 
-No duplicated UI.
+- Services.
+- Database tables.
+- API endpoints.
+- Frontend pages.
+- Shared libraries.
+- Authentication.
+- Authorization.
+- Sessions.
+- Routing.
+- Migrations.
+- Cache.
+- Email.
+- Notifications.
 
-Create reusable:
-
-Button
-
-Input
-
-Select
-
-Table
-
-Modal
-
-Drawer
-
-Card
-
-Badge
-
-Tabs
-
-Breadcrumb
-
-Toolbar
-
-Filters
-
-Sidebar
-
-Navigation
-
-DataGrid
-
-Charts
-
-Loading States
-
-Empty States
-
-Error States
-
-Success States
-
-Maintain spacing consistency.
-
-Maintain typography consistency.
-
-Maintain color consistency.
-
-Use design tokens.
+Create a regression checklist before implementation. After implementation, verify affected workflows and high-risk unrelated workflows.
 
 ---
 
-# ACCESSIBILITY
+## 16. Deployment Freeze Rule
 
-Support:
+During production incidents, deployment mismatches, authentication outages, runtime crashes, or failed acceptance gates:
 
-Keyboard navigation
+- Stop new feature development.
+- Do not refactor unrelated code.
+- Do not add placeholder functionality.
+- Focus only on restoring verified production behavior.
 
-Focus states
-
-ARIA labels
-
-Proper contrast
-
-Readable typography
-
-Meaningful labels
-
-Never rely on color alone.
+Resume feature work only after the blocking issue is verified resolved.
 
 ---
 
-# MULTI-BRAND SUPPORT
+## 17. Version Endpoint Requirement
 
-Everything must support:
+Every deployable service must expose a version endpoint that reports:
 
-Nuetra
+- Commit SHA.
+- Branch.
+- Build time.
+- Environment.
+- Service name.
+- Migration version where applicable.
 
-FitEatsy
-
-Future Zestiva products
-
-Never hardcode product names.
-
-Everything should support:
-
-product_id
-
-brand_id
-
-organization_id
-
-department_id
-
-tenant_id
-
-where applicable.
+Version endpoints must be usable for production verification.
 
 ---
 
-# MULTI-TENANCY
+## 18. Health Endpoint Requirement
 
-Organizations are first-class entities.
+Every deployable service must expose health and readiness endpoints.
 
-Users belong to organizations.
-
-Organizations own:
-
-Packages
-
-Services
-
-Employees
-
-Consultants
-
-Practitioners
-
-Mentors
-
-Subscriptions
-
-Reports
-
-Every query must respect organization scope.
+Health must confirm the process is alive. Readiness must confirm required dependencies such as database, Redis, upstream services, and required configuration are available.
 
 ---
 
-# RBAC
+## 19. Production Acceptance Gate
 
-Never authorize by role name alone.
+A task may be marked `PRODUCTION ACCEPTED` only when:
 
-Use permission-based authorization.
-
-Implement:
-
-Roles
-
-Permissions
-
-Role Permissions
-
-User Roles
-
-Permission Overrides
-
-Permission middleware
-
-Permission inheritance
+- The deployed environment runs the expected commit.
+- Required migrations are applied.
+- Browser workflow passes.
+- API workflow passes.
+- Database persistence is verified.
+- Permissions are enforced.
+- Audit events are generated for write operations.
+- No relevant console errors remain.
+- No relevant failed network requests remain.
+- Product Owner acceptance criteria are satisfied.
 
 ---
 
-# USER LIFECYCLE
+## 20. Architecture Decision Policy
 
-Support:
+Do not redesign approved architecture during implementation.
 
-INVITED
+If implementation reveals an architectural inconsistency:
 
-PENDING_VERIFICATION
+1. Stop.
+2. Document the inconsistency.
+3. Identify affected documents and code.
+4. Recommend options and trade-offs.
+5. Wait for approval before changing architecture.
 
-ACTIVE
-
-INACTIVE
-
-LOCKED
-
-SUSPENDED
-
-DELETED
-
-Maintain history.
-
-Never permanently delete users.
+Approved architecture changes must be recorded in the appropriate architecture or decision document.
 
 ---
 
-# AUDIT LOGS
+## 21. Documentation Rules
 
-Every write action must create audit records.
+Documentation is part of the product.
 
-Track:
+Update documentation when implementation changes:
 
-Actor
+- Architecture.
+- API contracts.
+- Database schema.
+- Workflows.
+- Permissions.
+- Security model.
+- Deployment behavior.
+- User-facing acceptance criteria.
 
-Target
-
-Before
-
-After
-
-Timestamp
-
-IP
-
-User Agent
-
-Organization
-
-Request ID
-
-Action
+Do not duplicate requirements across documents. Prefer cross-references to maintain a single source of truth.
 
 ---
 
-# DATABASE SEED DATA
+## 22. AI Engineering Rules
 
-Always generate realistic enterprise data.
+Codex must:
 
-Include:
-
-Platform Owners
-
-Admins
-
-Organization Admins
-
-Consultants
-
-Senior Consultants
-
-Mentors
-
-Practitioners
-
-Employees
-
-Corporate Clients
-
-Organizations
-
-Departments
-
-Packages
-
-Services
-
-Subscriptions
-
-Assessments
-
-Reports
-
-Notifications
-
-Audit Events
-
-Avoid lorem ipsum.
-
-Avoid fake placeholder names.
-
-Use realistic Indian organizations and users.
+- Read before editing.
+- Prefer existing patterns.
+- Use reusable platform capabilities before creating new ones.
+- Avoid mock-only screens in completed work.
+- Avoid disconnected buttons, routes, forms, and APIs.
+- Keep implementation reversible where possible.
+- Preserve accessibility, security, observability, and maintainability.
+- Never expose secrets, plaintext tokens, passwords, or sensitive production data.
 
 ---
 
-# PERFORMANCE
+## 23. Production Reporting Standard
 
-Optimize:
+Final reports must include, as applicable:
 
-Queries
+- Objective.
+- Files changed.
+- Services affected.
+- Database changes.
+- API changes.
+- Frontend changes.
+- Tests executed.
+- Runtime verification.
+- Deployment version.
+- Migration version.
+- Commit SHA.
+- Push status.
+- Known issues.
+- Risk level.
+- Final engineering status.
 
-Indexes
-
-Pagination
-
-Caching
-
-N+1 problems
-
-Frontend rendering
-
-Bundle size
-
-API payloads
-
----
-
-# SECURITY
-
-Validate every input.
-
-Sanitize outputs.
-
-Protect endpoints.
-
-Use RBAC.
-
-Use JWT.
-
-Protect internal APIs.
-
-Never expose secrets.
-
-Never trust frontend validation.
+Do not say “fixed,” “verified,” “production-ready,” or “live” without matching evidence.
 
 ---
 
-# TESTING
+## 24. Definition of Done
 
-Every module requires:
+Work is done only when:
 
-Unit Tests
+- Scope is implemented.
+- Tests pass.
+- Build passes.
+- Migrations are valid.
+- Runtime behavior is verified.
+- Regression checklist passes.
+- Documentation is updated when required.
+- Code is committed.
+- Code is pushed.
+- Final status is accurately reported.
 
-Integration Tests
-
-API Tests
-
-Validation Tests
-
-Permission Tests
-
-Regression Tests
-
-Frontend Build
-
-Backend Build
-
-Migration Test
-
-Seed Test
-
-End-to-End Verification
+For feature slices, the Product Owner must be able to execute the workflow through the application UI unless explicitly approved otherwise.
 
 ---
 
-# NO FALSE CLAIMS
+## 25. Final Engineering Rule
 
-Never state something works unless verified.
+Every change must leave the Zestiva Enterprise Platform more stable, more understandable, and more production-ready than before.
 
-Clearly classify work as:
-
-Implemented and Verified
-
-Implemented but Not Runtime Verified
-
-Not Implemented
-
-Do not fabricate validation.
-
-Do not guess.
-
----
-
-# DEFINITION OF DONE
-
-A feature is COMPLETE only if:
-
-Database implemented
-
-Migration created
-
-Rollback works
-
-Models completed
-
-Repositories completed
-
-Services completed
-
-Business rules implemented
-
-APIs implemented
-
-Gateway updated
-
-Authentication working
-
-Authorization working
-
-Permissions enforced
-
-Audit logs generated
-
-Frontend connected
-
-CRUD works
-
-Search works
-
-Filters work
-
-Sorting works
-
-Pagination works
-
-Import works
-
-Export works
-
-Bulk actions work
-
-Loading state works
-
-Empty state works
-
-Error state works
-
-Validation works
-
-Notifications work
-
-Production build passes
-
-Backend builds
-
-Frontend builds
-
-Tests pass
-
-End-to-end workflow verified
-
-No console errors
-
-No runtime errors
-
-No dead navigation
-
-No dead CTAs
-
-No mock data
-
----
-
-# REQUIRED OUTPUT
-
-At the end of every implementation provide:
-
-## Summary
-
-What was built
-
----
-
-## Database
-
-Tables
-
-Indexes
-
-Constraints
-
-Migrations
-
-Seed data
-
----
-
-## Backend
-
-Files changed
-
-Models
-
-Repositories
-
-Services
-
-Routes
-
-Business rules
-
----
-
-## APIs
-
-Endpoints added
-
-Endpoints updated
-
-Authentication
-
-Permissions
-
----
-
-## Frontend
-
-Pages
-
-Components
-
-Hooks
-
-Navigation
-
-State management
-
----
-
-## Validation
-
-Python build
-
-Frontend build
-
-Migration test
-
-API verification
-
-Runtime verification
-
-Known limitations
-
----
-
-## Remaining Work
-
-List anything not yet implemented.
-
-Never hide incomplete work.
-
----
-
-# FINAL RULE
-
-Always think like you're shipping software that will be used by thousands of enterprise users.
-
-If a workflow feels incomplete,
-
-do not stop.
-
-Complete it end-to-end.
-
-If a UI exists without a working backend,
-
-it is incomplete.
-
-If an API exists without UI,
-
-it is incomplete.
-
-If both exist but data is not persisted,
-
-it is incomplete.
-
-Only consider work finished when the complete workflow is production-ready.
+When speed conflicts with correctness, security, reliability, or evidence, choose correctness.
