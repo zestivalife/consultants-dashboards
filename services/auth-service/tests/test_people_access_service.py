@@ -17,6 +17,18 @@ from app.services import people_access_service
 from app.services.password_service import password_service
 
 
+@pytest.fixture(autouse=True)
+def fake_invitation_email_service(monkeypatch):
+    sent_messages: list[dict] = []
+
+    class FakeEmailService:
+        def send_invitation_link(self, **kwargs):
+            sent_messages.append(kwargs)
+
+    monkeypatch.setattr(people_access_service, "get_email_service", lambda: FakeEmailService())
+    return sent_messages
+
+
 async def _create_role(session: AsyncSession, name: str, description: str = "") -> Role:
     role = Role(id=uuid.uuid4(), name=name, description=description or name.title())
     session.add(role)
@@ -190,7 +202,8 @@ async def test_create_user_creates_invitation_and_primary_role(session: AsyncSes
         )
     )
     assert outbox is not None
-    assert outbox.status == "PENDING"
+    assert outbox.status == "SENT"
+    assert outbox.sent_at is not None
     assert outbox.payload["token_delivery"] == "minted_for_email_only_not_persisted"
 
     user_role = await session.scalar(
@@ -253,7 +266,9 @@ async def test_create_invitation_hashes_token_and_queues_email_event(session: As
     assert outbox is not None
     assert outbox.email == "new.consultant@zestiva.in"
     assert outbox.event_type == "INVITATION_CREATED"
-    assert outbox.status == "PENDING"
+    assert outbox.status == "SENT"
+    assert outbox.sent_at is not None
+    assert outbox.attempts == 1
     assert "token" not in outbox.payload
 
     whatsapp_outbox = await session.scalar(
@@ -404,7 +419,11 @@ async def test_resend_invitation_rotates_token_hash_and_queues_outbox(session: A
         "INVITATION_RESENT",
         "INVITATION_RESENT_WHATSAPP",
     ])
-    assert all(event.status == "PENDING" for event in outbox_events)
+    statuses_by_type = {event.event_type: event.status for event in outbox_events}
+    assert statuses_by_type["INVITATION_CREATED"] == "SENT"
+    assert statuses_by_type["INVITATION_CREATED_WHATSAPP"] == "PENDING"
+    assert statuses_by_type["INVITATION_RESENT"] == "SENT"
+    assert statuses_by_type["INVITATION_RESENT_WHATSAPP"] == "PENDING"
 
 
 @pytest.mark.asyncio

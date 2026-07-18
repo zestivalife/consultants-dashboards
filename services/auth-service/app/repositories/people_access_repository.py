@@ -466,6 +466,10 @@ class PeopleAccessRepository:
         await self._session.flush()
         return event
 
+    async def update_invitation_email_outbox(self, event: InvitationEmailOutbox) -> InvitationEmailOutbox:
+        await self._session.flush()
+        return event
+
     async def list_invitations(
         self,
         *,

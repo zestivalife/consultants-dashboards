@@ -518,6 +518,7 @@ class InvitationEmailOutbox(Base):
     status: Mapped[str] = mapped_column(String(40), default="PENDING", nullable=False, index=True)
     payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     attempts: Mapped[int] = mapped_column(default=0, nullable=False)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

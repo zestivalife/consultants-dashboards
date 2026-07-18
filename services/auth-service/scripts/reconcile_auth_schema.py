@@ -899,11 +899,19 @@ async def reconcile() -> None:
                 status VARCHAR(40) NOT NULL DEFAULT 'PENDING',
                 payload JSON NOT NULL DEFAULT '{}'::json,
                 attempts INTEGER NOT NULL DEFAULT 0,
+                sent_at TIMESTAMPTZ,
                 last_error TEXT,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
             """,
+        )
+        await _add_columns(
+            conn,
+            "invitation_email_outbox",
+            {
+                "sent_at": "TIMESTAMPTZ",
+            },
         )
 
         await _execute(

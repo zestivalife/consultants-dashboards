@@ -40,7 +40,7 @@ async def test_shared_user_service_creates_identity_for_every_role(session: Asyn
         CreateUserCommand(
             email=f"{role_name}@identity.test",
             role_name=role.name,
-            password="Correct123!",
+            password="Correct123!Z",
             first_name="Identity",
             status="ACTIVE",
             is_verified=True,
@@ -52,7 +52,7 @@ async def test_shared_user_service_creates_identity_for_every_role(session: Asyn
     assert created.user.role_id == role.id
     assert created.user.email_verified is True
     assert created.user.password_changed_at is not None
-    assert password_service.verify_password("Correct123!", created.user.password_hash)
+    assert password_service.verify_password("Correct123!Z", created.user.password_hash)
 
     user_role = await session.scalar(
         select(UserRole).where(UserRole.user_id == created.user.id, UserRole.role_id == role.id)
@@ -67,7 +67,7 @@ async def test_shared_user_service_rejects_duplicate_email(session: AsyncSession
     command = CreateUserCommand(
         email="duplicate@identity.test",
         role_name="consultant",
-        password="Correct123!",
+        password="Correct123!Z",
         status="ACTIVE",
         is_verified=True,
     )

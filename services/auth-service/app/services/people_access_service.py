@@ -6,7 +6,9 @@ import csv
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictException, ForbiddenException, NotFoundException
+from app.core.email import get_email_service
+from app.core.exceptions import AppException, ConflictException, ForbiddenException, NotFoundException
+from app.core.logging import get_logger
 from app.core.password_policy import WeakPasswordException
 from app.core.security import hash_token
 from app.config import get_settings
@@ -85,6 +87,8 @@ from app.services.password_service import password_service
 from app.services.user_service import CreateUserCommand, user_service
 
 
+logger = get_logger(__name__)
+
 MANAGEABLE_STATUSES = {
     "INVITED",
     "PENDING_VERIFICATION",
@@ -118,12 +122,23 @@ def _build_invitation_url(raw_token: str) -> str:
     return f"{get_settings().frontend_url.rstrip('/')}/invite/{raw_token}"
 
 
+def _build_redacted_invitation_url() -> str:
+    return f"{get_settings().frontend_url.rstrip('/')}/invite/[redacted]"
+
+
+def _invitation_recipient_name(invitation: UserInvitation) -> str:
+    name = " ".join(value for value in [invitation.first_name, invitation.last_name] if value)
+    return name or invitation.email
+
+
 async def _queue_invitation_email(
     repo: PeopleAccessRepository,
     invitation: UserInvitation,
     *,
     event_type: str,
     role_name: str | None,
+    product_name: str | None = None,
+    organization_name: str | None = None,
     actor: UserResponse,
     request_id: str | None,
 ) -> InvitationEmailOutbox:
@@ -142,11 +157,100 @@ async def _queue_invitation_email(
                 "expires_at": invitation.expires_at.isoformat() if invitation.expires_at else None,
                 "token_fingerprint": invitation.token_fingerprint,
                 "token_delivery": "minted_for_email_only_not_persisted",
+                "invitation_url": _build_redacted_invitation_url(),
+                "organization": organization_name,
+                "product": product_name,
                 "actor_user_id": str(actor.id),
                 "request_id": request_id,
             },
         )
     )
+
+
+async def _send_invitation_email(
+    repo: PeopleAccessRepository,
+    outbox_event: InvitationEmailOutbox,
+    invitation: UserInvitation,
+    *,
+    invitation_url: str,
+    role_name: str | None,
+    product_name: str | None,
+    organization_name: str | None,
+    request_id: str | None,
+) -> InvitationEmailOutbox:
+    logger.info(
+        "invitation_email_payload_prepared",
+        invitation_id=str(invitation.id),
+        email=invitation.email,
+        event_type=outbox_event.event_type,
+        token_fingerprint=invitation.token_fingerprint,
+        request_id=request_id,
+    )
+
+    max_attempts = 3
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        outbox_event.attempts = (outbox_event.attempts or 0) + 1
+        logger.info(
+            "invitation_email_provider_call_started",
+            invitation_id=str(invitation.id),
+            email=invitation.email,
+            event_type=outbox_event.event_type,
+            attempt=attempt,
+            request_id=request_id,
+        )
+        try:
+            get_email_service().send_invitation_link(
+                email=invitation.email,
+                recipient_name=_invitation_recipient_name(invitation),
+                role=role_name or "member",
+                organization=organization_name,
+                product=product_name,
+                invitation_url=invitation_url,
+                expires_at=invitation.expires_at,
+            )
+            break
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "invitation_email_provider_attempt_failed",
+                invitation_id=str(invitation.id),
+                email=invitation.email,
+                event_type=outbox_event.event_type,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                error=str(exc),
+                request_id=request_id,
+            )
+    else:
+        error_message = str(last_error) if last_error else "Email provider failed"
+        outbox_event.status = "FAILED"
+        outbox_event.last_error = error_message[:2000]
+        await repo.update_invitation_email_outbox(outbox_event)
+        logger.error(
+            "invitation_email_provider_failed",
+            invitation_id=str(invitation.id),
+            email=invitation.email,
+            event_type=outbox_event.event_type,
+            error=error_message,
+            attempts=outbox_event.attempts,
+            request_id=request_id,
+        )
+        raise AppException("Invitation email delivery failed", status_code=503) from last_error
+
+    outbox_event.status = "SENT"
+    outbox_event.sent_at = datetime.now(timezone.utc)
+    outbox_event.last_error = None
+    await repo.update_invitation_email_outbox(outbox_event)
+    logger.info(
+        "invitation_email_provider_accepted",
+        invitation_id=str(invitation.id),
+        email=invitation.email,
+        event_type=outbox_event.event_type,
+        attempts=outbox_event.attempts,
+        request_id=request_id,
+    )
+    return outbox_event
 
 
 async def _queue_invitation_whatsapp(
@@ -830,12 +934,26 @@ async def create_user(
         last_sent_at=datetime.now(timezone.utc),
     )
     await repo.create_invitation(invitation)
-    await _queue_invitation_email(
+    product = await repo.get_product(payload.primary_product_id) if payload.primary_product_id else None
+    organization = await repo.get_organization(payload.organization_id) if payload.organization_id else None
+    email_outbox = await _queue_invitation_email(
         repo,
         invitation,
         event_type="INVITATION_CREATED",
         role_name=role.name,
+        product_name=product.name if product else None,
+        organization_name=organization.name if organization else None,
         actor=actor,
+        request_id=request_id,
+    )
+    await _send_invitation_email(
+        repo,
+        email_outbox,
+        invitation,
+        invitation_url=_build_invitation_url(_raw_token),
+        role_name=role.name,
+        product_name=product.name if product else None,
+        organization_name=organization.name if organization else None,
         request_id=request_id,
     )
     await _queue_invitation_whatsapp(
@@ -884,7 +1002,7 @@ async def create_user(
             after_state={
                 "email": user.email,
                 "role": role.name,
-                "email_outbox_status": "PENDING",
+                "email_outbox_status": email_outbox.status,
                 "token_fingerprint": token_fingerprint,
             },
             ip_address=ip_address,
@@ -1569,10 +1687,12 @@ async def create_invitation(
     )
     if duplicate_invitation:
         raise ConflictException("An active invitation already exists for this email, role, and scope")
+    organization = None
     if payload.organization_id:
         organization = await repo.get_organization(payload.organization_id)
         if organization is None:
             raise NotFoundException("Organization not found")
+    product = None
     if product_id:
         product = await repo.get_product(product_id)
         if product is None:
@@ -1601,12 +1721,24 @@ async def create_invitation(
         last_sent_at=now,
     )
     await repo.create_invitation(invitation)
-    await _queue_invitation_email(
+    email_outbox = await _queue_invitation_email(
         repo,
         invitation,
         event_type="INVITATION_CREATED",
         role_name=role.name,
+        product_name=product.name if product else None,
+        organization_name=organization.name if organization else None,
         actor=actor,
+        request_id=request_id,
+    )
+    await _send_invitation_email(
+        repo,
+        email_outbox,
+        invitation,
+        invitation_url=_build_invitation_url(raw_token),
+        role_name=role.name,
+        product_name=product.name if product else None,
+        organization_name=organization.name if organization else None,
         request_id=request_id,
     )
     await _queue_invitation_whatsapp(
@@ -1633,7 +1765,7 @@ async def create_invitation(
                 "last_name": invitation.last_name,
                 "mobile_number": invitation.mobile_number,
                 "country_code": invitation.country_code,
-                "email_outbox_status": "PENDING",
+                "email_outbox_status": email_outbox.status,
                 "token_fingerprint": token_fingerprint,
             },
             ip_address=ip_address,
@@ -1667,12 +1799,24 @@ async def resend_invitation(
     invitation.last_sent_at = datetime.now(timezone.utc)
     invitation.cancelled_at = None
     invitation.expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-    await _queue_invitation_email(
+    email_outbox = await _queue_invitation_email(
         repo,
         invitation,
         event_type="INVITATION_RESENT",
         role_name=invitation.role.name if invitation.role else None,
+        product_name=invitation.product.name if invitation.product else None,
+        organization_name=invitation.organization.name if invitation.organization else None,
         actor=actor,
+        request_id=request_id,
+    )
+    await _send_invitation_email(
+        repo,
+        email_outbox,
+        invitation,
+        invitation_url=_build_invitation_url(raw_token),
+        role_name=invitation.role.name if invitation.role else None,
+        product_name=invitation.product.name if invitation.product else None,
+        organization_name=invitation.organization.name if invitation.organization else None,
         request_id=request_id,
     )
     await _queue_invitation_whatsapp(
@@ -1694,7 +1838,7 @@ async def resend_invitation(
             after_state={
                 "status": invitation.status,
                 "email": invitation.email,
-                "email_outbox_status": "PENDING",
+                "email_outbox_status": email_outbox.status,
                 "token_fingerprint": token_fingerprint,
             },
             ip_address=ip_address,
