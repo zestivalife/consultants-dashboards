@@ -406,6 +406,7 @@ export function PeopleAccessModule({
     mobile_number: '',
     country_code: '+91',
     role: 'consultant',
+    platform_key: '',
     product_id: '',
     product_ids: [],
     organization_id: '',
@@ -467,22 +468,62 @@ export function PeopleAccessModule({
     () => departmentOptions.filter((department) => !invitationDraft.organization_id || department.organization_id === invitationDraft.organization_id),
     [departmentOptions, invitationDraft.organization_id]
   );
+  const invitationPlatformOptions = useMemo(() => {
+    const platformDefinitions = [
+      {
+        key: 'nuetra',
+        name: 'Nuetra',
+        description: 'Organization and workspace-scoped invitation path',
+      },
+      {
+        key: 'fiteatsy',
+        name: 'Fiteatsy',
+        description: 'Product-scoped invitation path',
+      },
+    ];
+
+    return platformDefinitions.map((platform) => {
+      const product = productOptions.find((item) => {
+        const searchable = `${item.key || ''} ${item.name || ''}`.toLowerCase();
+        return searchable.includes(platform.key);
+      });
+      return {
+        ...platform,
+        product,
+        product_id: product?.id || '',
+      };
+    });
+  }, [productOptions]);
   const selectedInvitationProductIdSet = useMemo(() => new Set(invitationDraft.product_ids || []), [invitationDraft.product_ids]);
   const selectedInvitationPrimaryProduct = useMemo(() => {
     const primaryId = invitationDraft.product_id || invitationDraft.product_ids?.[0] || '';
-    return productOptions.find((product) => product.id === primaryId) || null;
-  }, [invitationDraft.product_id, invitationDraft.product_ids, productOptions]);
+    const product = productOptions.find((item) => item.id === primaryId);
+    if (product) return product;
+    const selectedPlatform = invitationPlatformOptions.find((platform) => platform.key === invitationDraft.platform_key);
+    return selectedPlatform
+      ? {
+          id: selectedPlatform.product_id || selectedPlatform.key,
+          key: selectedPlatform.key,
+          name: selectedPlatform.name,
+          status: selectedPlatform.product?.status || 'metadata_unavailable',
+        }
+      : null;
+  }, [invitationDraft.platform_key, invitationDraft.product_id, invitationDraft.product_ids, invitationPlatformOptions, productOptions]);
   const invitationSteps = useMemo(
-    () => buildInvitationWorkflowSteps({ selectedProduct: selectedInvitationPrimaryProduct }),
-    [selectedInvitationPrimaryProduct]
+    () => buildInvitationWorkflowSteps({
+      selectedProduct: selectedInvitationPrimaryProduct,
+      selectedPlatformKey: invitationDraft.platform_key,
+    }),
+    [invitationDraft.platform_key, selectedInvitationPrimaryProduct]
   );
   const invitationWorkflow = useMemo(
     () => getInvitationWorkflowState({
       steps: invitationSteps,
       activeStep: invitationStep,
       selectedProduct: selectedInvitationPrimaryProduct,
+      selectedPlatformKey: invitationDraft.platform_key,
     }),
-    [invitationStep, invitationSteps, selectedInvitationPrimaryProduct]
+    [invitationDraft.platform_key, invitationStep, invitationSteps, selectedInvitationPrimaryProduct]
   );
   const {
     productMode: invitationProductMode,
@@ -651,6 +692,8 @@ export function PeopleAccessModule({
     });
   };
   const toggleInvitationProduct = (productId) => {
+    const product = productOptions.find((item) => item.id === productId);
+    const nextPlatformKey = /fiteatsy/i.test(`${product?.key || ''} ${product?.name || ''}`) ? 'fiteatsy' : invitationDraft.platform_key || 'nuetra';
     setInvitationDraft((current) => {
       const values = current.product_ids || [];
       const nextValues = values.includes(productId)
@@ -658,18 +701,21 @@ export function PeopleAccessModule({
         : [...values, productId];
       return {
         ...current,
+        platform_key: nextPlatformKey,
         product_ids: nextValues,
         product_id: nextValues[0] || '',
       };
     });
   };
-  const selectInvitationPrimaryProduct = (productId) => {
-    const product = productOptions.find((item) => item.id === productId);
-    const isFiteatsyProduct = /fiteatsy/i.test(product?.name || '');
+  const selectInvitationPlatform = (platformKey) => {
+    const platform = invitationPlatformOptions.find((item) => item.key === platformKey);
+    const productId = platform?.product_id || '';
+    const isFiteatsyProduct = platformKey === 'fiteatsy';
     setInvitationDraft((current) => ({
       ...current,
+      platform_key: platformKey,
       product_id: productId,
-      product_ids: [productId],
+      product_ids: productId ? [productId] : [],
       organization_id: isFiteatsyProduct ? '' : current.organization_id,
       department_id: isFiteatsyProduct ? '' : current.department_id,
     }));
@@ -682,6 +728,7 @@ export function PeopleAccessModule({
       mobile_number: '',
       country_code: '+91',
       role,
+      platform_key: '',
       product_id: '',
       product_ids: [],
       organization_id: '',
@@ -1637,20 +1684,23 @@ export function PeopleAccessModule({
               description="Choose the primary product first. The next steps adapt automatically for Nuetra or Fiteatsy."
             >
               <div className="grid gap-3 md:grid-cols-2">
-                {productOptions.map((product) => (
+                {invitationPlatformOptions.map((platform) => (
                   <button
-                    key={product.id}
+                    key={platform.key}
                     type="button"
-                    onClick={() => selectInvitationPrimaryProduct(product.id)}
+                    onClick={() => selectInvitationPlatform(platform.key)}
                     className={cn(
                       'rounded-2xl border px-4 py-4 text-left transition',
-                      invitationDraft.product_id === product.id ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
+                      invitationDraft.platform_key === platform.key ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
                     )}
                   >
-                    <span className="block z-h4">{product.name}</span>
-                    <span className="mt-1 block z-subtitle text-gray-500">
-                      {/fiteatsy/i.test(product.name) ? 'Short product-scoped invitation path' : 'Organization and workspace-scoped invitation path'}
-                    </span>
+                    <span className="block z-h4">{platform.name}</span>
+                    <span className="mt-1 block z-subtitle text-gray-500">{platform.description}</span>
+                    {!platform.product_id ? (
+                      <span className="mt-3 block rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+                        Product metadata unavailable
+                      </span>
+                    ) : null}
                   </button>
                 ))}
               </div>
@@ -1674,6 +1724,12 @@ export function PeopleAccessModule({
                     <span className="mt-1 block z-subtitle text-gray-500">{organization.status || 'Organization'} workspace</span>
                   </button>
                 ))}
+                {!organizationOptions.length ? (
+                  <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-4 text-left">
+                    <span className="block z-h4 text-amber-800">No organizations available</span>
+                    <span className="mt-1 block z-subtitle text-amber-700">Organization metadata could not be loaded for this Nuetra invitation.</span>
+                  </div>
+                ) : null}
               </div>
             </WorkflowCard>
           ) : null}
@@ -1697,8 +1753,12 @@ export function PeopleAccessModule({
                 ))}
                 {!invitationWorkspaces.length ? (
                   <div className="rounded-2xl border border-[#237afc] bg-[#f5f9ff] px-4 py-4 text-left text-[#237afc] shadow-sm">
-                    <span className="block z-h4">Organization default workspace</span>
-                    <span className="mt-1 block z-subtitle text-gray-500">No departments are configured yet, so this invite will start at the organization workspace.</span>
+                    <span className="block z-h4">{departmentOptions.length ? 'Organization default workspace' : 'No workspaces available'}</span>
+                    <span className="mt-1 block z-subtitle text-gray-500">
+                      {departmentOptions.length
+                        ? 'No departments are configured for this organization, so this invite will start at the organization workspace.'
+                        : 'Workspace metadata could not be loaded for this Nuetra invitation.'}
+                    </span>
                   </div>
                 ) : null}
               </div>
@@ -1707,7 +1767,7 @@ export function PeopleAccessModule({
 
           {invitationStepId === 'products' || invitationStepId === 'scope' ? (
             <WorkflowCard
-              title={isFiteatsyInvitation ? 'Select products' : 'Access Scope'}
+              title="Select products"
               description={isFiteatsyInvitation ? 'Confirm the Fiteatsy product scope for this invitation.' : 'Configure products, packages, services, and permission context for this Nuetra invitation.'}
             >
               <div className="space-y-5">
@@ -1727,6 +1787,12 @@ export function PeopleAccessModule({
                         {product.name}
                       </button>
                     ))}
+                    {!productOptions.length ? (
+                      <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-4 text-left">
+                        <span className="block z-h4 text-amber-800">Unable to load products</span>
+                        <span className="mt-1 block z-subtitle text-amber-700">The workflow remains available, but product metadata is unavailable right now.</span>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -1773,7 +1839,7 @@ export function PeopleAccessModule({
                   ['Email', invitationDraft.email || 'Not added'],
                   ['Mobile', `${invitationDraft.country_code || ''} ${invitationDraft.mobile_number || ''}`.trim() || 'Not added'],
                   ['Platform', selectedInvitationPrimaryProduct?.name || 'Not selected'],
-                  ['Products', productOptions.filter((item) => invitationDraft.product_ids.includes(item.id)).map((item) => item.name).join(', ') || 'Not selected'],
+                  ['Products', productOptions.length ? productOptions.filter((item) => invitationDraft.product_ids.includes(item.id)).map((item) => item.name).join(', ') || 'Not selected' : 'Unable to load products'],
                   ['Organization', isFiteatsyInvitation ? 'Not required for Fiteatsy' : organizationOptions.find((item) => item.id === invitationDraft.organization_id)?.name || 'Not selected'],
                   ['Workspace', isFiteatsyInvitation ? 'Product workspace' : invitationWorkspaces.find((item) => item.id === invitationDraft.department_id)?.name || 'Organization default workspace'],
                 ].map(([label, value]) => <ReviewCard key={label} label={label} value={value} />)}
@@ -1822,6 +1888,9 @@ export function PeopleAccessModule({
                   <div className="rounded-2xl bg-gray-50 p-4">
                     <p className="z-label text-gray-500">Product</p>
                     <p className="mt-1 z-table-content font-semibold text-gray-900">{selectedInvitationPrimaryProduct?.name || 'Not selected'}</p>
+                    {!invitationDraft.product_id ? (
+                      <p className="mt-2 text-xs font-semibold text-amber-700">Unable to load product metadata for submission.</p>
+                    ) : null}
                   </div>
                 </div>
               </WorkflowCard>
