@@ -137,7 +137,10 @@ def upgrade() -> None:
                     "SELECT gen_random_uuid(), r.id, p.id, now() "
                     "FROM roles r CROSS JOIN permissions p "
                     "WHERE r.name = :role_name AND p.key = :permission_key "
-                    "ON CONFLICT (role_id, permission_id) DO NOTHING"
+                    "AND NOT EXISTS ("
+                    "SELECT 1 FROM role_permissions rp "
+                    "WHERE rp.role_id = r.id AND rp.permission_id = p.id"
+                    ")"
                 ),
                 {"role_name": role_name, "permission_key": permission_key},
             )
@@ -147,7 +150,9 @@ def upgrade() -> None:
             "INSERT INTO user_roles (id, user_id, role_id, assigned_by_user_id, is_primary, created_at) "
             "SELECT gen_random_uuid(), u.id, u.role_id, NULL, true, COALESCE(u.created_at, now()) "
             "FROM users u "
-            "ON CONFLICT (user_id, role_id) DO NOTHING"
+            "WHERE NOT EXISTS ("
+            "SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id AND ur.role_id = u.role_id"
+            ")"
         )
     )
 
@@ -171,8 +176,10 @@ def upgrade() -> None:
             "CASE WHEN is_active THEN 'ACTIVE' ELSE 'INACTIVE' END, NULL, MIN(created_at), now() "
             "FROM users "
             "WHERE company_name IS NOT NULL AND company_name <> '' "
-            "GROUP BY company_name, industry, employees, location, first_name, last_name, email, is_active "
-            "ON CONFLICT (name) DO NOTHING"
+            "AND NOT EXISTS ("
+            "SELECT 1 FROM organizations o WHERE o.name = users.company_name"
+            ") "
+            "GROUP BY company_name, industry, employees, location, first_name, last_name, email, is_active"
         )
     )
 
@@ -184,7 +191,10 @@ def upgrade() -> None:
             "FROM users u "
             "JOIN organizations o ON o.name = u.company_name "
             "WHERE u.company_name IS NOT NULL AND u.company_name <> '' "
-            "ON CONFLICT (user_id, organization_id) DO NOTHING"
+            "AND NOT EXISTS ("
+            "SELECT 1 FROM organization_memberships om "
+            "WHERE om.user_id = u.id AND om.organization_id = o.id"
+            ")"
         )
     )
 
