@@ -193,11 +193,11 @@ export function WorkflowModal({
   children,
 }) {
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-0 md:p-6">
-      <div className="flex h-dvh w-full flex-col overflow-hidden bg-white shadow-2xl md:h-[78vh] md:max-h-[780px] md:w-[min(960px,calc(100vw-48px))] md:rounded-[28px]">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-0 md:p-6" role="dialog" aria-modal="true">
+      <div className="flex h-dvh w-full flex-col overflow-hidden bg-white shadow-2xl md:h-[76vh] md:max-h-[760px] md:w-[min(960px,calc(100vw-56px))] md:rounded-[28px]">
         <WorkflowHeader eyebrow={eyebrow} title={title} description={description} onClose={onClose} />
 
-        <div className="sticky top-0 z-10 shrink-0 border-b border-gray-100 bg-white px-5 py-2.5 md:px-6">
+        <div className="sticky top-0 z-10 shrink-0 border-b border-gray-100 bg-white px-5 py-2 md:px-6">
           <WizardStepper steps={steps} activeStep={activeStep} onStepChange={onStepChange} />
         </div>
 
@@ -211,7 +211,7 @@ export function WorkflowModal({
 
 export function WorkflowHeader({ eyebrow, title, description, onClose }) {
   return (
-    <header className="sticky top-0 z-20 shrink-0 border-b border-gray-100 bg-white px-5 py-4 md:px-6">
+    <header className="sticky top-0 z-20 shrink-0 border-b border-gray-100 bg-white px-5 py-3.5 md:px-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           {eyebrow ? <p className="z-label text-[#237afc]">{eyebrow}</p> : null}
@@ -236,14 +236,14 @@ export function WorkflowFooter({ children }) {
 
 export function WizardStepper({ steps = [], activeStep = 0, onStepChange }) {
   return (
-    <div className="-mx-1 flex min-h-[60px] gap-2 overflow-x-auto px-1 pb-1" aria-label="Workflow steps">
+    <div className="-mx-1 flex min-h-[52px] gap-2 overflow-x-auto px-1 pb-1" aria-label="Workflow steps">
       {steps.map((step, index) => (
         <button
           key={step.id || step.label}
           type="button"
           onClick={() => onStepChange?.(index)}
           className={cn(
-            'min-w-[116px] rounded-2xl border px-3 py-2 text-left transition md:min-w-[128px]',
+            'min-w-[104px] rounded-2xl border px-3 py-2 text-left transition md:min-w-[116px]',
             activeStep === index
               ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]'
               : index < activeStep
@@ -261,7 +261,7 @@ export function WizardStepper({ steps = [], activeStep = 0, onStepChange }) {
 
 export function WorkflowCard({ title, description, children }) {
   return (
-    <section className="rounded-[24px] border border-gray-100/80 bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <section className="rounded-[24px] border border-gray-100/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:p-6">
       <SectionHeader title={title} description={description} />
       <div className="mt-5">{children}</div>
     </section>

@@ -52,6 +52,10 @@ import {
   WorkflowCard,
   WorkflowModal,
 } from './OwnerConsolePrimitives';
+import {
+  buildInvitationWorkflowSteps,
+  getInvitationWorkflowState,
+} from '../../lib/workflows/invitationWorkflow';
 
 export function CommandCenterModule({ data }) {
   const activeOrgs = data.organizations.filter((item) => item.status === 'Active').length;
@@ -468,40 +472,33 @@ export function PeopleAccessModule({
     const primaryId = invitationDraft.product_id || invitationDraft.product_ids?.[0] || '';
     return productOptions.find((product) => product.id === primaryId) || null;
   }, [invitationDraft.product_id, invitationDraft.product_ids, productOptions]);
-  const isFiteatsyInvitation = /fiteatsy/i.test(selectedInvitationPrimaryProduct?.name || '');
-  const invitationSteps = useMemo(() => {
-    const baseSteps = [
-      { id: 'role', label: 'Role' },
-      { id: 'contact', label: 'Contact' },
-      { id: 'platform', label: 'Platform' },
-    ];
-    if (!selectedInvitationPrimaryProduct) return baseSteps;
-    if (isFiteatsyInvitation) {
-      return [
-        ...baseSteps,
-        { id: 'products', label: 'Products' },
-        { id: 'review', label: 'Review' },
-        { id: 'send', label: 'Send' },
-      ];
-    }
-    return [
-      ...baseSteps,
-      { id: 'organization', label: 'Organization' },
-      { id: 'workspace', label: 'Workspace' },
-      { id: 'scope', label: 'Access Scope' },
-      { id: 'review', label: 'Review' },
-      { id: 'send', label: 'Send' },
-    ];
-  }, [isFiteatsyInvitation, selectedInvitationPrimaryProduct]);
-  const invitationStepId = invitationSteps[invitationStep]?.id || invitationSteps[0]?.id || 'role';
-  const invitationSendStepIndex = invitationSteps.findIndex((step) => step.id === 'send');
-  const invitationLastStepIndex = invitationSendStepIndex >= 0 ? invitationSendStepIndex : Math.max(0, invitationSteps.length - 1);
-  const invitationProductStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'platform'));
-  const invitationRoleStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'role'));
-  const invitationContactStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'contact'));
-  const invitationOrganizationStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'organization'));
-  const invitationWorkspaceStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === 'workspace'));
-  const invitationScopeStepIndex = Math.max(0, invitationSteps.findIndex((step) => step.id === (isFiteatsyInvitation ? 'products' : 'scope')));
+  const invitationSteps = useMemo(
+    () => buildInvitationWorkflowSteps({ selectedProduct: selectedInvitationPrimaryProduct }),
+    [selectedInvitationPrimaryProduct]
+  );
+  const invitationWorkflow = useMemo(
+    () => getInvitationWorkflowState({
+      steps: invitationSteps,
+      activeStep: invitationStep,
+      selectedProduct: selectedInvitationPrimaryProduct,
+    }),
+    [invitationStep, invitationSteps, selectedInvitationPrimaryProduct]
+  );
+  const {
+    productMode: invitationProductMode,
+    stepId: invitationStepId,
+    sendStepIndex: invitationSendStepIndex,
+    lastStepIndex: invitationLastStepIndex,
+    roleStepIndex: invitationRoleStepIndex,
+    contactStepIndex: invitationContactStepIndex,
+    platformStepIndex: invitationProductStepIndex,
+    organizationStepIndex: invitationOrganizationStepIndex,
+    workspaceStepIndex: invitationWorkspaceStepIndex,
+    scopeStepIndex: invitationScopeStepIndex,
+    requiresOrganization: invitationRequiresOrganization,
+    requiresWorkspace: invitationRequiresWorkspace,
+  } = invitationWorkflow;
+  const isFiteatsyInvitation = invitationProductMode === 'fiteatsy';
   const humanizeLabel = (value = '') =>
     value
       .toString()
@@ -904,12 +901,12 @@ export function PeopleAccessModule({
       setInvitationStep(invitationScopeStepIndex);
       return;
     }
-    if (!isFiteatsyInvitation && !invitationDraft.organization_id) {
+    if (invitationRequiresOrganization && !invitationDraft.organization_id) {
       setActionError('Select an organization before sending the invitation.');
       setInvitationStep(invitationOrganizationStepIndex);
       return;
     }
-    if (!isFiteatsyInvitation && invitationWorkspaces.length && !invitationDraft.department_id) {
+    if (invitationRequiresWorkspace && invitationWorkspaces.length && !invitationDraft.department_id) {
       setActionError('Select a workspace before sending the invitation.');
       setInvitationStep(invitationWorkspaceStepIndex);
       return;
@@ -931,7 +928,7 @@ export function PeopleAccessModule({
       if (result === null) return;
       rememberInvitationLink(result);
       setLatestInvitation(result);
-      setInvitationStep(invitationSendStepIndex);
+      setInvitationStep(invitationSendStepIndex >= 0 ? invitationSendStepIndex : invitationLastStepIndex);
     } finally {
       setIsSubmitting(false);
     }
@@ -1710,8 +1707,8 @@ export function PeopleAccessModule({
 
           {invitationStepId === 'products' || invitationStepId === 'scope' ? (
             <WorkflowCard
-              title={isFiteatsyInvitation ? 'Select products' : 'Configure access scope'}
-              description={isFiteatsyInvitation ? 'Confirm the Fiteatsy product scope for this invitation.' : 'Review product, package, service, and permission context for this Nuetra invitation.'}
+              title={isFiteatsyInvitation ? 'Select products' : 'Access Scope'}
+              description={isFiteatsyInvitation ? 'Confirm the Fiteatsy product scope for this invitation.' : 'Configure products, packages, services, and permission context for this Nuetra invitation.'}
             >
               <div className="space-y-5">
                 <div>
