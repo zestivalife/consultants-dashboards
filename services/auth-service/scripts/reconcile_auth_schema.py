@@ -917,6 +917,13 @@ async def reconcile() -> None:
             )
             """,
         )
+        await _add_columns(
+            conn,
+            "password_history",
+            {
+                "source": "VARCHAR(80) NOT NULL DEFAULT 'credential_creation'",
+            },
+        )
 
         await _execute(conn, "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)")
         current = await conn.fetchval("SELECT version_num FROM alembic_version LIMIT 1")
