@@ -379,7 +379,7 @@ const CorporateSessionFlow = ({ isOpen, onClose, onComplete, userRole }) => {
                 <CheckCircle className="w-5 h-5 text-blue-600 mt-0.5 mr-2" />
                 <div className="text-sm text-blue-800">
                   <p className="font-medium">Ready to create session</p>
-                  <p>Once created, invitations will be sent to eligible employees and the session will appear in the corporate wellness calendar.</p>
+                  <p>Once created, eligible employee accounts can be provisioned and the session will appear in the corporate wellness calendar.</p>
                 </div>
               </div>
             </div>

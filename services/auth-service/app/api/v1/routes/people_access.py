@@ -12,7 +12,6 @@ from app.schemas.people_access import (
     BulkActionRequest,
     CsvImportRequest,
     CustomRoleCreateRequest,
-    InvitationCreateRequest,
     ManagedUserCreateRequest,
     ManagedUserUpdateRequest,
     OrganizationCreateRequest,
@@ -162,6 +161,23 @@ async def update_user(
     return success_response(data=result.model_dump(mode="json"), message="User updated")
 
 
+@router.post("/users/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
+):
+    await _require_people_access(session, current_user, "users.reset_password")
+    result = await people_access_service.reset_user_password(
+        session,
+        user_id,
+        actor=current_user,
+        **_request_meta(request),
+    )
+    return success_response(data=result.model_dump(mode="json"), message="Temporary password generated")
+
+
 @router.post("/users/{user_id}/notes")
 async def add_note(
     user_id: uuid.UUID,
@@ -201,117 +217,6 @@ async def add_attachment(
         **_request_meta(request),
     )
     return success_response(data=[item.model_dump(mode="json") for item in result], message="Attachment added")
-
-
-@router.get("/invitations")
-async def list_invitations(
-    request: Request,
-    search: str | None = None,
-    status: str | None = None,
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=1, le=100),
-    session: AsyncSession = Depends(get_db),
-    current_user: UserResponse = Depends(get_current_user),
-):
-    await _require_people_access(session, current_user, "users.read")
-    items, pagination = await people_access_service.list_invitations(
-        session,
-        search=search,
-        status=status,
-        page=page,
-        page_size=page_size,
-    )
-    return success_response(
-        data={
-            "items": [item.model_dump(mode="json") for item in items],
-            "pagination": pagination.model_dump(mode="json"),
-        }
-    )
-
-
-@router.post("/invitations")
-async def create_invitation(
-    body: InvitationCreateRequest,
-    request: Request,
-    session: AsyncSession = Depends(get_db),
-    current_user: UserResponse = Depends(get_current_user),
-):
-    await _require_people_access(session, current_user, "users.invite")
-    result = await people_access_service.create_invitation(
-        session,
-        body,
-        actor=current_user,
-        **_request_meta(request),
-    )
-    return success_response(data=result.model_dump(mode="json"), message="Invitation created", status_code=201)
-
-
-@router.post("/invitations/{invitation_id}/resend")
-async def resend_invitation(
-    invitation_id: uuid.UUID,
-    request: Request,
-    session: AsyncSession = Depends(get_db),
-    current_user: UserResponse = Depends(get_current_user),
-):
-    await _require_people_access(session, current_user, "users.invite")
-    result = await people_access_service.resend_invitation(
-        session,
-        invitation_id,
-        actor=current_user,
-        **_request_meta(request),
-    )
-    return success_response(data=result.model_dump(mode="json"), message="Invitation resent")
-
-
-@router.post("/invitations/{invitation_id}/regenerate-link")
-async def regenerate_invitation_link(
-    invitation_id: uuid.UUID,
-    request: Request,
-    session: AsyncSession = Depends(get_db),
-    current_user: UserResponse = Depends(get_current_user),
-):
-    await _require_people_access(session, current_user, "users.invite")
-    result = await people_access_service.regenerate_invitation_link(
-        session,
-        invitation_id,
-        actor=current_user,
-        **_request_meta(request),
-    )
-    return success_response(data=result.model_dump(mode="json"), message="Invitation link regenerated")
-
-
-@router.post("/invitations/{invitation_id}/cancel")
-async def cancel_invitation(
-    invitation_id: uuid.UUID,
-    request: Request,
-    session: AsyncSession = Depends(get_db),
-    current_user: UserResponse = Depends(get_current_user),
-):
-    await _require_people_access(session, current_user, "users.invite")
-    result = await people_access_service.cancel_invitation(
-        session,
-        invitation_id,
-        actor=current_user,
-        **_request_meta(request),
-    )
-    return success_response(data=result.model_dump(mode="json"), message="Invitation cancelled")
-
-
-@router.post("/invitations/{invitation_id}/expire")
-async def expire_invitation(
-    invitation_id: uuid.UUID,
-    request: Request,
-    session: AsyncSession = Depends(get_db),
-    current_user: UserResponse = Depends(get_current_user),
-):
-    await _require_people_access(session, current_user, "users.invite")
-    result = await people_access_service.expire_invitation(
-        session,
-        invitation_id,
-        actor=current_user,
-        **_request_meta(request),
-    )
-    return success_response(data=result.model_dump(mode="json"), message="Invitation expired")
 
 
 @router.patch("/roles/{role_id}/permissions")
@@ -501,7 +406,7 @@ async def bulk_actions(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    await _require_people_access(session, current_user, "users.edit", "users.invite")
+    await _require_people_access(session, current_user, "users.edit", "users.create")
     result = await people_access_service.bulk_action(
         session,
         action=body.action,

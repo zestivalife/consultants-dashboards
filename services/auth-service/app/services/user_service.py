@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictException, NotFoundException
 from app.db.models.owner_access import UserRole
-from app.db.models.user import User
+from app.db.models.user import PasswordHistory, User
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.role_repository import RoleRepository
 from app.repositories.user_repository import UserRepository
@@ -22,7 +22,7 @@ class CreateUserCommand:
     first_name: str | None = None
     last_name: str | None = None
     phone: str | None = None
-    status: str = "INVITED"
+    status: str = "PENDING_CREDENTIALS"
     permissions: list[str] = field(default_factory=list)
     is_active: bool | None = None
     is_verified: bool | None = None
@@ -33,6 +33,7 @@ class CreateUserCommand:
     industry: str | None = None
     actor_user_id: uuid.UUID | None = None
     audit_event_type: str = "USER_CREATED"
+    must_change_password: bool | None = None
 
 
 @dataclass(slots=True)
@@ -43,7 +44,7 @@ class CreatedUser:
 
 
 class UserService:
-    """Shared identity creation service for every role and invitation path."""
+    """Shared identity creation service for every role and provisioning path."""
 
     async def create_user(self, session: AsyncSession, command: CreateUserCommand) -> CreatedUser:
         user_repo = UserRepository(session)
@@ -60,8 +61,9 @@ class UserService:
 
         plain_password = command.password or password_service.generate_temporary_password()
         is_temporary = command.password is None
+        must_change_password = command.must_change_password if command.must_change_password is not None else is_temporary
         status = command.status.strip().upper()
-        is_verified = command.is_verified if command.is_verified is not None else status not in {"INVITED", "PENDING_VERIFICATION"}
+        is_verified = command.is_verified if command.is_verified is not None else status != "PENDING_VERIFICATION"
         is_active = command.is_active if command.is_active is not None else status not in {"INACTIVE", "SUSPENDED", "DELETED"}
         now = datetime.now(timezone.utc)
 
@@ -85,8 +87,16 @@ class UserService:
             email_verified=is_verified,
             mobile_verified=False,
             password_changed_at=None if is_temporary else now,
+            must_change_password=must_change_password,
         )
         await user_repo.create(user)
+        session.add(
+            PasswordHistory(
+                user_id=user.id,
+                password_hash=user.password_hash,
+                source="temporary_user_creation" if is_temporary else "user_creation",
+            )
+        )
 
         session.add(
             UserRole(

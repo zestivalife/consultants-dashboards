@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -14,6 +15,7 @@ from app.core.exceptions import (
 )
 from app.core.logging import get_logger
 from app.core.otp import generate_otp, store_otp, verify_and_delete_otp
+from app.core.password_policy import WeakPasswordException
 from app.core.rate_limit import check_rate_limit
 from app.core.security import (
     create_access_token,
@@ -22,7 +24,7 @@ from app.core.security import (
 )
 from app.db.models.otp_verification import OTPVerification
 from app.db.models.refresh_token import RefreshToken
-from app.db.models.user import User
+from app.db.models.user import PasswordHistory, User
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.role_repository import RoleRepository
@@ -52,21 +54,6 @@ def _send_otp_email_background(email: str, otp_code: str) -> None:
         # ERROR: Never re-raise from background tasks - API should not fail
 
 
-def _send_invitation_email_background(email: str, temp_password: str, role: str) -> None:
-    """Send invitation email (background task). Never raises exceptions."""
-    try:
-        get_email_service().send_invitation(email, temp_password, role)
-        logger.info("invitation_email_sent_background", email=email, role=role)
-    except Exception as exc:
-        logger.error(
-            "invitation_email_failed_background",
-            email=email,
-            error=str(exc),
-            note="Email sending failed but API response continues",
-        )
-        # ERROR: Never re-raise from background tasks - API should not fail
-
-
 # ── helpers ───────────────────────────────────────────
 
 def _user_response(user: User, permissions: list[str] | None = None) -> UserResponse:
@@ -82,6 +69,7 @@ def _user_response(user: User, permissions: list[str] | None = None) -> UserResp
         last_name=user.last_name,
         phone=user.phone,
         permissions=permissions if permissions is not None else (user.permissions or []),
+        must_change_password=user.must_change_password,
         created_at=user.created_at,
     )
 
@@ -465,6 +453,120 @@ async def logout(
     )
 
     return {"message": "Logged out successfully"}
+
+
+async def _recent_password_hashes(session: AsyncSession, user_id: uuid.UUID, limit: int = 5) -> list[str]:
+    result = await session.execute(
+        select(PasswordHistory.password_hash)
+        .where(PasswordHistory.user_id == user_id)
+        .order_by(PasswordHistory.created_at.desc())
+        .limit(limit)
+    )
+    return [value for value in result.scalars().all()]
+
+
+async def change_password(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    current_password: str,
+    new_password: str,
+    confirm_password: str,
+    *,
+    temporary_only: bool = False,
+    issue_new_session: bool = False,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+) -> dict | LoginResponse:
+    settings = get_settings()
+    user_repo = UserRepository(session)
+    refresh_repo = RefreshTokenRepository(session)
+    audit_repo = AuditLogRepository(session)
+    user = await user_repo.get_by_id(user_id)
+    if user is None:
+        raise NotFoundException("User not found")
+
+    _ensure_authenticatable_user(user)
+    if temporary_only and not user.must_change_password:
+        raise ConflictException("Temporary password change is not required for this account")
+
+    if not password_service.verify_password(current_password, user.password_hash):
+        await audit_repo.create(
+            "PASSWORD_CHANGE_FAILED",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        raise UnauthorizedException("Current password is incorrect")
+
+    if new_password != confirm_password:
+        await audit_repo.create(
+            "PASSWORD_VALIDATION_FAILED",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        raise WeakPasswordException(["password and confirmation must match"])
+
+    previous_hashes = [user.password_hash, *(await _recent_password_hashes(session, user.id, limit=5))]
+    try:
+        password_service.validate_new_password(new_password)
+        password_service.ensure_not_reused(new_password, previous_hashes)
+    except WeakPasswordException:
+        await audit_repo.create(
+            "PASSWORD_VALIDATION_FAILED",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        raise
+
+    new_hash = password_service.hash_password(new_password)
+    now = datetime.now(timezone.utc)
+    user.password_hash = new_hash
+    user.password_changed_at = now
+    user.must_change_password = False
+    user.failed_login_attempts = 0
+    user.lock_until = None
+    await user_repo.update(user)
+    session.add(
+        PasswordHistory(
+            user_id=user.id,
+            password_hash=new_hash,
+            source="temporary_password_change" if temporary_only else "profile_password_change",
+        )
+    )
+    await session.flush()
+
+    audit_event = "USER_CHANGED_TEMPORARY_PASSWORD" if temporary_only else "PASSWORD_CHANGED"
+    await audit_repo.create(
+        audit_event,
+        user_id=user.id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+    if not issue_new_session:
+        return {"message": "Password changed successfully", "must_change_password": False}
+
+    raw_refresh = generate_refresh_token()
+    refresh_record = RefreshToken(
+        user_id=user.id,
+        token_hash=hash_token(raw_refresh),
+        expires_at=now + timedelta(days=settings.jwt_refresh_expiry_days),
+    )
+    await refresh_repo.create(refresh_record)
+    await people_access_service.register_login_session(
+        session,
+        user,
+        refresh_record.id,
+        ip_address,
+        user_agent,
+    )
+    permissions = await people_access_service.resolve_user_permissions(session, user)
+    return LoginResponse(
+        tokens=_build_tokens(user, raw_refresh, permissions),
+        user=_user_response(user, permissions),
+    )
 
 
 async def get_current_user(session: AsyncSession, user_id: uuid.UUID) -> UserResponse:

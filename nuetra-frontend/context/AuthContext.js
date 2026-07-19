@@ -10,6 +10,13 @@ const BACKEND_AUTH_ENABLED = Boolean(process.env.NEXT_PUBLIC_API_URL);
 
 const AuthContext = createContext(null);
 
+function getPostLoginPath(user) {
+  if (user?.must_change_password) {
+    return '/auth/change-temporary-password';
+  }
+  return getDashboardPathForRole(user?.role);
+}
+
 function readStoredSessionRecord() {
   if (typeof window === 'undefined') return null;
 
@@ -110,7 +117,7 @@ export function AuthProvider({ children }) {
         setIsLoading(false);
 
         if (redirect) {
-          window.location.replace(getDashboardPathForRole(nextUser.role));
+          window.location.replace(getPostLoginPath(nextUser));
         }
 
         return { user: nextUser };
@@ -241,6 +248,48 @@ export function AuthProvider({ children }) {
     };
   }
 
+  async function completeTemporaryPasswordChange({ currentPassword, newPassword, confirmPassword }) {
+    if (!BACKEND_AUTH_ENABLED) {
+      return { error: 'Temporary password changes require backend authentication.' };
+    }
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await authAPI.changeTemporaryPassword(currentPassword, newPassword, confirmPassword);
+      const nextUser = response?.user;
+      const tokens = response?.tokens;
+      const rememberMe = isRememberedAuthSession();
+
+      if (!nextUser || !tokens?.access_token) {
+        throw new Error('Password change response is incomplete.');
+      }
+
+      setToken(tokens.access_token, rememberMe);
+      if (tokens.refresh_token) {
+        setRefreshToken(tokens.refresh_token, rememberMe);
+      }
+
+      const session = {
+        user: nextUser,
+        loggedInAt: new Date().toISOString(),
+        mode: 'backend',
+        rememberMe,
+      };
+
+      setUser(nextUser);
+      persistSession(session, rememberMe);
+      setIsLoading(false);
+      router.replace(getDashboardPathForRole(nextUser.role));
+      return { user: nextUser };
+    } catch (nextError) {
+      const message = nextError?.message || 'Unable to change temporary password.';
+      setError(message);
+      setIsLoading(false);
+      return { error: message };
+    }
+  }
+
   async function refreshSession(options = {}) {
     if (BACKEND_AUTH_ENABLED) {
       try {
@@ -255,6 +304,9 @@ export function AuthProvider({ children }) {
           };
           setUser(nextUser);
           persistSession(session, rememberMe);
+          if (nextUser.must_change_password && router.pathname !== '/auth/change-temporary-password') {
+            router.replace('/auth/change-temporary-password');
+          }
           return true;
         }
       } catch {
@@ -307,6 +359,7 @@ export function AuthProvider({ children }) {
       logout,
       register,
       verifyOtp,
+      completeTemporaryPasswordChange,
       refreshSession,
       requestPasswordReset,
       clearError,
