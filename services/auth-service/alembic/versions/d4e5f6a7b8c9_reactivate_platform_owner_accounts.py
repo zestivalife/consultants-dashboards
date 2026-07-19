@@ -1,7 +1,7 @@
 """reactivate platform owner accounts
 
-Revision ID: e5f6a7b8c9d1
-Revises: b9c0d1e2f3a4, d4e5f6a7b8c9
+Revision ID: d4e5f6a7b8c9
+Revises: d3e4f5a6b7c8
 Create Date: 2026-07-19 00:00:00
 """
 from typing import Sequence, Union
@@ -13,8 +13,8 @@ from alembic import op
 from app.core.security import hash_password
 
 
-revision: str = "e5f6a7b8c9d1"
-down_revision: Union[str, tuple[str, str], None] = ("b9c0d1e2f3a4", "d4e5f6a7b8c9")
+revision: str = "d4e5f6a7b8c9"
+down_revision: Union[str, None] = "d3e4f5a6b7c8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -67,7 +67,7 @@ def upgrade() -> None:
     owner_role_id = _preferred_owner_role_id(conn)
 
     for owner in OWNER_USERS:
-        update_values = {
+        values = {
             "email": owner["email"],
             "password_hash": hash_password(owner["password"]),
             "first_name": owner["first_name"],
@@ -102,7 +102,7 @@ def upgrade() -> None:
                 WHERE lower(email) = lower(:email)
                 """
             ),
-            update_values,
+            values,
         )
 
     if owner_role_id is None or "user_roles" not in _table_names(conn):
