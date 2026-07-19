@@ -5,7 +5,7 @@ import {
   getWorkflowStepIndex,
 } from './workflowEngine';
 
-export const INVITATION_STEP_DEFINITIONS = {
+export const USER_PROVISIONING_STEP_DEFINITIONS = {
   role: {
     id: 'role',
     label: 'Role',
@@ -31,11 +31,6 @@ export const INVITATION_STEP_DEFINITIONS = {
     label: 'Workspace',
     title: 'Select workspace',
   },
-  scope: {
-    id: 'scope',
-    label: 'Access Scope',
-    title: 'Access Scope',
-  },
   products: {
     id: 'products',
     label: 'Products',
@@ -44,47 +39,47 @@ export const INVITATION_STEP_DEFINITIONS = {
   review: {
     id: 'review',
     label: 'Review',
-    title: 'Review invitation',
+    title: 'Review user',
   },
-  send: {
-    id: 'send',
-    label: 'Send',
-    title: 'Send invitation',
+  create: {
+    id: 'create',
+    label: 'Generate Credentials',
+    title: 'Generate temporary credentials',
   },
 };
 
-const INVITATION_PRODUCT_WORKFLOWS = {
+const USER_PROVISIONING_PRODUCT_WORKFLOWS = {
   pending: ['role', 'contact', 'platform'],
-  nuetra: ['role', 'contact', 'platform', 'organization', 'workspace', 'products', 'review', 'send'],
-  fiteatsy: ['role', 'contact', 'platform', 'products', 'review', 'send'],
+  nuetra: ['role', 'contact', 'platform', 'organization', 'workspace', 'products', 'review', 'create'],
+  fiteatsy: ['role', 'contact', 'platform', 'products', 'review', 'create'],
 };
 
-export function getInvitationProductMode(product, platformKey = '') {
+export function getUserProvisioningProductMode(product, platformKey = '') {
   if (/fiteatsy/i.test(platformKey)) return 'fiteatsy';
   if (/nuetra/i.test(platformKey)) return 'nuetra';
   if (!product) return 'pending';
   return /fiteatsy/i.test(product.name || '') ? 'fiteatsy' : 'nuetra';
 }
 
-export function buildInvitationWorkflowSteps({ selectedProduct, selectedPlatformKey }) {
-  const productMode = getInvitationProductMode(selectedProduct, selectedPlatformKey);
+export function buildUserProvisioningWorkflowSteps({ selectedProduct, selectedPlatformKey }) {
+  const productMode = getUserProvisioningProductMode(selectedProduct, selectedPlatformKey);
   return buildWorkflowSteps({
-    stepDefinitions: INVITATION_STEP_DEFINITIONS,
-    orderedStepIds: INVITATION_PRODUCT_WORKFLOWS[productMode] || INVITATION_PRODUCT_WORKFLOWS.pending,
+    stepDefinitions: USER_PROVISIONING_STEP_DEFINITIONS,
+    orderedStepIds: USER_PROVISIONING_PRODUCT_WORKFLOWS[productMode] || USER_PROVISIONING_PRODUCT_WORKFLOWS.pending,
   });
 }
 
-export function getInvitationWorkflowState({ steps, activeStep, selectedProduct, selectedPlatformKey }) {
-  const productMode = getInvitationProductMode(selectedProduct, selectedPlatformKey);
+export function getUserProvisioningWorkflowState({ steps, activeStep, selectedProduct, selectedPlatformKey }) {
+  const productMode = getUserProvisioningProductMode(selectedProduct, selectedPlatformKey);
   const stepId = getWorkflowStepId(steps, activeStep, 'role');
-  const sendStepIndex = getWorkflowStepIndex(steps, 'send');
-  const lastStepIndex = getWorkflowLastStepIndex(steps, 'send');
+  const createStepIndex = getWorkflowStepIndex(steps, 'create');
+  const lastStepIndex = getWorkflowLastStepIndex(steps, 'create');
   const scopeStepId = 'products';
 
   return {
     productMode,
     stepId,
-    sendStepIndex,
+    createStepIndex,
     lastStepIndex,
     scopeStepId,
     roleStepIndex: Math.max(0, getWorkflowStepIndex(steps, 'role')),

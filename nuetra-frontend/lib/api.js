@@ -368,46 +368,34 @@ export const authAPI = {
     });
   },
 
+  changeTemporaryPassword(currentPassword, newPassword, confirmPassword) {
+    return apiRequest('/auth/change-temporary-password', {
+      method: 'POST',
+      body: {
+        current_password: currentPassword,
+        new_password: newPassword,
+        confirm_password: confirmPassword,
+      },
+    });
+  },
+
+  changePassword(currentPassword, newPassword, confirmPassword) {
+    return apiRequest('/auth/change-password', {
+      method: 'POST',
+      body: {
+        current_password: currentPassword,
+        new_password: newPassword,
+        confirm_password: confirmPassword,
+      },
+    });
+  },
+
   me() {
     return apiRequest('/auth/me');
   },
 
   roles() {
     return apiRequest('/auth/roles');
-  },
-};
-
-export const onboardingAPI = {
-  validateInvitation(token) {
-    return apiRequest('/onboarding/invitations/validate', {
-      method: 'POST',
-      body: { token },
-      skipAuthRefresh: true,
-    });
-  },
-
-  acceptInvitation(token) {
-    return apiRequest('/onboarding/invitations/accept', {
-      method: 'POST',
-      body: { token },
-      skipAuthRefresh: true,
-    });
-  },
-
-  initiatePasswordSetup(token) {
-    return apiRequest('/onboarding/password/setup', {
-      method: 'POST',
-      body: { token },
-      skipAuthRefresh: true,
-    });
-  },
-
-  createCredentials(token, password, confirmPassword) {
-    return apiRequest('/identity/password/create', {
-      method: 'POST',
-      body: { token, password, confirm_password: confirmPassword },
-      skipAuthRefresh: true,
-    });
   },
 };
 
@@ -448,6 +436,12 @@ export const ownerPeopleAccessAPI = {
     });
   },
 
+  resetUserPassword(userId) {
+    return apiRequest(`/owner/people-access/users/${userId}/reset-password`, {
+      method: 'POST',
+    });
+  },
+
   addNote(userId, body) {
     return apiRequest(`/owner/people-access/users/${userId}/notes`, {
       method: 'POST',
@@ -466,46 +460,6 @@ export const ownerPeopleAccessAPI = {
     return apiRequest('/owner/people-access/users/bulk-actions', {
       method: 'POST',
       body: payload,
-    });
-  },
-
-  listInvitations(params = {}) {
-    const searchParams = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
-      if (value === undefined || value === null || value === '') return;
-      searchParams.set(key, String(value));
-    });
-    const suffix = searchParams.toString() ? `?${searchParams.toString()}` : '';
-    return apiRequest(`/owner/people-access/invitations${suffix}`);
-  },
-
-  createInvitation(payload) {
-    return apiRequest('/owner/people-access/invitations', {
-      method: 'POST',
-      body: payload,
-    });
-  },
-
-  resendInvitation(invitationId) {
-    return apiRequest(`/owner/people-access/invitations/${invitationId}/resend`, {
-      method: 'POST',
-    });
-  },
-
-  regenerateInvitationLink(invitationId) {
-    return apiRequest(`/owner/people-access/invitations/${invitationId}/regenerate-link`, {
-      method: 'POST',
-    });
-  },
-
-  cancelInvitation(invitationId) {
-    return apiRequest(`/owner/people-access/invitations/${invitationId}/cancel`, {
-      method: 'POST',
-    });
-  },
-  expireInvitation(invitationId) {
-    return apiRequest(`/owner/people-access/invitations/${invitationId}/expire`, {
-      method: 'POST',
     });
   },
 

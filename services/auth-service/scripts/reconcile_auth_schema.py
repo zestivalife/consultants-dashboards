@@ -6,7 +6,7 @@ import os
 import asyncpg
 
 
-TARGET_ALEMBIC_REVISION = "d3e4f5a6b7c8"
+TARGET_ALEMBIC_REVISION = "b9c0d1e2f3a4"
 
 ROLE_SEEDS = [
     ("platform_owner", "Platform owner with full system permissions"),
@@ -137,6 +137,7 @@ async def reconcile() -> None:
             "mobile_verified": "BOOLEAN NOT NULL DEFAULT false",
             "remember_me": "BOOLEAN NOT NULL DEFAULT false",
             "password_changed_at": "TIMESTAMPTZ",
+            "must_change_password": "BOOLEAN NOT NULL DEFAULT false",
             "mfa_enabled": "BOOLEAN NOT NULL DEFAULT false",
             "current_session_version": "INTEGER NOT NULL DEFAULT 1",
             "refresh_token_version": "INTEGER NOT NULL DEFAULT 1",

@@ -27,7 +27,7 @@ class TeamResponse(TeamCreate):
     class Config:
         from_attributes = True
 
-class EmployeeInvite(BaseModel):
+class EmployeeCreate(BaseModel):
     email: EmailStr
     firstName: str
     lastName: str
@@ -46,7 +46,7 @@ class EmployeeResponse(BaseModel):
     class Config:
         from_attributes = True
 
-class ConsultantInvite(BaseModel):
+class ConsultantCreate(BaseModel):
     email: EmailStr
     firstName: str
     lastName: str

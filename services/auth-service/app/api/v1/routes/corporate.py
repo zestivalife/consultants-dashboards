@@ -11,13 +11,12 @@ from app.db.models.team import Team, SessionRequest, TeamMembership
 from app.db.models.role import Role
 from app.db.models.notification import Notification
 from app.schemas.corporate import (
-    TeamCreate, TeamResponse, EmployeeInvite, EmployeeResponse,
-    ConsultantInvite, ConsultantResponse,
+    TeamCreate, TeamResponse, EmployeeCreate, EmployeeResponse,
+    ConsultantCreate, ConsultantResponse,
     SessionRequestCreate, SessionRequestResponse, DashboardStats, AnalyticsData,
     AuthorityOption, ManagedPersonCreate, ManagedPersonResponse, ManagedPersonUpdate
 )
 from app.core.response import success_response
-from app.core.email import get_email_service
 from app.core.logging import get_logger
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.services.user_service import CreateUserCommand, user_service
@@ -176,7 +175,7 @@ async def list_teams(db: AsyncSession = Depends(get_db), current_user: User = De
     return success_response(res)
 
 @router.post("/employees")
-async def invite_employee(employee: EmployeeInvite, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def create_employee(employee: EmployeeCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     _ensure_admin_access(current_user)
     # Simple logic to create a user and assign to the company.
     # Resolve requested role
@@ -209,7 +208,7 @@ async def invite_employee(employee: EmployeeInvite, db: AsyncSession = Depends(g
             status="ACTIVE",
             is_verified=True,
             actor_user_id=current_user.id,
-            audit_event_type="CORPORATE_EMPLOYEE_INVITED",
+            audit_event_type="CORPORATE_EMPLOYEE_CREATED",
         ),
     )
     new_user = created.user
@@ -217,22 +216,15 @@ async def invite_employee(employee: EmployeeInvite, db: AsyncSession = Depends(g
     await db.commit()
     await db.refresh(new_user)
 
-    # Send invitation email
-    try:
-        get_email_service().send_invitation(new_user.email, temp_password, roleObj.name)
-    except Exception as exc:
-        logger.warning("corporate_invitation_email_failed", user_id=str(new_user.id), error=str(exc))
-
-    # Welcome notification for the invited user
     await _notify(
         db, new_user.id,
         "Welcome to the team!",
-        "You've been invited to join the Nuetra wellness platform. Log in to get started.",
-        type="invite", priority="medium",
+        "Your Zestiva workspace account has been created. Use the temporary password to sign in and change it.",
+        type="account", priority="medium",
     )
     await db.commit()
 
-    return success_response({"tempPassword": temp_password}, "Employee invited successfully")
+    return success_response({"temporaryPassword": temp_password}, "Employee account created successfully")
 
 @router.get("/employees")
 async def list_employees(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -257,16 +249,16 @@ async def list_employees(db: AsyncSession = Depends(get_db), current_user: User 
     return success_response(employees)
 
 @router.post("/employees/bulk")
-async def invite_employees_bulk(employees: List[EmployeeInvite], db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def create_employees_bulk(employees: List[EmployeeCreate], db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     _ensure_admin_access(current_user)
-    invited_count = 0
+    created_count = 0
     errors = []
     
     # Pre-fetch roles
     roles_result = await db.execute(select(Role))
     roles_lookup = {r.name.lower(): r.id for r in roles_result.scalars().all()}
 
-    # Bulk Invite
+    # Bulk account creation
     for emp in employees:
         try:
             # Consistent role resolution
@@ -297,24 +289,16 @@ async def invite_employees_bulk(employees: List[EmployeeInvite], db: AsyncSessio
                     status="ACTIVE",
                     is_verified=True,
                     actor_user_id=current_user.id,
-                    audit_event_type="CORPORATE_EMPLOYEE_INVITED",
+                    audit_event_type="CORPORATE_EMPLOYEE_CREATED",
                 ),
             )
-            new_user = created.user
-            temp_password = created.plain_password
-            invited_count += 1
-            
-            # Send invitation email
-            try:
-                get_email_service().send_invitation(new_user.email, temp_password, emp.role)
-            except Exception as exc:
-                logger.warning("corporate_bulk_invitation_email_failed", user_id=str(new_user.id), error=str(exc))
+            created_count += 1
         except Exception as exc:
             errors.append(f"Failed to process {emp.email}: {str(exc)}")
             
     await db.commit()
     
-    return success_response({"invited": invited_count, "errors": errors}, f"Successfully invited {invited_count} employees.")
+    return success_response({"created": created_count, "errors": errors}, f"Successfully created {created_count} employees.")
 
 
 @router.get("/consultants")
@@ -346,7 +330,7 @@ async def list_consultants(db: AsyncSession = Depends(get_db), current_user: Use
 
 
 @router.post("/consultants")
-async def create_consultant(consultant: ConsultantInvite, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def create_consultant(consultant: ConsultantCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     _ensure_admin_access(current_user)
 
     role_name_in = consultant.role.lower().replace('-', '_').replace(' ', '_')
@@ -376,7 +360,7 @@ async def create_consultant(consultant: ConsultantInvite, db: AsyncSession = Dep
             status="ACTIVE",
             is_verified=True,
             actor_user_id=current_user.id,
-            audit_event_type="CORPORATE_CONSULTANT_INVITED",
+            audit_event_type="CORPORATE_CONSULTANT_CREATED",
         ),
     )
     new_user = created.user
@@ -386,17 +370,12 @@ async def create_consultant(consultant: ConsultantInvite, db: AsyncSession = Dep
     await db.commit()
     await db.refresh(new_user)
 
-    try:
-        get_email_service().send_invitation(new_user.email, temp_password, role_obj.name)
-    except Exception as exc:
-        logger.warning("consultant_invitation_email_failed", user_id=str(new_user.id), error=str(exc))
-
     await _notify(
         db,
         new_user.id,
         "Consultant account ready",
         "Your consultant access has been created. Use the temporary password to sign in and reset it after login.",
-        type="invite",
+        type="account",
         priority="high",
     )
     await db.commit()
@@ -414,7 +393,7 @@ async def create_consultant(consultant: ConsultantInvite, db: AsyncSession = Dep
     ).model_dump(mode="json")
 
     return success_response(
-        {"consultant": consultant_payload, "tempPassword": temp_password},
+        {"consultant": consultant_payload, "temporaryPassword": temp_password},
         "Consultant account created successfully",
     )
 
@@ -481,23 +460,18 @@ async def create_person(person: ManagedPersonCreate, db: AsyncSession = Depends(
     await db.commit()
     await db.refresh(new_user)
 
-    try:
-        get_email_service().send_invitation(new_user.email, temp_password, role_obj.name)
-    except Exception as exc:
-        logger.warning("managed_user_invitation_email_failed", user_id=str(new_user.id), error=str(exc))
-
     await _notify(
         db,
         new_user.id,
         "Workspace account ready",
         "Your platform access has been created. Use the temporary password to sign in and reset it after login.",
-        type="invite",
+        type="account",
         priority="high",
     )
     await db.commit()
 
     return success_response(
-        {"person": _person_payload(new_user, role_obj.name).model_dump(mode="json"), "tempPassword": temp_password},
+        {"person": _person_payload(new_user, role_obj.name).model_dump(mode="json"), "temporaryPassword": temp_password},
         "Workspace account created successfully",
     )
 

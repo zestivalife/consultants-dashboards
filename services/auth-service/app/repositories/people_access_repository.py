@@ -9,7 +9,6 @@ from sqlalchemy.orm import joinedload, selectinload
 from app.db.models.owner_access import (
     AuditEvent,
     Department,
-    InvitationEmailOutbox,
     LoginSession,
     Organization,
     OrganizationMembership,
@@ -20,7 +19,6 @@ from app.db.models.owner_access import (
     RolePermission,
     ServiceCatalog,
     UserAttachment,
-    UserInvitation,
     UserNote,
     UserPackageAssignment,
     UserProductAccess,
@@ -38,18 +36,20 @@ class PeopleAccessRepository:
 
     async def get_summary_counts(self) -> dict[str, int]:
         total_users = await self._session.scalar(select(func.count(User.id))) or 0
-        invited = await self._session.scalar(select(func.count(User.id)).where(User.status == "INVITED")) or 0
+        pending_credentials = await self._session.scalar(
+            select(func.count(User.id)).where(User.must_change_password.is_(True))
+        ) or 0
+        pending_profiles = await self._session.scalar(
+            select(func.count(User.id)).where(User.status.in_(["PENDING_CREDENTIALS", "PENDING_PROFILE"]))
+        ) or 0
         suspended = await self._session.scalar(select(func.count(User.id)).where(User.status == "SUSPENDED")) or 0
         organizations = await self._session.scalar(select(func.count(Organization.id))) or 0
-        pending_invitations = await self._session.scalar(
-            select(func.count(UserInvitation.id)).where(UserInvitation.status == "INVITED")
-        ) or 0
         return {
             "users": total_users,
             "organizations": organizations,
-            "invited": invited,
+            "pending_credentials": pending_credentials,
+            "pending_profiles": pending_profiles,
             "suspended": suspended,
-            "pending_invitations": pending_invitations,
         }
 
     async def role_distribution(self) -> list[tuple[str, int]]:
@@ -71,21 +71,6 @@ class PeopleAccessRepository:
         )
         result = await self._session.execute(stmt)
         return [(name, count) for name, count in result.all()]
-
-    async def pending_invitations(self, limit: int = 5) -> list[UserInvitation]:
-        stmt = (
-            select(UserInvitation)
-            .options(
-                joinedload(UserInvitation.role),
-                joinedload(UserInvitation.product),
-                joinedload(UserInvitation.organization),
-            )
-            .where(UserInvitation.status == "INVITED")
-            .order_by(UserInvitation.created_at.desc())
-            .limit(limit)
-        )
-        result = await self._session.execute(stmt)
-        return list(result.scalars().all())
 
     async def recent_audit_events(self, limit: int = 10) -> list[AuditEvent]:
         stmt = (
@@ -428,99 +413,6 @@ class PeopleAccessRepository:
         await self._session.execute(delete(RolePermission).where(RolePermission.role_id == role_id))
         for permission_id in permission_ids:
             self._session.add(RolePermission(role_id=role_id, permission_id=permission_id))
-
-    async def create_invitation(self, invitation: UserInvitation) -> UserInvitation:
-        self._session.add(invitation)
-        await self._session.flush()
-        return invitation
-
-    async def find_open_invitation(
-        self,
-        *,
-        email: str,
-        role_id: uuid.UUID,
-        product_id: uuid.UUID | None,
-        organization_id: uuid.UUID | None,
-        now: datetime,
-    ) -> UserInvitation | None:
-        stmt = select(UserInvitation).where(
-            UserInvitation.email == email,
-            UserInvitation.invited_role_id == role_id,
-            UserInvitation.status == "INVITED",
-            or_(UserInvitation.expires_at.is_(None), UserInvitation.expires_at > now),
-        )
-        if product_id is None:
-            stmt = stmt.where(UserInvitation.product_id.is_(None))
-        else:
-            stmt = stmt.where(UserInvitation.product_id == product_id)
-        if organization_id is None:
-            stmt = stmt.where(UserInvitation.organization_id.is_(None))
-        else:
-            stmt = stmt.where(UserInvitation.organization_id == organization_id)
-
-        result = await self._session.execute(stmt.limit(1))
-        return result.scalar_one_or_none()
-
-    async def create_invitation_email_outbox(self, event: InvitationEmailOutbox) -> InvitationEmailOutbox:
-        self._session.add(event)
-        await self._session.flush()
-        return event
-
-    async def update_invitation_email_outbox(self, event: InvitationEmailOutbox) -> InvitationEmailOutbox:
-        await self._session.flush()
-        return event
-
-    async def list_invitations(
-        self,
-        *,
-        search: str | None = None,
-        status: str | None = None,
-        page: int = 1,
-        page_size: int = 20,
-    ) -> tuple[list[UserInvitation], int]:
-        stmt = (
-            select(UserInvitation)
-            .options(
-                joinedload(UserInvitation.role),
-                joinedload(UserInvitation.product),
-                joinedload(UserInvitation.organization),
-            )
-            .order_by(UserInvitation.created_at.desc())
-        )
-        if search:
-            stmt = stmt.where(UserInvitation.email.ilike(f"%{search.strip()}%"))
-        if status:
-            stmt = stmt.where(UserInvitation.status == status)
-        count_stmt = select(func.count(UserInvitation.id)).select_from(stmt.subquery())
-        total = await self._session.scalar(count_stmt) or 0
-        result = await self._session.execute(stmt.offset((page - 1) * page_size).limit(page_size))
-        return list(result.scalars().all()), total
-
-    async def get_invitation(self, invitation_id: uuid.UUID) -> UserInvitation | None:
-        stmt = (
-            select(UserInvitation)
-            .options(
-                joinedload(UserInvitation.role),
-                joinedload(UserInvitation.product),
-                joinedload(UserInvitation.organization),
-            )
-            .where(UserInvitation.id == invitation_id)
-        )
-        result = await self._session.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def get_invitation_by_token_hash(self, token_hash: str) -> UserInvitation | None:
-        stmt = (
-            select(UserInvitation)
-            .options(
-                joinedload(UserInvitation.role),
-                joinedload(UserInvitation.product),
-                joinedload(UserInvitation.organization),
-            )
-            .where(UserInvitation.token_hash == token_hash)
-        )
-        result = await self._session.execute(stmt)
-        return result.scalar_one_or_none()
 
     async def add_status_history(self, history: UserStatusHistory) -> UserStatusHistory:
         self._session.add(history)

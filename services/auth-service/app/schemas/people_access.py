@@ -44,76 +44,6 @@ class ServiceCatalogItem(BaseModel):
     description: str | None = None
 
 
-class PeopleAccessInvitationItem(BaseModel):
-    id: uuid.UUID
-    email: str
-    first_name: str | None = None
-    last_name: str | None = None
-    mobile_number: str | None = None
-    country_code: str | None = None
-    user_id: uuid.UUID | None = None
-    role: str | None = None
-    product: str | None = None
-    organization: str | None = None
-    invitation_url: str | None = None
-    token_fingerprint: str | None = None
-    status: str
-    created_at: datetime
-    expires_at: datetime | None = None
-    last_sent_at: datetime | None = None
-    accepted_at: datetime | None = None
-    cancelled_at: datetime | None = None
-
-
-class InvitationTokenRequest(BaseModel):
-    token: str = Field(min_length=32, max_length=512)
-
-
-class InvitationValidationResponse(BaseModel):
-    invitation_id: uuid.UUID
-    email: str
-    role: str | None = None
-    product: str | None = None
-    organization: str | None = None
-    status: str
-    expires_at: datetime | None = None
-    next_step: str
-    status_reason: str | None = None
-    redirect_url: str | None = None
-
-
-class InvitationAcceptResponse(BaseModel):
-    invitation_id: uuid.UUID
-    user_id: uuid.UUID
-    email: str
-    status: str
-    next_step: str
-    redirect_url: str
-
-
-class PasswordSetupInitiationResponse(BaseModel):
-    invitation_id: uuid.UUID
-    user_id: uuid.UUID
-    email: str
-    status: str
-    next_step: str
-
-
-class CredentialCreateRequest(BaseModel):
-    token: str = Field(min_length=32, max_length=512)
-    password: str = Field(min_length=1, max_length=256)
-    confirm_password: str = Field(min_length=1, max_length=256)
-
-
-class CredentialCreateResponse(BaseModel):
-    invitation_id: uuid.UUID
-    user_id: uuid.UUID
-    email: str
-    status: str
-    next_step: str
-    redirect_url: str
-
-
 class PeopleAccessAuditItem(BaseModel):
     id: uuid.UUID
     actor: str
@@ -129,7 +59,6 @@ class PeopleAccessSummaryResponse(BaseModel):
     metrics: list[PeopleAccessSummaryMetric]
     role_distribution: list[PeopleAccessDistributionItem]
     organization_distribution: list[PeopleAccessDistributionItem]
-    pending_invitations: list[PeopleAccessInvitationItem]
     recent_activity: list[PeopleAccessAuditItem]
 
 
@@ -291,6 +220,7 @@ class UserProfileDetail(BaseModel):
     professional_title: str | None = None
     status: str
     verification: str
+    must_change_password: bool = False
     last_login_at: datetime | None = None
     created_at: datetime
     memberships: list[MembershipSummary] = Field(default_factory=list)
@@ -302,6 +232,25 @@ class UserProfileDetail(BaseModel):
     attachments: list[UserAttachmentItem] = Field(default_factory=list)
     status_history: list[UserStatusHistoryItem] = Field(default_factory=list)
     audit_events: list[PeopleAccessAuditItem] = Field(default_factory=list)
+
+
+class TemporaryCredentialResponse(BaseModel):
+    username: str
+    temporary_password: str
+    must_change_password: bool = True
+    message: str = "Copy this temporary password now. It will not be shown again."
+
+
+class ManagedUserCreateResponse(UserProfileDetail):
+    temporary_credentials: TemporaryCredentialResponse
+
+
+class AdminPasswordResetResponse(BaseModel):
+    user_id: uuid.UUID
+    username: str
+    temporary_password: str
+    must_change_password: bool = True
+    message: str = "Copy this temporary password now. It will not be shown again."
 
 
 class PermissionCatalogItem(BaseModel):
@@ -363,11 +312,10 @@ class ManagedUserCreateRequest(BaseModel):
     product_ids: list[uuid.UUID] = Field(default_factory=list)
     package_ids: list[uuid.UUID] = Field(default_factory=list)
     service_ids: list[uuid.UUID] = Field(default_factory=list)
-    status: str = "INVITED"
+    status: str = "PENDING_CREDENTIALS"
     permissions: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     note: str | None = None
-    invite_expires_at: datetime | None = None
 
 
 class ManagedUserUpdateRequest(BaseModel):
@@ -423,20 +371,6 @@ class BulkActionResponse(BaseModel):
     affected_ids: list[uuid.UUID]
 
 
-class InvitationCreateRequest(BaseModel):
-    email: EmailStr
-    role: str
-    first_name: str | None = Field(default=None, max_length=120)
-    last_name: str | None = Field(default=None, max_length=120)
-    mobile_number: str | None = Field(default=None, max_length=40)
-    country_code: str | None = Field(default=None, max_length=8)
-    product_id: uuid.UUID | None = None
-    product_ids: list[uuid.UUID] = Field(default_factory=list)
-    organization_id: uuid.UUID | None = None
-    department_id: uuid.UUID | None = None
-    expires_at: datetime | None = None
-
-
 class RolePermissionUpdateRequest(BaseModel):
     permission_keys: list[str] = Field(default_factory=list)
 
@@ -485,7 +419,7 @@ class CsvImportRow(BaseModel):
     department_id: uuid.UUID | None = None
     employee_id: str | None = None
     primary_product_id: uuid.UUID | None = None
-    status: str = "INVITED"
+    status: str = "PENDING_CREDENTIALS"
 
 
 class CsvImportRequest(BaseModel):

@@ -1,10 +1,8 @@
 import smtplib
 import socket
 from abc import ABC, abstractmethod
-from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from html import escape
 
 from app.config import get_settings
 from app.core.logging import get_logger
@@ -31,69 +29,6 @@ class EmailProviderBase(ABC):
             f"<h1 style='letter-spacing:8px;text-align:center'>{code}</h1>"
             f"<p>This code expires in {self._settings.otp_expiry_seconds // 60} minutes.</p>"
             "<p>If you did not request this, please ignore this email.</p>"
-            "</div>"
-        )
-
-    def _build_invitation_html(self, email: str, temp_password: str, role: str) -> str:
-        return (
-            "<div style='font-family:sans-serif;max-width:480px;margin:auto;padding:20px;border:1px solid #eee;border-radius:10px'>"
-            "<h2>Welcome to Nuetra!</h2>"
-            f"<p>You have been invited to join Nuetra as a <strong>{role.replace('_', ' ').lower()}</strong>.</p>"
-            "<p>Your temporary login credentials are:</p>"
-            "<div style='background:#f4faff;padding:15px;border-radius:8px;text-align:center;margin:20px 0'>"
-            f"<p style='margin-bottom:10px'><strong>Email:</strong> {email}</p>"
-            f"<p><strong>Password:</strong> <code style='background:#fff;padding:4px 8px;border-radius:4px'>{temp_password}</code></p>"
-            "</div>"
-            "<p>Please login and change your password immediately.</p>"
-            f"<a href='{self._settings.frontend_url}/login' style='background:#08f;color:#fff;padding:10px 20px;text-decoration:none;border-radius:5px;display:inline-block'>Login to Dashboard</a>"
-            "<p style='color:#666;font-size:12px;margin-top:20px'>If you did not expect this invitation, please contact your administrator.</p>"
-            "</div>"
-        )
-
-    def _build_invitation_link_html(
-        self,
-        *,
-        recipient_name: str,
-        role: str,
-        organization: str | None,
-        product: str | None,
-        invitation_url: str,
-        expires_at: datetime | None,
-        support_email: str | None,
-    ) -> str:
-        display_name = escape(recipient_name or "there")
-        role_label = escape(role.replace("_", " ").title())
-        organization_label = escape(organization or "Zestiva")
-        product_label = escape(product or "Zestiva One Platform")
-        safe_url = escape(invitation_url, quote=True)
-        expiry_label = escape(
-            expires_at.strftime("%d %b %Y, %H:%M UTC") if expires_at else "the invitation expiry date"
-        )
-        support_label = escape(support_email or self._settings.smtp_from_email)
-
-        return (
-            "<div style='font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;"
-            "border:1px solid #e6e8ec;border-radius:14px;background:#ffffff;color:#1f2937'>"
-            "<p style='font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#2563eb;margin:0 0 12px'>"
-            "Zestiva Invitation</p>"
-            f"<h1 style='font-size:26px;line-height:1.2;margin:0 0 16px'>Welcome, {display_name}</h1>"
-            f"<p style='font-size:16px;line-height:1.6;margin:0 0 18px'>You have been invited to join "
-            f"<strong>{organization_label}</strong> as <strong>{role_label}</strong> for "
-            f"<strong>{product_label}</strong>.</p>"
-            "<div style='background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:20px 0'>"
-            f"<p style='margin:0 0 8px'><strong>Role:</strong> {role_label}</p>"
-            f"<p style='margin:0 0 8px'><strong>Organization:</strong> {organization_label}</p>"
-            f"<p style='margin:0 0 8px'><strong>Platform:</strong> {product_label}</p>"
-            f"<p style='margin:0'><strong>Expires:</strong> {expiry_label}</p>"
-            "</div>"
-            f"<a href='{safe_url}' style='background:#2563eb;color:#ffffff;padding:12px 18px;"
-            "text-decoration:none;border-radius:10px;display:inline-block;font-weight:700'>"
-            "Accept invitation</a>"
-            "<p style='font-size:14px;line-height:1.6;color:#4b5563;margin-top:20px'>"
-            "If the button does not work, copy and paste this secure link into your browser:</p>"
-            f"<p style='word-break:break-all;font-size:13px;background:#f3f4f6;padding:12px;border-radius:8px'>{safe_url}</p>"
-            f"<p style='font-size:12px;color:#6b7280;margin-top:22px'>Need help? Contact {support_label}. "
-            "If you did not expect this invitation, you can ignore this email.</p>"
             "</div>"
         )
 
@@ -367,40 +302,6 @@ class EmailService:
             to=email,
             subject="Nuetra - Verify your email",
             html_body=self._provider._build_otp_html(code),
-        )
-
-    def send_invitation(self, email: str, temp_password: str, role: str) -> None:
-        """Send employee invitation email with temporary credentials."""
-        self.send(
-            to=email,
-            subject="Nuetra - You are invited!",
-            html_body=self._provider._build_invitation_html(email, temp_password, role),
-        )
-
-    def send_invitation_link(
-        self,
-        *,
-        email: str,
-        recipient_name: str,
-        role: str,
-        organization: str | None,
-        product: str | None,
-        invitation_url: str,
-        expires_at: datetime | None,
-    ) -> None:
-        """Send secure onboarding invitation link."""
-        self.send(
-            to=email,
-            subject="Zestiva - You are invited to your workspace",
-            html_body=self._provider._build_invitation_link_html(
-                recipient_name=recipient_name,
-                role=role,
-                organization=organization,
-                product=product,
-                invitation_url=invitation_url,
-                expires_at=expires_at,
-                support_email=self._settings.smtp_from_email,
-            ),
         )
 
 

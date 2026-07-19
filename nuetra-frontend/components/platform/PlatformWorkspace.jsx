@@ -2676,13 +2676,14 @@ function SuperAdminPeoplePage() {
           </button>
         </div>
 
-        {submitSuccess?.tempPassword ? (
+        {submitSuccess?.temporaryPassword || submitSuccess?.tempPassword ? (
           <div className="mt-4 rounded-[18px] border border-[var(--fluent-color-status-success-border)] bg-[var(--fluent-color-status-success-background)] p-4">
             <p className="text-sm font-medium text-[var(--fluent-color-status-success-foreground)]">
               {submitSuccess?.person?.firstName || 'Workspace user'} account created.
             </p>
             <p className="mt-1 text-sm text-[var(--fluent-color-status-success-foreground)]">
-              Temporary password: <span className="font-semibold">{submitSuccess.tempPassword}</span>
+              Temporary password:{" "}
+              <span className="font-semibold">{submitSuccess.temporaryPassword || submitSuccess.tempPassword}</span>
             </p>
           </div>
         ) : null}
@@ -2755,7 +2756,7 @@ function SuperAdminPeoplePage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-lg font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Create workspace account</p>
-                <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Invite a mentor, consultant, or admin and define the authorities they should receive from day one.</p>
+                <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Create a mentor, consultant, or admin and define the authorities they should receive from day one.</p>
               </div>
               <button
                 type="button"
@@ -3146,13 +3147,14 @@ function FiteatsyAdminHome() {
             </button>
           </div>
 
-          {submitSuccess?.tempPassword ? (
+          {submitSuccess?.temporaryPassword || submitSuccess?.tempPassword ? (
             <div className="mt-4 rounded-[18px] border border-[var(--fluent-color-status-success-border)] bg-[var(--fluent-color-status-success-background)] p-4">
               <p className="text-sm font-medium text-[var(--fluent-color-status-success-foreground)]">
                 {submitSuccess?.consultant?.firstName || 'Consultant'} account created.
               </p>
               <p className="mt-1 text-sm text-[var(--fluent-color-status-success-foreground)]">
-                Temporary password: <span className="font-semibold">{submitSuccess.tempPassword}</span>
+                Temporary password:{" "}
+                <span className="font-semibold">{submitSuccess.temporaryPassword || submitSuccess.tempPassword}</span>
               </p>
             </div>
           ) : null}
