@@ -801,6 +801,7 @@ export function PeopleAccessModule({
     try {
       const result = await runAction('Create user', onCreateUser, {
         ...form,
+        status: 'ACTIVE',
         organization_id: form.organization_id || null,
         department_id: form.department_id || null,
         assigned_practitioner_id: form.assigned_practitioner_id || null,
@@ -1324,11 +1325,9 @@ export function PeopleAccessModule({
                   <option key={role.id} value={role.name.toLowerCase().replace(/ /g, '_')}>{role.name}</option>
                 ))}
               </select>
-              <select value={form.status} onChange={(event) => updateForm('status', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                {['ACTIVE', 'PENDING_PROFILE', 'INACTIVE', 'LOCKED', 'SUSPENDED'].map((item) => (
-                  <option key={item} value={item}>{formatPeopleStatus(item)}</option>
-                ))}
-              </select>
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
+                New users are created Active and must change their temporary password on first login.
+              </div>
               <select value={form.organization_id} onChange={(event) => updateForm('organization_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
                 <option value="">Select organization</option>
                 {organizationOptions.map((organization) => (

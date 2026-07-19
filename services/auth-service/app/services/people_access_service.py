@@ -619,7 +619,9 @@ async def create_user(
         if department is None:
             raise NotFoundException("Department not found")
 
-    status = _normalize_status(payload.status)
+    # Administrator-driven provisioning always creates an active account with a
+    # temporary password. Lifecycle changes belong to explicit update/bulk flows.
+    status = "ACTIVE"
     created = await user_service.create_user(
         session,
         CreateUserCommand(
@@ -631,8 +633,8 @@ async def create_user(
             industry=role.name.replace("_", " ").title(),
             permissions=payload.permissions,
             status=status,
-            is_active=status not in {"INACTIVE", "SUSPENDED", "DELETED"},
-            is_verified=status != "PENDING_VERIFICATION",
+            is_active=True,
+            is_verified=True,
             actor_user_id=actor.id,
             audit_event_type="PEOPLE_ACCESS_USER_CREATED",
             must_change_password=True,
@@ -655,7 +657,7 @@ async def create_user(
                 "assigned_mentor_id": payload.assigned_mentor_id,
                 "assigned_consultant_id": payload.assigned_consultant_id,
                 "status": status,
-                "is_verified": status != "PENDING_VERIFICATION",
+                "is_verified": True,
                 "tags": payload.tags,
                 "created_by_user_id": actor.id,
             },

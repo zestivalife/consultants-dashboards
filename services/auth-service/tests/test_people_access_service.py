@@ -200,6 +200,41 @@ async def test_create_tenant_user_never_mutates_platform_owner_lifecycle(session
 
 
 @pytest.mark.asyncio
+async def test_create_user_forces_active_temporary_credential_lifecycle(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    practitioner_role = await _create_role(session, "practitioner")
+    owner = await _create_user(session, owner_role, "owner@zestiva.in")
+    actor = _actor_from_user(owner, permissions=["users.create", "users.read"])
+
+    detail = await people_access_service.create_user(
+        session,
+        ManagedUserCreateRequest(
+            email="practitioner@zestiva.in",
+            first_name="Riya",
+            last_name="Kapoor",
+            role="practitioner",
+            status="INACTIVE",
+        ),
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-create-force-active",
+    )
+
+    created_user = await session.scalar(select(User).where(User.email == "practitioner@zestiva.in"))
+    assert created_user is not None
+    assert detail.status == "ACTIVE"
+    assert detail.role == "practitioner"
+    assert detail.temporary_credentials.temporary_password
+    assert practitioner_role.id == created_user.role_id
+    assert created_user.status == "ACTIVE"
+    assert created_user.is_active is True
+    assert created_user.is_verified is True
+    assert created_user.email_verified is True
+    assert created_user.must_change_password is True
+
+
+@pytest.mark.asyncio
 async def test_people_access_cannot_create_platform_owner_accounts(session: AsyncSession):
     owner_role = await _create_role(session, "platform_owner")
     await _create_role(session, "superuser")
