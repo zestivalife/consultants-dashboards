@@ -1467,9 +1467,9 @@ export function PeopleAccessModule({
           {provisioningStepId === 'contact' ? (
             <WorkflowCard
               title="Enter contact information"
-              description="These details are stored on the user profile and carried into onboarding."
+              description="These details are stored on the user profile and used for credential setup."
             >
-              <FormSection title="User details" description="Use the person’s legal or work profile details for onboarding continuity.">
+              <FormSection title="User details" description="Use the person’s legal or work profile details for account continuity.">
                 <div className="grid gap-4 md:grid-cols-2">
                   <Field label="First name">
                     <input

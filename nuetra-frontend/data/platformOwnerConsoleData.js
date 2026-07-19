@@ -187,7 +187,7 @@ export const platformOwnerConsoleData = {
       professional: 'Operations Admin',
       permissions: ['Organizations', 'Users', 'Reports'],
       loginSessions: 4,
-      notes: 'Handles onboarding and renewals.',
+      notes: 'Handles account setup and renewals.',
       packages: ['Nuetra Enterprise Prime'],
       services: ['Reporting', 'Diagnostics'],
       activity: 'Imported 12 employees via CSV',

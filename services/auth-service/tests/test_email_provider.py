@@ -55,8 +55,8 @@ def test_smtp_timeout_aborts_and_closes_connection(monkeypatch):
 
     with pytest.raises(TimeoutError, match="SMTP server did not respond within 10 seconds"):
         provider.send(
-            to="invitee@example.com",
-            subject="Invitation",
+            to="recipient@example.com",
+            subject="Transactional email",
             html_body="<p>Hello</p>",
         )
 
