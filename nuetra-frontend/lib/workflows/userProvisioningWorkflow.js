@@ -43,8 +43,8 @@ export const USER_PROVISIONING_STEP_DEFINITIONS = {
   },
   create: {
     id: 'create',
-    label: 'Create',
-    title: 'Create user',
+    label: 'Generate Credentials',
+    title: 'Generate temporary credentials',
   },
 };
 

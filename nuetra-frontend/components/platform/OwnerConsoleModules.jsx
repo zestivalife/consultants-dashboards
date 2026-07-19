@@ -57,6 +57,37 @@ import {
   getUserProvisioningWorkflowState,
 } from '../../lib/workflows/userProvisioningWorkflow';
 
+const PEOPLE_STATUS_LABELS = {
+  ACTIVE: 'Active',
+  PENDING_CREDENTIALS: 'Temporary Password Issued',
+  PENDING_PROFILE: 'Pending Profile Setup',
+  PENDING_VERIFICATION: 'Pending Credential Setup',
+  INACTIVE: 'Inactive',
+  LOCKED: 'Locked',
+  SUSPENDED: 'Suspended',
+  DELETED: 'Deleted',
+};
+
+const PEOPLE_STATUS_TONES = {
+  ACTIVE: 'green',
+  PENDING_CREDENTIALS: 'amber',
+  PENDING_PROFILE: 'amber',
+  PENDING_VERIFICATION: 'amber',
+  INACTIVE: 'red',
+  LOCKED: 'red',
+  SUSPENDED: 'red',
+  DELETED: 'red',
+};
+
+function formatPeopleStatus(status = '') {
+  const normalized = status.toString().toUpperCase();
+  return PEOPLE_STATUS_LABELS[normalized] || normalized.replace(/_/g, ' ') || 'Unknown';
+}
+
+function getPeopleStatusTone(status = '') {
+  return PEOPLE_STATUS_TONES[status.toString().toUpperCase()] || 'gray';
+}
+
 export function CommandCenterModule({ data }) {
   const activeOrgs = data.organizations.filter((item) => item.status === 'Active').length;
   const livePeople = data.people.filter((item) => item.status === 'Active').length;
@@ -724,6 +755,23 @@ export function PeopleAccessModule({
     await navigator.clipboard.writeText(value);
     setActionError(`${label} copied.`);
   };
+  const copyTemporaryCredentialBundle = async (credentials) => {
+    const username = credentials?.username || '';
+    const temporaryPassword = credentials?.temporary_password || '';
+    if (!username || !temporaryPassword) {
+      setActionError('Complete temporary credentials are not available.');
+      return;
+    }
+    await copyTemporaryCredential(`Username: ${username}\nTemporary password: ${temporaryPassword}`, 'Credentials');
+  };
+  const completeTemporaryCredentialHandoff = () => {
+    const nextRole = provisioningDraft.role || 'consultant';
+    resetProvisioningDraft(nextRole);
+    setShowProvisioningModal(false);
+    setShowCreateForm(false);
+    setLatestTemporaryCredentials(null);
+    setActionError(null);
+  };
   const togglePermission = (permissionKey) => {
     setForm((current) => ({
       ...current,
@@ -946,12 +994,12 @@ export function PeopleAccessModule({
         product_ids: provisioningDraft.product_ids,
         organization_id: provisioningDraft.organization_id || null,
         department_id: provisioningWorkspaces.length ? provisioningDraft.department_id || null : null,
-        status: 'ACTIVE',
+        status: 'PENDING_CREDENTIALS',
       });
       if (result === null) return;
       setLatestProvisioning(result);
       setLatestTemporaryCredentials(result?.temporary_credentials || null);
-      setProvisioningStep(provisioningCreateStepIndex >= 0 ? provisioningCreateStepIndex : provisioningLastStepIndex);
+      setShowProvisioningModal(false);
     } finally {
       setIsSubmitting(false);
     }
@@ -1131,8 +1179,8 @@ export function PeopleAccessModule({
                 >
                   <option value="">All statuses</option>
                   <option value="ACTIVE">Active</option>
-                  <option value="ACTIVE">Active</option>
-                  <option value="PENDING_VERIFICATION">Pending verification</option>
+                  <option value="PENDING_CREDENTIALS">Temporary password issued</option>
+                  <option value="PENDING_PROFILE">Pending profile setup</option>
                   <option value="INACTIVE">Inactive</option>
                   <option value="LOCKED">Locked</option>
                   <option value="SUSPENDED">Suspended</option>
@@ -1222,7 +1270,7 @@ export function PeopleAccessModule({
                         <Badge tone={person.verification === 'Verified' ? 'green' : 'amber'}>{person.verification}</Badge>
                       </td>
                       <td className="px-4 py-3">
-                        <Badge tone={person.status === 'ACTIVE' ? 'green' : 'red'}>{person.status}</Badge>
+                        <Badge tone={getPeopleStatusTone(person.status)}>{formatPeopleStatus(person.status)}</Badge>
                       </td>
                     </tr>
                   ))}
@@ -1280,8 +1328,8 @@ export function PeopleAccessModule({
                 ))}
               </select>
               <select value={form.status} onChange={(event) => updateForm('status', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                {['ACTIVE', 'PENDING_VERIFICATION', 'ACTIVE', 'INACTIVE', 'LOCKED', 'SUSPENDED'].map((item) => (
-                  <option key={item} value={item}>{item}</option>
+                {['ACTIVE', 'PENDING_CREDENTIALS', 'PENDING_PROFILE', 'INACTIVE', 'LOCKED', 'SUSPENDED'].map((item) => (
+                  <option key={item} value={item}>{formatPeopleStatus(item)}</option>
                 ))}
               </select>
               <select value={form.organization_id} onChange={(event) => updateForm('organization_id', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
@@ -1403,9 +1451,9 @@ export function PeopleAccessModule({
 
       {showProvisioningModal ? (
         <WorkflowModal
-          eyebrow="User credential workflow"
-          title="Create a practitioner, mentor, consultant, or corporate admin"
-          description="Create the user account immediately, then copy the one-time temporary password for manual secure sharing."
+          eyebrow="User Provisioning"
+          title="Create Practitioner, Mentor, Consultant or Corporate Admin"
+          description="Create the user account, generate temporary credentials, and securely share them with the user."
           steps={provisioningSteps}
           activeStep={provisioningStep}
           onStepChange={(index) => !latestProvisioning && setProvisioningStep(index)}
@@ -1434,7 +1482,7 @@ export function PeopleAccessModule({
                   </button>
                 ) : null}
                 {!latestProvisioning && provisioningCreateStepIndex >= 0 && provisioningStep === provisioningCreateStepIndex ? (
-                  <ActionButton icon={KeyRound} label="Create user" tone="primary" onClick={submitProvisioning} disabled={isSubmitting} />
+                  <ActionButton icon={KeyRound} label="Generate Temporary Credentials" tone="primary" onClick={submitProvisioning} disabled={isSubmitting} />
                 ) : null}
               </div>
             </div>
@@ -1737,7 +1785,10 @@ export function PeopleAccessModule({
                 </button>
               </WorkflowCard>
             ) : (
-              <WorkflowCard title="Create user" description="This persists the user, creates audit events, and generates a one-time temporary password without requiring email delivery.">
+              <WorkflowCard
+                title="Generate temporary credentials"
+                description="Review the user information. When you click Generate Temporary Credentials, the account will be created immediately and a temporary password will be generated. The administrator is responsible for securely sharing the credentials with the user."
+              >
                 <div className="grid gap-3 md:grid-cols-3">
                   <div className="rounded-2xl bg-gray-50 p-4">
                     <p className="z-label text-gray-500">User</p>
@@ -1756,7 +1807,7 @@ export function PeopleAccessModule({
                   </div>
                 </div>
                 <div className="mt-5 rounded-2xl border border-amber-100 bg-amber-50 p-4 text-sm text-amber-800">
-                  The temporary password is returned once. Copy it from the success screen before closing this workflow.
+                  The temporary password is returned once. Copy it from the success popup before closing the workflow.
                 </div>
               </WorkflowCard>
             )
@@ -1795,14 +1846,14 @@ export function PeopleAccessModule({
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.24em] text-[#237afc]">One-time credentials</p>
-                <h3 className="mt-2 text-2xl font-black text-gray-900">Temporary password generated</h3>
+                <h3 className="mt-2 text-2xl font-black text-gray-900">User Created Successfully</h3>
                 <p className="mt-2 text-sm text-gray-500">
-                  Copy this password now. It is never stored in plaintext and will not be shown again after this panel closes.
+                  Please copy these credentials now. The temporary password will never be displayed again.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setLatestTemporaryCredentials(null)}
+                onClick={completeTemporaryCredentialHandoff}
                 className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500"
               >
                 Close
@@ -1827,7 +1878,16 @@ export function PeopleAccessModule({
               </div>
             </div>
             <div className="mt-5 rounded-2xl border border-amber-100 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
-              The user must sign in with this temporary password and complete mandatory password change before reaching the workspace.
+              Share these credentials securely with the user. The user must change the temporary password during the first login before reaching the workspace.
+            </div>
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              <ActionButton
+                icon={Copy}
+                label="Copy Credentials"
+                onClick={() => copyTemporaryCredentialBundle(latestTemporaryCredentials)}
+                disabled={!latestTemporaryCredentials.username || !latestTemporaryCredentials.temporary_password}
+              />
+              <ActionButton icon={CheckCircle2} label="Done" tone="primary" onClick={completeTemporaryCredentialHandoff} />
             </div>
           </div>
         </div>
@@ -1859,8 +1919,8 @@ export function PeopleAccessModule({
               <select value={activeFilterStatus} onChange={(event) => applyFilters({ status: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
                 <option value="">All statuses</option>
                 <option value="ACTIVE">Active</option>
-                <option value="ACTIVE">Active</option>
-                <option value="PENDING_VERIFICATION">Pending verification</option>
+                <option value="PENDING_CREDENTIALS">Temporary password issued</option>
+                <option value="PENDING_PROFILE">Pending profile setup</option>
                 <option value="INACTIVE">Inactive</option>
                 <option value="LOCKED">Locked</option>
                 <option value="SUSPENDED">Suspended</option>
@@ -1905,7 +1965,7 @@ export function PeopleAccessModule({
                     <p className="text-sm text-gray-500">{safeSelectedUser.professional_title || 'Assigned user profile'}</p>
                     <div className="mt-2 flex items-center gap-2">
                       <Badge tone="blue">{safeSelectedUser.role.replace(/_/g, ' ')}</Badge>
-                      <Badge tone={safeSelectedUser.status === 'ACTIVE' ? 'green' : 'red'}>{safeSelectedUser.status}</Badge>
+                      <Badge tone={getPeopleStatusTone(safeSelectedUser.status)}>{formatPeopleStatus(safeSelectedUser.status)}</Badge>
                     </div>
                   </div>
                 </div>
