@@ -33,22 +33,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         ],
     )
 
-    # ── Eagerly initialise email service so provider selection is logged at startup ──
-    # This way "email_provider_init provider=SendGrid mode=explicit" appears in logs
-    # immediately rather than waiting for the first email to be sent.
-    from app.core.email import get_email_service
-    try:
-        svc = get_email_service()
-        logger.info(
-            "email_service_ready",
-            provider=type(svc._provider).__name__,
-            email_provider_setting=settings.email_provider,
-            sendgrid_key_present=bool(settings.sendgrid_api_key),
-            from_email=settings.smtp_from_email,
-        )
-    except Exception as exc:
-        logger.error("email_service_init_failed", error=str(exc))
-
     yield
 
     logger.info("service_shutting_down", service=settings.app_name)

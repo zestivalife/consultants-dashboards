@@ -14,7 +14,7 @@ class Notification(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # session | wellness | system | achievement | team | invite
+    # session | wellness | system | achievement | team | account
     type: Mapped[str] = mapped_column(String(50), nullable=False, default="system")
 
     # low | medium | high

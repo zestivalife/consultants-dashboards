@@ -58,8 +58,6 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
   const [metadata, setMetadata] = useState(null);
   const [users, setUsers] = useState([]);
   const [pagination, setPagination] = useState(null);
-  const [invitations, setInvitations] = useState([]);
-  const [invitationPagination, setInvitationPagination] = useState(null);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -114,13 +112,6 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     }
   }, []);
 
-  const loadInvitations = useCallback(async (params = {}) => {
-    const response = await ownerPeopleAccessAPI.listInvitations(params);
-    setInvitations(response?.items || []);
-    setInvitationPagination(response?.pagination || null);
-    return response;
-  }, []);
-
   const refresh = useCallback(async (nextFilters = peopleRouteState.filters) => {
     setLoading(true);
     setError(null);
@@ -129,14 +120,13 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
         loadSummary(),
         loadMetadata(),
         loadUsers(nextFilters),
-        loadInvitations(),
       ]);
     } catch (nextError) {
       setError(nextError?.message || 'Unable to load People & Access.');
     } finally {
       setLoading(false);
     }
-  }, [loadInvitations, loadMetadata, loadSummary, loadUsers, peopleRouteState.filters]);
+  }, [loadMetadata, loadSummary, loadUsers, peopleRouteState.filters]);
 
   useEffect(() => {
     if (!router.isReady || !enabled) return;
@@ -215,36 +205,6 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     }
     return attachments;
   }, [loadSelectedUser, selectedUserId]);
-
-  const onCreateInvitation = useCallback(async (payload) => {
-    const invitation = await ownerPeopleAccessAPI.createInvitation(payload);
-    await loadInvitations();
-    return invitation;
-  }, [loadInvitations]);
-
-  const onResendInvitation = useCallback(async (invitationId) => {
-    const invitation = await ownerPeopleAccessAPI.resendInvitation(invitationId);
-    await loadInvitations();
-    return invitation;
-  }, [loadInvitations]);
-
-  const onRegenerateInvitationLink = useCallback(async (invitationId) => {
-    const invitation = await ownerPeopleAccessAPI.regenerateInvitationLink(invitationId);
-    await loadInvitations();
-    return invitation;
-  }, [loadInvitations]);
-
-  const onCancelInvitation = useCallback(async (invitationId) => {
-    const invitation = await ownerPeopleAccessAPI.cancelInvitation(invitationId);
-    await loadInvitations();
-    return invitation;
-  }, [loadInvitations]);
-
-  const onExpireInvitation = useCallback(async (invitationId) => {
-    const invitation = await ownerPeopleAccessAPI.expireInvitation(invitationId);
-    await loadInvitations();
-    return invitation;
-  }, [loadInvitations]);
 
   const onAssignProducts = useCallback(async (userId, assignments) => {
     const result = await ownerPeopleAccessAPI.assignProducts(userId, assignments);
@@ -329,8 +289,6 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     metadata,
     users,
     pagination,
-    invitations,
-    invitationPagination,
     filters,
     selectedUser,
     selectedUserId,
@@ -346,11 +304,6 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     onBulkAction,
     onAddNote,
     onAddAttachment,
-    onCreateInvitation,
-    onResendInvitation,
-    onRegenerateInvitationLink,
-    onCancelInvitation,
-    onExpireInvitation,
     onAssignProducts,
     onAssignPackages,
     onAssignServices,

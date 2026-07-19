@@ -53,9 +53,9 @@ import {
   WorkflowModal,
 } from './OwnerConsolePrimitives';
 import {
-  buildInvitationWorkflowSteps,
-  getInvitationWorkflowState,
-} from '../../lib/workflows/invitationWorkflow';
+  buildUserProvisioningWorkflowSteps,
+  getUserProvisioningWorkflowState,
+} from '../../lib/workflows/userProvisioningWorkflow';
 
 export function CommandCenterModule({ data }) {
   const activeOrgs = data.organizations.filter((item) => item.status === 'Active').length;
@@ -323,7 +323,7 @@ export function OrganizationsModule({ organizations }) {
                     ['Assign Practitioner', BriefcaseBusiness],
                     ['Assign Mentor', UserCog],
                     ['Assign Consultant', Users],
-                    ['Invite Employees', Mail],
+                    ['Add Employees', Mail],
                     ['Generate Report', FileSpreadsheet],
                     ['Open Settings', Settings],
                   ].map(([label, Icon]) => (
@@ -354,8 +354,6 @@ export function PeopleAccessModule({
   detailLoading = false,
   error = null,
   filters,
-  invitations = [],
-  invitationPagination,
   onSelectUser,
   onFilterChange,
   onCreateUser,
@@ -363,11 +361,6 @@ export function PeopleAccessModule({
   onBulkAction,
   onAddNote,
   onAddAttachment,
-  onCreateInvitation,
-  onResendInvitation,
-  onRegenerateInvitationLink,
-  onCancelInvitation,
-  onExpireInvitation,
   onAssignProducts,
   onAssignPackages,
   onAssignServices,
@@ -382,12 +375,10 @@ export function PeopleAccessModule({
   const [profileTab, setProfileTab] = useState('General');
   const [searchDraft, setSearchDraft] = useState(filters?.search || '');
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [showInvitationModal, setShowInvitationModal] = useState(false);
-  const [invitationStep, setInvitationStep] = useState(0);
-  const [latestInvitation, setLatestInvitation] = useState(null);
+  const [showProvisioningModal, setShowProvisioningModal] = useState(false);
+  const [provisioningStep, setProvisioningStep] = useState(0);
+  const [latestProvisioning, setLatestProvisioning] = useState(null);
   const [latestTemporaryCredentials, setLatestTemporaryCredentials] = useState(null);
-  const [invitationLinks, setInvitationLinks] = useState({});
-  const [invitationFilters, setInvitationFilters] = useState({ status: 'ALL', search: '', sort: 'newest' });
   const [showImportModal, setShowImportModal] = useState(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [isProfileDrawerOpen, setIsProfileDrawerOpen] = useState(false);
@@ -401,7 +392,7 @@ export function PeopleAccessModule({
     attachment_type: 'document',
     note: '',
   });
-  const [invitationDraft, setInvitationDraft] = useState({
+  const [provisioningDraft, setProvisioningDraft] = useState({
     first_name: '',
     last_name: '',
     email: '',
@@ -449,7 +440,7 @@ export function PeopleAccessModule({
   const practitioners = metadata?.practitioners || [];
   const mentors = metadata?.mentors || [];
   const consultants = metadata?.consultants || [];
-  const invitationRoles = useMemo(() => {
+  const provisioningRoles = useMemo(() => {
     const allowed = new Set(['practitioner', 'mentor', 'consultant', 'corporate_admin']);
     const fromMetadata = roleOptions
       .map((role) => ({
@@ -466,21 +457,21 @@ export function PeopleAccessModule({
       { id: 'corporate_admin', value: 'corporate_admin', label: 'Corporate admin' },
     ];
   }, [roleOptions]);
-  const invitationWorkspaces = useMemo(
-    () => departmentOptions.filter((department) => !invitationDraft.organization_id || department.organization_id === invitationDraft.organization_id),
-    [departmentOptions, invitationDraft.organization_id]
+  const provisioningWorkspaces = useMemo(
+    () => departmentOptions.filter((department) => !provisioningDraft.organization_id || department.organization_id === provisioningDraft.organization_id),
+    [departmentOptions, provisioningDraft.organization_id]
   );
-  const invitationPlatformOptions = useMemo(() => {
+  const provisioningPlatformOptions = useMemo(() => {
     const platformDefinitions = [
       {
         key: 'nuetra',
         name: 'Nuetra',
-        description: 'Organization and workspace-scoped invitation path',
+        description: 'Organization and workspace-scoped user creation path',
       },
       {
         key: 'fiteatsy',
         name: 'Fiteatsy',
-        description: 'Product-scoped invitation path',
+        description: 'Product-scoped user creation path',
       },
     ];
 
@@ -496,12 +487,12 @@ export function PeopleAccessModule({
       };
     });
   }, [productOptions]);
-  const selectedInvitationProductIdSet = useMemo(() => new Set(invitationDraft.product_ids || []), [invitationDraft.product_ids]);
-  const selectedInvitationPrimaryProduct = useMemo(() => {
-    const primaryId = invitationDraft.product_id || invitationDraft.product_ids?.[0] || '';
+  const selectedProvisioningProductIdSet = useMemo(() => new Set(provisioningDraft.product_ids || []), [provisioningDraft.product_ids]);
+  const selectedProvisioningPrimaryProduct = useMemo(() => {
+    const primaryId = provisioningDraft.product_id || provisioningDraft.product_ids?.[0] || '';
     const product = productOptions.find((item) => item.id === primaryId);
     if (product) return product;
-    const selectedPlatform = invitationPlatformOptions.find((platform) => platform.key === invitationDraft.platform_key);
+    const selectedPlatform = provisioningPlatformOptions.find((platform) => platform.key === provisioningDraft.platform_key);
     return selectedPlatform
       ? {
           id: selectedPlatform.product_id || selectedPlatform.key,
@@ -510,67 +501,44 @@ export function PeopleAccessModule({
           status: selectedPlatform.product?.status || 'metadata_unavailable',
         }
       : null;
-  }, [invitationDraft.platform_key, invitationDraft.product_id, invitationDraft.product_ids, invitationPlatformOptions, productOptions]);
-  const invitationSteps = useMemo(
-    () => buildInvitationWorkflowSteps({
-      selectedProduct: selectedInvitationPrimaryProduct,
-      selectedPlatformKey: invitationDraft.platform_key,
+  }, [provisioningDraft.platform_key, provisioningDraft.product_id, provisioningDraft.product_ids, provisioningPlatformOptions, productOptions]);
+  const provisioningSteps = useMemo(
+    () => buildUserProvisioningWorkflowSteps({
+      selectedProduct: selectedProvisioningPrimaryProduct,
+      selectedPlatformKey: provisioningDraft.platform_key,
     }),
-    [invitationDraft.platform_key, selectedInvitationPrimaryProduct]
+    [provisioningDraft.platform_key, selectedProvisioningPrimaryProduct]
   );
-  const invitationWorkflow = useMemo(
-    () => getInvitationWorkflowState({
-      steps: invitationSteps,
-      activeStep: invitationStep,
-      selectedProduct: selectedInvitationPrimaryProduct,
-      selectedPlatformKey: invitationDraft.platform_key,
+  const userProvisioningWorkflow = useMemo(
+    () => getUserProvisioningWorkflowState({
+      steps: provisioningSteps,
+      activeStep: provisioningStep,
+      selectedProduct: selectedProvisioningPrimaryProduct,
+      selectedPlatformKey: provisioningDraft.platform_key,
     }),
-    [invitationDraft.platform_key, invitationStep, invitationSteps, selectedInvitationPrimaryProduct]
+    [provisioningDraft.platform_key, provisioningStep, provisioningSteps, selectedProvisioningPrimaryProduct]
   );
   const {
-    productMode: invitationProductMode,
-    stepId: invitationStepId,
-    sendStepIndex: invitationSendStepIndex,
-    lastStepIndex: invitationLastStepIndex,
-    roleStepIndex: invitationRoleStepIndex,
-    contactStepIndex: invitationContactStepIndex,
-    platformStepIndex: invitationProductStepIndex,
-    organizationStepIndex: invitationOrganizationStepIndex,
-    workspaceStepIndex: invitationWorkspaceStepIndex,
-    scopeStepIndex: invitationScopeStepIndex,
-    requiresOrganization: invitationRequiresOrganization,
-    requiresWorkspace: invitationRequiresWorkspace,
-  } = invitationWorkflow;
-  const isFiteatsyInvitation = invitationProductMode === 'fiteatsy';
+    productMode: provisioningProductMode,
+    stepId: provisioningStepId,
+    createStepIndex: provisioningCreateStepIndex,
+    lastStepIndex: provisioningLastStepIndex,
+    roleStepIndex: provisioningRoleStepIndex,
+    contactStepIndex: provisioningContactStepIndex,
+    platformStepIndex: provisioningProductStepIndex,
+    organizationStepIndex: provisioningOrganizationStepIndex,
+    workspaceStepIndex: provisioningWorkspaceStepIndex,
+    scopeStepIndex: provisioningScopeStepIndex,
+    requiresOrganization: provisioningRequiresOrganization,
+    requiresWorkspace: provisioningRequiresWorkspace,
+  } = userProvisioningWorkflow;
+  const isFiteatsyProvisioning = provisioningProductMode === 'fiteatsy';
   const humanizeLabel = (value = '') =>
     value
       .toString()
       .replace(/_/g, ' ')
       .toLowerCase()
       .replace(/^./, (match) => match.toUpperCase());
-  const visibleInvitations = useMemo(() => {
-    const search = invitationFilters.search.trim().toLowerCase();
-    const status = invitationFilters.status;
-    return [...invitations]
-      .filter((invitation) => status === 'ALL' || invitation.status === status)
-      .filter((invitation) => {
-        if (!search) return true;
-        return [
-          invitation.email,
-          invitation.first_name,
-          invitation.last_name,
-          invitation.role,
-          invitation.product,
-          invitation.organization,
-          invitation.status,
-        ].filter(Boolean).join(' ').toLowerCase().includes(search);
-      })
-      .sort((a, b) => {
-        const left = new Date(a.created_at || 0).getTime();
-        const right = new Date(b.created_at || 0).getTime();
-        return invitationFilters.sort === 'oldest' ? left - right : right - left;
-      });
-  }, [invitationFilters, invitations]);
   const safeSelectedUser = useMemo(() => {
     if (!selectedUser) return null;
     const displayName =
@@ -604,8 +572,8 @@ export function PeopleAccessModule({
   }, [filters?.search]);
 
   useEffect(() => {
-    setInvitationStep((current) => Math.min(current, Math.max(0, invitationSteps.length - 1)));
-  }, [invitationSteps.length]);
+    setProvisioningStep((current) => Math.min(current, Math.max(0, provisioningSteps.length - 1)));
+  }, [provisioningSteps.length]);
 
   useEffect(() => {
     if (!safeSelectedUser) return;
@@ -693,10 +661,10 @@ export function PeopleAccessModule({
       };
     });
   };
-  const toggleInvitationProduct = (productId) => {
+  const toggleProvisioningProduct = (productId) => {
     const product = productOptions.find((item) => item.id === productId);
-    const nextPlatformKey = /fiteatsy/i.test(`${product?.key || ''} ${product?.name || ''}`) ? 'fiteatsy' : invitationDraft.platform_key || 'nuetra';
-    setInvitationDraft((current) => {
+    const nextPlatformKey = /fiteatsy/i.test(`${product?.key || ''} ${product?.name || ''}`) ? 'fiteatsy' : provisioningDraft.platform_key || 'nuetra';
+    setProvisioningDraft((current) => {
       const values = current.product_ids || [];
       const nextValues = values.includes(productId)
         ? values.filter((item) => item !== productId)
@@ -709,11 +677,11 @@ export function PeopleAccessModule({
       };
     });
   };
-  const selectInvitationPlatform = (platformKey) => {
-    const platform = invitationPlatformOptions.find((item) => item.key === platformKey);
+  const selectProvisioningPlatform = (platformKey) => {
+    const platform = provisioningPlatformOptions.find((item) => item.key === platformKey);
     const productId = platform?.product_id || '';
     const isFiteatsyProduct = platformKey === 'fiteatsy';
-    setInvitationDraft((current) => ({
+    setProvisioningDraft((current) => ({
       ...current,
       platform_key: platformKey,
       product_id: productId,
@@ -722,8 +690,8 @@ export function PeopleAccessModule({
       department_id: isFiteatsyProduct ? '' : current.department_id,
     }));
   };
-  const resetInvitationDraft = (role = 'consultant') => {
-    setInvitationDraft({
+  const resetProvisioningDraft = (role = 'consultant') => {
+    setProvisioningDraft({
       first_name: '',
       last_name: '',
       email: '',
@@ -736,31 +704,13 @@ export function PeopleAccessModule({
       organization_id: '',
       department_id: '',
     });
-    setInvitationStep(0);
-    setLatestInvitation(null);
+    setProvisioningStep(0);
+    setLatestProvisioning(null);
     setLatestTemporaryCredentials(null);
   };
-  const openInvitationWizard = (role = 'consultant') => {
-    resetInvitationDraft(role);
-    setShowInvitationModal(true);
-  };
-  const invitationLinkFor = (invitation) => invitation?.invitation_url || invitationLinks[invitation?.id] || '';
-  const rememberInvitationLink = (invitation) => {
-    if (!invitation?.id || !invitation?.invitation_url) return;
-    setInvitationLinks((current) => ({ ...current, [invitation.id]: invitation.invitation_url }));
-  };
-  const copyInvitationLink = async (invitation) => {
-    const url = invitationLinkFor(invitation);
-    if (!url) {
-      setActionError('Generate or resend the invitation link before copying.');
-      return;
-    }
-    if (typeof navigator === 'undefined' || !navigator.clipboard) {
-      setActionError('Clipboard access is unavailable. Use Open Link and copy from the browser address bar.');
-      return;
-    }
-    await navigator.clipboard.writeText(url);
-    setActionError('Invitation link copied.');
+  const openProvisioningWizard = (role = 'consultant') => {
+    resetProvisioningDraft(role);
+    setShowProvisioningModal(true);
   };
   const copyTemporaryCredential = async (value, label) => {
     if (!value) {
@@ -773,16 +723,6 @@ export function PeopleAccessModule({
     }
     await navigator.clipboard.writeText(value);
     setActionError(`${label} copied.`);
-  };
-  const openInvitationLink = (invitation) => {
-    const url = invitationLinkFor(invitation);
-    if (!url) {
-      setActionError('Generate or resend the invitation link before opening.');
-      return;
-    }
-    if (typeof window !== 'undefined') {
-      window.open(url, '_blank', 'noopener,noreferrer');
-    }
   };
   const togglePermission = (permissionKey) => {
     setForm((current) => ({
@@ -963,89 +903,58 @@ export function PeopleAccessModule({
     }
   };
 
-  const submitInvitation = async () => {
-    if (!invitationDraft.role) {
-      setActionError('Select a role before sending the invitation.');
-      setInvitationStep(invitationRoleStepIndex);
+  const submitProvisioning = async () => {
+    if (!provisioningDraft.role) {
+      setActionError('Select a role before creating the user.');
+      setProvisioningStep(provisioningRoleStepIndex);
       return;
     }
-    if (!invitationDraft.first_name.trim() || !invitationDraft.last_name.trim() || !invitationDraft.email.trim()) {
+    if (!provisioningDraft.first_name.trim() || !provisioningDraft.last_name.trim() || !provisioningDraft.email.trim()) {
       setActionError('First name, last name, and email are required.');
-      setInvitationStep(invitationContactStepIndex);
+      setProvisioningStep(provisioningContactStepIndex);
       return;
     }
-    if (!invitationDraft.product_id) {
-      setActionError('Select Nuetra or Fiteatsy before sending the invitation.');
-      setInvitationStep(invitationProductStepIndex);
+    if (!provisioningDraft.product_id) {
+      setActionError('Select Nuetra or Fiteatsy before creating the user.');
+      setProvisioningStep(provisioningProductStepIndex);
       return;
     }
-    if (!invitationDraft.product_ids.length) {
-      setActionError('Select at least one product before sending the invitation.');
-      setInvitationStep(invitationScopeStepIndex);
+    if (!provisioningDraft.product_ids.length) {
+      setActionError('Select at least one product before creating the user.');
+      setProvisioningStep(provisioningScopeStepIndex);
       return;
     }
-    if (invitationRequiresOrganization && !invitationDraft.organization_id) {
-      setActionError('Select an organization before sending the invitation.');
-      setInvitationStep(invitationOrganizationStepIndex);
+    if (provisioningRequiresOrganization && !provisioningDraft.organization_id) {
+      setActionError('Select an organization before creating the user.');
+      setProvisioningStep(provisioningOrganizationStepIndex);
       return;
     }
-    if (invitationRequiresWorkspace && invitationWorkspaces.length && !invitationDraft.department_id) {
-      setActionError('Select a workspace before sending the invitation.');
-      setInvitationStep(invitationWorkspaceStepIndex);
+    if (provisioningRequiresWorkspace && provisioningWorkspaces.length && !provisioningDraft.department_id) {
+      setActionError('Select a workspace before creating the user.');
+      setProvisioningStep(provisioningWorkspaceStepIndex);
       return;
     }
     setIsSubmitting(true);
     try {
       const result = await runAction('Create user', onCreateUser, {
-        first_name: invitationDraft.first_name.trim(),
-        last_name: invitationDraft.last_name.trim(),
-        email: invitationDraft.email.trim(),
-        phone: [invitationDraft.country_code.trim(), invitationDraft.mobile_number.trim()].filter(Boolean).join(' ') || null,
-        role: invitationDraft.role,
-        primary_product_id: invitationDraft.product_id || invitationDraft.product_ids[0] || null,
-        product_ids: invitationDraft.product_ids,
-        organization_id: invitationDraft.organization_id || null,
-        department_id: invitationWorkspaces.length ? invitationDraft.department_id || null : null,
+        first_name: provisioningDraft.first_name.trim(),
+        last_name: provisioningDraft.last_name.trim(),
+        email: provisioningDraft.email.trim(),
+        phone: [provisioningDraft.country_code.trim(), provisioningDraft.mobile_number.trim()].filter(Boolean).join(' ') || null,
+        role: provisioningDraft.role,
+        primary_product_id: provisioningDraft.product_id || provisioningDraft.product_ids[0] || null,
+        product_ids: provisioningDraft.product_ids,
+        organization_id: provisioningDraft.organization_id || null,
+        department_id: provisioningWorkspaces.length ? provisioningDraft.department_id || null : null,
         status: 'ACTIVE',
       });
       if (result === null) return;
-      setLatestInvitation(result);
+      setLatestProvisioning(result);
       setLatestTemporaryCredentials(result?.temporary_credentials || null);
-      setInvitationStep(invitationSendStepIndex >= 0 ? invitationSendStepIndex : invitationLastStepIndex);
+      setProvisioningStep(provisioningCreateStepIndex >= 0 ? provisioningCreateStepIndex : provisioningLastStepIndex);
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const resendInvitationWithLink = async (invitation) => {
-    const result = await runAction('Resend invitation', onResendInvitation, invitation.id);
-    if (result) {
-      rememberInvitationLink(result);
-      setLatestInvitation(result);
-    }
-    return result;
-  };
-
-  const regenerateInvitationLink = async (invitation) => {
-    const result = await runAction('Regenerate invitation link', onRegenerateInvitationLink, invitation.id);
-    if (result) {
-      rememberInvitationLink(result);
-      setLatestInvitation(result);
-    }
-    return result;
-  };
-
-  const revokeInvitation = async (invitation) => {
-    const result = await runAction('Revoke invitation', onCancelInvitation, invitation.id);
-    if (result) {
-      setLatestInvitation(result);
-      setInvitationLinks((current) => {
-        const nextLinks = { ...current };
-        delete nextLinks[invitation.id];
-        return nextLinks;
-      });
-    }
-    return result;
   };
 
   const syncProductAssignments = async () => {
@@ -1143,10 +1052,10 @@ export function PeopleAccessModule({
           <ActionButton icon={Upload} label="CSV import" onClick={() => setShowImportModal(true)} />
           <ActionButton icon={Download} label="CSV export" onClick={handleCsvExport} />
           <ActionButton icon={UserCog} label="Refresh" onClick={() => runAction('Refresh People & Access', onRefresh)} />
-          <ActionButton icon={Plus} label="Add practitioner" onClick={() => openInvitationWizard('practitioner')} />
-          <ActionButton icon={Plus} label="Add mentor" onClick={() => openInvitationWizard('mentor')} />
-          <ActionButton icon={Plus} label="Add consultant" onClick={() => openInvitationWizard('consultant')} />
-          <ActionButton icon={Plus} label="Add corporate admin" tone="primary" onClick={() => openInvitationWizard('corporate_admin')} />
+          <ActionButton icon={Plus} label="Add practitioner" onClick={() => openProvisioningWizard('practitioner')} />
+          <ActionButton icon={Plus} label="Add mentor" onClick={() => openProvisioningWizard('mentor')} />
+          <ActionButton icon={Plus} label="Add consultant" onClick={() => openProvisioningWizard('consultant')} />
+          <ActionButton icon={Plus} label="Add corporate admin" tone="primary" onClick={() => openProvisioningWizard('corporate_admin')} />
         </>
       }
     >
@@ -1222,7 +1131,7 @@ export function PeopleAccessModule({
                 >
                   <option value="">All statuses</option>
                   <option value="ACTIVE">Active</option>
-                  <option value="INVITED">Invited</option>
+                  <option value="ACTIVE">Active</option>
                   <option value="PENDING_VERIFICATION">Pending verification</option>
                   <option value="INACTIVE">Inactive</option>
                   <option value="LOCKED">Locked</option>
@@ -1275,7 +1184,7 @@ export function PeopleAccessModule({
                 <button onClick={() => applyBulkAction('assign_role', { role: roleBulkDraft })} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Assign role</button>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <button onClick={() => setShowInvitationModal(true)} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">New invitation</button>
+                <button onClick={() => setShowProvisioningModal(true)} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Create user</button>
                 <button onClick={() => setShowImportModal(true)} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Import CSV</button>
               </div>
             </div>
@@ -1345,110 +1254,6 @@ export function PeopleAccessModule({
             ) : null}
           </Panel>
 
-          <Panel
-            title="Invitation lifecycle"
-            subtitle="Create, test, resend, revoke, and open onboarding invitations from the application UI."
-            action={<ActionButton icon={Mail} label="New invitation" tone="primary" onClick={() => openInvitationWizard('consultant')} />}
-          >
-            <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_160px_150px]">
-              <input
-                value={invitationFilters.search}
-                onChange={(event) => setInvitationFilters((current) => ({ ...current, search: event.target.value }))}
-                placeholder="Search invitee, role, organization, product..."
-                className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none"
-              />
-              <select
-                value={invitationFilters.status}
-                onChange={(event) => setInvitationFilters((current) => ({ ...current, status: event.target.value }))}
-                className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-600 outline-none"
-              >
-                {['ALL', 'INVITED', 'ACCEPTED', 'EXPIRED', 'CANCELLED', 'REVOKED', 'PASSWORD_CREATED'].map((status) => (
-                  <option key={status} value={status}>{status === 'ALL' ? 'All' : humanizeLabel(status)}</option>
-                ))}
-              </select>
-              <select
-                value={invitationFilters.sort}
-                onChange={(event) => setInvitationFilters((current) => ({ ...current, sort: event.target.value }))}
-                className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-600 outline-none"
-              >
-                <option value="newest">Newest first</option>
-                <option value="oldest">Oldest first</option>
-              </select>
-            </div>
-
-            <div className="mt-5 overflow-hidden rounded-2xl border border-gray-100">
-              <table className="min-w-full divide-y divide-gray-100">
-                <thead className="bg-gray-50 text-left z-table-header text-gray-500">
-                  <tr>
-                    <th className="px-4 py-3">Invitee</th>
-                    <th className="px-4 py-3">Scope</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Link</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 bg-white">
-                  {visibleInvitations.map((invitation) => {
-                    const link = invitationLinkFor(invitation);
-                    const canOperate = !['ACCEPTED', 'PASSWORD_CREATED'].includes(invitation.status);
-                    return (
-                      <tr key={invitation.id} className="align-top">
-                        <td className="px-4 py-4">
-                          <p className="font-bold text-gray-900">
-                            {[invitation.first_name, invitation.last_name].filter(Boolean).join(' ') || invitation.email}
-                          </p>
-                          <p className="mt-1 text-xs text-gray-500">{invitation.email}</p>
-                          {invitation.mobile_number ? (
-                            <p className="mt-1 text-xs text-gray-500">{invitation.country_code || ''} {invitation.mobile_number}</p>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-4 text-sm text-gray-600">
-                          <p className="font-bold capitalize text-gray-900">{(invitation.role || 'Unassigned').replace(/_/g, ' ')}</p>
-                          <p className="mt-1 text-xs text-gray-500">{invitation.product || 'No product'} · {invitation.organization || 'No organization'}</p>
-                          {invitation.token_fingerprint ? <p className="mt-1 text-[11px] text-gray-400">Fingerprint {invitation.token_fingerprint}</p> : null}
-                        </td>
-                        <td className="px-4 py-4">
-                          <Badge tone={invitation.status === 'INVITED' ? 'blue' : invitation.status === 'ACCEPTED' || invitation.status === 'PASSWORD_CREATED' ? 'green' : 'red'}>{humanizeLabel(invitation.status)}</Badge>
-                        </td>
-                        <td className="px-4 py-4">
-                          <button
-                            type="button"
-                            onClick={() => (link ? copyInvitationLink(invitation) : regenerateInvitationLink(invitation))}
-                            disabled={!canOperate}
-                            className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 disabled:opacity-40"
-                          >
-                            {link ? 'Copy link' : 'Generate link'}
-                          </button>
-                          {link ? <p className="mt-2 max-w-[220px] truncate text-[11px] text-gray-400">{link}</p> : null}
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="flex flex-wrap justify-end gap-2">
-                            <button onClick={() => openInvitationLink(invitation)} disabled={!link} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 disabled:opacity-40">Open</button>
-                            <button onClick={() => resendInvitationWithLink(invitation)} disabled={!canOperate} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 disabled:opacity-40">Resend</button>
-                            <button onClick={() => regenerateInvitationLink(invitation)} disabled={!canOperate} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 disabled:opacity-40">Regenerate</button>
-                            <button onClick={() => revokeInvitation(invitation)} disabled={!canOperate} className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-red-600 disabled:opacity-40">Revoke</button>
-                            <button onClick={() => runAction('Expire invitation', onExpireInvitation, invitation.id)} disabled={!canOperate} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 disabled:opacity-40">Expire</button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {!visibleInvitations.length ? (
-                <div className="bg-white p-6">
-                  <EmptyState icon={Mail} title="No invitations match this view" description="Create a new invitation or adjust the filters to see pending, accepted, expired, or revoked records." />
-                </div>
-              ) : null}
-            </div>
-            <div className="mt-4 space-y-2">
-              {invitationPagination ? (
-                <p className="text-xs text-gray-500">
-                  {invitationPagination.total} invitations · page {invitationPagination.page} of {invitationPagination.total_pages}
-                </p>
-              ) : null}
-            </div>
-          </Panel>
       </div>
 
       {showCreateForm ? (
@@ -1475,7 +1280,7 @@ export function PeopleAccessModule({
                 ))}
               </select>
               <select value={form.status} onChange={(event) => updateForm('status', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                {['INVITED', 'PENDING_VERIFICATION', 'ACTIVE', 'INACTIVE', 'LOCKED', 'SUSPENDED'].map((item) => (
+                {['ACTIVE', 'PENDING_VERIFICATION', 'ACTIVE', 'INACTIVE', 'LOCKED', 'SUSPENDED'].map((item) => (
                   <option key={item} value={item}>{item}</option>
                 ))}
               </select>
@@ -1567,7 +1372,7 @@ export function PeopleAccessModule({
                   ))}
                 </div>
               </div>
-              <textarea value={form.note} onChange={(event) => updateForm('note', event.target.value)} placeholder="Invitation note or operator note" className="min-h-[110px] rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none md:col-span-2" />
+              <textarea value={form.note} onChange={(event) => updateForm('note', event.target.value)} placeholder="Operator note" className="min-h-[110px] rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none md:col-span-2" />
             </div>
             <div className="mt-6">
               <p className="text-xs font-black uppercase tracking-[0.24em] text-gray-400">Authorities</p>
@@ -1596,96 +1401,96 @@ export function PeopleAccessModule({
         </div>
       ) : null}
 
-      {showInvitationModal ? (
+      {showProvisioningModal ? (
         <WorkflowModal
           eyebrow="User credential workflow"
           title="Create a practitioner, mentor, consultant, or corporate admin"
           description="Create the user account immediately, then copy the one-time temporary password for manual secure sharing."
-          steps={invitationSteps}
-          activeStep={invitationStep}
-          onStepChange={(index) => !latestInvitation && setInvitationStep(index)}
-          onClose={() => setShowInvitationModal(false)}
+          steps={provisioningSteps}
+          activeStep={provisioningStep}
+          onStepChange={(index) => !latestProvisioning && setProvisioningStep(index)}
+          onClose={() => setShowProvisioningModal(false)}
           footer={
             <div className="flex flex-wrap items-center justify-between gap-3">
               <button
                 type="button"
-                onClick={() => setInvitationStep((current) => Math.max(0, current - 1))}
-                disabled={invitationStep === 0 || Boolean(latestInvitation)}
+                onClick={() => setProvisioningStep((current) => Math.max(0, current - 1))}
+                disabled={provisioningStep === 0 || Boolean(latestProvisioning)}
                 className="z-btn z-btn-secondary"
               >
                 Back
               </button>
               <div className="flex flex-wrap gap-3">
-                <button type="button" className="z-btn z-btn-secondary" onClick={() => setShowInvitationModal(false)}>
+                <button type="button" className="z-btn z-btn-secondary" onClick={() => setShowProvisioningModal(false)}>
                   Cancel
                 </button>
-                {!latestInvitation && invitationStep < invitationLastStepIndex ? (
+                {!latestProvisioning && provisioningStep < provisioningLastStepIndex ? (
                   <button
                     type="button"
                     className="z-btn z-btn-primary"
-                    onClick={() => setInvitationStep((current) => Math.min(invitationLastStepIndex, current + 1))}
+                    onClick={() => setProvisioningStep((current) => Math.min(provisioningLastStepIndex, current + 1))}
                   >
                     Next
                   </button>
                 ) : null}
-                {!latestInvitation && invitationSendStepIndex >= 0 && invitationStep === invitationSendStepIndex ? (
-                  <ActionButton icon={KeyRound} label="Create user" tone="primary" onClick={submitInvitation} disabled={isSubmitting} />
+                {!latestProvisioning && provisioningCreateStepIndex >= 0 && provisioningStep === provisioningCreateStepIndex ? (
+                  <ActionButton icon={KeyRound} label="Create user" tone="primary" onClick={submitProvisioning} disabled={isSubmitting} />
                 ) : null}
               </div>
             </div>
           }
         >
-          {invitationStepId === 'role' ? (
+          {provisioningStepId === 'role' ? (
             <WorkflowCard
               title="Select role"
               description="Choose the operational role. The user remains part of the same platform identity workflow."
             >
               <div className="grid gap-3 md:grid-cols-2">
-                {invitationRoles.map((role) => (
+                {provisioningRoles.map((role) => (
                   <button
                     key={role.value}
                     type="button"
-                    onClick={() => setInvitationDraft((current) => ({ ...current, role: role.value }))}
+                    onClick={() => setProvisioningDraft((current) => ({ ...current, role: role.value }))}
                     className={cn(
                       'rounded-2xl border px-4 py-4 text-left transition',
-                      invitationDraft.role === role.value ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
+                      provisioningDraft.role === role.value ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
                     )}
                   >
                     <span className="block z-h4">{humanizeLabel(role.label)}</span>
-                    <span className="mt-1 block z-subtitle text-gray-500">Permission-scoped onboarding</span>
+                    <span className="mt-1 block z-subtitle text-gray-500">Permission-scoped account creation</span>
                   </button>
                 ))}
               </div>
             </WorkflowCard>
           ) : null}
 
-          {invitationStepId === 'contact' ? (
+          {provisioningStepId === 'contact' ? (
             <WorkflowCard
               title="Enter contact information"
               description="These details are stored on the user profile and carried into onboarding."
             >
-              <FormSection title="Invitee details" description="Use the person’s legal or work profile details for onboarding continuity.">
+              <FormSection title="User details" description="Use the person’s legal or work profile details for onboarding continuity.">
                 <div className="grid gap-4 md:grid-cols-2">
                   <Field label="First name">
                     <input
-                      value={invitationDraft.first_name}
-                      onChange={(event) => setInvitationDraft((current) => ({ ...current, first_name: event.target.value }))}
+                      value={provisioningDraft.first_name}
+                      onChange={(event) => setProvisioningDraft((current) => ({ ...current, first_name: event.target.value }))}
                       placeholder="Enter first name"
                       className="z-input"
                     />
                   </Field>
                   <Field label="Last name">
                     <input
-                      value={invitationDraft.last_name}
-                      onChange={(event) => setInvitationDraft((current) => ({ ...current, last_name: event.target.value }))}
+                      value={provisioningDraft.last_name}
+                      onChange={(event) => setProvisioningDraft((current) => ({ ...current, last_name: event.target.value }))}
                       placeholder="Enter last name"
                       className="z-input"
                     />
                   </Field>
                   <Field label="Email">
                     <input
-                      value={invitationDraft.email}
-                      onChange={(event) => setInvitationDraft((current) => ({ ...current, email: event.target.value }))}
+                      value={provisioningDraft.email}
+                      onChange={(event) => setProvisioningDraft((current) => ({ ...current, email: event.target.value }))}
                       placeholder="name@company.com"
                       className="z-input"
                       type="email"
@@ -1694,16 +1499,16 @@ export function PeopleAccessModule({
                   <div className="grid grid-cols-[112px_1fr] gap-3">
                     <Field label="Country code">
                       <input
-                        value={invitationDraft.country_code}
-                        onChange={(event) => setInvitationDraft((current) => ({ ...current, country_code: event.target.value }))}
+                        value={provisioningDraft.country_code}
+                        onChange={(event) => setProvisioningDraft((current) => ({ ...current, country_code: event.target.value }))}
                         placeholder="+91"
                         className="z-input"
                       />
                     </Field>
                     <Field label="Mobile number">
                       <input
-                        value={invitationDraft.mobile_number}
-                        onChange={(event) => setInvitationDraft((current) => ({ ...current, mobile_number: event.target.value }))}
+                        value={provisioningDraft.mobile_number}
+                        onChange={(event) => setProvisioningDraft((current) => ({ ...current, mobile_number: event.target.value }))}
                         placeholder="Enter mobile number"
                         className="z-input"
                       />
@@ -1714,20 +1519,20 @@ export function PeopleAccessModule({
             </WorkflowCard>
           ) : null}
 
-          {invitationStepId === 'platform' ? (
+          {provisioningStepId === 'platform' ? (
             <WorkflowCard
               title="Select platform"
               description="Choose the primary product first. The next steps adapt automatically for Nuetra or Fiteatsy."
             >
               <div className="grid gap-3 md:grid-cols-2">
-                {invitationPlatformOptions.map((platform) => (
+                {provisioningPlatformOptions.map((platform) => (
                   <button
                     key={platform.key}
                     type="button"
-                    onClick={() => selectInvitationPlatform(platform.key)}
+                    onClick={() => selectProvisioningPlatform(platform.key)}
                     className={cn(
                       'rounded-2xl border px-4 py-4 text-left transition',
-                      invitationDraft.platform_key === platform.key ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
+                      provisioningDraft.platform_key === platform.key ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
                     )}
                   >
                     <span className="block z-h4">{platform.name}</span>
@@ -1743,17 +1548,17 @@ export function PeopleAccessModule({
             </WorkflowCard>
           ) : null}
 
-          {invitationStepId === 'organization' ? (
+          {provisioningStepId === 'organization' ? (
             <WorkflowCard title="Select organization" description="Choose the Nuetra organization this user will belong to.">
               <div className="grid gap-3 md:grid-cols-2">
                 {organizationOptions.map((organization) => (
                   <button
                     key={organization.id}
                     type="button"
-                    onClick={() => setInvitationDraft((current) => ({ ...current, organization_id: organization.id, department_id: '' }))}
+                    onClick={() => setProvisioningDraft((current) => ({ ...current, organization_id: organization.id, department_id: '' }))}
                     className={cn(
                       'rounded-2xl border px-4 py-4 text-left transition',
-                      invitationDraft.organization_id === organization.id ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
+                      provisioningDraft.organization_id === organization.id ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
                     )}
                   >
                     <span className="block z-h4">{organization.name}</span>
@@ -1770,24 +1575,24 @@ export function PeopleAccessModule({
             </WorkflowCard>
           ) : null}
 
-          {invitationStepId === 'workspace' ? (
-            <WorkflowCard title="Select workspace" description="Choose the department or workspace where this invitee will start.">
+          {provisioningStepId === 'workspace' ? (
+            <WorkflowCard title="Select workspace" description="Choose the department or workspace where this user will start.">
               <div className="grid gap-3 md:grid-cols-2">
-                {invitationWorkspaces.map((department) => (
+                {provisioningWorkspaces.map((department) => (
                   <button
                     key={department.id}
                     type="button"
-                    onClick={() => setInvitationDraft((current) => ({ ...current, department_id: department.id }))}
+                    onClick={() => setProvisioningDraft((current) => ({ ...current, department_id: department.id }))}
                     className={cn(
                       'rounded-2xl border px-4 py-4 text-left transition',
-                      invitationDraft.department_id === department.id ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
+                      provisioningDraft.department_id === department.id ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
                     )}
                   >
                     <span className="block z-h4">{department.name}</span>
                     <span className="mt-1 block z-subtitle text-gray-500">Workspace assignment</span>
                   </button>
                 ))}
-                {!invitationWorkspaces.length ? (
+                {!provisioningWorkspaces.length ? (
                   <div className="rounded-2xl border border-[#237afc] bg-[#f5f9ff] px-4 py-4 text-left text-[#237afc] shadow-sm">
                     <span className="block z-h4">{departmentOptions.length ? 'Organization default workspace' : 'No workspaces available'}</span>
                     <span className="mt-1 block z-subtitle text-gray-500">
@@ -1801,10 +1606,10 @@ export function PeopleAccessModule({
             </WorkflowCard>
           ) : null}
 
-          {invitationStepId === 'products' || invitationStepId === 'scope' ? (
+          {provisioningStepId === 'products' || provisioningStepId === 'scope' ? (
             <WorkflowCard
               title="Select products"
-              description={isFiteatsyInvitation ? 'Confirm the Fiteatsy product scope for this user.' : 'Configure products, packages, services, and permission context for this Nuetra user.'}
+              description={isFiteatsyProvisioning ? 'Confirm the Fiteatsy product scope for this user.' : 'Configure products, packages, services, and permission context for this Nuetra user.'}
             >
               <div className="space-y-5">
                 <div>
@@ -1814,10 +1619,10 @@ export function PeopleAccessModule({
                       <button
                         key={product.id}
                         type="button"
-                        onClick={() => toggleInvitationProduct(product.id)}
+                        onClick={() => toggleProvisioningProduct(product.id)}
                         className={cn(
                           'rounded-full border px-4 py-3 z-btn',
-                          selectedInvitationProductIdSet.has(product.id) ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
+                          selectedProvisioningProductIdSet.has(product.id) ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc]' : 'border-gray-200 bg-white text-gray-600'
                         )}
                       >
                         {product.name}
@@ -1832,7 +1637,7 @@ export function PeopleAccessModule({
                   </div>
                 </div>
 
-                {!isFiteatsyInvitation ? (
+                {!isFiteatsyProvisioning ? (
                   <div className="grid gap-4 lg:grid-cols-2">
                     <div className="rounded-2xl border border-gray-100/80 bg-gray-50/80 p-4">
                       <p className="z-label text-gray-500">Available packages</p>
@@ -1866,25 +1671,25 @@ export function PeopleAccessModule({
             </WorkflowCard>
           ) : null}
 
-          {invitationStepId === 'review' ? (
+          {provisioningStepId === 'review' ? (
             <WorkflowCard title="Review user" description="Confirm the account details before creating temporary credentials.">
               <div className="grid gap-3 md:grid-cols-2">
                 {[
-                  ['Role', humanizeLabel(invitationDraft.role)],
-                  ['Invitee', `${invitationDraft.first_name} ${invitationDraft.last_name}`.trim() || 'Not added'],
-                  ['Email', invitationDraft.email || 'Not added'],
-                  ['Mobile', `${invitationDraft.country_code || ''} ${invitationDraft.mobile_number || ''}`.trim() || 'Not added'],
-                  ['Platform', selectedInvitationPrimaryProduct?.name || 'Not selected'],
-                  ['Products', productOptions.length ? productOptions.filter((item) => invitationDraft.product_ids.includes(item.id)).map((item) => item.name).join(', ') || 'Not selected' : 'Unable to load products'],
-                  ['Organization', isFiteatsyInvitation ? 'Not required for Fiteatsy' : organizationOptions.find((item) => item.id === invitationDraft.organization_id)?.name || 'Not selected'],
-                  ['Workspace', isFiteatsyInvitation ? 'Product workspace' : invitationWorkspaces.find((item) => item.id === invitationDraft.department_id)?.name || 'Organization default workspace'],
+                  ['Role', humanizeLabel(provisioningDraft.role)],
+                  ['User', `${provisioningDraft.first_name} ${provisioningDraft.last_name}`.trim() || 'Not added'],
+                  ['Email', provisioningDraft.email || 'Not added'],
+                  ['Mobile', `${provisioningDraft.country_code || ''} ${provisioningDraft.mobile_number || ''}`.trim() || 'Not added'],
+                  ['Platform', selectedProvisioningPrimaryProduct?.name || 'Not selected'],
+                  ['Products', productOptions.length ? productOptions.filter((item) => provisioningDraft.product_ids.includes(item.id)).map((item) => item.name).join(', ') || 'Not selected' : 'Unable to load products'],
+                  ['Organization', isFiteatsyProvisioning ? 'Not required for Fiteatsy' : organizationOptions.find((item) => item.id === provisioningDraft.organization_id)?.name || 'Not selected'],
+                  ['Workspace', isFiteatsyProvisioning ? 'Product workspace' : provisioningWorkspaces.find((item) => item.id === provisioningDraft.department_id)?.name || 'Organization default workspace'],
                 ].map(([label, value]) => <ReviewCard key={label} label={label} value={value} />)}
               </div>
             </WorkflowCard>
           ) : null}
 
-          {invitationStepId === 'send' ? (
-            latestInvitation ? (
+          {provisioningStepId === 'create' ? (
+            latestProvisioning ? (
               <WorkflowCard title="User created" description="Copy these credentials now. The temporary password will not be shown again after you close this workflow.">
                 <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
                   <div className="flex items-start gap-3">
@@ -1901,12 +1706,12 @@ export function PeopleAccessModule({
                   <div className="rounded-2xl border border-gray-100 bg-white p-4">
                     <p className="z-label text-gray-500">Username</p>
                     <p className="mt-2 break-all z-table-content font-semibold text-gray-900">
-                      {latestTemporaryCredentials?.username || latestInvitation.email || 'Not available'}
+                      {latestTemporaryCredentials?.username || latestProvisioning.email || 'Not available'}
                     </p>
                     <ActionButton
                       icon={Copy}
                       label="Copy username"
-                      onClick={() => copyTemporaryCredential(latestTemporaryCredentials?.username || latestInvitation.email, 'Username')}
+                      onClick={() => copyTemporaryCredential(latestTemporaryCredentials?.username || latestProvisioning.email, 'Username')}
                     />
                   </div>
                   <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
@@ -1925,7 +1730,7 @@ export function PeopleAccessModule({
                 </div>
                 <button
                   type="button"
-                  onClick={() => resetInvitationDraft(invitationDraft.role)}
+                  onClick={() => resetProvisioningDraft(provisioningDraft.role)}
                   className="mt-5 z-btn z-btn-secondary"
                 >
                   Create another user
@@ -1936,16 +1741,16 @@ export function PeopleAccessModule({
                 <div className="grid gap-3 md:grid-cols-3">
                   <div className="rounded-2xl bg-gray-50 p-4">
                     <p className="z-label text-gray-500">User</p>
-                    <p className="mt-1 z-table-content font-semibold text-gray-900">{invitationDraft.email || 'Not added'}</p>
+                    <p className="mt-1 z-table-content font-semibold text-gray-900">{provisioningDraft.email || 'Not added'}</p>
                   </div>
                   <div className="rounded-2xl bg-gray-50 p-4">
                     <p className="z-label text-gray-500">Role</p>
-                    <p className="mt-1 z-table-content font-semibold text-gray-900">{humanizeLabel(invitationDraft.role)}</p>
+                    <p className="mt-1 z-table-content font-semibold text-gray-900">{humanizeLabel(provisioningDraft.role)}</p>
                   </div>
                   <div className="rounded-2xl bg-gray-50 p-4">
                     <p className="z-label text-gray-500">Product</p>
-                    <p className="mt-1 z-table-content font-semibold text-gray-900">{selectedInvitationPrimaryProduct?.name || 'Not selected'}</p>
-                    {!invitationDraft.product_id ? (
+                    <p className="mt-1 z-table-content font-semibold text-gray-900">{selectedProvisioningPrimaryProduct?.name || 'Not selected'}</p>
+                    {!provisioningDraft.product_id ? (
                       <p className="mt-2 text-xs font-semibold text-amber-700">Unable to load product metadata for submission.</p>
                     ) : null}
                   </div>
@@ -1984,7 +1789,7 @@ export function PeopleAccessModule({
         </div>
       ) : null}
 
-      {latestTemporaryCredentials && !showInvitationModal ? (
+      {latestTemporaryCredentials && !showProvisioningModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-6">
           <div className="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
@@ -2054,7 +1859,7 @@ export function PeopleAccessModule({
               <select value={activeFilterStatus} onChange={(event) => applyFilters({ status: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
                 <option value="">All statuses</option>
                 <option value="ACTIVE">Active</option>
-                <option value="INVITED">Invited</option>
+                <option value="ACTIVE">Active</option>
                 <option value="PENDING_VERIFICATION">Pending verification</option>
                 <option value="INACTIVE">Inactive</option>
                 <option value="LOCKED">Locked</option>

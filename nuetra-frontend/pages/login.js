@@ -64,7 +64,7 @@ export default function LoginPage() {
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-[#424242]">
               {isBackendAuthEnabled
-                ? 'The dashboard is connected to the live platform API so invited consultants and organization admins can sign in with real accounts.'
+                ? 'The dashboard is connected to the live platform API so provisioned consultants and organization admins can sign in with real accounts.'
                 : 'This frontend is fully operational on production-quality sample data. Every workflow is complete: priority queue, inbox, longitudinal employee workspace, editable AI plan builder, session operations, reports, finance, quality review, and organization intelligence.'}
             </p>
           </div>

@@ -54,21 +54,6 @@ def _send_otp_email_background(email: str, otp_code: str) -> None:
         # ERROR: Never re-raise from background tasks - API should not fail
 
 
-def _send_invitation_email_background(email: str, temp_password: str, role: str) -> None:
-    """Send invitation email (background task). Never raises exceptions."""
-    try:
-        get_email_service().send_invitation(email, temp_password, role)
-        logger.info("invitation_email_sent_background", email=email, role=role)
-    except Exception as exc:
-        logger.error(
-            "invitation_email_failed_background",
-            email=email,
-            error=str(exc),
-            note="Email sending failed but API response continues",
-        )
-        # ERROR: Never re-raise from background tasks - API should not fail
-
-
 # ── helpers ───────────────────────────────────────────
 
 def _user_response(user: User, permissions: list[str] | None = None) -> UserResponse:

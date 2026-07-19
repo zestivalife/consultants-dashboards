@@ -399,40 +399,6 @@ export const authAPI = {
   },
 };
 
-export const onboardingAPI = {
-  validateInvitation(token) {
-    return apiRequest('/onboarding/invitations/validate', {
-      method: 'POST',
-      body: { token },
-      skipAuthRefresh: true,
-    });
-  },
-
-  acceptInvitation(token) {
-    return apiRequest('/onboarding/invitations/accept', {
-      method: 'POST',
-      body: { token },
-      skipAuthRefresh: true,
-    });
-  },
-
-  initiatePasswordSetup(token) {
-    return apiRequest('/onboarding/password/setup', {
-      method: 'POST',
-      body: { token },
-      skipAuthRefresh: true,
-    });
-  },
-
-  createCredentials(token, password, confirmPassword) {
-    return apiRequest('/identity/password/create', {
-      method: 'POST',
-      body: { token, password, confirm_password: confirmPassword },
-      skipAuthRefresh: true,
-    });
-  },
-};
-
 export const ownerPeopleAccessAPI = {
   summary() {
     return apiRequest('/owner/people-access/summary');
@@ -494,46 +460,6 @@ export const ownerPeopleAccessAPI = {
     return apiRequest('/owner/people-access/users/bulk-actions', {
       method: 'POST',
       body: payload,
-    });
-  },
-
-  listInvitations(params = {}) {
-    const searchParams = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
-      if (value === undefined || value === null || value === '') return;
-      searchParams.set(key, String(value));
-    });
-    const suffix = searchParams.toString() ? `?${searchParams.toString()}` : '';
-    return apiRequest(`/owner/people-access/invitations${suffix}`);
-  },
-
-  createInvitation(payload) {
-    return apiRequest('/owner/people-access/invitations', {
-      method: 'POST',
-      body: payload,
-    });
-  },
-
-  resendInvitation(invitationId) {
-    return apiRequest(`/owner/people-access/invitations/${invitationId}/resend`, {
-      method: 'POST',
-    });
-  },
-
-  regenerateInvitationLink(invitationId) {
-    return apiRequest(`/owner/people-access/invitations/${invitationId}/regenerate-link`, {
-      method: 'POST',
-    });
-  },
-
-  cancelInvitation(invitationId) {
-    return apiRequest(`/owner/people-access/invitations/${invitationId}/cancel`, {
-      method: 'POST',
-    });
-  },
-  expireInvitation(invitationId) {
-    return apiRequest(`/owner/people-access/invitations/${invitationId}/expire`, {
-      method: 'POST',
     });
   },
 

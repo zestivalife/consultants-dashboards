@@ -48,7 +48,7 @@ function SettingsPage() {
       push: false,
       sessionReminders: true,
       goalUpdates: true,
-      teamInvites: true,
+      teamProvisioning: true,
     },
     privacy: {
       profileVisibility: 'team',
@@ -309,14 +309,14 @@ function SettingsPage() {
 
                       <div className="flex items-center justify-between py-4">
                         <div>
-                          <h3 className="font-medium text-gray-900">Team Invites</h3>
-                          <p className="text-sm text-gray-600">Notifications for team invitations</p>
+                          <h3 className="font-medium text-gray-900">Team Provisioning</h3>
+                          <p className="text-sm text-gray-600">Notifications for manually provisioned team accounts</p>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={settings.notifications.teamInvites}
-                            onChange={(e) => handleSettingChange('notifications', 'teamInvites', e.target.checked)}
+                            checked={settings.notifications.teamProvisioning}
+                            onChange={(e) => handleSettingChange('notifications', 'teamProvisioning', e.target.checked)}
                             className="sr-only peer"
                           />
                           <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[#64ae00] rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#64ae00]"></div>
