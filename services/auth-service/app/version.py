@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 
 _STARTED_AT = datetime.now(UTC).isoformat()
+AUTH_SERVICE_BUILD_MARKER = "2026-07-19T10:15:13Z"
 
 
 def _first_env(*names: str, default: str = "unknown") -> str:
