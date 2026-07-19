@@ -312,7 +312,7 @@ class ManagedUserCreateRequest(BaseModel):
     product_ids: list[uuid.UUID] = Field(default_factory=list)
     package_ids: list[uuid.UUID] = Field(default_factory=list)
     service_ids: list[uuid.UUID] = Field(default_factory=list)
-    status: str = "PENDING_CREDENTIALS"
+    status: str = "ACTIVE"
     permissions: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     note: str | None = None
@@ -419,7 +419,7 @@ class CsvImportRow(BaseModel):
     department_id: uuid.UUID | None = None
     employee_id: str | None = None
     primary_product_id: uuid.UUID | None = None
-    status: str = "PENDING_CREDENTIALS"
+    status: str = "ACTIVE"
 
 
 class CsvImportRequest(BaseModel):

@@ -40,7 +40,7 @@ class PeopleAccessRepository:
             select(func.count(User.id)).where(User.must_change_password.is_(True))
         ) or 0
         pending_profiles = await self._session.scalar(
-            select(func.count(User.id)).where(User.status.in_(["PENDING_CREDENTIALS", "PENDING_PROFILE"]))
+            select(func.count(User.id)).where((User.status == "PENDING_PROFILE") | (User.must_change_password.is_(True)))
         ) or 0
         suspended = await self._session.scalar(select(func.count(User.id)).where(User.status == "SUSPENDED")) or 0
         organizations = await self._session.scalar(select(func.count(Organization.id))) or 0
