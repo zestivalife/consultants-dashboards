@@ -59,7 +59,6 @@ import {
 
 const PEOPLE_STATUS_LABELS = {
   ACTIVE: 'Active',
-  PENDING_CREDENTIALS: 'Temporary Password Issued',
   PENDING_PROFILE: 'Pending Profile Setup',
   PENDING_VERIFICATION: 'Pending Credential Setup',
   INACTIVE: 'Inactive',
@@ -70,7 +69,6 @@ const PEOPLE_STATUS_LABELS = {
 
 const PEOPLE_STATUS_TONES = {
   ACTIVE: 'green',
-  PENDING_CREDENTIALS: 'amber',
   PENDING_PROFILE: 'amber',
   PENDING_VERIFICATION: 'amber',
   INACTIVE: 'red',
@@ -994,7 +992,7 @@ export function PeopleAccessModule({
         product_ids: provisioningDraft.product_ids,
         organization_id: provisioningDraft.organization_id || null,
         department_id: provisioningWorkspaces.length ? provisioningDraft.department_id || null : null,
-        status: 'PENDING_CREDENTIALS',
+        status: 'ACTIVE',
       });
       if (result === null) return;
       setLatestProvisioning(result);
@@ -1179,7 +1177,6 @@ export function PeopleAccessModule({
                 >
                   <option value="">All statuses</option>
                   <option value="ACTIVE">Active</option>
-                  <option value="PENDING_CREDENTIALS">Temporary password issued</option>
                   <option value="PENDING_PROFILE">Pending profile setup</option>
                   <option value="INACTIVE">Inactive</option>
                   <option value="LOCKED">Locked</option>
@@ -1328,7 +1325,7 @@ export function PeopleAccessModule({
                 ))}
               </select>
               <select value={form.status} onChange={(event) => updateForm('status', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                {['ACTIVE', 'PENDING_CREDENTIALS', 'PENDING_PROFILE', 'INACTIVE', 'LOCKED', 'SUSPENDED'].map((item) => (
+                {['ACTIVE', 'PENDING_PROFILE', 'INACTIVE', 'LOCKED', 'SUSPENDED'].map((item) => (
                   <option key={item} value={item}>{formatPeopleStatus(item)}</option>
                 ))}
               </select>
@@ -1919,7 +1916,6 @@ export function PeopleAccessModule({
               <select value={activeFilterStatus} onChange={(event) => applyFilters({ status: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
                 <option value="">All statuses</option>
                 <option value="ACTIVE">Active</option>
-                <option value="PENDING_CREDENTIALS">Temporary password issued</option>
                 <option value="PENDING_PROFILE">Pending profile setup</option>
                 <option value="INACTIVE">Inactive</option>
                 <option value="LOCKED">Locked</option>

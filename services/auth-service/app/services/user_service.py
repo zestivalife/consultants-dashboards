@@ -22,7 +22,7 @@ class CreateUserCommand:
     first_name: str | None = None
     last_name: str | None = None
     phone: str | None = None
-    status: str = "PENDING_CREDENTIALS"
+    status: str = "ACTIVE"
     permissions: list[str] = field(default_factory=list)
     is_active: bool | None = None
     is_verified: bool | None = None

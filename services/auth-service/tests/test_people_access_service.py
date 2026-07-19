@@ -114,14 +114,14 @@ async def test_create_user_generates_temporary_credentials_and_primary_role(sess
 
     assert detail.email == "consultant@nuetra.in"
     assert detail.role == "consultant"
-    assert detail.status == "PENDING_CREDENTIALS"
+    assert detail.status == "ACTIVE"
     assert detail.must_change_password is True
     assert detail.temporary_credentials.username == "consultant@nuetra.in"
     assert detail.temporary_credentials.temporary_password
 
     created_user = await session.scalar(select(User).where(User.email == "consultant@nuetra.in"))
     assert created_user is not None
-    assert created_user.status == "PENDING_CREDENTIALS"
+    assert created_user.status == "ACTIVE"
     assert created_user.is_active is True
     assert created_user.is_verified is True
     assert created_user.must_change_password is True
@@ -146,7 +146,7 @@ async def test_create_user_generates_temporary_credentials_and_primary_role(sess
         select(UserStatusHistory).where(UserStatusHistory.user_id == created_user.id)
     )
     assert status_history is not None
-    assert status_history.new_status == "PENDING_CREDENTIALS"
+    assert status_history.new_status == "ACTIVE"
 
     audit_event = await session.scalar(
         select(AuditEvent).where(
