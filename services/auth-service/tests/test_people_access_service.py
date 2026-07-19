@@ -9,7 +9,7 @@ from app.db.models.owner_access import AuditEvent, Permission, RolePermission, U
 from app.db.models.role import Role
 from app.db.models.user import PasswordHistory, User
 from app.schemas.auth import UserResponse
-from app.schemas.people_access import BulkActionRequest, ManagedUserCreateRequest
+from app.schemas.people_access import BulkActionRequest, ManagedUserCreateRequest, ManagedUserUpdateRequest
 from app.services import people_access_service
 from app.services.password_service import password_service
 
@@ -22,14 +22,18 @@ async def _create_role(session: AsyncSession, name: str, description: str = "") 
 
 
 async def _create_user(session: AsyncSession, role: Role, email: str, **overrides) -> User:
+    is_verified = overrides.pop("is_verified", True)
+    email_verified = overrides.pop("email_verified", is_verified)
+    status = overrides.pop("status", "ACTIVE")
     user = User(
         id=uuid.uuid4(),
         email=email,
         password_hash=password_service.hash_password(overrides.pop("password", "Correct123!Ok")),
         role_id=role.id,
-        is_verified=True,
-        is_active=True,
-        status="ACTIVE",
+        is_verified=is_verified,
+        email_verified=email_verified,
+        is_active=overrides.pop("is_active", True),
+        status=status,
         **overrides,
     )
     session.add(user)
@@ -160,6 +164,122 @@ async def test_create_user_generates_temporary_credentials_and_primary_role(sess
 
 
 @pytest.mark.asyncio
+async def test_create_tenant_user_never_mutates_platform_owner_lifecycle(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    mentor_role = await _create_role(session, "mentor")
+    owner = await _create_user(
+        session,
+        owner_role,
+        "owner@zestiva.in",
+        must_change_password=False,
+    )
+    actor = _actor_from_user(owner, permissions=["users.create", "users.read"])
+
+    detail = await people_access_service.create_user(
+        session,
+        ManagedUserCreateRequest(
+            email="mentor@zestiva.in",
+            first_name="Meera",
+            last_name="Shah",
+            role="mentor",
+        ),
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-owner-protected-create",
+    )
+
+    assert detail.role == "mentor"
+    assert mentor_role.id == (await session.scalar(select(User).where(User.email == "mentor@zestiva.in"))).role_id
+    await session.refresh(owner)
+    assert owner.status == "ACTIVE"
+    assert owner.is_active is True
+    assert owner.is_verified is True
+    assert owner.email_verified is True
+    assert owner.must_change_password is False
+
+
+@pytest.mark.asyncio
+async def test_people_access_cannot_create_platform_owner_accounts(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    await _create_role(session, "superuser")
+    owner = await _create_user(session, owner_role, "owner@zestiva.in")
+    actor = _actor_from_user(owner, permissions=["users.create"])
+
+    with pytest.raises(ForbiddenException):
+        await people_access_service.create_user(
+            session,
+            ManagedUserCreateRequest(
+                email="new-owner@zestiva.in",
+                first_name="New",
+                last_name="Owner",
+                role="platform_owner",
+            ),
+            actor=actor,
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+            request_id="req-create-owner-blocked",
+        )
+
+
+@pytest.mark.asyncio
+async def test_people_access_update_cannot_modify_platform_owner_lifecycle(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    owner = await _create_user(session, owner_role, "owner@zestiva.in")
+    actor = _actor_from_user(owner, permissions=["users.edit"])
+
+    with pytest.raises(ForbiddenException):
+        await people_access_service.update_user(
+            session,
+            owner.id,
+            ManagedUserUpdateRequest(status="INACTIVE"),
+            actor=actor,
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+            request_id="req-update-owner-blocked",
+        )
+
+    await session.refresh(owner)
+    assert owner.status == "ACTIVE"
+    assert owner.is_active is True
+    assert owner.is_verified is True
+
+
+@pytest.mark.asyncio
+async def test_platform_owner_password_reset_preserves_lifecycle_invariants(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    owner = await _create_user(
+        session,
+        owner_role,
+        "owner@zestiva.in",
+        is_active=False,
+        is_verified=False,
+        email_verified=False,
+        status="INACTIVE",
+        must_change_password=False,
+    )
+    actor = _actor_from_user(owner, permissions=["users.edit"])
+
+    result = await people_access_service.reset_user_password(
+        session,
+        owner.id,
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-reset-owner",
+    )
+
+    assert result.username == owner.email
+    assert result.must_change_password is True
+    assert password_service.verify_password(result.temporary_password, owner.password_hash)
+    assert owner.status == "ACTIVE"
+    assert owner.is_active is True
+    assert owner.is_verified is True
+    assert owner.email_verified is True
+    assert owner.must_change_password is True
+
+
+@pytest.mark.asyncio
 async def test_create_user_rejects_duplicate_email(session: AsyncSession):
     owner_role = await _create_role(session, "platform_owner")
     consultant_role = await _create_role(session, "consultant")
@@ -253,6 +373,34 @@ async def test_bulk_action_updates_status_and_audit(session: AsyncSession):
         )
     )
     assert audit_event is not None
+
+
+@pytest.mark.asyncio
+async def test_bulk_action_skips_platform_owner_lifecycle_mutation(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    consultant_role = await _create_role(session, "consultant")
+    owner = await _create_user(session, owner_role, "owner@zestiva.in")
+    consultant = await _create_user(session, consultant_role, "consultant@zestiva.in")
+    actor = _actor_from_user(owner, permissions=["users.edit"])
+
+    result = await people_access_service.bulk_action(
+        session,
+        action="suspend",
+        user_ids=[owner.id, consultant.id],
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-bulk-owner-skipped",
+    )
+
+    assert result.processed == 1
+    assert result.affected_ids == [consultant.id]
+    assert owner.status == "ACTIVE"
+    assert owner.is_active is True
+    assert owner.is_verified is True
+    assert owner.must_change_password is False
+    assert consultant.status == "SUSPENDED"
+    assert consultant.is_active is False
 
 
 @pytest.mark.asyncio

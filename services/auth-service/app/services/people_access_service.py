@@ -85,6 +85,7 @@ MANAGEABLE_STATUSES = {
     "SUSPENDED",
     "DELETED",
 }
+PROTECTED_PLATFORM_OWNER_ROLES = {"platform_owner", "superuser"}
 ROLE_ALIASES = {
     "platform owner": "platform_owner",
     "organization admin": "organization_admin",
@@ -111,6 +112,18 @@ def _normalize_status(status: str | None) -> str:
     if normalized not in MANAGEABLE_STATUSES:
         raise ForbiddenException(f"Unsupported user status '{status}'")
     return normalized
+
+
+def _is_platform_owner(user: User) -> bool:
+    role_name = str(user.role.name if user.role else "").lower()
+    return role_name in PROTECTED_PLATFORM_OWNER_ROLES
+
+
+def _ensure_tenant_provisioning_allowed(user: User, operation: str) -> None:
+    if _is_platform_owner(user):
+        raise ForbiddenException(
+            f"Platform Owner accounts cannot be modified by tenant provisioning ({operation})."
+        )
 
 
 def _browser_from_user_agent(user_agent: str | None) -> tuple[str | None, str | None]:
@@ -588,6 +601,9 @@ async def create_user(
         raise ConflictException("A user with this email already exists")
 
     role_name = normalize_role_name(payload.role)
+    if role_name in PROTECTED_PLATFORM_OWNER_ROLES:
+        raise ForbiddenException("Platform Owner accounts cannot be created through tenant provisioning.")
+
     role = await repo.get_role_by_name(role_name)
     if role is None:
         raise NotFoundException(f"Role '{payload.role}' not found")
@@ -727,6 +743,7 @@ async def update_user(
     user = await repo.get_user_detail(user_id)
     if user is None:
         raise NotFoundException("User not found")
+    _ensure_tenant_provisioning_allowed(user, "update_user")
 
     before_state = {
         "first_name": user.first_name,
@@ -862,12 +879,18 @@ async def reset_user_password(
         raise NotFoundException("User not found")
 
     temporary_password = password_service.generate_temporary_password()
+    is_platform_owner = _is_platform_owner(user)
     user.password_hash = password_service.hash_password(temporary_password)
     user.must_change_password = True
     user.password_changed_at = None
     user.failed_login_attempts = 0
     user.lock_until = None
-    if str(user.status or "").upper() == "PENDING_VERIFICATION":
+    if is_platform_owner:
+        user.status = "ACTIVE"
+        user.is_active = True
+        user.is_verified = True
+        user.email_verified = True
+    elif str(user.status or "").upper() == "PENDING_VERIFICATION":
         user.status = "ACTIVE"
         user.is_active = True
         user.is_verified = True
@@ -1096,6 +1119,7 @@ async def assign_products(
     user = await repo.get_user_detail(user_id)
     if user is None:
         raise NotFoundException("User not found")
+    _ensure_tenant_provisioning_allowed(user, "assign_products")
     await repo.clear_user_product_access(user.id)
     for assignment in assignments:
         product = await repo.get_product(assignment.product_id)
@@ -1146,6 +1170,7 @@ async def assign_packages(
     user = await repo.get_user_detail(user_id)
     if user is None:
         raise NotFoundException("User not found")
+    _ensure_tenant_provisioning_allowed(user, "assign_packages")
     await repo.clear_user_package_assignments(user.id)
     for assignment in assignments:
         package = await repo.get_package(assignment.package_id)
@@ -1195,6 +1220,7 @@ async def assign_services(
     user = await repo.get_user_detail(user_id)
     if user is None:
         raise NotFoundException("User not found")
+    _ensure_tenant_provisioning_allowed(user, "assign_services")
     await repo.clear_user_service_assignments(user.id)
     for assignment in assignments:
         service = await repo.get_service(assignment.service_id)
@@ -1381,6 +1407,14 @@ async def bulk_action(
     for user_id in user_ids:
         user = await repo.get_user_detail(user_id)
         if user is None:
+            continue
+        if _is_platform_owner(user):
+            logger.warning(
+                "tenant_provisioning_skipped_platform_owner",
+                user_id=str(user.id),
+                email=user.email,
+                action=normalized_action,
+            )
             continue
 
         if normalized_action in {"activate", "deactivate", "suspend", "delete"}:
