@@ -86,13 +86,12 @@ async def test_shared_user_service_generates_temporary_password(session: AsyncSe
         CreateUserCommand(
             email="mentor.provisioning@identity.test",
             role_name="mentor",
-            status="PENDING_CREDENTIALS",
-            is_verified=False,
         ),
     )
 
     assert created.is_temporary_password is True
-    assert created.user.status == "PENDING_CREDENTIALS"
-    assert created.user.email_verified is False
+    assert created.user.status == "ACTIVE"
+    assert created.user.email_verified is True
+    assert created.user.must_change_password is True
     assert created.user.password_changed_at is None
     assert password_service.verify_password(created.plain_password, created.user.password_hash)

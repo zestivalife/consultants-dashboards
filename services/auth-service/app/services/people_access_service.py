@@ -77,7 +77,6 @@ from app.services.user_service import CreateUserCommand, user_service
 logger = get_logger(__name__)
 
 MANAGEABLE_STATUSES = {
-    "PENDING_CREDENTIALS",
     "PENDING_VERIFICATION",
     "PENDING_PROFILE",
     "ACTIVE",
@@ -604,8 +603,7 @@ async def create_user(
         if department is None:
             raise NotFoundException("Department not found")
 
-    requested_status = _normalize_status(payload.status)
-    status = requested_status
+    status = _normalize_status(payload.status)
     created = await user_service.create_user(
         session,
         CreateUserCommand(
@@ -869,7 +867,7 @@ async def reset_user_password(
     user.password_changed_at = None
     user.failed_login_attempts = 0
     user.lock_until = None
-    if str(user.status or "").upper() in {"PENDING_CREDENTIALS", "PENDING_VERIFICATION"}:
+    if str(user.status or "").upper() == "PENDING_VERIFICATION":
         user.status = "ACTIVE"
         user.is_active = True
         user.is_verified = True
