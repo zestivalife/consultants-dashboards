@@ -109,7 +109,7 @@ const CTASection = () => {
           variants={textVariants}
           className="flex flex-col sm:flex-row gap-4 justify-center mb-8"
         >
-          <Link href="/register" passHref>
+          <Link href="/login" passHref>
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -166,4 +166,3 @@ const CTASection = () => {
 };
 
 export default CTASection;
-

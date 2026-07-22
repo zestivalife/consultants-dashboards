@@ -324,20 +324,6 @@ export async function apiRequest(path, opts = {}) {
 // ── Auth endpoints ─────────────────────────────────────────────────
 
 export const authAPI = {
-  register({ email, password, companyName, location, employees, industry, role }) {
-    return apiRequest('/auth/register', {
-      method: 'POST',
-      body: { email, password, companyName, location, employees, industry, role },
-    });
-  },
-
-  verifyOtp(email, otp) {
-    return apiRequest('/auth/verify-otp', {
-      method: 'POST',
-      body: { email, otp },
-    });
-  },
-
   login(email, password) {
     return apiRequest('/auth/login', {
       method: 'POST',
@@ -358,13 +344,6 @@ export const authAPI = {
       method: 'POST',
       body: { refresh_token: refreshToken },
       skipAuthRefresh: true,
-    });
-  },
-
-  forgotPassword(email) {
-    return apiRequest('/auth/forgot-password', {
-      method: 'POST',
-      body: { email },
     });
   },
 
