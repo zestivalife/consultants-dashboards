@@ -6,8 +6,6 @@ import os
 import asyncpg
 
 
-TARGET_ALEMBIC_REVISION = "b9c0d1e2f3a4"
-
 ROLE_SEEDS = [
     ("platform_owner", "Platform owner with full system permissions"),
     ("organization_admin", "Organization administrator"),
@@ -835,13 +833,16 @@ async def reconcile() -> None:
             },
         )
 
-        await _execute(conn, "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)")
-        current = await conn.fetchval("SELECT version_num FROM alembic_version LIMIT 1")
+        has_alembic_version = await conn.fetchval("SELECT to_regclass('public.alembic_version') IS NOT NULL")
+        current = (
+            await conn.fetchval("SELECT version_num FROM alembic_version LIMIT 1")
+            if has_alembic_version
+            else None
+        )
         if current:
-            await conn.execute("UPDATE alembic_version SET version_num = $1", TARGET_ALEMBIC_REVISION)
+            print(f"Auth schema reconciled; preserving Alembic revision {current}")
         else:
-            await conn.execute("INSERT INTO alembic_version (version_num) VALUES ($1)", TARGET_ALEMBIC_REVISION)
-        print(f"Auth schema reconciled and stamped at {TARGET_ALEMBIC_REVISION}")
+            print("Auth schema reconciled; Alembic revision table is empty")
     finally:
         await conn.close()
 
