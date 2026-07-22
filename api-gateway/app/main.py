@@ -216,7 +216,8 @@ def create_app() -> FastAPI:
                     host_headers.get(upstream),
                 )
                 if payload is not None:
-                    services[label] = payload.get("runtime", payload)
+                    runtime = payload.get("runtime") if isinstance(payload, dict) else None
+                    services[label] = runtime if isinstance(runtime, dict) else payload
                 elif error:
                     services[label] = {
                         "status": "unavailable",
