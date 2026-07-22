@@ -141,8 +141,7 @@ def create_app() -> FastAPI:
     async def api_version():
         return get_runtime_version(settings.app_name, settings.app_version, settings.app_env)
 
-    @app.get("/api/v1/versions")
-    async def service_versions():
+    async def collect_service_versions():
         gateway_version = get_runtime_version(settings.app_name, settings.app_version, settings.app_env)
         services: dict[str, dict | str] = {"api-gateway": gateway_version}
 
@@ -168,8 +167,23 @@ def create_app() -> FastAPI:
             "services": services,
         }
 
-    @app.get("/ready")
-    async def ready():
+    @app.get("/api/v1/versions")
+    async def service_versions():
+        return await collect_service_versions()
+
+    @app.get("/platform/version")
+    async def platform_version():
+        return get_runtime_version(settings.app_name, settings.app_version, settings.app_env)
+
+    @app.get("/platform/services")
+    async def platform_services():
+        return await collect_service_versions()
+
+    @app.get("/platform/release")
+    async def platform_release():
+        return await collect_service_versions()
+
+    async def collect_readiness():
         checks: dict[str, str] = {}
 
         try:
@@ -207,6 +221,18 @@ def create_app() -> FastAPI:
         if all_ok:
             return body
         return JSONResponse(status_code=503, content=body)
+
+    @app.get("/ready")
+    async def ready():
+        return await collect_readiness()
+
+    @app.get("/api/v1/ready")
+    async def api_ready():
+        return await collect_readiness()
+
+    @app.get("/platform/status")
+    async def platform_status():
+        return await collect_readiness()
 
     @app.get("/debug/routes")
     async def debug_routes():
