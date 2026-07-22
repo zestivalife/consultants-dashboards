@@ -167,11 +167,39 @@ def create_app() -> FastAPI:
 
         upstreams = settings.get_service_upstreams()
         version_paths = {
-            "assessment-service": ("/api/v1/version", "/version", "/api/v1/assessments/version"),
+            "assessment-service": (
+                "/api/v1/version",
+                "/version",
+                "/api/v1/assessments/version",
+                "/api/v1/health",
+                "/health",
+                "/api/v1/assessments/health",
+            ),
             "auth-service": ("/api/v1/version", "/version"),
-            "nutrition-service": ("/api/v1/version", "/version", "/api/v1/nutrition/version"),
-            "profile-service": ("/api/v1/version", "/version", "/api/v1/profile/version"),
-            "scoring-engine-service": ("/api/v1/version", "/version", "/api/v1/scoring/version"),
+            "nutrition-service": (
+                "/api/v1/version",
+                "/version",
+                "/api/v1/nutrition/version",
+                "/api/v1/health",
+                "/health",
+                "/api/v1/nutrition/health",
+            ),
+            "profile-service": (
+                "/api/v1/version",
+                "/version",
+                "/api/v1/profile/version",
+                "/api/v1/health",
+                "/health",
+                "/api/v1/profile/health",
+            ),
+            "scoring-engine-service": (
+                "/api/v1/version",
+                "/version",
+                "/api/v1/scoring/version",
+                "/api/v1/health",
+                "/health",
+                "/api/v1/scoring/health",
+            ),
         }
         host_headers = {
             route["upstream"]: route.get("host_header")
@@ -188,7 +216,7 @@ def create_app() -> FastAPI:
                     host_headers.get(upstream),
                 )
                 if payload is not None:
-                    services[label] = payload
+                    services[label] = payload.get("runtime", payload)
                 elif error:
                     services[label] = {
                         "status": "unavailable",
