@@ -23,13 +23,19 @@ COPY . .
 
 RUN set -eu; \
     test -f app/api/v1/routes/people_access.py; \
-    test -f app/api/v1/routes/identity.py; \
     test -f app/api/v1/routes/master_data.py; \
-    test -f app/api/v1/routes/onboarding.py; \
     test -f app/api/v1/router.py; \
     grep -q "people_access" app/api/v1/router.py; \
-    grep -q "onboarding" app/api/v1/router.py; \
-    grep -q "master_data" app/api/v1/router.py
+    grep -q "master_data" app/api/v1/router.py; \
+    test ! -f app/api/v1/routes/identity.py; \
+    test ! -f app/api/v1/routes/onboarding.py; \
+    test ! -f app/core/otp.py; \
+    test ! -f app/db/models/otp_verification.py; \
+    ! grep -q 'include_router(.*identity' app/api/v1/router.py; \
+    ! grep -q 'include_router(.*onboarding' app/api/v1/router.py; \
+    ! grep -q 'verify-otp' app/api/v1/routes/auth.py; \
+    ! grep -q 'resend-otp' app/api/v1/routes/auth.py; \
+    ! grep -q 'forgot-password' app/api/v1/routes/auth.py
 
 RUN chown -R appuser:appuser /app
 USER appuser
