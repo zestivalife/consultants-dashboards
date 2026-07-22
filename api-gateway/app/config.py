@@ -132,25 +132,21 @@ class Settings(BaseSettings):
                 "profile-service",
                 self.profile_service_url,
                 8002,
-                railway_port=8080,
             ),
             "assessment-service": self._railway_internal_url(
                 "assessment-service",
                 self.assessment_service_url,
                 8003,
-                railway_port=8080,
             ),
             "scoring-engine-service": self._railway_internal_url(
                 "scoring-engine-service",
                 self.scoring_service_url,
                 8004,
-                railway_port=8080,
             ),
             "nutrition-service": self._railway_internal_url(
                 "nutrition-service",
                 self.nutrition_service_url,
                 8005,
-                railway_port=8080,
             ),
         }
 

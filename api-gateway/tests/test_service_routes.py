@@ -32,12 +32,12 @@ class ServiceRoutesTest(unittest.TestCase):
         self.assertEqual(routes["/api/v1/owner/people-access"]["host_header"], "auth-service-production-ef64.up.railway.app")
         self.assertEqual(routes["/api/v1/auth"]["upstream"], "http://auth-service.railway.internal:8080")
         self.assertEqual(routes["/api/v1/auth"]["host_header"], "auth-service-production-ef64.up.railway.app")
-        self.assertEqual(routes["/api/v1/profile"]["upstream"], "http://profile-service.railway.internal:8080")
-        self.assertEqual(routes["/api/v1/assessments"]["upstream"], "http://assessment-service.railway.internal:8080")
-        self.assertEqual(routes["/api/v1/scoring"]["upstream"], "http://scoring-engine-service.railway.internal:8080")
-        self.assertEqual(routes["/api/v1/nutrition"]["upstream"], "http://nutrition-service.railway.internal:8080")
+        self.assertEqual(routes["/api/v1/profile"]["upstream"], "http://profile-service.railway.internal:8002")
+        self.assertEqual(routes["/api/v1/assessments"]["upstream"], "http://assessment-service.railway.internal:8003")
+        self.assertEqual(routes["/api/v1/scoring"]["upstream"], "http://scoring-engine-service.railway.internal:8004")
+        self.assertEqual(routes["/api/v1/nutrition"]["upstream"], "http://nutrition-service.railway.internal:8005")
 
-    def test_production_railway_private_urls_use_runtime_port(self):
+    def test_production_railway_private_urls_use_service_ports(self):
         settings = Settings(
             app_env="production",
             jwt_secret_key="test-secret",
@@ -48,10 +48,19 @@ class ServiceRoutesTest(unittest.TestCase):
         )
         upstreams = settings.get_service_upstreams()
 
-        self.assertEqual(upstreams["profile-service"], "http://profile-service.railway.internal:8080")
-        self.assertEqual(upstreams["assessment-service"], "http://assessment-service.railway.internal:8080")
-        self.assertEqual(upstreams["scoring-engine-service"], "http://scoring-engine-service.railway.internal:8080")
-        self.assertEqual(upstreams["nutrition-service"], "http://nutrition-service.railway.internal:8080")
+        self.assertEqual(upstreams["profile-service"], "http://profile-service.railway.internal:8002")
+        self.assertEqual(upstreams["assessment-service"], "http://assessment-service.railway.internal:8003")
+        self.assertEqual(upstreams["scoring-engine-service"], "http://scoring-engine-service.railway.internal:8004")
+        self.assertEqual(upstreams["nutrition-service"], "http://nutrition-service.railway.internal:8005")
+
+    def test_platform_diagnostics_are_public(self):
+        jwt_source = Path("app/middleware/jwt.py").read_text()
+
+        self.assertIn('"/api/v1/ready"', jwt_source)
+        self.assertIn('"/platform/status"', jwt_source)
+        self.assertIn('"/platform/version"', jwt_source)
+        self.assertIn('"/platform/services"', jwt_source)
+        self.assertIn('"/platform/release"', jwt_source)
 
     def test_retired_invitation_onboarding_paths_are_not_public(self):
         jwt_source = Path("app/middleware/jwt.py").read_text()
