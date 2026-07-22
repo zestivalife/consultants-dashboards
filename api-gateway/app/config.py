@@ -100,6 +100,8 @@ class Settings(BaseSettings):
 
         parsed = urlsplit(normalized)
         hostname = parsed.hostname or ""
+        if hostname.endswith(".railway.internal") and parsed.port == default_port and railway_port:
+            return f"http://{hostname}:{railway_port}{parsed.path.rstrip('/')}"
         if not hostname.endswith(".up.railway.app"):
             return normalized
 
@@ -126,14 +128,30 @@ class Settings(BaseSettings):
                 8001,
                 railway_port=8080,
             ),
-            "profile-service": self._railway_internal_url("profile-service", self.profile_service_url, 8002),
-            "assessment-service": self._railway_internal_url("assessment-service", self.assessment_service_url, 8003),
+            "profile-service": self._railway_internal_url(
+                "profile-service",
+                self.profile_service_url,
+                8002,
+                railway_port=8080,
+            ),
+            "assessment-service": self._railway_internal_url(
+                "assessment-service",
+                self.assessment_service_url,
+                8003,
+                railway_port=8080,
+            ),
             "scoring-engine-service": self._railway_internal_url(
                 "scoring-engine-service",
                 self.scoring_service_url,
                 8004,
+                railway_port=8080,
             ),
-            "nutrition-service": self._railway_internal_url("nutrition-service", self.nutrition_service_url, 8005),
+            "nutrition-service": self._railway_internal_url(
+                "nutrition-service",
+                self.nutrition_service_url,
+                8005,
+                railway_port=8080,
+            ),
         }
 
     def get_service_routes(self) -> list[dict]:
