@@ -7,8 +7,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictException, ForbiddenException, NotFoundException, UnauthorizedException
-from app.core.password_policy import WeakPasswordException
+from app.core.exceptions import ForbiddenException, NotFoundException, UnauthorizedException
 from app.core.security import hash_password, verify_password
 from app.db.models.audit_log import AuthAuditLog
 from app.db.models.refresh_token import RefreshToken
@@ -17,16 +16,10 @@ from app.db.models.user import User
 from app.services import auth_service
 
 RATE_LIMIT_PATCH = "app.services.auth_service.check_rate_limit"
-STORE_OTP_PATCH = "app.services.auth_service.store_otp"
-SEND_OTP_PATCH = "app.services.auth_service.get_email_service"
 
 
 def _always_allow_rate():
     return patch(RATE_LIMIT_PATCH, new_callable=AsyncMock, return_value=True)
-
-
-def _mock_email():
-    return patch(SEND_OTP_PATCH)
 
 
 async def _create_role_user(
@@ -201,7 +194,7 @@ async def test_auth_lifecycle_is_identical_for_every_role(session: AsyncSession,
     ("state_name", "user_kwargs", "expected_message"),
     [
         ("inactive", {"is_active": False}, "Account is inactive"),
-        ("unverified", {"is_verified": False}, "Email not verified"),
+        ("unverified", {"is_verified": False}, "Account is not verified"),
         (
             "locked",
             {"lock_until": datetime.now(timezone.utc) + timedelta(minutes=10)},
@@ -242,7 +235,7 @@ async def test_login_rejects_non_authenticatable_users(
     ("state_name", "mutate", "expected_message"),
     [
         ("inactive", lambda user: setattr(user, "is_active", False), "Account is inactive"),
-        ("unverified", lambda user: setattr(user, "is_verified", False), "Email not verified"),
+        ("unverified", lambda user: setattr(user, "is_verified", False), "Account is not verified"),
         (
             "locked",
             lambda user: setattr(user, "lock_until", datetime.now(timezone.utc) + timedelta(minutes=10)),
@@ -284,58 +277,6 @@ async def test_existing_sessions_are_rejected_after_account_state_changes(
 async def test_get_current_user_rejects_missing_user(session: AsyncSession):
     with pytest.raises(NotFoundException, match="User not found"):
         await auth_service.get_current_user(session, uuid.uuid4())
-
-
-# ──────────────────────────────────────────────
-#  Register — duplicate email
-# ──────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_register_duplicate_email(session: AsyncSession, seed_user: User):
-    with patch(STORE_OTP_PATCH, new_callable=AsyncMock), _mock_email():
-        with pytest.raises(ConflictException, match="already exists"):
-            await auth_service.register(session, "test@nuetra.com", "AnyPass123!")
-
-
-# ──────────────────────────────────────────────
-#  Register — success
-# ──────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_register_success(session: AsyncSession, seed_role: Role):
-    with patch(STORE_OTP_PATCH, new_callable=AsyncMock) as mock_otp, _mock_email():
-        result = await auth_service.register(session, "new@nuetra.com", "StrongP4ssword!")
-        assert "user_id" in result
-        mock_otp.assert_awaited_once()
-
-    stmt = select(AuthAuditLog).where(AuthAuditLog.event_type == "USER_REGISTERED")
-    rows = (await session.execute(stmt)).scalars().all()
-    assert rows
-
-
-# ──────────────────────────────────────────────
-#  Password Policy
-# ──────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_register_weak_password_no_uppercase(session: AsyncSession, seed_role: Role):
-    with patch(STORE_OTP_PATCH, new_callable=AsyncMock), _mock_email():
-        with pytest.raises(WeakPasswordException, match="uppercase"):
-            await auth_service.register(session, "weak1@nuetra.com", "alllowercase1!")
-
-
-@pytest.mark.asyncio
-async def test_register_weak_password_no_digit(session: AsyncSession, seed_role: Role):
-    with patch(STORE_OTP_PATCH, new_callable=AsyncMock), _mock_email():
-        with pytest.raises(WeakPasswordException, match="digit"):
-            await auth_service.register(session, "weak2@nuetra.com", "NoDigitHere!")
-
-
-@pytest.mark.asyncio
-async def test_register_weak_password_too_short(session: AsyncSession, seed_role: Role):
-    with patch(STORE_OTP_PATCH, new_callable=AsyncMock), _mock_email():
-        with pytest.raises(WeakPasswordException, match="12 characters"):
-            await auth_service.register(session, "weak3@nuetra.com", "Ab1")
 
 
 # ──────────────────────────────────────────────

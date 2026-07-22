@@ -54,6 +54,9 @@ def upgrade() -> None:
     if "user_invitations" in table_names:
         op.drop_table("user_invitations")
 
+    if "otp_verifications" in table_names:
+        op.drop_table("otp_verifications")
+
 
 def downgrade() -> None:
     # Invitation-based onboarding has been retired by product architecture.

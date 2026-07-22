@@ -21,18 +21,6 @@ class EmailProviderBase(ABC):
         """Send email via provider. Raises exception on failure."""
         pass
 
-    def _build_otp_html(self, code: str) -> str:
-        return (
-            "<div style='font-family:sans-serif;max-width:480px;margin:auto'>"
-            "<h2>Verify your email</h2>"
-            f"<p>Your one-time verification code is:</p>"
-            f"<h1 style='letter-spacing:8px;text-align:center'>{code}</h1>"
-            f"<p>This code expires in {self._settings.otp_expiry_seconds // 60} minutes.</p>"
-            "<p>If you did not request this, please ignore this email.</p>"
-            "</div>"
-        )
-
-
 class SMTPEmailProvider(EmailProviderBase):
     """SMTP-based email provider (local/dev)"""
 
@@ -295,14 +283,6 @@ class EmailService:
     def send(self, to: str, subject: str, html_body: str) -> None:
         """Send email using configured provider."""
         self._provider.send(to, subject, html_body)
-
-    def send_otp(self, email: str, code: str) -> None:
-        """Send OTP verification email."""
-        self.send(
-            to=email,
-            subject="Nuetra - Verify your email",
-            html_body=self._provider._build_otp_html(code),
-        )
 
 
 _email_service: EmailService | None = None

@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import (
 from app.db.base import Base
 from app.db.models import Role, User, AuthAuditLog  # noqa: F401
 from app.db.models.refresh_token import RefreshToken  # noqa: F401
-from app.db.models.otp_verification import OTPVerification  # noqa: F401
 from app.db.models.consent import Consent  # noqa: F401
 from app.core.security import hash_password
 

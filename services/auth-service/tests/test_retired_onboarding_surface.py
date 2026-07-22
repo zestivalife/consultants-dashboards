@@ -18,12 +18,14 @@ def test_active_models_do_not_export_invitation_persistence():
     assert "class InvitationEmailOutbox" not in owner_access
     assert "UserInvitation" not in model_exports
     assert "InvitationEmailOutbox" not in model_exports
+    assert "OTPVerification" not in model_exports
 
 
-def test_forward_migration_retires_invitation_tables_and_permission():
+def test_forward_migration_retires_legacy_onboarding_tables_and_permission():
     migration = Path("alembic/versions/f1a2b3c4d5e6_retire_invitation_onboarding_domain.py").read_text()
 
     assert "DELETE FROM permissions WHERE key = 'users.invite'" in migration
     assert 'op.drop_table("invitation_email_outbox")' in migration
     assert 'op.drop_table("user_invitations")' in migration
+    assert 'op.drop_table("otp_verifications")' in migration
     assert 'op.drop_column("onboarding_instances", "invitation_id")' in migration
