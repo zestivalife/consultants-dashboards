@@ -2,7 +2,7 @@
 set -eu
 
 echo "Running auth-service migrations..."
-if [ "${AUTH_SCHEMA_RECONCILE:-1}" = "1" ]; then
+if [ "${AUTH_SCHEMA_RECONCILE:-0}" = "1" ]; then
   echo "Reconciling auth-service schema before Alembic upgrade..."
   python scripts/reconcile_auth_schema.py
 fi
