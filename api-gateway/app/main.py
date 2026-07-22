@@ -141,6 +141,24 @@ def create_app() -> FastAPI:
     async def api_version():
         return get_runtime_version(settings.app_name, settings.app_version, settings.app_env)
 
+    async def fetch_first_available(
+        client: httpx.AsyncClient,
+        upstream: str,
+        paths: tuple[str, ...],
+    ) -> tuple[int | None, dict | None, str | None]:
+        last_status: int | None = None
+        last_error: str | None = None
+        for path in paths:
+            try:
+                response = await client.get(f"{upstream}{path}")
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+            last_status = response.status_code
+            if response.status_code == 200:
+                return response.status_code, response.json(), None
+        return last_status, None, last_error
+
     async def collect_service_versions():
         gateway_version = get_runtime_version(settings.app_name, settings.app_version, settings.app_env)
         services: dict[str, dict | str] = {"api-gateway": gateway_version}
@@ -149,16 +167,22 @@ def create_app() -> FastAPI:
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
             for label, upstream in sorted(upstreams.items()):
-                try:
-                    response = await client.get(f"{upstream}/api/v1/version")
-                    services[label] = response.json() if response.status_code == 200 else {
-                        "status": "unavailable",
-                        "http_status": response.status_code,
-                    }
-                except Exception as exc:
+                status_code, payload, error = await fetch_first_available(
+                    client,
+                    upstream,
+                    ("/api/v1/version", "/version"),
+                )
+                if payload is not None:
+                    services[label] = payload
+                elif error:
                     services[label] = {
                         "status": "unavailable",
-                        "error": str(exc),
+                        "error": error,
+                    }
+                else:
+                    services[label] = {
+                        "status": "unavailable",
+                        "http_status": status_code,
                     }
 
         return {
@@ -204,10 +228,16 @@ def create_app() -> FastAPI:
         async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
             for upstream in sorted(upstreams):
                 service_name = upstream.rsplit("/", 1)[-1]
-                try:
-                    response = await client.get(f"{upstream}/api/v1/health")
-                    checks[service_name] = "ok" if response.status_code == 200 else "unavailable"
-                except Exception:
+                status_code, payload, _ = await fetch_first_available(
+                    client,
+                    upstream,
+                    ("/api/v1/health", "/health"),
+                )
+                if payload is not None:
+                    checks[service_name] = "ok"
+                elif status_code:
+                    checks[service_name] = f"unavailable:{status_code}"
+                else:
                     checks[service_name] = "unavailable"
 
         all_ok = all(value == "ok" for value in checks.values())
