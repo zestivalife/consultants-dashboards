@@ -145,12 +145,14 @@ def create_app() -> FastAPI:
         client: httpx.AsyncClient,
         upstream: str,
         paths: tuple[str, ...],
+        host_header: str | None = None,
     ) -> tuple[int | None, dict | None, str | None]:
         last_status: int | None = None
         last_error: str | None = None
+        headers = {"host": host_header} if host_header else None
         for path in paths:
             try:
-                response = await client.get(f"{upstream}{path}")
+                response = await client.get(f"{upstream}{path}", headers=headers)
             except Exception as exc:
                 last_error = str(exc)
                 continue
@@ -164,6 +166,11 @@ def create_app() -> FastAPI:
         services: dict[str, dict | str] = {"api-gateway": gateway_version}
 
         upstreams = settings.get_service_upstreams()
+        host_headers = {
+            route["upstream"]: route.get("host_header")
+            for route in settings.get_service_routes()
+            if route.get("host_header")
+        }
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
             for label, upstream in sorted(upstreams.items()):
@@ -171,6 +178,7 @@ def create_app() -> FastAPI:
                     client,
                     upstream,
                     ("/api/v1/version", "/version"),
+                    host_headers.get(upstream),
                 )
                 if payload is not None:
                     services[label] = payload
@@ -224,14 +232,18 @@ def create_app() -> FastAPI:
             checks["redis"] = "unavailable"
 
         routes = settings.get_service_routes()
-        upstreams = {route["upstream"] for route in routes}
+        upstream_targets = {
+            route["upstream"]: route.get("host_header")
+            for route in routes
+        }
         async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
-            for upstream in sorted(upstreams):
+            for upstream, host_header in sorted(upstream_targets.items()):
                 service_name = upstream.rsplit("/", 1)[-1]
                 status_code, payload, _ = await fetch_first_available(
                     client,
                     upstream,
                     ("/api/v1/health", "/health"),
+                    host_header,
                 )
                 if payload is not None:
                     checks[service_name] = "ok"
