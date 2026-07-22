@@ -26,7 +26,6 @@ PERMISSION_SEEDS = [
     ("users.create", "users", "Create users", "Create workforce identities"),
     ("users.edit", "users", "Edit users", "Edit workforce identities"),
     ("users.delete", "users", "Delete users", "Soft delete workforce identities"),
-    ("users.invite", "users", "Invite users", "Send platform invitations"),
     ("users.export", "users", "Export users", "Export workforce data"),
     ("users.import", "users", "Import users", "Bulk import workforce data"),
     ("users.reset_password", "users", "Reset password", "Reset workforce passwords"),
@@ -45,12 +44,11 @@ ROLE_PERMISSION_MAP = {
     "platform_owner": [seed[0] for seed in PERMISSION_SEEDS],
     "superuser": [seed[0] for seed in PERMISSION_SEEDS],
     "support_admin": ["users.read", "users.edit", "reports.view", "audit.view", "notifications.manage"],
-    "organization_admin": ["users.read", "users.create", "users.edit", "users.invite", "users.export", "reports.view"],
+    "organization_admin": ["users.read", "users.create", "users.edit", "users.export", "reports.view"],
     "corporate_admin": [
         "users.read",
         "users.create",
         "users.edit",
-        "users.invite",
         "users.export",
         "reports.view",
         "organizations.manage",
@@ -243,6 +241,16 @@ async def reconcile() -> None:
                     role_name,
                     permission_key,
                 )
+        await _execute(
+            conn,
+            """
+            DELETE FROM role_permissions
+            USING permissions
+            WHERE role_permissions.permission_id = permissions.id
+              AND permissions.key = 'users.invite'
+            """,
+        )
+        await _execute(conn, "DELETE FROM permissions WHERE key = 'users.invite'")
 
         await _execute(
             conn,
@@ -476,7 +484,7 @@ async def reconcile() -> None:
             FROM organizations org
             CROSS JOIN (
                 VALUES
-                    ('21000000-0000-0000-0000-000000000001'::uuid, 'Platform Operations', 'Default workspace for platform owner invitations'),
+                    ('21000000-0000-0000-0000-000000000001'::uuid, 'Platform Operations', 'Default workspace for platform owner provisioning'),
                     ('21000000-0000-0000-0000-000000000002'::uuid, 'Care Delivery', 'Workspace for practitioners, mentors, and consultants'),
                     ('21000000-0000-0000-0000-000000000003'::uuid, 'Corporate Programs', 'Workspace for corporate admins and employee onboarding')
             ) AS seed(id, name, description)
@@ -806,113 +814,6 @@ async def reconcile() -> None:
                 WHERE h.user_id = u.id
             )
             """,
-        )
-
-        await _execute(
-            conn,
-            """
-            CREATE TABLE IF NOT EXISTS user_invitations (
-                id UUID PRIMARY KEY,
-                email VARCHAR(255) NOT NULL,
-                invited_role_id UUID REFERENCES roles(id) ON DELETE SET NULL,
-                organization_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
-                invited_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-                product_id UUID REFERENCES products(id) ON DELETE SET NULL,
-                user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-                status VARCHAR(40) NOT NULL DEFAULT 'PENDING',
-                token VARCHAR(120) NOT NULL DEFAULT '',
-                token_hash VARCHAR(64),
-                token_fingerprint VARCHAR(16),
-                expires_at TIMESTAMPTZ,
-                accepted_at TIMESTAMPTZ,
-                last_sent_at TIMESTAMPTZ,
-                cancelled_at TIMESTAMPTZ,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-            )
-            """,
-        )
-        invitation_columns = {
-            "first_name": "VARCHAR(120)",
-            "last_name": "VARCHAR(120)",
-            "mobile_number": "VARCHAR(40)",
-            "country_code": "VARCHAR(8)",
-            "user_id": "UUID REFERENCES users(id) ON DELETE SET NULL",
-            "product_id": "UUID REFERENCES products(id) ON DELETE SET NULL",
-            "department_id": "UUID REFERENCES departments(id) ON DELETE SET NULL",
-            "token_hash": "VARCHAR(64)",
-            "token_fingerprint": "VARCHAR(16)",
-            "last_sent_at": "TIMESTAMPTZ",
-            "cancelled_at": "TIMESTAMPTZ",
-            "updated_at": "TIMESTAMPTZ NOT NULL DEFAULT now()",
-        }
-        for column_name, column_sql in invitation_columns.items():
-            await _execute(conn, f"ALTER TABLE user_invitations ADD COLUMN IF NOT EXISTS {column_name} {column_sql}")
-        await _execute(
-            conn,
-            """
-            UPDATE user_invitations
-            SET token_hash = encode(digest(NULLIF(token, ''), 'sha256'), 'hex')
-            WHERE token_hash IS NULL AND NULLIF(token, '') IS NOT NULL
-            """,
-        )
-        await _execute(
-            conn,
-            """
-            UPDATE user_invitations
-            SET token = 'redacted:' || id::text
-            WHERE token_hash IS NOT NULL AND token NOT LIKE 'redacted:%'
-            """,
-        )
-        await _execute(
-            conn,
-            """
-            UPDATE user_invitations
-            SET token_fingerprint = substring(token_hash from 1 for 12)
-            WHERE token_hash IS NOT NULL AND token_fingerprint IS NULL
-            """,
-        )
-        await _execute(
-            conn,
-            """
-            UPDATE user_invitations
-            SET token_hash = encode(digest(id::text || ':' || email, 'sha256'), 'hex'),
-                token = 'redacted:' || id::text,
-                token_fingerprint = substring(encode(digest(id::text || ':' || email, 'sha256'), 'hex') from 1 for 12)
-            WHERE token_hash IS NULL
-            """
-        )
-        await _execute(conn, "CREATE INDEX IF NOT EXISTS ix_user_invitations_email ON user_invitations (email)")
-        await _execute(conn, "CREATE INDEX IF NOT EXISTS ix_user_invitations_status ON user_invitations (status)")
-        await _execute(
-            conn,
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_invitations_token_hash ON user_invitations (token_hash)",
-        )
-
-        await _execute(
-            conn,
-            """
-            CREATE TABLE IF NOT EXISTS invitation_email_outbox (
-                id UUID PRIMARY KEY,
-                invitation_id UUID REFERENCES user_invitations(id) ON DELETE CASCADE,
-                email VARCHAR(255) NOT NULL,
-                event_type VARCHAR(80) NOT NULL,
-                status VARCHAR(40) NOT NULL DEFAULT 'PENDING',
-                payload JSON NOT NULL DEFAULT '{}'::json,
-                attempts INTEGER NOT NULL DEFAULT 0,
-                sent_at TIMESTAMPTZ,
-                last_error TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-            )
-            """,
-        )
-        await _add_columns(
-            conn,
-            "invitation_email_outbox",
-            {
-                "sent_at": "TIMESTAMPTZ",
-            },
         )
 
         await _execute(

@@ -171,16 +171,6 @@ class Settings(BaseSettings):
                 "host_header": self._railway_host_header(self.auth_service_url),
             },
             {
-                "prefix": "/api/v1/onboarding",
-                "upstream": auth_service_url,
-                "host_header": self._railway_host_header(self.auth_service_url),
-            },
-            {
-                "prefix": "/api/v1/identity",
-                "upstream": auth_service_url,
-                "host_header": self._railway_host_header(self.auth_service_url),
-            },
-            {
                 "prefix": "/api/v1/notifications",
                 "upstream": auth_service_url,
                 "host_header": self._railway_host_header(self.auth_service_url),

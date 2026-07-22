@@ -46,13 +46,20 @@ class OwnerPeopleAccessPermissionRulesTest(unittest.TestCase):
         )
         self.assertEqual(permissions, {"users.read"})
 
-    def test_invitation_lifecycle_requires_invite_permission(self):
+    def test_retired_invitation_lifecycle_has_no_gateway_permission_rule(self):
         for action in ("resend", "cancel", "expire", "regenerate-link"):
             permissions = required_owner_permissions(
                 f"/api/v1/owner/people-access/invitations/11111111-1111-1111-1111-111111111111/{action}",
                 "POST",
             )
-            self.assertEqual(permissions, {"users.invite"})
+            self.assertEqual(permissions, set())
+
+    def test_bulk_actions_require_user_edit_permission_only(self):
+        permissions = required_owner_permissions(
+            "/api/v1/owner/people-access/users/bulk-actions",
+            "POST",
+        )
+        self.assertEqual(permissions, {"users.edit"})
 
 
 if __name__ == "__main__":
