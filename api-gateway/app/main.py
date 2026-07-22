@@ -166,6 +166,13 @@ def create_app() -> FastAPI:
         services: dict[str, dict | str] = {"api-gateway": gateway_version}
 
         upstreams = settings.get_service_upstreams()
+        version_paths = {
+            "assessment-service": ("/api/v1/version", "/version", "/api/v1/assessments/version"),
+            "auth-service": ("/api/v1/version", "/version"),
+            "nutrition-service": ("/api/v1/version", "/version", "/api/v1/nutrition/version"),
+            "profile-service": ("/api/v1/version", "/version", "/api/v1/profile/version"),
+            "scoring-engine-service": ("/api/v1/version", "/version", "/api/v1/scoring/version"),
+        }
         host_headers = {
             route["upstream"]: route.get("host_header")
             for route in settings.get_service_routes()
@@ -177,7 +184,7 @@ def create_app() -> FastAPI:
                 status_code, payload, error = await fetch_first_available(
                     client,
                     upstream,
-                    ("/api/v1/version", "/version"),
+                    version_paths.get(label, ("/api/v1/version", "/version")),
                     host_headers.get(upstream),
                 )
                 if payload is not None:
@@ -233,17 +240,20 @@ def create_app() -> FastAPI:
 
         routes = settings.get_service_routes()
         upstream_targets = {
-            route["upstream"]: route.get("host_header")
+            route["upstream"]: {
+                "host_header": route.get("host_header"),
+                "prefix": route["prefix"],
+            }
             for route in routes
         }
         async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
-            for upstream, host_header in sorted(upstream_targets.items()):
+            for upstream, target in sorted(upstream_targets.items()):
                 service_name = upstream.rsplit("/", 1)[-1]
                 status_code, payload, _ = await fetch_first_available(
                     client,
                     upstream,
-                    ("/api/v1/health", "/health"),
-                    host_header,
+                    ("/api/v1/health", "/health", f"{target['prefix']}/health"),
+                    target["host_header"],
                 )
                 if payload is not None:
                     checks[service_name] = "ok"
