@@ -21,6 +21,13 @@ FROM deps AS runtime
 
 COPY . .
 
+RUN set -eu; \
+    test -f app/version.py; \
+    test -f app/api/v1/routes/health.py; \
+    grep -q '@router.get("/version")' app/api/v1/routes/health.py; \
+    grep -q 'app.include_router(api_router, prefix="/api/v1")' app/main.py; \
+    grep -q 'app.include_router(health.router)' app/main.py
+
 RUN chown -R appuser:appuser /app
 USER appuser
 
