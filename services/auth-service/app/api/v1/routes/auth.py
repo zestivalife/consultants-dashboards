@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.response import success_response
@@ -7,10 +7,7 @@ from app.schemas.auth import (
     ChangePasswordRequest,
     LoginRequest,
     RefreshRequest,
-    RegisterRequest,
-    ResendOtpRequest,
     UserResponse,
-    VerifyOtpRequest,
 )
 from app.services import auth_service
 from app.api.v1.dependencies import get_current_user
@@ -18,88 +15,11 @@ from app.api.v1.dependencies import get_current_user
 router = APIRouter(tags=["auth"])
 
 
-def _without_sensitive_fields(payload: dict) -> dict:
-    return {key: value for key, value in payload.items() if key not in {"otp_code"}}
-
-
 def _client_ip(request: Request) -> str | None:
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else None
-
-
-@router.post("/register")
-async def register(
-    body: RegisterRequest,
-    background_tasks: BackgroundTasks,
-    session: AsyncSession = Depends(get_db),
-):
-    result = await auth_service.register(
-        session,
-        email=body.email,
-        password=body.password,
-        role_name=body.role,
-        company_name=body.companyName,
-        location=body.location,
-        employees=body.employees,
-        industry=body.industry,
-    )
-
-    # Send OTP email in background — non-blocking, never fails the request
-    if result.get("otp_code"):
-        background_tasks.add_task(
-            auth_service._send_otp_email_background,
-            email=body.email,
-            otp_code=result["otp_code"],
-        )
-
-    return success_response(data=_without_sensitive_fields(result), message="Registration successful", status_code=201)
-
-
-@router.post("/verify-otp")
-async def verify_otp(body: VerifyOtpRequest, session: AsyncSession = Depends(get_db)):
-    result = await auth_service.verify_otp_action(session, body.email, body.otp)
-    return success_response(data=_without_sensitive_fields(result), message=result["message"])
-
-
-@router.post("/resend-otp")
-async def resend_otp(
-    body: ResendOtpRequest,
-    background_tasks: BackgroundTasks,
-    session: AsyncSession = Depends(get_db),
-):
-    result = await auth_service.resend_otp(session, body.email)
-
-    # Send OTP email in background — non-blocking, never fails the request
-    if result.get("otp_code"):
-        background_tasks.add_task(
-            auth_service._send_otp_email_background,
-            email=body.email,
-            otp_code=result["otp_code"],
-        )
-
-    return success_response(data=_without_sensitive_fields(result), message=result["message"])
-
-
-@router.post("/forgot-password")
-async def forgot_password(
-    body: ResendOtpRequest,
-    background_tasks: BackgroundTasks,
-    session: AsyncSession = Depends(get_db),
-):
-    """Generate an OTP for password reset. Public endpoint (no auth required)."""
-    result = await auth_service.forgot_password(session, body.email)
-
-    # Send OTP email in background — non-blocking, never fails the request
-    if result.get("otp_code"):
-        background_tasks.add_task(
-            auth_service._send_otp_email_background,
-            email=body.email,
-            otp_code=result["otp_code"],
-        )
-
-    return success_response(data=_without_sensitive_fields(result), message=result["message"])
 
 
 @router.post("/login")

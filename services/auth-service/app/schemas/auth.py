@@ -4,25 +4,6 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field
 
 
-class RegisterRequest(BaseModel):
-    email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
-    companyName: str | None = None
-    location: str | None = None
-    employees: int | None = None
-    industry: str | None = None
-    role: str | None = None
-
-
-class VerifyOtpRequest(BaseModel):
-    email: EmailStr
-    otp: str = Field(min_length=6, max_length=6)
-
-
-class ResendOtpRequest(BaseModel):
-    email: EmailStr
-
-
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str

@@ -1,11 +1,10 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
-import { findUserByCredentials, findUserByEmail, sampleUsers } from '../data/mockPlatformData';
+import { findUserByCredentials, sampleUsers } from '../data/mockPlatformData';
 import { getDashboardPathForRole } from '../lib/roleRoutes';
 import { authAPI, clearTokens, getRefreshToken, isRememberedAuthSession, setRefreshToken, setToken } from '../lib/api';
 
 const SESSION_KEY = 'nuetra_session';
-const RESET_KEY = 'nuetra_mock_reset';
 const BACKEND_AUTH_ENABLED = Boolean(process.env.NEXT_PUBLIC_API_URL);
 
 const AuthContext = createContext(null);
@@ -172,82 +171,6 @@ export function AuthProvider({ children }) {
     router.replace('/login');
   }
 
-  async function register(payload) {
-    setIsLoading(true);
-    setError(null);
-
-    if (BACKEND_AUTH_ENABLED) {
-      try {
-        const data = await authAPI.register(payload);
-        setIsLoading(false);
-        router.push(`/verify-otp?email=${encodeURIComponent(payload.email)}`);
-        return { success: true, data };
-      } catch (nextError) {
-        const message = nextError?.message || 'Registration failed.';
-        setError(message);
-        setIsLoading(false);
-        return { error: message };
-      }
-    }
-
-    const email = payload?.email?.trim();
-    if (!email) {
-      const nextError = 'Email is required.';
-      setError(nextError);
-      setIsLoading(false);
-      return { error: nextError };
-    }
-
-    const matchedUser = findUserByEmail(email);
-    if (matchedUser) {
-      setIsLoading(false);
-      return {
-        success: true,
-        data: {
-          mode: 'sample-data',
-          message: 'This sample frontend already includes this practitioner account. Use the login screen credentials card to sign in.',
-        },
-      };
-    }
-
-    setIsLoading(false);
-    return {
-      success: true,
-      data: {
-        mode: 'sample-data',
-        message: 'Registration is simulated in this frontend-only environment. Use one of the preloaded mock accounts to explore complete workflows.',
-      },
-    };
-  }
-
-  async function verifyOtp(email, otp) {
-    if (BACKEND_AUTH_ENABLED) {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const data = await authAPI.verifyOtp(email, otp);
-        setIsLoading(false);
-        return { success: true, data };
-      } catch (nextError) {
-        const message = nextError?.message || 'OTP verification failed.';
-        setError(message);
-        setIsLoading(false);
-        return { error: message };
-      }
-    }
-
-    setIsLoading(false);
-    return {
-      success: true,
-      data: {
-        email,
-        otp,
-        mode: 'sample-data',
-        message: 'OTP verification is simulated for the sample frontend.',
-      },
-    };
-  }
-
   async function completeTemporaryPasswordChange({ currentPassword, newPassword, confirmPassword }) {
     if (!BACKEND_AUTH_ENABLED) {
       return { error: 'Temporary password changes require backend authentication.' };
@@ -325,31 +248,6 @@ export function AuthProvider({ children }) {
     return false;
   }
 
-  async function requestPasswordReset(email) {
-    if (BACKEND_AUTH_ENABLED) {
-      return authAPI.forgotPassword(email);
-    }
-
-    const matchedUser = findUserByEmail(email);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(
-        RESET_KEY,
-        JSON.stringify({
-          email,
-          exists: Boolean(matchedUser),
-          requestedAt: new Date().toISOString(),
-        })
-      );
-    }
-
-    return {
-      success: true,
-      message: matchedUser
-        ? `Reset instructions simulated for ${matchedUser.name}.`
-        : 'Reset request captured in sample mode.',
-    };
-  }
-
   const value = useMemo(
     () => ({
       user,
@@ -357,11 +255,8 @@ export function AuthProvider({ children }) {
       error,
       login,
       logout,
-      register,
-      verifyOtp,
       completeTemporaryPasswordChange,
       refreshSession,
-      requestPasswordReset,
       clearError,
       sampleUsers,
       isBackendAuthEnabled: BACKEND_AUTH_ENABLED,

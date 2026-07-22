@@ -144,9 +144,7 @@ export default function LoginPage() {
                 />
                 {isBackendAuthEnabled ? 'Keep me signed in' : 'Keep sample session active'}
               </label>
-              <Link href="/forgot-password" className="text-[#0f6cbd] transition hover:text-[#0f548c]">
-                Forgot password
-              </Link>
+              <span className="text-[#616161]">Contact your administrator to reset access.</span>
             </div>
 
             {error ? <div className="rounded-[20px] border border-[#d13438]/20 bg-[#d13438]/10 px-4 py-3 text-sm text-[#b10e1c]">{error}</div> : null}

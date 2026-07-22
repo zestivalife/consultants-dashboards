@@ -97,7 +97,6 @@ class Organization(Base):
 
     departments: Mapped[list["Department"]] = relationship(back_populates="organization")  # noqa: F821
     memberships: Mapped[list["OrganizationMembership"]] = relationship(back_populates="organization")  # noqa: F821
-    invitations: Mapped[list["UserInvitation"]] = relationship(back_populates="organization")  # noqa: F821
     products: Mapped[list["OrganizationProduct"]] = relationship(back_populates="organization")  # noqa: F821
 
 
@@ -457,77 +456,6 @@ class UserAttachment(Base):
 
     user: Mapped["User"] = relationship(foreign_keys=[user_id], back_populates="attachments")  # noqa: F821
     uploaded_by: Mapped["User | None"] = relationship(foreign_keys=[uploaded_by_user_id])  # noqa: F821
-
-
-class UserInvitation(Base):
-    __tablename__ = "user_invitations"
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    first_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    last_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    mobile_number: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    country_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
-    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    invited_role_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("roles.id", ondelete="SET NULL"), nullable=True
-    )
-    product_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("products.id", ondelete="SET NULL"), nullable=True
-    )
-    organization_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True
-    )
-    department_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("departments.id", ondelete="SET NULL"), nullable=True
-    )
-    invited_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
-    status: Mapped[str] = mapped_column(String(40), default="INVITED", nullable=False, index=True)
-    token: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
-    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
-    token_fingerprint: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-    )
-
-    role: Mapped["Role | None"] = relationship()  # noqa: F821
-    product: Mapped["Product | None"] = relationship()
-    organization: Mapped["Organization | None"] = relationship(back_populates="invitations")
-
-
-class InvitationEmailOutbox(Base):
-    __tablename__ = "invitation_email_outbox"
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    invitation_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("user_invitations.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    event_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
-    status: Mapped[str] = mapped_column(String(40), default="PENDING", nullable=False, index=True)
-    payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
-    attempts: Mapped[int] = mapped_column(default=0, nullable=False)
-    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-    )
 
 
 class UserStatusHistory(Base):
