@@ -30,7 +30,6 @@ class Settings(BaseSettings):
 
     max_failed_login_attempts: int = 5
     account_lock_minutes: int = 15
-    otp_expiry_seconds: int = 300
 
     # SMTP / Email (fallback when EMAIL_PROVIDER=smtp)
     smtp_host: str = "smtp.sendgrid.net"

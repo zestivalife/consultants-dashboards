@@ -5,7 +5,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.core.email import get_email_service
 from app.core.exceptions import (
     AppException,
     ConflictException,
@@ -14,7 +13,6 @@ from app.core.exceptions import (
     UnauthorizedException,
 )
 from app.core.logging import get_logger
-from app.core.otp import generate_otp, store_otp, verify_and_delete_otp
 from app.core.password_policy import WeakPasswordException
 from app.core.rate_limit import check_rate_limit
 from app.core.security import (
@@ -22,7 +20,6 @@ from app.core.security import (
     generate_refresh_token,
     hash_token,
 )
-from app.db.models.otp_verification import OTPVerification
 from app.db.models.refresh_token import RefreshToken
 from app.db.models.user import PasswordHistory, User
 from app.repositories.audit_log_repository import AuditLogRepository
@@ -32,26 +29,8 @@ from app.repositories.user_repository import UserRepository
 from app.schemas.auth import LoginResponse, RoleResponse, TokenResponse, UserResponse
 from app.services.password_service import password_service
 from app.services import people_access_service
-from app.services.user_service import CreateUserCommand, user_service
 
 logger = get_logger(__name__)
-
-
-# ── background task helpers ───────────────────────────
-
-def _send_otp_email_background(email: str, otp_code: str) -> None:
-    """Send OTP email (background task). Never raises exceptions."""
-    try:
-        get_email_service().send_otp(email, otp_code)
-        logger.info("otp_email_sent_background", email=email)
-    except Exception as exc:
-        logger.error(
-            "otp_email_failed_background",
-            email=email,
-            error=str(exc),
-            note="Email sending failed but API response continues",
-        )
-        # ERROR: Never re-raise from background tasks - API should not fail
 
 
 # ── helpers ───────────────────────────────────────────
@@ -111,148 +90,8 @@ def _ensure_authenticatable_user(user: User, *, now: datetime | None = None) -> 
     if not user.is_verified:
         logger.warning("auth_blocked_unverified", email=user.email, user_id=str(user.id))
         raise ForbiddenException(
-            "Email not verified. Please check your inbox for the OTP and verify your email first."
+            "Account is not verified. Please contact your administrator."
         )
-
-
-# ── public API ────────────────────────────────────────
-
-async def register(
-    session: AsyncSession,
-    email: str,
-    password: str,
-    role_name: str | None = None,
-    company_name: str | None = None,
-    location: str | None = None,
-    employees: int | None = None,
-    industry: str | None = None,
-) -> dict:
-    user_repo = UserRepository(session)
-    role_repo = RoleRepository(session)
-
-    existing = await user_repo.get_by_email(email)
-    if existing:
-        raise ConflictException("A user with this email already exists")
-
-    assigned_role_name = role_name if role_name else "member"
-    role = await role_repo.get_by_name(assigned_role_name)
-    if role is None:
-        raise NotFoundException(f"Role '{assigned_role_name}' not found. Run migrations first.")
-
-    created = await user_service.create_user(
-        session,
-        CreateUserCommand(
-            email=email,
-            password=password,
-            role_name=assigned_role_name,
-            company_name=company_name,
-            location=location,
-            employees=employees,
-            industry=industry,
-            status="PENDING_VERIFICATION",
-            is_active=True,
-            is_verified=False,
-            audit_event_type="USER_REGISTERED",
-        ),
-    )
-    user = created.user
-
-    otp_code = generate_otp()
-    await store_otp(email, otp_code)
-
-    settings = get_settings()
-    if settings.app_env == "development":
-        logger.info(
-            "OTP_FOR_VERIFICATION",
-            email=email,
-            otp=otp_code,
-            note="DEV ONLY",
-        )
-        print(f"\n{'='*60}\n[DEV] OTP for {email}: {otp_code}\n{'='*60}\n", flush=True)
-
-    otp_record = OTPVerification(user_id=user.id, purpose="email_verification")
-    session.add(otp_record)
-    await session.flush()
-
-    # Note: Email will be sent in background. API returns success regardless of email status
-    # This prevents 504 timeouts due to SMTP/SendGrid delays
-
-    logger.info("user_registered", user_id=str(user.id), email=email)
-
-    return {
-        "user_id": str(user.id),
-        "otp_code": otp_code,
-        "message": "Registration successful. Please verify your email with the OTP sent.",
-        "email_sending": "background",
-    }
-
-
-async def verify_otp_action(session: AsyncSession, email: str, otp: str) -> dict:
-    user_repo = UserRepository(session)
-
-    user = await user_repo.get_by_email(email)
-    if user is None:
-        raise NotFoundException("User not found")
-
-    if user.is_verified:
-        return {"message": "Email already verified"}
-
-    valid = await verify_and_delete_otp(email, otp)
-    if not valid:
-        raise UnauthorizedException("Invalid or expired OTP")
-
-    user.is_verified = True
-    user.email_verified = True
-    if str(user.status or "").upper() in {"INVITED", "PENDING_VERIFICATION", "EMAIL_VERIFIED"}:
-        user.status = "ACTIVE"
-    await user_repo.update(user)
-
-    logger.info("user_verified", user_id=str(user.id))
-    return {"message": "Email verified successfully"}
-
-
-async def resend_otp(session: AsyncSession, email: str) -> dict:
-    user_repo = UserRepository(session)
-
-    user = await user_repo.get_by_email(email)
-    if user is None:
-        raise NotFoundException("User not found")
-
-    if user.is_verified:
-        return {"message": "Email already verified. Please login."}
-
-    otp_code = generate_otp()
-    await store_otp(email, otp_code)
-
-    settings = get_settings()
-    if settings.app_env == "development":
-        logger.info("OTP_RESENT", email=email, otp=otp_code, note="DEV ONLY")
-        print(f"\n{'='*60}\n[DEV] RESENT OTP for {email}: {otp_code}\n{'='*60}\n", flush=True)
-
-    # Note: Email will be sent in background. API returns success regardless of email status
-    # This prevents 504 timeouts due to SMTP/SendGrid delays
-
-    return {"message": "OTP resent. Please check your email.", "otp_code": otp_code}
-
-
-async def forgot_password(session: AsyncSession, email: str) -> dict:
-    """Generate an OTP for password reset. Public endpoint."""
-    user_repo = UserRepository(session)
-
-    user = await user_repo.get_by_email(email)
-    if user is None:
-        # For security: don't reveal if email exists
-        return {"message": "If this email exists, you will receive an OTP to reset your password.", "otp_code": None}
-
-    otp_code = generate_otp()
-    await store_otp(email, otp_code)
-
-    settings = get_settings()
-    if settings.app_env == "development":
-        logger.info("password_reset_otp_generated", email=email, otp=otp_code, note="DEV ONLY")
-        print(f"\n{'='*60}\n[DEV] PASSWORD RESET OTP for {email}: {otp_code}\n{'='*60}\n", flush=True)
-
-    return {"message": "OTP sent to your email for password reset.", "otp_code": otp_code}
 
 
 async def login(
