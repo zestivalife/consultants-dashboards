@@ -32,6 +32,10 @@ class ServiceRoutesTest(unittest.TestCase):
     def test_retired_invitation_onboarding_paths_are_not_public(self):
         jwt_source = Path("app/middleware/jwt.py").read_text()
 
+        self.assertNotIn('"/api/v1/auth/register"', jwt_source)
+        self.assertNotIn('"/api/v1/auth/verify-otp"', jwt_source)
+        self.assertNotIn('"/api/v1/auth/resend-otp"', jwt_source)
+        self.assertNotIn('"/api/v1/auth/forgot-password"', jwt_source)
         self.assertNotIn('"/api/v1/onboarding/invitations/validate"', jwt_source)
         self.assertNotIn('"/api/v1/onboarding/invitations/accept"', jwt_source)
         self.assertNotIn('"/api/v1/onboarding/password/setup"', jwt_source)

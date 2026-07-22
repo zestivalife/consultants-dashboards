@@ -210,7 +210,7 @@ function HeroSlider() {
             {slide.desc}
           </p>
 
-          <Link href="/register" style={{
+          <Link href="/login" style={{
             display: "inline-block",
             padding: "18px 45px",
             borderRadius: 50,
@@ -456,7 +456,7 @@ export default function NuetraHome() {
                 textDecoration: "none", fontWeight: 700, fontSize: 14,
                 color: C.dark, fontFamily: "'Manrope', sans-serif",
               }}>Log In</Link>
-              <Link href="/register" style={{
+              <Link href="/login" style={{
                 textDecoration: "none",
                 border: `2px solid ${C.green}`,
                 padding: "10px 28px",
@@ -809,7 +809,7 @@ export default function NuetraHome() {
             </div>
 
             <div style={{ marginTop: 40, display: "flex", gap: 16, flexWrap: "wrap" }}>
-              <Link href="/register" style={{
+              <Link href="/login" style={{
                 display: "inline-block",
                 padding: "18px 42px", borderRadius: 50,
                 background: C.green, color: "#fff",
