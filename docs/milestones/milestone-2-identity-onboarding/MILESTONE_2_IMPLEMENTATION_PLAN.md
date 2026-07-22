@@ -27,7 +27,7 @@ The platform shall support:
 
 without requiring role-specific onboarding code.
 
-The implementation shall follow the Vertical Slice strategy defined in AGENTS.md and PROJECT_STATE.md.
+The implementation shall follow the Vertical Slice strategy defined in AGENTS.md and docs/delivery/PROJECT_STATE.md.
 
 No slice shall introduce regressions into the existing authentication or identity platform.
 

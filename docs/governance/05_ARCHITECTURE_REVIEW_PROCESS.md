@@ -75,8 +75,8 @@ Every architecture review must answer:
 
 ## Related Documents
 
-- `docs/ZESTIVA_ONE_PLATFORM_BLUEPRINT.md`
-- `docs/product-bible/APPENDICES/ZEPO_OPERATING_MODEL.md`
+- `docs/architecture/enterprise/ZESTIVA_ONE_PLATFORM_BLUEPRINT.md`
+- `docs/products/zestiva-one-platform/product-bible/APPENDICES/ZEPO_OPERATING_MODEL.md`
 - `docs/governance/07_QUALITY_GATES.md`
 
 ## Related ADRs

@@ -81,9 +81,9 @@ Every code review should include:
 ## Related Documents
 
 - `docs/CODING_STANDARDS.md`
-- `docs/API_GUIDELINES.md`
-- `docs/DATABASE_GUIDELINES.md`
-- `docs/SECURITY.md`
+- `docs/architecture/api/API_GUIDELINES.md`
+- `docs/architecture/data/DATABASE_GUIDELINES.md`
+- `docs/architecture/security/SECURITY.md`
 
 ## Related ADRs
 

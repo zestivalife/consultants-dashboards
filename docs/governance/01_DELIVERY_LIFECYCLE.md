@@ -102,7 +102,7 @@ Continuous Improvement
 
 ## Related Documents
 
-- `docs/product-bible/APPENDICES/ZEPO_OPERATING_MODEL.md`
+- `docs/products/zestiva-one-platform/product-bible/APPENDICES/ZEPO_OPERATING_MODEL.md`
 - `docs/governance/02_DEFINITION_OF_READY.md`
 - `docs/governance/03_DEFINITION_OF_DONE.md`
 - `docs/governance/07_QUALITY_GATES.md`

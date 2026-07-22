@@ -532,7 +532,7 @@ No data corruption.
 
 The following documents exist and match implementation:
 
-PROJECT_STATE.md
+docs/delivery/PROJECT_STATE.md
 
 AGENTS.md
 
@@ -550,7 +550,7 @@ Architecture Review
 
 Acceptance Review
 
-Implementation SHALL update PROJECT_STATE.md after milestone completion.
+Implementation SHALL update docs/delivery/PROJECT_STATE.md after milestone completion.
 
 ---
 

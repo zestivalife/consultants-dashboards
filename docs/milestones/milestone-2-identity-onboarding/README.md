@@ -41,7 +41,7 @@ The platform must support Nuetra, FitEatsy and future Zestiva products without c
 14. `ACCEPTANCE_CRITERIA.md`
 15. Existing review and task breakdown documents
 
-If two documents conflict, the higher document in this list wins unless `AGENTS.md` or `PROJECT_STATE.md` says otherwise.
+If two documents conflict, the higher document in this list wins unless `AGENTS.md` or `docs/delivery/PROJECT_STATE.md` says otherwise.
 
 ## Existing Canonical Documents
 

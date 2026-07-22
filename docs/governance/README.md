@@ -50,8 +50,8 @@ This section applies to every Zestiva One Platform product, milestone, slice, re
 
 ## Dependencies
 
-- `docs/product-bible/APPENDICES/ZEPO_OPERATING_MODEL.md`
-- `docs/ZESTIVA_ONE_PLATFORM_BLUEPRINT.md`
+- `docs/products/zestiva-one-platform/product-bible/APPENDICES/ZEPO_OPERATING_MODEL.md`
+- `docs/architecture/enterprise/ZESTIVA_ONE_PLATFORM_BLUEPRINT.md`
 - `docs/RELEASE_CHECKLIST.md`
 
 ## Success Metrics
@@ -68,9 +68,9 @@ This section applies to every Zestiva One Platform product, milestone, slice, re
 
 ## Related Documents
 
-- `docs/product-bible/README.md`
-- `docs/DOCUMENT_REGISTRY.md`
-- `docs/PROJECT_STATE.md`
+- `docs/products/zestiva-one-platform/product-bible/README.md`
+- `docs/index/DOCUMENT_REGISTRY.md`
+- `docs/delivery/PROJECT_STATE.md`
 
 ## Related ADRs
 

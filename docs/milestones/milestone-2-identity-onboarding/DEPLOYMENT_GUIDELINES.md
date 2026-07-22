@@ -23,7 +23,7 @@ Related Documents
 
 • PRD.md
 • TDS.md
-• ../../PROJECT_STATE.md
+• ../../delivery/PROJECT_STATE.md
 • MILESTONE_2_IMPLEMENTATION_PLAN.md
 • MILESTONE_2_API_SPECIFICATION.md
 
@@ -74,7 +74,7 @@ Applies To
 Related Documents
 
 - ../../AGENTS.md
-- ../../PROJECT_STATE.md
+- ../../delivery/PROJECT_STATE.md
 - ../../RELEASE_CHECKLIST.md
 - ../../SECURITY.md
 - ../../API_GUIDELINES.md

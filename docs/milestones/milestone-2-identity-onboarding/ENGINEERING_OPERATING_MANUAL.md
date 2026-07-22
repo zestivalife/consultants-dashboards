@@ -23,7 +23,7 @@ Related Documents
 
 • PRD.md
 • TDS.md
-• ../../PROJECT_STATE.md
+• ../../delivery/PROJECT_STATE.md
 • MILESTONE_2_IMPLEMENTATION_PLAN.md
 • MILESTONE_2_API_SPECIFICATION.md
 
@@ -596,12 +596,12 @@ You own technical execution.
 After loading:
 
 - ../../AGENTS.md
-- ../../PROJECT_STATE.md
+- ../../delivery/PROJECT_STATE.md
 - ENGINEERING_OPERATING_MANUAL.md
 
 Do not stop with "PLANNED".
 
-Immediately determine the next unfinished engineering task from PROJECT_STATE.md.
+Immediately determine the next unfinished engineering task from docs/delivery/PROJECT_STATE.md.
 
 If the current milestone contains multiple tasks:
 
@@ -612,7 +612,7 @@ If the current milestone contains multiple tasks:
 5. Commit it.
 6. Push it.
 7. Merge into develop if complete.
-8. Update PROJECT_STATE.md if required.
+8. Update docs/delivery/PROJECT_STATE.md if required.
 9. Produce a concise completion report.
 
 Only stop and ask the Product Owner if:
@@ -675,4 +675,4 @@ Mobile Platform
 Milestone 15
 Production Release v1.0
 
-Do not skip milestones unless PROJECT_STATE.md explicitly marks them complete.
+Do not skip milestones unless docs/delivery/PROJECT_STATE.md explicitly marks them complete.

@@ -81,7 +81,7 @@ Measure:
 
 - `docs/governance/09_RELEASE_GOVERNANCE.md`
 - `docs/governance/10_PRODUCTION_READINESS_CHECKLIST.md`
-- `docs/product-bible/APPENDICES/ZEPO_OPERATING_MODEL.md`
+- `docs/products/zestiva-one-platform/product-bible/APPENDICES/ZEPO_OPERATING_MODEL.md`
 
 ## Related ADRs
 

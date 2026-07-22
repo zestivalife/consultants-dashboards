@@ -23,7 +23,7 @@ Related Documents
 
 • PRD.md
 • TDS.md
-• ../../PROJECT_STATE.md
+• ../../delivery/PROJECT_STATE.md
 • MILESTONE_2_IMPLEMENTATION_PLAN.md
 • MILESTONE_2_API_SPECIFICATION.md
 
