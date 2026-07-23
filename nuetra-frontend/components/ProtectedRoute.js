@@ -2,6 +2,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../context/AuthContext';
+import { isRoleAllowed } from '../lib/roleRoutes';
 
 export default function ProtectedRoute({ children, allowedRoles = [] }) {
   const { user, isLoading } = useAuth();
@@ -11,7 +12,7 @@ export default function ProtectedRoute({ children, allowedRoles = [] }) {
     if (!isLoading) {
       if (!user) {
         router.push('/login');
-      } else if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
+      } else if (!isRoleAllowed(user.role, allowedRoles)) {
         router.push('/unauthorized');
       }
     }
@@ -25,7 +26,10 @@ export default function ProtectedRoute({ children, allowedRoles = [] }) {
     );
   }
 
-  if (!user || (allowedRoles.length > 0 && !allowedRoles.includes(user.role))) {
+  if (
+    !user ||
+    !isRoleAllowed(user.role, allowedRoles)
+  ) {
     return null;
   }
 

@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
-import { getRoleKey } from '../lib/roleRoutes';
+import { getDashboardPathForRole, getRoleKey } from '../lib/roleRoutes';
 import LogoutButton from './LogoutButton';
 import NotificationSystem from './NotificationSystem';
 
@@ -50,8 +50,14 @@ const ROLE_LABELS = {
   HR_ADMIN: 'HR Admin',
   PROVIDER: 'Consultant',
   DIETICIAN: 'Senior Consultant',
+  PRACTITIONER: 'Practitioner',
+  CONSULTANT: 'Consultant',
+  SENIOR_CONSULTANT: 'Senior Consultant',
+  MENTOR: 'Mentor',
+  ORGANIZATION_ADMIN: 'Organization Admin',
   SUPER_ADMIN: 'Platform Owner',
   SUPERUSER: 'Platform Owner',
+  PLATFORM_OWNER: 'Platform Owner',
   ADMIN: 'Admin',
 };
 
@@ -88,7 +94,7 @@ export default function DashboardHeader({
       || user?.name
       || user?.email?.split('@')[0]?.replace(/[._-]+/g, ' ')
       || 'User';
-    const normalizedRole = (user?.role || '').toUpperCase();
+    const normalizedRole = getRoleKey(user?.role).toUpperCase();
     const roleLabel = ownerOverride?.roleLabel || ROLE_LABELS[normalizedRole] || user?.role || 'Workspace User';
     const initials = displayName
       .split(' ')
@@ -111,21 +117,7 @@ export default function DashboardHeader({
 
   const getDashboardUrl = () => {
     if (!user?.role) return '/';
-    const roleMap = {
-      superuser: '/dashboard/owner',
-      super_admin: '/dashboard/owner',
-      platform_owner: '/dashboard/owner',
-      admin: '/dashboard/admin',
-      dietician: '/dashboard/provider',
-      provider: '/dashboard/provider',
-      corporate_admin: '/dashboard/corporate-admin',
-      corporate_client: '/dashboard/corporate-admin',
-      team_lead: '/dashboard/team-lead',
-      team_member: '/dashboard/team-member',
-      member: '/dashboard/team-member',
-    };
-    const roleKey = getRoleKey(user.role);
-    return roleMap[roleKey] || '/';
+    return getDashboardPathForRole(user.role, '/');
   };
 
   const commandActions = useMemo(() => {

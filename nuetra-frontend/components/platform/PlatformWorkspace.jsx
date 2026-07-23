@@ -24,16 +24,25 @@ import withAuth from '../../hocs/withAuth';
 import { useAuth } from '../../context/AuthContext';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
 import { corporateAPI } from '../../lib/api';
+import {
+  ADMIN_WORKSPACE_ROLES,
+  DELIVERY_WORKSPACE_ROLES,
+  MENTOR_WORKSPACE_ROLES,
+  ORGANIZATION_WORKSPACE_ROLES,
+} from '../../lib/roleRoutes';
 
 const roleKinds = {
+  practitioner: 'consultant',
   consultant: 'consultant',
   provider: 'consultant',
   dietician: 'consultant',
   team_member: 'consultant',
   member: 'consultant',
+  employee: 'consultant',
   senior_consultant: 'consultant',
   admin: 'admin',
   superuser: 'admin',
+  super_admin: 'admin',
   platform_owner: 'admin',
   mentor: 'mentor',
   team_lead: 'mentor',
@@ -4696,8 +4705,9 @@ function PlatformWorkspace({ forcedRole }) {
 
 export default PlatformWorkspace;
 
-export const ConsultantWorkspace = withAuth(() => <PlatformWorkspace forcedRole="consultant" />, ['consultant', 'provider', 'dietician', 'team_member', 'member', 'senior_consultant', 'admin', 'superuser']);
-export const SeniorConsultantWorkspace = withAuth(() => <PlatformWorkspace forcedRole="senior_consultant" />, ['senior_consultant', 'admin', 'superuser']);
-export const MentorWorkspace = withAuth(() => <PlatformWorkspace forcedRole="mentor" />, ['mentor', 'team_lead']);
-export const OrganizationWorkspace = withAuth(() => <PlatformWorkspace forcedRole="organization_admin" />, ['organization_admin', 'corporate_admin', 'corporate_client']);
-export const AdminWorkspace = withAuth(() => <PlatformWorkspace forcedRole="admin" />, ['admin', 'superuser', 'PLATFORM_OWNER']);
+export const PractitionerWorkspace = withAuth(() => <PlatformWorkspace forcedRole="practitioner" />, DELIVERY_WORKSPACE_ROLES);
+export const ConsultantWorkspace = withAuth(() => <PlatformWorkspace forcedRole="consultant" />, DELIVERY_WORKSPACE_ROLES);
+export const SeniorConsultantWorkspace = withAuth(() => <PlatformWorkspace forcedRole="senior_consultant" />, DELIVERY_WORKSPACE_ROLES);
+export const MentorWorkspace = withAuth(() => <PlatformWorkspace forcedRole="mentor" />, MENTOR_WORKSPACE_ROLES);
+export const OrganizationWorkspace = withAuth(() => <PlatformWorkspace forcedRole="organization_admin" />, ORGANIZATION_WORKSPACE_ROLES);
+export const AdminWorkspace = withAuth(() => <PlatformWorkspace forcedRole="admin" />, ADMIN_WORKSPACE_ROLES);

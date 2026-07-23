@@ -725,16 +725,22 @@ export function findUserByEmail(email) {
 }
 
 export function getRoleDisplayName(role) {
+  const roleKey = String(role || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
   const labels = {
+    practitioner: 'Practitioner',
     consultant: 'Consultant',
     senior_consultant: 'Senior Consultant',
     mentor: 'Mentor',
     organization_admin: 'Organization Admin',
+    employee: 'Employee',
     provider: 'Consultant',
     team_lead: 'Mentor',
     corporate_admin: 'Organization Admin',
     admin: 'Senior Consultant',
+    superuser: 'Platform Owner',
+    super_admin: 'Platform Owner',
+    platform_owner: 'Platform Owner',
   };
 
-  return labels[role] || 'Practitioner';
+  return labels[roleKey] || 'Practitioner';
 }
