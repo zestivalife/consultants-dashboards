@@ -1,0 +1,14 @@
+openapi: 3.0.3
+info:
+  title: Identity & Access API
+  version: 1.0.0
+paths:
+  /api/v1/auth/login:
+    post:
+      summary: Login
+  /api/v1/auth/forgot-password:
+    post:
+      summary: Forgot password
+  /api/v1/invitations:
+    post:
+      summary: Create invitation

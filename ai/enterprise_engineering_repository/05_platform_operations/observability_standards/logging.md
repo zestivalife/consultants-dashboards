@@ -1,0 +1,3 @@
+# Logging
+
+Status: Repository scaffold.

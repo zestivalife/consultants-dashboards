@@ -1,0 +1,3 @@
+# Statistics
+
+Status: Repository scaffold.

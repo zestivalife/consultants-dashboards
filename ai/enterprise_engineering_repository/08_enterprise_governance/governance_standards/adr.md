@@ -1,0 +1,3 @@
+# Adr
+
+Status: Repository scaffold.

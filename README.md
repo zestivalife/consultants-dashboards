@@ -1,187 +1,293 @@
 # Nuetra - AI-Powered Wellness Intelligence Platform
 
-Microservices backend built with **FastAPI**, **SQLAlchemy 2.0**, **PostgreSQL**, and **Redis**.
+Microservices backend built with **FastAPI**, **SQLAlchemy 2.0**,
+**PostgreSQL**, and **Redis**.
+
+> **Repository Classification**
+>
+> Enterprise Engineering Repository • AI-Native Product Platform •
+> Microservices Architecture • Knowledge-Driven Development
+
+------------------------------------------------------------------------
+
+# Enterprise AI Engineering Governance
+
+This repository is governed by the **Codex Enterprise Operating
+Constitution**.
+
+## AI Engineering Authority
+
+Before performing **any** engineering, architecture, documentation,
+repository, or implementation task, every AI engineering agent (Codex,
+ChatGPT, Claude, Gemini, Cursor, Windsurf, etc.) SHALL load and comply
+with:
+
+``` text
+ai/constitution/CODEX_ENTERPRISE_OPERATING_CONSTITUTION.md
+```
+
+The Constitution is the **highest authority** governing:
+
+-   Repository organisation
+-   Enterprise Architecture
+-   Product Engineering
+-   Documentation Standards
+-   Engineering Standards
+-   AI Engineering Standards
+-   Repository Governance
+-   Source of Truth Management
+-   Quality Gates
+-   Security Reviews
+-   Repository Rationalisation
+-   Enterprise Validation
+
+If repository content conflicts with the Constitution, the Constitution
+prevails unless explicitly overridden by the Product Owner.
+
+------------------------------------------------------------------------
+
+## AI Engineering Governance
+
+All AI-assisted engineering work within this repository is governed by:
+
+ai/constitution/CODEX_ENTERPRISE_OPERATING_CONSTITUTION.md
+
+Every AI agent must load and comply with the Constitution before analysing, designing, implementing or restructuring any part of the repository.
+
+
+## Repository Vision
+
+This repository is not merely a software codebase.
+
+It is the canonical **Enterprise Knowledge Platform** for the Zestiva
+ecosystem and serves as the Single Source of Truth for:
+
+-   Product Vision
+-   Enterprise Architecture
+-   Engineering Standards
+-   Product Bible
+-   Business Capabilities
+-   Domain Models
+-   API Specifications
+-   Security Standards
+-   AI Operating System
+-   Platform Governance
+-   Product Delivery
+-   Operations
+
+Repository organisation is based on **Enterprise Architecture**,
+**Domain-Driven Design**, **Business Capabilities**, and **Engineering
+Governance**, rather than historical filesystem structure.
+
+------------------------------------------------------------------------
 
 ## Architecture
 
-```
+``` text
 Client (Next.js / Mobile)
         │
         ▼
    API Gateway (:8000)
-   ┌──────────────────────────────────┐
-   │ Request ID → CORS → JWT → Rate  │
-   │ Limit → Proxy to upstream       │
-   └──────────────────────────────────┘
         │
         ▼
    Microservices (:8001–:8012)
-   ┌──────────────────────────────────┐
-   │ auth · profile · assessment     │
-   │ scoring · nutrition · consult   │
-   │ pathology · wearable · analytics│
-   │ admin · notification · payment  │
-   └──────────────────────────────────┘
         │
         ▼
-   PostgreSQL + Redis
+ PostgreSQL + Redis
 ```
 
 ## Quick Start
 
 ### Prerequisites
 
-- Docker & Docker Compose
-- Python 3.11+ (for local development)
+-   Docker & Docker Compose
+-   Python 3.11+
 
 ### Run with Docker
 
-```bash
-# Clone and enter the project
-cd nuetra
-
-# Start everything (gateway + auth-service + postgres + redis)
+``` bash
 docker compose up --build
 ```
 
-The API gateway will be available at `http://localhost:8000`.
+Gateway:
 
-### Local Development (without Docker)
+    http://localhost:8000
 
-```bash
-# Create a virtual environment
+### Local Development
+
+``` bash
 python3.11 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies for a service
 pip install -r services/auth-service/requirements.txt
 
-# Run the service
 cd services/auth-service
 uvicorn app.main:app --reload --port 8001
 ```
 
-## Project Structure
+------------------------------------------------------------------------
 
-```
+# Project Structure
+
+``` text
 nuetra/
-├── api-gateway/               # FastAPI reverse proxy
-│   ├── app/
-│   │   ├── main.py            # App entry point
-│   │   ├── config.py          # Settings (env vars)
-│   │   ├── middleware/        # JWT, CORS, rate limit, request ID
-│   │   └── routers/           # Proxy routing logic
-│   └── Dockerfile
-│
+├── ai/
+│   ├── constitution/
+│   │   └── CODEX_ENTERPRISE_OPERATING_CONSTITUTION.md
+│   ├── governance/
+│   ├── architecture/
+│   ├── prompts/
+│   └── playbooks/
+├── api-gateway/
 ├── services/
-│   ├── _template/             # Reusable microservice skeleton
-│   │   ├── app/
-│   │   │   ├── main.py        # FastAPI app with lifespan
-│   │   │   ├── config.py      # Pydantic settings
-│   │   │   ├── api/v1/        # Versioned routes
-│   │   │   ├── core/          # Logging, exceptions, response format
-│   │   │   ├── db/            # SQLAlchemy async engine & session
-│   │   │   ├── repositories/  # Data access layer
-│   │   │   ├── services/      # Business logic layer
-│   │   │   └── schemas/       # Pydantic request/response schemas
-│   │   ├── alembic/           # Database migrations
-│   │   └── Dockerfile
-│   │
-│   └── auth-service/          # First service (from template)
-│
-├── docker-compose.yml
+├── architecture/
+├── engineering/
+├── governance/
+├── product/
+├── platform/
+├── operations/
 └── README.md
 ```
 
-## Creating a New Service
+> **Note:** The repository hierarchy may evolve as part of enterprise
+> repository rationalisation. AI agents are authorised to restructure
+> folders and documentation when compliant with the Constitution while
+> preserving knowledge, traceability and repository integrity.
 
-```bash
-# Copy the template
+------------------------------------------------------------------------
+
+# Creating a New Service
+
+``` bash
 cp -r services/_template services/my-new-service
-
-# Edit config defaults
-# services/my-new-service/app/config.py → change app_name, database_url, app_port
-
-# Add to docker-compose.yml following the auth-service pattern
-
-# Run database migrations
-cd services/my-new-service
-alembic revision --autogenerate -m "initial"
-alembic upgrade head
 ```
 
-## API Gateway Routes
+Update configuration, docker-compose and database migrations before
+exposing routes through the API Gateway.
 
-| Path                      | Upstream Service           | Port |
-|---------------------------|----------------------------|------|
-| `/api/v1/auth/*`          | auth-service               | 8001 |
-| `/api/v1/profile/*`       | profile-service            | 8002 |
-| `/api/v1/assessments/*`   | assessment-service         | 8003 |
-| `/api/v1/scoring/*`       | scoring-engine-service     | 8004 |
-| `/api/v1/nutrition/*`     | nutrition-service          | 8005 |
-| `/api/v1/consultations/*` | consultation-service       | 8006 |
-| `/api/v1/pathology/*`     | pathology-service          | 8007 |
-| `/api/v1/wearables/*`     | wearable-service           | 8008 |
-| `/api/v1/analytics/*`     | analytics-service          | 8009 |
-| `/api/v1/admin/*`         | admin-service              | 8010 |
-| `/api/v1/notifications/*` | notification-service       | 8011 |
-| `/api/v1/payments/*`      | payment-service            | 8012 |
+------------------------------------------------------------------------
 
-## Authentication
+# API Gateway Routes
 
-All requests pass through the gateway's JWT middleware.
+  Path                        Service                    Port
+  --------------------------- ------------------------ ------
+  `/api/v1/auth/*`            auth-service               8001
+  `/api/v1/profile/*`         profile-service            8002
+  `/api/v1/assessments/*`     assessment-service         8003
+  `/api/v1/scoring/*`         scoring-engine-service     8004
+  `/api/v1/nutrition/*`       nutrition-service          8005
+  `/api/v1/consultations/*`   consultation-service       8006
+  `/api/v1/pathology/*`       pathology-service          8007
+  `/api/v1/wearables/*`       wearable-service           8008
+  `/api/v1/analytics/*`       analytics-service          8009
+  `/api/v1/admin/*`           admin-service              8010
+  `/api/v1/notifications/*`   notification-service       8011
+  `/api/v1/payments/*`        payment-service            8012
 
-**Public endpoints** (no token required):
-- `POST /api/v1/auth/login`
-- `POST /api/v1/auth/register`
-- `POST /api/v1/auth/refresh`
-- `POST /api/v1/auth/forgot-password`
-- `GET  /health`, `GET /ready`
+------------------------------------------------------------------------
 
-**Protected endpoints** require `Authorization: Bearer <token>` header.
+# Authentication
 
-The gateway decodes the JWT and forwards these headers to upstream services:
-- `X-User-Id` — the authenticated user's ID
-- `X-User-Role` — the user's role (member, admin, etc.)
-- `X-Request-Id` — unique request correlation ID
+Public endpoints:
 
-## Standard Response Format
+-   POST `/api/v1/auth/login`
+-   POST `/api/v1/auth/register`
+-   POST `/api/v1/auth/refresh`
+-   POST `/api/v1/auth/forgot-password`
+-   GET `/health`
+-   GET `/ready`
 
-All services return responses in this format:
+Protected endpoints require:
 
-```json
+    Authorization: Bearer <token>
+
+Gateway forwards:
+
+-   X-User-Id
+-   X-User-Role
+-   X-Request-Id
+
+------------------------------------------------------------------------
+
+# Standard Response
+
+``` json
 {
   "success": true,
   "message": "OK",
-  "data": { },
+  "data": {},
   "error": null,
-  "request_id": "550e8400-e29b-41d4-a716-446655440000"
+  "request_id": "uuid"
 }
 ```
 
-## Health Checks
+------------------------------------------------------------------------
 
-| Endpoint  | Type       | Description                            |
-|-----------|------------|----------------------------------------|
-| `/health` | Liveness   | Returns 200 if process is running      |
-| `/ready`  | Readiness  | Checks DB and Redis connectivity       |
+# Health Checks
 
-## Environment Variables
+  Endpoint    Purpose
+  ----------- -----------
+  `/health`   Liveness
+  `/ready`    Readiness
 
-See `.env.example` files in each service and the gateway for the full list of configurable variables.
+------------------------------------------------------------------------
 
-Key variables:
-- `DATABASE_URL` — PostgreSQL async connection string
-- `REDIS_URL` — Redis connection string
-- `JWT_SECRET_KEY` — Shared secret for JWT signing/validation
-- `LOG_LEVEL` — INFO, DEBUG, WARNING, ERROR
-- `CORS_ORIGINS` — Comma-separated allowed origins (gateway only)
-- `RATE_LIMIT_PER_MINUTE` — Max requests per minute per user/IP (gateway only)
+# Environment
 
-## Tech Stack
+See each service's `.env.example`.
 
-- **Python 3.11** / **FastAPI**
-- **SQLAlchemy 2.0** (async) / **Alembic**
-- **PostgreSQL 16** / **Redis 7**
-- **structlog** (structured JSON logging)
-- **Docker** / **Docker Compose**
+------------------------------------------------------------------------
+
+# Tech Stack
+
+-   Python 3.11
+-   FastAPI
+-   SQLAlchemy 2.0
+-   PostgreSQL
+-   Redis
+-   Alembic
+-   Docker
+-   Docker Compose
+
+------------------------------------------------------------------------
+
+# Repository Maturity
+
+## Platform
+
+-   Enterprise Foundation ✓
+-   AI Runtime ✓
+-   Governance ✓
+-   Roles ✓
+-   Agents ✓
+-   Orchestration ✓
+-   Registry ✓
+-   Context Engine ✓
+-   Memory ✓
+-   RAG ✓
+-   Workflows ✓
+-   Templates ✓
+-   Evaluation ✓
+
+## Enterprise Engineering
+
+-   Enterprise Constitution ✓
+-   Repository Governance ✓
+-   Architecture Governance ✓
+-   Product Governance ✓
+-   Documentation Standards ✓
+-   Knowledge Platform ◐
+-   Repository Rationalisation ◐
+-   Enterprise Operating System ◐
+
+## Status
+
+**Architecture:** Frozen
+
+**Implementation:** Ready
+
+**Repository Evolution:** Active
+
+**Knowledge Platform:** In Progress
+
+**AI Engineering:** Constitution Driven

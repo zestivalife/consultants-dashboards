@@ -1,0 +1,3 @@
+# Graphql
+
+Status: Repository scaffold.

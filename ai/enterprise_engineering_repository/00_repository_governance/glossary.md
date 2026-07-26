@@ -1,0 +1,3 @@
+# Glossary
+
+Status: Repository scaffold.
