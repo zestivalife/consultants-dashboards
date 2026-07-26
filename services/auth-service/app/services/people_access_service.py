@@ -185,6 +185,10 @@ async def ensure_owner_access(
     current_user: UserResponse,
     required_permissions: set[str] | None = None,
 ) -> None:
+    role_name = normalize_role_name(current_user.role or "")
+    if role_name not in PROTECTED_PLATFORM_OWNER_ROLES:
+        raise ForbiddenException("You do not have permission to access this resource")
+
     permission_set = set(current_user.permissions or [])
     if not required_permissions:
         required_permissions = {"users.read"}

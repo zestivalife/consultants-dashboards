@@ -95,6 +95,16 @@ async def test_ensure_owner_access_rejects_missing_permission(session: AsyncSess
 
 
 @pytest.mark.asyncio
+async def test_ensure_owner_access_rejects_non_owner_with_user_read(session: AsyncSession):
+    practitioner_role = await _create_role(session, "practitioner")
+    practitioner = await _create_user(session, practitioner_role, "practitioner@zestiva.in")
+    actor = _actor_from_user(practitioner, permissions=["users.read"])
+
+    with pytest.raises(ForbiddenException):
+        await people_access_service.ensure_owner_access(session, actor, {"users.read"})
+
+
+@pytest.mark.asyncio
 async def test_create_user_generates_temporary_credentials_and_primary_role(session: AsyncSession):
     owner_role = await _create_role(session, "platform_owner")
     consultant_role = await _create_role(session, "consultant")
