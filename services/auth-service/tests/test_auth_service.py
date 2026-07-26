@@ -256,7 +256,7 @@ async def test_login_resolves_workspace_from_people_access_context(session: Asyn
     assert access_profile.active_product.name == "FitEatsy Test"
     assert access_profile.capabilities == ["reports.view", "users.read"]
     assert access_profile.workspace.id == "care-delivery"
-    assert access_profile.workspace.landing_page == "/dashboard/practitioner"
+    assert access_profile.workspace.landing_page == "/dashboard/provider"
 
 
 @pytest.mark.asyncio

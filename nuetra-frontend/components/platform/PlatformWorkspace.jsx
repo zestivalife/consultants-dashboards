@@ -24,6 +24,7 @@ import withAuth from '../../hocs/withAuth';
 import { useAuth } from '../../context/AuthContext';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
 import { corporateAPI } from '../../lib/api';
+import { ADMIN_ACCESS_POLICY, DELIVERY_ACCESS_POLICY, MENTOR_ACCESS_POLICY, ORGANIZATION_ACCESS_POLICY } from '../../lib/roleRoutes';
 
 const roleKinds = {
   consultant: 'consultant',
@@ -4696,8 +4697,8 @@ function PlatformWorkspace({ forcedRole }) {
 
 export default PlatformWorkspace;
 
-export const ConsultantWorkspace = withAuth(() => <PlatformWorkspace forcedRole="consultant" />, ['consultant', 'provider', 'dietician', 'team_member', 'member', 'senior_consultant', 'admin', 'superuser']);
-export const SeniorConsultantWorkspace = withAuth(() => <PlatformWorkspace forcedRole="senior_consultant" />, ['senior_consultant', 'admin', 'superuser']);
-export const MentorWorkspace = withAuth(() => <PlatformWorkspace forcedRole="mentor" />, ['mentor', 'team_lead']);
-export const OrganizationWorkspace = withAuth(() => <PlatformWorkspace forcedRole="organization_admin" />, ['organization_admin', 'corporate_admin', 'corporate_client']);
-export const AdminWorkspace = withAuth(() => <PlatformWorkspace forcedRole="admin" />, ['admin', 'superuser', 'PLATFORM_OWNER']);
+export const ConsultantWorkspace = withAuth(() => <PlatformWorkspace forcedRole="consultant" />, DELIVERY_ACCESS_POLICY);
+export const SeniorConsultantWorkspace = withAuth(() => <PlatformWorkspace forcedRole="senior_consultant" />, DELIVERY_ACCESS_POLICY);
+export const MentorWorkspace = withAuth(() => <PlatformWorkspace forcedRole="mentor" />, MENTOR_ACCESS_POLICY);
+export const OrganizationWorkspace = withAuth(() => <PlatformWorkspace forcedRole="organization_admin" />, ORGANIZATION_ACCESS_POLICY);
+export const AdminWorkspace = withAuth(() => <PlatformWorkspace forcedRole="admin" />, ADMIN_ACCESS_POLICY);

@@ -132,9 +132,7 @@ def _resolve_workspace(
 
     if active_product is not None or permission_set & CARE_DELIVERY_PERMISSIONS:
         landing_page = "/dashboard/provider"
-        if role_key == "practitioner":
-            landing_page = "/dashboard/practitioner"
-        elif role_key == "senior_consultant":
+        if role_key == "senior_consultant":
             landing_page = "/dashboard/senior-consultant"
         return AccessWorkspace(
             id="care-delivery",
