@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 
 import withAuth from '../../hocs/withAuth';
 import { getOwnerConsolePath, getOwnerRouteByLegacyTab } from '../../lib/ownerConsoleRoutes';
+import { OWNER_ACCESS_POLICY } from '../../lib/roleRoutes';
 
 function SuperuserLegacyRoute() {
   const router = useRouter();
@@ -33,4 +34,4 @@ function SuperuserLegacyRoute() {
   );
 }
 
-export default withAuth(SuperuserLegacyRoute, ['superuser', 'super_admin', 'platform_owner']);
+export default withAuth(SuperuserLegacyRoute, OWNER_ACCESS_POLICY);

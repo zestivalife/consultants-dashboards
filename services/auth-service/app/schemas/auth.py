@@ -26,6 +26,39 @@ class TokenResponse(BaseModel):
     expires_in: int
 
 
+class AccessOrganization(BaseModel):
+    id: uuid.UUID
+    name: str
+    department_id: uuid.UUID | None = None
+    department: str | None = None
+    status: str
+
+
+class AccessProduct(BaseModel):
+    id: uuid.UUID
+    name: str
+    role: str | None = None
+    status: str
+    is_primary: bool = False
+
+
+class AccessWorkspace(BaseModel):
+    id: str
+    label: str
+    landing_page: str
+    required_permissions: list[str] = Field(default_factory=list)
+
+
+class AccessProfile(BaseModel):
+    persona: str
+    role: str
+    permissions: list[str] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)
+    active_organization: AccessOrganization | None = None
+    active_product: AccessProduct | None = None
+    workspace: AccessWorkspace
+
+
 class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
@@ -38,6 +71,7 @@ class UserResponse(BaseModel):
     last_name: str | None = None
     phone: str | None = None
     permissions: list[str] = Field(default_factory=list)
+    access_profile: AccessProfile | None = None
     must_change_password: bool = False
     created_at: datetime
 

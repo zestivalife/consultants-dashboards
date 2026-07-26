@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
-import { getRoleKey } from '../lib/roleRoutes';
+import { getDashboardPathForUser, getRoleKey } from '../lib/roleRoutes';
 import LogoutButton from './LogoutButton';
 import NotificationSystem from './NotificationSystem';
 
@@ -110,22 +110,8 @@ export default function DashboardHeader({
   }, [user]);
 
   const getDashboardUrl = () => {
-    if (!user?.role) return '/';
-    const roleMap = {
-      superuser: '/dashboard/owner',
-      super_admin: '/dashboard/owner',
-      platform_owner: '/dashboard/owner',
-      admin: '/dashboard/admin',
-      dietician: '/dashboard/provider',
-      provider: '/dashboard/provider',
-      corporate_admin: '/dashboard/corporate-admin',
-      corporate_client: '/dashboard/corporate-admin',
-      team_lead: '/dashboard/team-lead',
-      team_member: '/dashboard/team-member',
-      member: '/dashboard/team-member',
-    };
-    const roleKey = getRoleKey(user.role);
-    return roleMap[roleKey] || '/';
+    if (!user) return '/';
+    return getDashboardPathForUser(user, '/');
   };
 
   const commandActions = useMemo(() => {

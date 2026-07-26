@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/router';
 import { useAuth } from '../context/AuthContext';
 import { profileAPI, authAPI, apiRequest } from '../lib/api';
-import { getDashboardPathForRole } from '../lib/roleRoutes';
+import { getDashboardPathForUser } from '../lib/roleRoutes';
 import ProtectedRoute from '../components/ProtectedRoute';
 import DashboardHeader from '../components/DashboardHeader';
 import Link from 'next/link';
@@ -334,7 +334,7 @@ export default function ProfilePage() {
         <div className="relative z-10 max-w-[1600px] mx-auto px-8 py-8">
           {/* Breadcrumb */}
           <Link
-            href={authUser ? getDashboardPathForRole(authUser.role, '/dashboard/team-member') : '#'}
+            href={authUser ? getDashboardPathForUser(authUser, '/dashboard/team-member') : '#'}
             className="inline-flex items-center text-sm text-gray-500 hover:text-gray-700 mb-6 transition-colors"
           >
             <ArrowLeft className="w-4 h-4 mr-2" /> Back to Dashboard

@@ -1,6 +1,7 @@
 import withAuth from '../../../hocs/withAuth';
 import OwnerConsolePage from '../../../components/platform/OwnerConsolePage';
 import { getOwnerRouteBySlug } from '../../../lib/ownerConsoleRoutes';
+import { OWNER_ACCESS_POLICY } from '../../../lib/roleRoutes';
 
 function OwnerDashboardModule({ moduleSlug }) {
   return <OwnerConsolePage moduleSlug={moduleSlug} />;
@@ -19,4 +20,4 @@ export async function getServerSideProps(context) {
   };
 }
 
-export default withAuth(OwnerDashboardModule, ['superuser', 'super_admin', 'platform_owner']);
+export default withAuth(OwnerDashboardModule, OWNER_ACCESS_POLICY);

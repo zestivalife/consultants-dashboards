@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { useRouter } from 'next/router';
 import { useAuth } from '../context/AuthContext';
 import { apiRequest } from '../lib/api';
-import { getDashboardPathForRole } from '../lib/roleRoutes';
+import { getDashboardPathForUser } from '../lib/roleRoutes';
 import ProtectedRoute from '../components/ProtectedRoute';
 import Link from 'next/link';
 import { 
@@ -38,7 +38,7 @@ function SettingsPage() {
     if (!authUser) {
       return '/dashboard/team-member'; // Fallback while loading
     }
-    return getDashboardPathForRole(authUser.role, '/dashboard/team-member');
+    return getDashboardPathForUser(authUser, '/dashboard/team-member');
   };
 
   // Settings state
