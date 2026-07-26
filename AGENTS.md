@@ -4,16 +4,18 @@
 
 **Document Name:** AGENTS.md  
 **Scope:** Project-wide engineering operating manual  
-**Applies To:** All products, milestones, services, applications, environments, and delivery workstreams  
+**Applies To:** All Zestiva products, applications, services, environments, milestones, and delivery workstreams  
 **Owner:** Zestiva Engineering  
-**Audience:** Codex, engineers, QA, DevOps, product owners, and reviewers  
+**Audience:** AI agents, engineers, QA, DevOps, product owners, and reviewers  
 **Status:** Active  
 
 ---
 
 ## 2. Purpose
 
-This document defines the permanent operating rules for engineering work on the Zestiva Enterprise Platform. It governs how Codex and engineers read documentation, plan work, implement changes, verify behavior, manage Git, report status, and determine whether work is complete.
+This document defines the permanent operating rules for engineering work on the Zestiva Enterprise Platform.
+
+It governs how agents and engineers read documentation, analyze requests, implement changes, verify behavior, manage Git, report production readiness, and determine whether work is complete.
 
 This file is project-wide. It must not contain milestone-specific status, slice metadata, or temporary implementation notes.
 
@@ -21,21 +23,26 @@ This file is project-wide. It must not contain milestone-specific status, slice 
 
 ## 3. Startup Sequence
 
-Before beginning any task, read the relevant documentation in this order:
+Before beginning any task, complete the repository startup sequence.
+
+Read documentation in this order:
 
 1. `docs/index/DOCUMENT_REGISTRY.md`
 2. `AGENTS.md`
-3. `docs/index/REPOSITORY_ARCHITECTURE.md`
-4. `docs/index/SOURCE_OF_TRUTH_MATRIX.md`
-5. `docs/index/OWNERSHIP_MATRIX.md`
-6. `docs/delivery/PROJECT_STATE.md`
-7. `docs/delivery/ROADMAP.md`
-8. Relevant architecture documentation
-9. Relevant platform capability documentation
-10. Relevant domain documentation
-11. Relevant service documentation
-12. Relevant milestone documentation
-13. Current task
+3. `docs/delivery/PROJECT_STATE.md`
+4. `docs/delivery/ROADMAP.md`
+5. Relevant `PRD.md`
+6. Relevant `TDS.md`
+7. Relevant `ENGINEERING_OPERATING_MANUAL.md`
+8. Relevant `DEPLOYMENT_GUIDELINES.md`
+9. Relevant architecture documentation
+10. Relevant platform capability documentation
+11. Relevant domain documentation
+12. Relevant service documentation
+13. Active milestone documentation
+14. Current task
+
+When the repository contains an AI operating system under `ai/` or `.ai/`, read its operating rules before analysis or implementation and load only documents relevant to the task.
 
 If required documents are missing, stale, contradictory, or unavailable, stop and report the gap before implementation.
 
@@ -47,52 +54,56 @@ When documents conflict, apply this precedence:
 
 1. Product Owner decisions explicitly recorded in the current task
 2. `AGENTS.md`
-3. `docs/governance/MASTER_ENGINEERING_EXECUTION_PROTOCOL.md`
-4. `docs/index/SOURCE_OF_TRUTH_MATRIX.md`
-5. `docs/delivery/PROJECT_STATE.md`
-6. `docs/delivery/ROADMAP.md`
-7. Relevant architecture documentation
-8. Relevant platform capability documentation
-9. Relevant domain documentation
-10. Relevant milestone implementation documents
-11. Code comments and historical implementation notes
+3. AI operating rules under `ai/` or `.ai/`, when present
+4. `docs/index/DOCUMENT_REGISTRY.md`
+5. `docs/index/SOURCE_OF_TRUTH_MATRIX.md`
+6. Governance documentation
+7. Repository architecture documentation
+8. Enterprise architecture documentation
+9. Platform capability documentation
+10. Domain documentation
+11. Product documentation
+12. Service documentation
+13. Milestone documentation
+14. Code comments and historical implementation notes
 
-Do not silently resolve conflicts. Report the conflict, identify affected work, and wait for approval when the conflict changes architecture, scope, security, data, or production behavior.
+Do not silently resolve conflicts. Report conflicts, identify affected work, and wait for approval when a conflict changes architecture, scope, security, data, or production behavior.
 
 ---
 
 ## 5. Engineering Responsibilities
 
-Codex is responsible for:
+Agents and engineers are responsible for:
 
 - Understanding the existing architecture before changing it.
-- Protecting production behavior, data integrity, security, and user workflows.
+- Protecting production behavior, data integrity, security, privacy, accessibility, observability, and user workflows.
 - Implementing complete vertical slices when feature work is approved.
-- Avoiding duplicate logic, duplicate services, and disconnected UI.
+- Avoiding duplicate logic, duplicate services, disconnected UI, and temporary architecture.
 - Updating tests and documentation when implementation changes behavior.
 - Providing evidence for verification, not assumptions.
-- Preserving unrelated user or teammate changes.
+- Preserving unrelated user, teammate, or generated changes.
+- Leaving the platform more stable and understandable than before.
 
 ---
 
 ## 6. Autonomous Execution Rules
 
-If documentation is sufficient, implement the requested work without asking unnecessary questions.
+If documentation is sufficient, proceed with the requested work without unnecessary questions.
 
 Ask for clarification only when:
 
 - Requirements conflict.
 - The implementation choice has irreversible consequences.
 - Security, data loss, compliance, or production availability may be affected.
-- The requested scope is explicitly ambiguous and cannot be inferred safely.
+- The requested scope is ambiguous and cannot be inferred safely from repository evidence.
 
-Do not stop after analysis unless the task explicitly requests analysis only.
+Do not stop after analysis unless the task explicitly requests analysis only, architecture only, documentation only, or no code changes.
 
 ---
 
 ## 7. Git Workflow
 
-The repository uses the following branch model:
+The repository uses this branch model:
 
 - `main`: production-ready source of truth.
 - `develop`: integration branch for accepted work.
@@ -107,16 +118,17 @@ Never commit unrelated files. Never revert changes you did not make unless expli
 
 ## 8. Branch Strategy
 
-Create an appropriate branch before implementation unless already on a suitable branch.
+Create or use an appropriate branch before implementation unless already on a suitable branch.
 
 Use:
 
 - `feature/<scope>` for approved feature work.
 - `bugfix/<scope>` for normal defects.
-- `hotfix/<scope>` for production outages.
+- `hotfix/<scope>` for production incidents or urgent production blockers.
+- `release/<scope>` for release stabilization.
 - `docs/<scope>` for documentation-only work.
 
-Merge or push to `develop` only after the work meets the verification requirements for its current status.
+Merge or push to `develop` only after the work satisfies the verification requirements for its current engineering status.
 
 ---
 
@@ -133,6 +145,8 @@ Use Conventional Commits:
 - `style:` for styling and UX-only code changes.
 
 Each commit must be focused, explainable, and reviewable.
+
+Do not mix unrelated implementation, documentation, formatting, and deployment changes in one commit.
 
 ---
 
@@ -170,7 +184,7 @@ Do not invent status labels. Do not mark work complete because it builds.
 
 ## 12. Root Cause Analysis Policy
 
-For defects, outages, deployment mismatches, and production failures, separate evidence from inference.
+For defects, outages, deployment mismatches, runtime crashes, failed acceptance gates, and production failures, separate evidence from interpretation.
 
 Use:
 
@@ -179,6 +193,8 @@ Use:
 - **Hypothesis:** Unverified possibility requiring more evidence.
 
 Never present a hypothesis as fact. Do not patch symptoms when the root cause is unknown.
+
+When investigating a defect, trace the complete execution path instead of stopping at the first suspicious line.
 
 ---
 
@@ -197,10 +213,11 @@ Verify where applicable:
 - Readiness endpoint.
 - Migration version.
 - Environment name.
+- Docker image or build artifact identity.
 - Service routing.
 - Browser bundle version.
 
-If production does not match source, stop feature work and diagnose deployment first.
+If production does not match source, stop feature work and diagnose deployment before changing application logic.
 
 ---
 
@@ -219,7 +236,7 @@ Valid evidence includes:
 - Audit events.
 - Notification outbox records.
 - Version endpoints.
-- Health/readiness endpoints.
+- Health and readiness endpoints.
 
 Build success and unit tests are prerequisites, not runtime proof.
 
@@ -242,6 +259,8 @@ Before modifying files, identify impact across:
 - Cache.
 - Email.
 - Notifications.
+- Background jobs.
+- Deployment and runtime configuration.
 
 Create a regression checklist before implementation. After implementation, verify affected workflows and high-risk unrelated workflows.
 
@@ -249,7 +268,7 @@ Create a regression checklist before implementation. After implementation, verif
 
 ## 16. Deployment Freeze Rule
 
-During production incidents, deployment mismatches, authentication outages, runtime crashes, or failed acceptance gates:
+During production incidents, deployment mismatches, authentication outages, authorization failures, runtime crashes, or failed acceptance gates:
 
 - Stop new feature development.
 - Do not refactor unrelated code.
@@ -264,12 +283,14 @@ Resume feature work only after the blocking issue is verified resolved.
 
 Every deployable service must expose a version endpoint that reports:
 
+- Service name.
 - Commit SHA.
 - Branch.
 - Build time.
 - Environment.
-- Service name.
+- Deployment ID where available.
 - Migration version where applicable.
+- Release identifier where available.
 
 Version endpoints must be usable for production verification.
 
@@ -279,7 +300,9 @@ Version endpoints must be usable for production verification.
 
 Every deployable service must expose health and readiness endpoints.
 
-Health must confirm the process is alive. Readiness must confirm required dependencies such as database, Redis, upstream services, and required configuration are available.
+Health must confirm the process is alive.
+
+Readiness must confirm required dependencies are available, including database, Redis, upstream services, required configuration, and critical external providers where applicable.
 
 ---
 
@@ -294,9 +317,12 @@ A task may be marked `PRODUCTION ACCEPTED` only when:
 - Database persistence is verified.
 - Permissions are enforced.
 - Audit events are generated for write operations.
+- Notification or outbox behavior is verified when relevant.
 - No relevant console errors remain.
 - No relevant failed network requests remain.
 - Product Owner acceptance criteria are satisfied.
+
+Do not claim production acceptance from local build, unit tests, or source inspection alone.
 
 ---
 
@@ -312,7 +338,7 @@ If implementation reveals an architectural inconsistency:
 4. Recommend options and trade-offs.
 5. Wait for approval before changing architecture.
 
-Approved architecture changes must be recorded in the appropriate architecture or decision document.
+Approved long-term architecture changes must be recorded in the appropriate architecture document or Architecture Decision Record.
 
 ---
 
@@ -333,20 +359,31 @@ Update documentation when implementation changes:
 
 Do not duplicate requirements across documents. Prefer cross-references to maintain a single source of truth.
 
+Do not create new governance documents unless explicitly requested or required by the approved documentation architecture.
+
 ---
 
 ## 22. AI Engineering Rules
 
-Codex must:
+Agents must:
 
 - Read before editing.
 - Prefer existing patterns.
 - Use reusable platform capabilities before creating new ones.
+- Avoid role-specific exceptions unless explicitly approved.
 - Avoid mock-only screens in completed work.
 - Avoid disconnected buttons, routes, forms, and APIs.
 - Keep implementation reversible where possible.
 - Preserve accessibility, security, observability, and maintainability.
 - Never expose secrets, plaintext tokens, passwords, or sensitive production data.
+
+Agents must not:
+
+- Guess.
+- Hallucinate APIs, fields, migrations, or runtime behavior.
+- Duplicate authorization logic.
+- Hardcode business behavior that belongs in configuration or policy.
+- Hide uncertainty.
 
 ---
 
