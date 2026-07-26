@@ -53,6 +53,16 @@ class User(Base):
         DateTime(timezone=True), nullable=True
     )
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    credential_status: Mapped[str] = mapped_column(String(40), default="PERMANENT", nullable=False, index=True)
+    temporary_password_created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    temporary_password_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    temporary_password_consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     current_session_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     refresh_token_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { findUserByCredentials, sampleUsers } from '../data/mockPlatformData';
-import { getDashboardPathForUser } from '../lib/roleRoutes';
+import { getDashboardPathForUser, getPostAuthPathForUser } from '../lib/roleRoutes';
 import { authAPI, clearTokens, getRefreshToken, isRememberedAuthSession, setRefreshToken, setToken } from '../lib/api';
 
 const SESSION_KEY = 'nuetra_session';
@@ -10,10 +10,7 @@ const BACKEND_AUTH_ENABLED = Boolean(process.env.NEXT_PUBLIC_API_URL);
 const AuthContext = createContext(null);
 
 function getPostLoginPath(user) {
-  if (user?.must_change_password) {
-    return '/auth/change-temporary-password';
-  }
-  return getDashboardPathForUser(user);
+  return getPostAuthPathForUser(user);
 }
 
 function readStoredSessionRecord() {
@@ -203,7 +200,7 @@ export function AuthProvider({ children }) {
       setUser(nextUser);
       persistSession(session, rememberMe);
       setIsLoading(false);
-      router.replace(getDashboardPathForUser(nextUser));
+      router.replace(getPostAuthPathForUser(nextUser));
       return { user: nextUser };
     } catch (nextError) {
       const message = nextError?.message || 'Unable to change temporary password.';
@@ -227,8 +224,9 @@ export function AuthProvider({ children }) {
           };
           setUser(nextUser);
           persistSession(session, rememberMe);
-          if (nextUser.must_change_password && router.pathname !== '/auth/change-temporary-password') {
-            router.replace('/auth/change-temporary-password');
+          const postAuthPath = getPostAuthPathForUser(nextUser);
+          if (postAuthPath && router.pathname !== postAuthPath && router.pathname.startsWith('/dashboard')) {
+            router.replace(postAuthPath);
           }
           return true;
         }

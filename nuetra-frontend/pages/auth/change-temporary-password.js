@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Eye, EyeOff, KeyRound, ShieldCheck } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
+import { getAccountActionRoute } from '../../lib/roleRoutes';
 
 const PASSWORD_RULES = [
   { id: 'length', label: 'At least 12 characters', test: (value) => value.length >= 12 },
@@ -55,7 +56,8 @@ export default function ChangeTemporaryPasswordPage() {
   const canSubmit = currentPassword && newPassword && confirmPassword && passedRules === PASSWORD_RULES.length && newPassword === confirmPassword;
 
   useEffect(() => {
-    if (!isLoading && user && !user.must_change_password) {
+    const requiredRoute = getAccountActionRoute(user);
+    if (!isLoading && user && requiredRoute !== '/auth/change-temporary-password') {
       window.location.replace('/dashboard');
     }
   }, [isLoading, user]);

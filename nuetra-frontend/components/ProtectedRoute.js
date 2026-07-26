@@ -2,7 +2,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../context/AuthContext';
-import { isAccessAllowed } from '../lib/roleRoutes';
+import { getAccountActionRoute, isAccessAllowed } from '../lib/roleRoutes';
 
 export default function ProtectedRoute({ children, allowedRoles = [], accessPolicy = null }) {
   const { user, isLoading } = useAuth();
@@ -13,8 +13,13 @@ export default function ProtectedRoute({ children, allowedRoles = [], accessPoli
     if (!isLoading) {
       if (!user) {
         router.push('/login');
-      } else if (!isAccessAllowed(user, policy)) {
-        router.push('/unauthorized');
+      } else {
+        const requiredAccountRoute = getAccountActionRoute(user);
+        if (requiredAccountRoute && router.pathname.startsWith('/dashboard')) {
+          router.push(requiredAccountRoute);
+        } else if (!isAccessAllowed(user, policy)) {
+          router.push('/unauthorized');
+        }
       }
     }
   }, [user, isLoading, router, policy]);
@@ -29,6 +34,7 @@ export default function ProtectedRoute({ children, allowedRoles = [], accessPoli
 
   if (
     !user ||
+    (getAccountActionRoute(user) && router.pathname.startsWith('/dashboard')) ||
     !isAccessAllowed(user, policy)
   ) {
     return null;

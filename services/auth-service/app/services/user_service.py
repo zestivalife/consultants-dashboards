@@ -10,6 +10,14 @@ from app.db.models.user import PasswordHistory, User
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.role_repository import RoleRepository
 from app.repositories.user_repository import UserRepository
+from app.services.iam_lifecycle import (
+    CREDENTIAL_PERMANENT,
+    CREDENTIAL_TEMPORARY,
+    INACTIVE_STATUSES,
+    STATUS_INVITED,
+    normalize_status,
+    temporary_password_expiry,
+)
 from app.services.password_service import password_service
 
 
@@ -22,7 +30,7 @@ class CreateUserCommand:
     first_name: str | None = None
     last_name: str | None = None
     phone: str | None = None
-    status: str = "ACTIVE"
+    status: str | None = None
     permissions: list[str] = field(default_factory=list)
     is_active: bool | None = None
     is_verified: bool | None = None
@@ -61,11 +69,14 @@ class UserService:
 
         plain_password = command.password or password_service.generate_temporary_password()
         is_temporary = command.password is None
-        must_change_password = command.must_change_password if command.must_change_password is not None else is_temporary
-        status = command.status.strip().upper()
-        is_verified = command.is_verified if command.is_verified is not None else status != "PENDING_VERIFICATION"
-        is_active = command.is_active if command.is_active is not None else status not in {"INACTIVE", "SUSPENDED", "DELETED"}
         now = datetime.now(timezone.utc)
+        status = normalize_status(command.status, STATUS_INVITED if is_temporary else "ACTIVE")
+        must_change_password = command.must_change_password if command.must_change_password is not None else False
+        is_verified = command.is_verified if command.is_verified is not None else status != "PENDING_VERIFICATION"
+        is_active = command.is_active if command.is_active is not None else status not in INACTIVE_STATUSES
+        credential_status = CREDENTIAL_TEMPORARY if is_temporary else CREDENTIAL_PERMANENT
+        temporary_created_at = now if is_temporary else None
+        temporary_expires_at = temporary_password_expiry(now) if is_temporary else None
 
         user = User(
             email=email,
@@ -88,6 +99,9 @@ class UserService:
             mobile_verified=False,
             password_changed_at=None if is_temporary else now,
             must_change_password=must_change_password,
+            credential_status=credential_status,
+            temporary_password_created_at=temporary_created_at,
+            temporary_password_expires_at=temporary_expires_at,
         )
         await user_repo.create(user)
         session.add(

@@ -32,6 +32,9 @@ async def _create_role_user(
     is_active: bool = True,
     is_verified: bool = True,
     status: str = "ACTIVE",
+    must_change_password: bool = False,
+    credential_status: str = "PERMANENT",
+    temporary_password_expires_at=None,
     lock_until=None,
     deleted_at=None,
 ) -> User:
@@ -44,6 +47,9 @@ async def _create_role_user(
         is_active=is_active,
         is_verified=is_verified,
         status=status,
+        must_change_password=must_change_password,
+        credential_status=credential_status,
+        temporary_password_expires_at=temporary_password_expires_at,
         lock_until=lock_until,
         deleted_at=deleted_at,
     )
@@ -251,6 +257,58 @@ async def test_login_resolves_workspace_from_people_access_context(session: Asyn
     assert access_profile.capabilities == ["reports.view", "users.read"]
     assert access_profile.workspace.id == "care-delivery"
     assert access_profile.workspace.landing_page == "/dashboard/provider"
+
+
+@pytest.mark.asyncio
+async def test_temporary_password_login_transitions_invited_user_to_first_login(session: AsyncSession):
+    user = await _create_role_user(
+        session,
+        "practitioner",
+        email="invited.practitioner@zestiva.test",
+        status="INVITED",
+        credential_status="TEMPORARY",
+        temporary_password_expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+
+    with _always_allow_rate():
+        login_result = await auth_service.login(
+            session,
+            user.email,
+            "Correct123!",
+            ip_address="127.0.0.1",
+            user_agent="pytest temporary lifecycle",
+        )
+
+    assert login_result.user.status == "FIRST_LOGIN"
+    assert login_result.user.credential_status == "TEMPORARY"
+    assert login_result.user.next_action.type == "ONBOARDING_REQUIRED"
+    assert login_result.user.next_action.route == "/profile"
+    assert user.status == "FIRST_LOGIN"
+
+
+@pytest.mark.asyncio
+async def test_expired_temporary_password_login_expires_user(session: AsyncSession):
+    user = await _create_role_user(
+        session,
+        "mentor",
+        email="expired.temporary@zestiva.test",
+        status="INVITED",
+        credential_status="TEMPORARY",
+        temporary_password_expires_at=datetime.now(timezone.utc) - timedelta(seconds=1),
+    )
+
+    with _always_allow_rate():
+        with pytest.raises(ForbiddenException, match="Temporary password has expired"):
+            await auth_service.login(
+                session,
+                user.email,
+                "Correct123!",
+                ip_address="127.0.0.1",
+                user_agent="pytest temporary expired",
+            )
+
+    assert user.status == "EXPIRED"
+    assert user.is_active is False
 
 
 @pytest.mark.asyncio

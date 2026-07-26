@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../../context/AuthContext';
-import { getDashboardPathForUser } from '../../lib/roleRoutes';
+import { getPostAuthPathForUser } from '../../lib/roleRoutes';
 
 export default function DashboardRouter() {
   const router = useRouter();
@@ -13,7 +13,7 @@ export default function DashboardRouter() {
       router.replace('/login');
       return;
     }
-    router.replace(getDashboardPathForUser(user));
+    router.replace(getPostAuthPathForUser(user));
   }, [isLoading, router, user]);
 
   return (

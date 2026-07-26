@@ -58,22 +58,44 @@ import {
 } from '../../lib/workflows/userProvisioningWorkflow';
 
 const PEOPLE_STATUS_LABELS = {
+  INVITED: 'Temporary Credentials Issued',
+  FIRST_LOGIN: 'First Login Completed',
+  ONBOARDING_IN_PROGRESS: 'Onboarding In Progress',
+  ONBOARDING_COMPLETED: 'Onboarding Completed',
+  UNDER_REVIEW: 'Under Admin Review',
+  APPROVED: 'Approved',
+  PASSWORD_CHANGE_REQUIRED: 'Permanent Password Required',
   ACTIVE: 'Active',
   PENDING_PROFILE: 'Pending Profile Setup',
   PENDING_VERIFICATION: 'Pending Credential Setup',
   INACTIVE: 'Inactive',
+  REJECTED: 'Rejected',
+  ON_HOLD: 'On Hold',
   LOCKED: 'Locked',
   SUSPENDED: 'Suspended',
+  EXPIRED: 'Expired',
+  DEACTIVATED: 'Deactivated',
   DELETED: 'Deleted',
 };
 
 const PEOPLE_STATUS_TONES = {
+  INVITED: 'amber',
+  FIRST_LOGIN: 'blue',
+  ONBOARDING_IN_PROGRESS: 'blue',
+  ONBOARDING_COMPLETED: 'green',
+  UNDER_REVIEW: 'amber',
+  APPROVED: 'green',
+  PASSWORD_CHANGE_REQUIRED: 'amber',
   ACTIVE: 'green',
   PENDING_PROFILE: 'amber',
   PENDING_VERIFICATION: 'amber',
   INACTIVE: 'red',
+  REJECTED: 'red',
+  ON_HOLD: 'amber',
   LOCKED: 'red',
   SUSPENDED: 'red',
+  EXPIRED: 'red',
+  DEACTIVATED: 'red',
   DELETED: 'red',
 };
 
@@ -1177,11 +1199,22 @@ export function PeopleAccessModule({
                   className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600 outline-none"
                 >
                   <option value="">All statuses</option>
+                  <option value="INVITED">Temporary credentials issued</option>
+                  <option value="FIRST_LOGIN">First login completed</option>
+                  <option value="ONBOARDING_IN_PROGRESS">Onboarding in progress</option>
+                  <option value="ONBOARDING_COMPLETED">Onboarding completed</option>
+                  <option value="UNDER_REVIEW">Under admin review</option>
+                  <option value="APPROVED">Approved</option>
+                  <option value="PASSWORD_CHANGE_REQUIRED">Permanent password required</option>
                   <option value="ACTIVE">Active</option>
                   <option value="PENDING_PROFILE">Pending profile setup</option>
                   <option value="INACTIVE">Inactive</option>
+                  <option value="REJECTED">Rejected</option>
+                  <option value="ON_HOLD">On hold</option>
                   <option value="LOCKED">Locked</option>
                   <option value="SUSPENDED">Suspended</option>
+                  <option value="EXPIRED">Expired</option>
+                  <option value="DEACTIVATED">Deactivated</option>
                 </select>
                 <select
                   value={activeFilterVerification}
@@ -1914,11 +1947,22 @@ export function PeopleAccessModule({
               </select>
               <select value={activeFilterStatus} onChange={(event) => applyFilters({ status: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
                 <option value="">All statuses</option>
+                <option value="INVITED">Temporary credentials issued</option>
+                <option value="FIRST_LOGIN">First login completed</option>
+                <option value="ONBOARDING_IN_PROGRESS">Onboarding in progress</option>
+                <option value="ONBOARDING_COMPLETED">Onboarding completed</option>
+                <option value="UNDER_REVIEW">Under admin review</option>
+                <option value="APPROVED">Approved</option>
+                <option value="PASSWORD_CHANGE_REQUIRED">Permanent password required</option>
                 <option value="ACTIVE">Active</option>
                 <option value="PENDING_PROFILE">Pending profile setup</option>
                 <option value="INACTIVE">Inactive</option>
+                <option value="REJECTED">Rejected</option>
+                <option value="ON_HOLD">On hold</option>
                 <option value="LOCKED">Locked</option>
                 <option value="SUSPENDED">Suspended</option>
+                <option value="EXPIRED">Expired</option>
+                <option value="DEACTIVATED">Deactivated</option>
               </select>
               <select value={activeFilterVerification} onChange={(event) => applyFilters({ verification: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
                 <option value="">All verification</option>

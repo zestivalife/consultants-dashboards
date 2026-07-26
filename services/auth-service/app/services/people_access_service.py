@@ -71,18 +71,37 @@ from app.schemas.people_access import (
     ServiceCatalogItem,
 )
 from app.services.password_service import password_service
+from app.services.iam_lifecycle import (
+    CREDENTIAL_TEMPORARY,
+    INACTIVE_STATUSES,
+    STATUS_ACTIVE,
+    STATUS_INVITED,
+    STATUS_PASSWORD_CHANGE_REQUIRED,
+    temporary_password_expiry,
+)
 from app.services.user_service import CreateUserCommand, user_service
 
 
 logger = get_logger(__name__)
 
 MANAGEABLE_STATUSES = {
+    "INVITED",
+    "FIRST_LOGIN",
+    "ONBOARDING_IN_PROGRESS",
+    "ONBOARDING_COMPLETED",
+    "UNDER_REVIEW",
+    "APPROVED",
+    "PASSWORD_CHANGE_REQUIRED",
     "PENDING_VERIFICATION",
     "PENDING_PROFILE",
     "ACTIVE",
     "INACTIVE",
+    "REJECTED",
+    "ON_HOLD",
     "LOCKED",
     "SUSPENDED",
+    "EXPIRED",
+    "DEACTIVATED",
     "DELETED",
 }
 PROTECTED_PLATFORM_OWNER_ROLES = {"platform_owner", "superuser"}
@@ -108,7 +127,7 @@ def _display_name(user: User | None) -> str:
 
 
 def _normalize_status(status: str | None) -> str:
-    normalized = (status or "ACTIVE").strip().upper()
+    normalized = (status or STATUS_ACTIVE).strip().upper()
     if normalized not in MANAGEABLE_STATUSES:
         raise ForbiddenException(f"Unsupported user status '{status}'")
     return normalized
@@ -619,9 +638,10 @@ async def create_user(
         if department is None:
             raise NotFoundException("Department not found")
 
-    # Administrator-driven provisioning always creates an active account with a
-    # temporary password. Lifecycle changes belong to explicit update/bulk flows.
-    status = "ACTIVE"
+    # Administrator-driven provisioning creates an authenticatable but
+    # dashboard-ineligible account. The user must complete the IAM lifecycle
+    # before becoming ACTIVE.
+    status = STATUS_INVITED
     created = await user_service.create_user(
         session,
         CreateUserCommand(
@@ -637,7 +657,7 @@ async def create_user(
             is_verified=True,
             actor_user_id=actor.id,
             audit_event_type="PEOPLE_ACCESS_USER_CREATED",
-            must_change_password=True,
+            must_change_password=False,
         ),
     )
     user = created.user
@@ -698,7 +718,13 @@ async def create_user(
                 "email": user.email,
                 "role": role.name,
                 "status": status,
-                "must_change_password": True,
+                "must_change_password": False,
+                "credential_status": CREDENTIAL_TEMPORARY,
+                "temporary_password_expires_at": (
+                    user.temporary_password_expires_at.isoformat()
+                    if user.temporary_password_expires_at
+                    else None
+                ),
                 "temporary_password_returned_once": True,
             },
             ip_address=ip_address,
@@ -726,7 +752,8 @@ async def create_user(
         temporary_credentials=TemporaryCredentialResponse(
             username=user.email,
             temporary_password=created.plain_password,
-            must_change_password=True,
+            must_change_password=False,
+            expires_at=user.temporary_password_expires_at,
         ),
     )
 
@@ -771,7 +798,7 @@ async def update_user(
         if user.status != next_status:
             previous_status = user.status
             user.status = next_status
-            user.is_active = next_status not in {"INACTIVE", "SUSPENDED", "DELETED"}
+            user.is_active = next_status not in INACTIVE_STATUSES
             await repo.add_status_history(
                 UserStatusHistory(
                     user_id=user.id,
@@ -881,14 +908,24 @@ async def reset_user_password(
         raise NotFoundException("User not found")
 
     temporary_password = password_service.generate_temporary_password()
+    now = datetime.now(timezone.utc)
     is_platform_owner = _is_platform_owner(user)
     user.password_hash = password_service.hash_password(temporary_password)
     user.must_change_password = True
     user.password_changed_at = None
+    user.credential_status = CREDENTIAL_TEMPORARY
+    user.temporary_password_created_at = now
+    user.temporary_password_expires_at = temporary_password_expiry(now)
+    user.temporary_password_consumed_at = None
     user.failed_login_attempts = 0
     user.lock_until = None
     if is_platform_owner:
         user.status = "ACTIVE"
+        user.is_active = True
+        user.is_verified = True
+        user.email_verified = True
+    elif str(user.status or "").upper() not in INACTIVE_STATUSES:
+        user.status = STATUS_PASSWORD_CHANGE_REQUIRED
         user.is_active = True
         user.is_verified = True
         user.email_verified = True
@@ -914,6 +951,8 @@ async def reset_user_password(
             after_state={
                 "email": user.email,
                 "must_change_password": True,
+                "credential_status": CREDENTIAL_TEMPORARY,
+                "temporary_password_expires_at": user.temporary_password_expires_at.isoformat(),
                 "temporary_password_returned_once": True,
             },
             ip_address=ip_address,
@@ -926,6 +965,7 @@ async def reset_user_password(
         username=user.email,
         temporary_password=temporary_password,
         must_change_password=True,
+        expires_at=user.temporary_password_expires_at,
     )
 
 
@@ -1428,7 +1468,7 @@ async def bulk_action(
             }[normalized_action]
             previous_status = user.status
             user.status = next_status
-            user.is_active = next_status not in {"INACTIVE", "SUSPENDED", "DELETED"}
+            user.is_active = next_status not in INACTIVE_STATUSES
             await repo.add_status_history(
                 UserStatusHistory(
                     user_id=user.id,

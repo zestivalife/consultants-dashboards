@@ -124,9 +124,8 @@ function getWorkspaceFromProfile(user) {
 }
 
 function fallbackWorkspaceFromAccess(user) {
-  const profile = getAccessProfile(user);
-  const roleKey = getRoleKey(profile?.role || user?.role);
-  const hasProduct = Boolean(profile?.active_product || profile?.activeProduct);
+  const roleKey = getRoleKey(getAccessProfile(user)?.role || user?.role);
+  const hasProduct = Boolean(getAccessProfile(user)?.active_product || getAccessProfile(user)?.activeProduct);
 
   if (hasAnyPermission(user, WORKSPACE_POLICIES.platformOperations.permissionsAny)) {
     return WORKSPACE_POLICIES.platformOperations;
@@ -154,6 +153,45 @@ export function resolveUserWorkspace(user) {
 export function getDashboardPathForUser(user, fallback = '/dashboard/team-member') {
   if (!user) return fallback;
   return resolveUserWorkspace(user)?.landingPage || fallback;
+}
+
+export function getAccountActionRoute(user) {
+  if (!user) return null;
+  const action = user.next_action || user.nextAction;
+  const actionRoute = action?.route;
+  const actionType = String(action?.type || '').toUpperCase();
+
+  if (actionRoute && actionType && actionType !== 'DASHBOARD') {
+    return actionRoute;
+  }
+
+  if (user.must_change_password) {
+    return '/auth/change-temporary-password';
+  }
+
+  const status = String(user.status || 'ACTIVE').trim().toUpperCase();
+  if (['INVITED', 'FIRST_LOGIN', 'ONBOARDING_IN_PROGRESS', 'PENDING_PROFILE'].includes(status)) {
+    return '/profile';
+  }
+  if (['ONBOARDING_COMPLETED', 'UNDER_REVIEW'].includes(status)) {
+    return '/profile';
+  }
+  if (['APPROVED', 'PASSWORD_CHANGE_REQUIRED'].includes(status)) {
+    return '/auth/change-temporary-password';
+  }
+  if (status && status !== 'ACTIVE') {
+    return '/unauthorized';
+  }
+  return null;
+}
+
+export function getPostAuthPathForUser(user, fallback = '/dashboard/team-member') {
+  return getAccountActionRoute(user) || getDashboardPathForUser(user, fallback);
+}
+
+export function isDashboardEligible(user) {
+  const status = String(user?.status || 'ACTIVE').trim().toUpperCase();
+  return status === 'ACTIVE' && !getAccountActionRoute(user);
 }
 
 // Legacy fallback only. New code should pass the authenticated user to
