@@ -20,6 +20,7 @@ from app.core.security import (
     generate_refresh_token,
     hash_token,
 )
+from app.db.models.owner_access import UserStatusHistory
 from app.db.models.refresh_token import RefreshToken
 from app.db.models.user import PasswordHistory, User
 from app.repositories.audit_log_repository import AuditLogRepository
@@ -39,6 +40,21 @@ from app.schemas.auth import (
 )
 from app.services.password_service import password_service
 from app.services import people_access_service
+from app.services.iam_lifecycle import (
+    AUTHENTICATABLE_STATUSES,
+    CREDENTIAL_PERMANENT,
+    CREDENTIAL_TEMPORARY,
+    DASHBOARD_ELIGIBLE_STATUSES,
+    STATUS_ACTIVE,
+    STATUS_APPROVED,
+    STATUS_EXPIRED,
+    STATUS_FIRST_LOGIN,
+    STATUS_INVITED,
+    STATUS_PASSWORD_CHANGE_REQUIRED,
+    is_temporary_password_expired,
+    next_action_for_user,
+    normalize_status,
+)
 
 logger = get_logger(__name__)
 
@@ -115,10 +131,15 @@ def _resolve_workspace(
         )
 
     if active_product is not None or permission_set & CARE_DELIVERY_PERMISSIONS:
+        landing_page = "/dashboard/provider"
+        if role_key == "practitioner":
+            landing_page = "/dashboard/practitioner"
+        elif role_key == "senior_consultant":
+            landing_page = "/dashboard/senior-consultant"
         return AccessWorkspace(
             id="care-delivery",
             label="Care Delivery",
-            landing_page="/dashboard/provider",
+            landing_page=landing_page,
             required_permissions=sorted(permission_set & CARE_DELIVERY_PERMISSIONS),
         )
 
@@ -189,11 +210,14 @@ async def _user_response(
     permissions: list[str] | None = None,
 ) -> UserResponse:
     permission_list = permissions if permissions is not None else (user.permissions or [])
+    next_action = next_action_for_user(user)
     return UserResponse(
         id=user.id,
         email=user.email,
         is_active=user.is_active,
         is_verified=user.is_verified,
+        status=normalize_status(user.status),
+        credential_status=getattr(user, "credential_status", CREDENTIAL_PERMANENT) or CREDENTIAL_PERMANENT,
         role=user.role.name if user.role else "member",
         company_name=user.company_name,
         company_id=user.company_id,
@@ -203,6 +227,12 @@ async def _user_response(
         permissions=permission_list,
         access_profile=await _access_profile(session, user, permission_list),
         must_change_password=user.must_change_password,
+        temporary_password_expires_at=getattr(user, "temporary_password_expires_at", None),
+        next_action={
+            "type": next_action.type,
+            "route": next_action.route,
+            "reason": next_action.reason,
+        },
         created_at=user.created_at,
     )
 
@@ -213,6 +243,8 @@ def _build_tokens(user: User, raw_refresh: str, permissions: list[str] | None = 
         subject=str(user.id),
         extra_claims={
             "role": user.role.name if user.role else "member",
+            "status": normalize_status(user.status),
+            "credential_status": getattr(user, "credential_status", CREDENTIAL_PERMANENT) or CREDENTIAL_PERMANENT,
             "permissions": permissions if permissions is not None else (user.permissions or []),
         },
     )
@@ -230,6 +262,17 @@ def _ensure_authenticatable_user(user: User, *, now: datetime | None = None) -> 
     if user.deleted_at is not None or status == "DELETED":
         logger.warning("auth_blocked_deleted", email=user.email, user_id=str(user.id))
         raise ForbiddenException("Account is deleted. Please contact support.")
+
+    if status not in AUTHENTICATABLE_STATUSES:
+        logger.warning("auth_blocked_status", email=user.email, user_id=str(user.id), status=status)
+        raise ForbiddenException(f"Account status {status} is not allowed to sign in.")
+
+    if (
+        getattr(user, "credential_status", CREDENTIAL_PERMANENT) == CREDENTIAL_TEMPORARY
+        and is_temporary_password_expired(user, current_time)
+    ):
+        logger.warning("auth_blocked_temporary_password_expired", email=user.email, user_id=str(user.id))
+        raise ForbiddenException("Temporary password has expired. Please contact your administrator.")
 
     if user.lock_until and user.lock_until > current_time:
         remaining = int((user.lock_until - current_time).total_seconds())
@@ -277,6 +320,30 @@ async def login(
         )
         raise ForbiddenException("Account is deleted. Please contact support.")
 
+    if (
+        getattr(user, "credential_status", CREDENTIAL_PERMANENT) == CREDENTIAL_TEMPORARY
+        and is_temporary_password_expired(user, now)
+    ):
+        previous_status = normalize_status(user.status)
+        user.status = STATUS_EXPIRED
+        user.is_active = False
+        await user_repo.update(user)
+        session.add(
+            UserStatusHistory(
+                user_id=user.id,
+                previous_status=previous_status,
+                new_status=STATUS_EXPIRED,
+                reason="Temporary password expired before login",
+            )
+        )
+        await audit_repo.create(
+            "LOGIN_BLOCKED_TEMPORARY_PASSWORD_EXPIRED",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        raise ForbiddenException("Temporary password has expired. Please contact your administrator.")
+
     if user.lock_until and user.lock_until > now:
         await audit_repo.create(
             "LOGIN_BLOCKED_LOCKED", user_id=user.id, ip_address=ip_address, user_agent=user_agent,
@@ -307,7 +374,25 @@ async def login(
     user.lock_until = None
     user.last_login_at = now
     user.last_login = now
+    previous_status = normalize_status(user.status)
+    if previous_status == STATUS_INVITED:
+        user.status = STATUS_FIRST_LOGIN
     await user_repo.update(user)
+    if previous_status == STATUS_INVITED:
+        session.add(
+            UserStatusHistory(
+                user_id=user.id,
+                previous_status=previous_status,
+                new_status=STATUS_FIRST_LOGIN,
+                reason="First successful login with temporary password",
+            )
+        )
+        await audit_repo.create(
+            "ACCOUNT_FIRST_LOGIN",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
 
     # ── Enforce email verification ─────────────────────────────────
     if not user.is_verified:
@@ -479,7 +564,11 @@ async def change_password(
         raise NotFoundException("User not found")
 
     _ensure_authenticatable_user(user)
-    if temporary_only and not user.must_change_password:
+    current_status = normalize_status(user.status)
+    if temporary_only and not user.must_change_password and current_status not in {
+        STATUS_APPROVED,
+        STATUS_PASSWORD_CHANGE_REQUIRED,
+    }:
         raise ConflictException("Temporary password change is not required for this account")
 
     if not password_service.verify_password(current_password, user.password_hash):
@@ -518,8 +607,13 @@ async def change_password(
     user.password_hash = new_hash
     user.password_changed_at = now
     user.must_change_password = False
+    user.credential_status = CREDENTIAL_PERMANENT
+    user.temporary_password_consumed_at = now
+    user.temporary_password_expires_at = None
     user.failed_login_attempts = 0
     user.lock_until = None
+    if temporary_only and current_status in {STATUS_APPROVED, STATUS_PASSWORD_CHANGE_REQUIRED}:
+        user.status = STATUS_ACTIVE
     await user_repo.update(user)
     session.add(
         PasswordHistory(

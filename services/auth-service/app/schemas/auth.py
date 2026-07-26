@@ -59,11 +59,19 @@ class AccessProfile(BaseModel):
     workspace: AccessWorkspace
 
 
+class NextAccountAction(BaseModel):
+    type: str
+    route: str
+    reason: str
+
+
 class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
     is_active: bool
     is_verified: bool
+    status: str = "ACTIVE"
+    credential_status: str = "PERMANENT"
     role: str
     company_name: str | None = None
     company_id: uuid.UUID | None = None
@@ -73,6 +81,8 @@ class UserResponse(BaseModel):
     permissions: list[str] = Field(default_factory=list)
     access_profile: AccessProfile | None = None
     must_change_password: bool = False
+    temporary_password_expires_at: datetime | None = None
+    next_action: NextAccountAction | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

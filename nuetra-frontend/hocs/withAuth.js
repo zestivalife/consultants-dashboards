@@ -8,7 +8,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../context/AuthContext';
-import { getDashboardPathForUser, getRoleKey, isAccessAllowed } from '../lib/roleRoutes';
+import { getAccountActionRoute, getPostAuthPathForUser, getRoleKey, isAccessAllowed } from '../lib/roleRoutes';
 
 function LoadingScreen() {
   return (
@@ -41,7 +41,7 @@ function UnauthorizedScreen({ role, user }) {
           Your workspace does not have the permissions required to view this page.
         </p>
         <button
-          onClick={() => router.replace(getDashboardPathForUser(user, '/dashboard'))}
+          onClick={() => router.replace(getPostAuthPathForUser(user, '/dashboard'))}
           className="w-full bg-[#237afc] hover:bg-[#1a5fc7] text-white font-semibold py-3 rounded-xl transition-colors"
         >
           Go to My Dashboard
@@ -59,6 +59,11 @@ export default function withAuth(WrappedComponent, accessPolicy = {}) {
     useEffect(() => {
       if (!isLoading && !user) {
         router.replace('/login');
+      } else if (!isLoading && user) {
+        const accountRoute = getAccountActionRoute(user);
+        if (accountRoute && router.pathname.startsWith('/dashboard')) {
+          router.replace(accountRoute);
+        }
       }
     }, [user, isLoading, router]);
 
@@ -66,6 +71,10 @@ export default function withAuth(WrappedComponent, accessPolicy = {}) {
     if (!user) return <RedirectScreen message="Redirecting to login…" />;
 
     const role = getRoleKey(user.role);
+    const accountRoute = getAccountActionRoute(user);
+    if (accountRoute && router.pathname.startsWith('/dashboard')) {
+      return <RedirectScreen message="Redirecting to your account setup…" />;
+    }
     const allowed = isAccessAllowed(user, accessPolicy);
 
     if (!allowed) return <UnauthorizedScreen role={role} user={user} />;

@@ -237,7 +237,8 @@ class UserProfileDetail(BaseModel):
 class TemporaryCredentialResponse(BaseModel):
     username: str
     temporary_password: str
-    must_change_password: bool = True
+    must_change_password: bool = False
+    expires_at: datetime | None = None
     message: str = "Copy this temporary password now. It will not be shown again."
 
 
@@ -250,6 +251,7 @@ class AdminPasswordResetResponse(BaseModel):
     username: str
     temporary_password: str
     must_change_password: bool = True
+    expires_at: datetime | None = None
     message: str = "Copy this temporary password now. It will not be shown again."
 
 
