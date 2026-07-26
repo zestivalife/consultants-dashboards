@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import Image from 'next/image';
 import { ArrowRight, KeyRound, Mail, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getDashboardPathForRole } from '../lib/roleRoutes';
+import { getPostAuthPathForUser } from '../lib/roleRoutes';
 import { SAMPLE_PASSWORD, getRoleDisplayName } from '../data/mockPlatformData';
 
 export default function LoginPage() {
@@ -14,7 +14,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!isLoading && user?.role) {
-      window.location.replace(getDashboardPathForRole(user.role));
+      window.location.replace(getPostAuthPathForUser(user));
     }
   }, [isLoading, user]);
 

@@ -20,35 +20,219 @@ from app.core.security import (
     generate_refresh_token,
     hash_token,
 )
+from app.db.models.owner_access import UserStatusHistory
 from app.db.models.refresh_token import RefreshToken
 from app.db.models.user import PasswordHistory, User
 from app.repositories.audit_log_repository import AuditLogRepository
+from app.repositories.people_access_repository import PeopleAccessRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.role_repository import RoleRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas.auth import LoginResponse, RoleResponse, TokenResponse, UserResponse
+from app.schemas.auth import (
+    AccessOrganization,
+    AccessProduct,
+    AccessProfile,
+    AccessWorkspace,
+    LoginResponse,
+    RoleResponse,
+    TokenResponse,
+    UserResponse,
+)
 from app.services.password_service import password_service
 from app.services import people_access_service
+from app.services.iam_lifecycle import (
+    AUTHENTICATABLE_STATUSES,
+    CREDENTIAL_PERMANENT,
+    CREDENTIAL_TEMPORARY,
+    DASHBOARD_ELIGIBLE_STATUSES,
+    STATUS_ACTIVE,
+    STATUS_APPROVED,
+    STATUS_EXPIRED,
+    STATUS_FIRST_LOGIN,
+    STATUS_INVITED,
+    STATUS_PASSWORD_CHANGE_REQUIRED,
+    is_temporary_password_expired,
+    next_action_for_user,
+    normalize_status,
+)
 
 logger = get_logger(__name__)
+
+PLATFORM_OPERATIONS_PERMISSIONS = {
+    "audit.view",
+    "notifications.manage",
+    "packages.manage",
+    "services.manage",
+    "settings.manage",
+    "subscriptions.manage",
+}
+ORGANIZATION_OPERATIONS_PERMISSIONS = {
+    "organizations.manage",
+    "users.create",
+    "users.edit",
+    "users.export",
+    "users.invite",
+}
+CARE_SUPERVISION_MARKERS = {"mentor", "team_lead"}
+CARE_DELIVERY_PERMISSIONS = {"reports.view", "users.read"}
 
 
 # ── helpers ───────────────────────────────────────────
 
-def _user_response(user: User, permissions: list[str] | None = None) -> UserResponse:
+
+def _normalize_key(value: object | None) -> str:
+    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _active_membership(user: User):
+    memberships = list(getattr(user, "organization_memberships", []) or [])
+    active = [item for item in memberships if _normalize_key(getattr(item, "status", "")) == "active"]
+    return (active or memberships or [None])[0]
+
+
+def _active_product_access(user: User):
+    product_access = list(getattr(user, "product_access", []) or [])
+    active = [item for item in product_access if _normalize_key(getattr(item, "status", "")) == "active"]
+    primary = [item for item in active if getattr(item, "is_primary", False)]
+    return (primary or active or product_access or [None])[0]
+
+
+def _resolve_workspace(
+    *,
+    role: str,
+    permissions: list[str],
+    active_product: AccessProduct | None,
+) -> AccessWorkspace:
+    permission_set = {permission for permission in permissions if permission}
+    role_key = _normalize_key(role)
+
+    if permission_set & PLATFORM_OPERATIONS_PERMISSIONS:
+        return AccessWorkspace(
+            id="platform-operations",
+            label="Platform Operations",
+            landing_page="/dashboard/owner",
+            required_permissions=sorted(permission_set & PLATFORM_OPERATIONS_PERMISSIONS),
+        )
+
+    if permission_set & ORGANIZATION_OPERATIONS_PERMISSIONS:
+        return AccessWorkspace(
+            id="organization-operations",
+            label="Organization Operations",
+            landing_page="/dashboard/corporate-admin",
+            required_permissions=sorted(permission_set & ORGANIZATION_OPERATIONS_PERMISSIONS),
+        )
+
+    if role_key in CARE_SUPERVISION_MARKERS:
+        return AccessWorkspace(
+            id="care-supervision",
+            label="Care Supervision",
+            landing_page="/dashboard/team-lead",
+            required_permissions=sorted(permission_set & CARE_DELIVERY_PERMISSIONS),
+        )
+
+    if active_product is not None or permission_set & CARE_DELIVERY_PERMISSIONS:
+        landing_page = "/dashboard/provider"
+        if role_key == "practitioner":
+            landing_page = "/dashboard/practitioner"
+        elif role_key == "senior_consultant":
+            landing_page = "/dashboard/senior-consultant"
+        return AccessWorkspace(
+            id="care-delivery",
+            label="Care Delivery",
+            landing_page=landing_page,
+            required_permissions=sorted(permission_set & CARE_DELIVERY_PERMISSIONS),
+        )
+
+    return AccessWorkspace(
+        id="member-workspace",
+        label="Member Workspace",
+        landing_page="/dashboard/team-member",
+        required_permissions=[],
+    )
+
+
+async def _access_profile(
+    session: AsyncSession,
+    user: User,
+    permissions: list[str],
+) -> AccessProfile:
+    detail = await PeopleAccessRepository(session).get_user_detail(user.id)
+    access_user = detail or user
+    membership = _active_membership(access_user)
+    product_access = _active_product_access(access_user)
+
+    active_organization = None
+    if membership is not None and getattr(membership, "organization", None) is not None:
+        active_organization = AccessOrganization(
+            id=membership.organization_id,
+            name=membership.organization.name,
+            department_id=getattr(membership, "department_id", None),
+            department=getattr(getattr(membership, "department", None), "name", None),
+            status=getattr(membership, "status", "ACTIVE"),
+        )
+
+    active_product = None
+    if product_access is not None and getattr(product_access, "product", None) is not None:
+        product_role = getattr(product_access, "role", None)
+        active_product = AccessProduct(
+            id=product_access.product_id,
+            name=product_access.product.name,
+            role=getattr(product_role, "name", None),
+            status=getattr(product_access, "status", "ACTIVE"),
+            is_primary=bool(getattr(product_access, "is_primary", False)),
+        )
+
+    role_name = (
+        getattr(getattr(product_access, "role", None), "name", None)
+        or getattr(getattr(access_user, "role", None), "name", None)
+        or "member"
+    )
+    capabilities = sorted(set(permissions or []) | set(getattr(product_access, "permissions", []) or []))
+    workspace = _resolve_workspace(
+        role=role_name,
+        permissions=capabilities,
+        active_product=active_product,
+    )
+    return AccessProfile(
+        persona=workspace.id,
+        role=role_name,
+        permissions=permissions or [],
+        capabilities=capabilities,
+        active_organization=active_organization,
+        active_product=active_product,
+        workspace=workspace,
+    )
+
+
+async def _user_response(
+    session: AsyncSession,
+    user: User,
+    permissions: list[str] | None = None,
+) -> UserResponse:
+    permission_list = permissions if permissions is not None else (user.permissions or [])
+    next_action = next_action_for_user(user)
     return UserResponse(
         id=user.id,
         email=user.email,
         is_active=user.is_active,
         is_verified=user.is_verified,
+        status=normalize_status(user.status),
+        credential_status=getattr(user, "credential_status", CREDENTIAL_PERMANENT) or CREDENTIAL_PERMANENT,
         role=user.role.name if user.role else "member",
         company_name=user.company_name,
         company_id=user.company_id,
         first_name=user.first_name,
         last_name=user.last_name,
         phone=user.phone,
-        permissions=permissions if permissions is not None else (user.permissions or []),
+        permissions=permission_list,
+        access_profile=await _access_profile(session, user, permission_list),
         must_change_password=user.must_change_password,
+        temporary_password_expires_at=getattr(user, "temporary_password_expires_at", None),
+        next_action={
+            "type": next_action.type,
+            "route": next_action.route,
+            "reason": next_action.reason,
+        },
         created_at=user.created_at,
     )
 
@@ -59,6 +243,8 @@ def _build_tokens(user: User, raw_refresh: str, permissions: list[str] | None = 
         subject=str(user.id),
         extra_claims={
             "role": user.role.name if user.role else "member",
+            "status": normalize_status(user.status),
+            "credential_status": getattr(user, "credential_status", CREDENTIAL_PERMANENT) or CREDENTIAL_PERMANENT,
             "permissions": permissions if permissions is not None else (user.permissions or []),
         },
     )
@@ -76,6 +262,17 @@ def _ensure_authenticatable_user(user: User, *, now: datetime | None = None) -> 
     if user.deleted_at is not None or status == "DELETED":
         logger.warning("auth_blocked_deleted", email=user.email, user_id=str(user.id))
         raise ForbiddenException("Account is deleted. Please contact support.")
+
+    if status not in AUTHENTICATABLE_STATUSES:
+        logger.warning("auth_blocked_status", email=user.email, user_id=str(user.id), status=status)
+        raise ForbiddenException(f"Account status {status} is not allowed to sign in.")
+
+    if (
+        getattr(user, "credential_status", CREDENTIAL_PERMANENT) == CREDENTIAL_TEMPORARY
+        and is_temporary_password_expired(user, current_time)
+    ):
+        logger.warning("auth_blocked_temporary_password_expired", email=user.email, user_id=str(user.id))
+        raise ForbiddenException("Temporary password has expired. Please contact your administrator.")
 
     if user.lock_until and user.lock_until > current_time:
         remaining = int((user.lock_until - current_time).total_seconds())
@@ -123,6 +320,30 @@ async def login(
         )
         raise ForbiddenException("Account is deleted. Please contact support.")
 
+    if (
+        getattr(user, "credential_status", CREDENTIAL_PERMANENT) == CREDENTIAL_TEMPORARY
+        and is_temporary_password_expired(user, now)
+    ):
+        previous_status = normalize_status(user.status)
+        user.status = STATUS_EXPIRED
+        user.is_active = False
+        await user_repo.update(user)
+        session.add(
+            UserStatusHistory(
+                user_id=user.id,
+                previous_status=previous_status,
+                new_status=STATUS_EXPIRED,
+                reason="Temporary password expired before login",
+            )
+        )
+        await audit_repo.create(
+            "LOGIN_BLOCKED_TEMPORARY_PASSWORD_EXPIRED",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        raise ForbiddenException("Temporary password has expired. Please contact your administrator.")
+
     if user.lock_until and user.lock_until > now:
         await audit_repo.create(
             "LOGIN_BLOCKED_LOCKED", user_id=user.id, ip_address=ip_address, user_agent=user_agent,
@@ -153,7 +374,25 @@ async def login(
     user.lock_until = None
     user.last_login_at = now
     user.last_login = now
+    previous_status = normalize_status(user.status)
+    if previous_status == STATUS_INVITED:
+        user.status = STATUS_FIRST_LOGIN
     await user_repo.update(user)
+    if previous_status == STATUS_INVITED:
+        session.add(
+            UserStatusHistory(
+                user_id=user.id,
+                previous_status=previous_status,
+                new_status=STATUS_FIRST_LOGIN,
+                reason="First successful login with temporary password",
+            )
+        )
+        await audit_repo.create(
+            "ACCOUNT_FIRST_LOGIN",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
 
     # ── Enforce email verification ─────────────────────────────────
     if not user.is_verified:
@@ -183,7 +422,7 @@ async def login(
 
     permission_claims = await people_access_service.resolve_user_permissions(session, user)
     tokens = _build_tokens(user, raw_refresh, permission_claims)
-    user_data = _user_response(user, permission_claims)
+    user_data = await _user_response(session, user, permission_claims)
 
     logger.info("user_logged_in", user_id=str(user.id))
     return LoginResponse(tokens=tokens, user=user_data)
@@ -325,7 +564,11 @@ async def change_password(
         raise NotFoundException("User not found")
 
     _ensure_authenticatable_user(user)
-    if temporary_only and not user.must_change_password:
+    current_status = normalize_status(user.status)
+    if temporary_only and not user.must_change_password and current_status not in {
+        STATUS_APPROVED,
+        STATUS_PASSWORD_CHANGE_REQUIRED,
+    }:
         raise ConflictException("Temporary password change is not required for this account")
 
     if not password_service.verify_password(current_password, user.password_hash):
@@ -364,8 +607,13 @@ async def change_password(
     user.password_hash = new_hash
     user.password_changed_at = now
     user.must_change_password = False
+    user.credential_status = CREDENTIAL_PERMANENT
+    user.temporary_password_consumed_at = now
+    user.temporary_password_expires_at = None
     user.failed_login_attempts = 0
     user.lock_until = None
+    if temporary_only and current_status in {STATUS_APPROVED, STATUS_PASSWORD_CHANGE_REQUIRED}:
+        user.status = STATUS_ACTIVE
     await user_repo.update(user)
     session.add(
         PasswordHistory(
@@ -404,7 +652,7 @@ async def change_password(
     permissions = await people_access_service.resolve_user_permissions(session, user)
     return LoginResponse(
         tokens=_build_tokens(user, raw_refresh, permissions),
-        user=_user_response(user, permissions),
+        user=await _user_response(session, user, permissions),
     )
 
 
@@ -415,7 +663,7 @@ async def get_current_user(session: AsyncSession, user_id: uuid.UUID) -> UserRes
         raise NotFoundException("User not found")
     _ensure_authenticatable_user(user)
     permissions = await people_access_service.resolve_user_permissions(session, user)
-    return _user_response(user, permissions)
+    return await _user_response(session, user, permissions)
 
 
 async def list_roles(session: AsyncSession) -> list[RoleResponse]:

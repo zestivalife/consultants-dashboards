@@ -118,17 +118,22 @@ async def test_create_user_generates_temporary_credentials_and_primary_role(sess
 
     assert detail.email == "consultant@nuetra.in"
     assert detail.role == "consultant"
-    assert detail.status == "ACTIVE"
-    assert detail.must_change_password is True
+    assert detail.status == "INVITED"
+    assert detail.must_change_password is False
     assert detail.temporary_credentials.username == "consultant@nuetra.in"
     assert detail.temporary_credentials.temporary_password
+    assert detail.temporary_credentials.must_change_password is False
+    assert detail.temporary_credentials.expires_at is not None
 
     created_user = await session.scalar(select(User).where(User.email == "consultant@nuetra.in"))
     assert created_user is not None
-    assert created_user.status == "ACTIVE"
+    assert created_user.status == "INVITED"
     assert created_user.is_active is True
     assert created_user.is_verified is True
-    assert created_user.must_change_password is True
+    assert created_user.must_change_password is False
+    assert created_user.credential_status == "TEMPORARY"
+    assert created_user.temporary_password_created_at is not None
+    assert created_user.temporary_password_expires_at is not None
     assert password_service.verify_password(detail.temporary_credentials.temporary_password, created_user.password_hash)
 
     password_history = await session.scalar(
@@ -150,7 +155,7 @@ async def test_create_user_generates_temporary_credentials_and_primary_role(sess
         select(UserStatusHistory).where(UserStatusHistory.user_id == created_user.id)
     )
     assert status_history is not None
-    assert status_history.new_status == "ACTIVE"
+    assert status_history.new_status == "INVITED"
 
     audit_event = await session.scalar(
         select(AuditEvent).where(
@@ -200,7 +205,7 @@ async def test_create_tenant_user_never_mutates_platform_owner_lifecycle(session
 
 
 @pytest.mark.asyncio
-async def test_create_user_forces_active_temporary_credential_lifecycle(session: AsyncSession):
+async def test_create_user_uses_invited_temporary_credential_lifecycle(session: AsyncSession):
     owner_role = await _create_role(session, "platform_owner")
     practitioner_role = await _create_role(session, "practitioner")
     owner = await _create_user(session, owner_role, "owner@zestiva.in")
@@ -223,15 +228,18 @@ async def test_create_user_forces_active_temporary_credential_lifecycle(session:
 
     created_user = await session.scalar(select(User).where(User.email == "practitioner@zestiva.in"))
     assert created_user is not None
-    assert detail.status == "ACTIVE"
+    assert detail.status == "INVITED"
     assert detail.role == "practitioner"
     assert detail.temporary_credentials.temporary_password
+    assert detail.temporary_credentials.expires_at is not None
     assert practitioner_role.id == created_user.role_id
-    assert created_user.status == "ACTIVE"
+    assert created_user.status == "INVITED"
     assert created_user.is_active is True
     assert created_user.is_verified is True
     assert created_user.email_verified is True
-    assert created_user.must_change_password is True
+    assert created_user.must_change_password is False
+    assert created_user.credential_status == "TEMPORARY"
+    assert created_user.temporary_password_expires_at is not None
 
 
 @pytest.mark.asyncio
@@ -306,12 +314,15 @@ async def test_platform_owner_password_reset_preserves_lifecycle_invariants(sess
 
     assert result.username == owner.email
     assert result.must_change_password is True
+    assert result.expires_at is not None
     assert password_service.verify_password(result.temporary_password, owner.password_hash)
     assert owner.status == "ACTIVE"
     assert owner.is_active is True
     assert owner.is_verified is True
     assert owner.email_verified is True
     assert owner.must_change_password is True
+    assert owner.credential_status == "TEMPORARY"
+    assert owner.temporary_password_expires_at is not None
 
 
 @pytest.mark.asyncio
@@ -354,7 +365,11 @@ async def test_reset_user_password_returns_new_temporary_password_and_audits(ses
     assert result.username == mentor.email
     assert result.temporary_password
     assert result.must_change_password is True
+    assert result.expires_at is not None
     assert mentor.must_change_password is True
+    assert mentor.status == "PASSWORD_CHANGE_REQUIRED"
+    assert mentor.credential_status == "TEMPORARY"
+    assert mentor.temporary_password_expires_at is not None
     assert mentor.password_hash != original_hash
     assert password_service.verify_password(result.temporary_password, mentor.password_hash)
 

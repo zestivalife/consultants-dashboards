@@ -90,8 +90,10 @@ async def test_shared_user_service_generates_temporary_password(session: AsyncSe
     )
 
     assert created.is_temporary_password is True
-    assert created.user.status == "ACTIVE"
+    assert created.user.status == "INVITED"
     assert created.user.email_verified is True
-    assert created.user.must_change_password is True
+    assert created.user.must_change_password is False
+    assert created.user.credential_status == "TEMPORARY"
+    assert created.user.temporary_password_expires_at is not None
     assert created.user.password_changed_at is None
     assert password_service.verify_password(created.plain_password, created.user.password_hash)

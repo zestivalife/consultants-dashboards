@@ -2,13 +2,13 @@
  * withAuth — Higher-Order Component for role-based access control.
  *
  * Usage:
- *   export default withAuth(MyPage, ['corporate_client', 'corporate_admin']);
+ *   export default withAuth(MyPage, { permissionsAny: ['users.read'] });
  *   export default withAuth(MyPage); // any authenticated user
  */
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../context/AuthContext';
-import { getRoleKey } from '../lib/roleRoutes';
+import { getAccountActionRoute, getPostAuthPathForUser, getRoleKey, isAccessAllowed } from '../lib/roleRoutes';
 
 function LoadingScreen() {
   return (
@@ -28,7 +28,7 @@ function RedirectScreen({ message = 'Redirecting…' }) {
   );
 }
 
-function UnauthorizedScreen({ role }) {
+function UnauthorizedScreen({ role, user }) {
   const router = useRouter();
   return (
     <div className="min-h-screen bg-[#f4faff] flex flex-col items-center justify-center gap-4 p-8">
@@ -38,10 +38,10 @@ function UnauthorizedScreen({ role }) {
         </div>
         <h1 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h1>
         <p className="text-gray-500 text-sm mb-6">
-          Your role <strong>{role}</strong> does not have permission to view this page.
+          Your workspace does not have the permissions required to view this page.
         </p>
         <button
-          onClick={() => router.replace('/dashboard')}
+          onClick={() => router.replace(getPostAuthPathForUser(user, '/dashboard'))}
           className="w-full bg-[#237afc] hover:bg-[#1a5fc7] text-white font-semibold py-3 rounded-xl transition-colors"
         >
           Go to My Dashboard
@@ -51,7 +51,7 @@ function UnauthorizedScreen({ role }) {
   );
 }
 
-export default function withAuth(WrappedComponent, allowedRoles = []) {
+export default function withAuth(WrappedComponent, accessPolicy = {}) {
   function AuthGuard(props) {
     const router = useRouter();
     const { user, isLoading } = useAuth();
@@ -59,6 +59,11 @@ export default function withAuth(WrappedComponent, allowedRoles = []) {
     useEffect(() => {
       if (!isLoading && !user) {
         router.replace('/login');
+      } else if (!isLoading && user) {
+        const accountRoute = getAccountActionRoute(user);
+        if (accountRoute && router.pathname.startsWith('/dashboard')) {
+          router.replace(accountRoute);
+        }
       }
     }, [user, isLoading, router]);
 
@@ -66,11 +71,13 @@ export default function withAuth(WrappedComponent, allowedRoles = []) {
     if (!user) return <RedirectScreen message="Redirecting to login…" />;
 
     const role = getRoleKey(user.role);
-    const allowed =
-      allowedRoles.length === 0 ||
-      allowedRoles.map((r) => r.toLowerCase()).includes(role);
+    const accountRoute = getAccountActionRoute(user);
+    if (accountRoute && router.pathname.startsWith('/dashboard')) {
+      return <RedirectScreen message="Redirecting to your account setup…" />;
+    }
+    const allowed = isAccessAllowed(user, accessPolicy);
 
-    if (!allowed) return <UnauthorizedScreen role={user.role} />;
+    if (!allowed) return <UnauthorizedScreen role={role} user={user} />;
 
     return <WrappedComponent {...props} />;
   }

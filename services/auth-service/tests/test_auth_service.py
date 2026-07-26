@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ForbiddenException, NotFoundException, UnauthorizedException
 from app.core.security import hash_password, verify_password
 from app.db.models.audit_log import AuthAuditLog
+from app.db.models.owner_access import Organization, OrganizationMembership, Product, UserProductAccess
 from app.db.models.refresh_token import RefreshToken
 from app.db.models.role import Role
 from app.db.models.user import User
@@ -31,6 +32,9 @@ async def _create_role_user(
     is_active: bool = True,
     is_verified: bool = True,
     status: str = "ACTIVE",
+    must_change_password: bool = False,
+    credential_status: str = "PERMANENT",
+    temporary_password_expires_at=None,
     lock_until=None,
     deleted_at=None,
 ) -> User:
@@ -43,6 +47,9 @@ async def _create_role_user(
         is_active=is_active,
         is_verified=is_verified,
         status=status,
+        must_change_password=must_change_password,
+        credential_status=credential_status,
+        temporary_password_expires_at=temporary_password_expires_at,
         lock_until=lock_until,
         deleted_at=deleted_at,
     )
@@ -187,6 +194,121 @@ async def test_auth_lifecycle_is_identical_for_every_role(session: AsyncSession,
     )
     with pytest.raises(UnauthorizedException, match="Invalid or expired refresh token"):
         await auth_service.refresh(session, second_tokens.refresh_token)
+
+
+@pytest.mark.asyncio
+async def test_login_resolves_workspace_from_people_access_context(session: AsyncSession):
+    user = await _create_role_user(
+        session,
+        "practitioner",
+        email="care.delivery@zestiva.test",
+    )
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Zestiva Test Organization",
+        status="ACTIVE",
+    )
+    product = Product(
+        id=uuid.uuid4(),
+        key="fiteatsy-test",
+        name="FitEatsy Test",
+        status="ACTIVE",
+    )
+    session.add_all([organization, product])
+    await session.flush()
+    session.add_all(
+        [
+            OrganizationMembership(
+                user_id=user.id,
+                organization_id=organization.id,
+                primary_product_id=product.id,
+                status="ACTIVE",
+                is_verified=True,
+            ),
+            UserProductAccess(
+                user_id=user.id,
+                product_id=product.id,
+                organization_id=organization.id,
+                role_id=user.role_id,
+                status="ACTIVE",
+                is_primary=True,
+                permissions=["reports.view", "users.read"],
+            ),
+        ]
+    )
+    await session.flush()
+
+    with _always_allow_rate():
+        login_result = await auth_service.login(
+            session,
+            user.email,
+            "Correct123!",
+            ip_address="127.0.0.1",
+            user_agent="pytest access profile",
+        )
+
+    access_profile = login_result.user.access_profile
+    assert access_profile is not None
+    assert access_profile.role == "practitioner"
+    assert access_profile.active_organization is not None
+    assert access_profile.active_organization.name == "Zestiva Test Organization"
+    assert access_profile.active_product is not None
+    assert access_profile.active_product.name == "FitEatsy Test"
+    assert access_profile.capabilities == ["reports.view", "users.read"]
+    assert access_profile.workspace.id == "care-delivery"
+    assert access_profile.workspace.landing_page == "/dashboard/practitioner"
+
+
+@pytest.mark.asyncio
+async def test_temporary_password_login_transitions_invited_user_to_first_login(session: AsyncSession):
+    user = await _create_role_user(
+        session,
+        "practitioner",
+        email="invited.practitioner@zestiva.test",
+        status="INVITED",
+        credential_status="TEMPORARY",
+        temporary_password_expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+
+    with _always_allow_rate():
+        login_result = await auth_service.login(
+            session,
+            user.email,
+            "Correct123!",
+            ip_address="127.0.0.1",
+            user_agent="pytest temporary lifecycle",
+        )
+
+    assert login_result.user.status == "FIRST_LOGIN"
+    assert login_result.user.credential_status == "TEMPORARY"
+    assert login_result.user.next_action.type == "ONBOARDING_REQUIRED"
+    assert login_result.user.next_action.route == "/profile"
+    assert user.status == "FIRST_LOGIN"
+
+
+@pytest.mark.asyncio
+async def test_expired_temporary_password_login_expires_user(session: AsyncSession):
+    user = await _create_role_user(
+        session,
+        "mentor",
+        email="expired.temporary@zestiva.test",
+        status="INVITED",
+        credential_status="TEMPORARY",
+        temporary_password_expires_at=datetime.now(timezone.utc) - timedelta(seconds=1),
+    )
+
+    with _always_allow_rate():
+        with pytest.raises(ForbiddenException, match="Temporary password has expired"):
+            await auth_service.login(
+                session,
+                user.email,
+                "Correct123!",
+                ip_address="127.0.0.1",
+                user_agent="pytest temporary expired",
+            )
+
+    assert user.status == "EXPIRED"
+    assert user.is_active is False
 
 
 @pytest.mark.asyncio
