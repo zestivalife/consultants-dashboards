@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ForbiddenException, NotFoundException, UnauthorizedException
 from app.core.security import hash_password, verify_password
 from app.db.models.audit_log import AuthAuditLog
+from app.db.models.owner_access import Organization, OrganizationMembership, Product, UserProductAccess
 from app.db.models.refresh_token import RefreshToken
 from app.db.models.role import Role
 from app.db.models.user import User
@@ -187,6 +188,69 @@ async def test_auth_lifecycle_is_identical_for_every_role(session: AsyncSession,
     )
     with pytest.raises(UnauthorizedException, match="Invalid or expired refresh token"):
         await auth_service.refresh(session, second_tokens.refresh_token)
+
+
+@pytest.mark.asyncio
+async def test_login_resolves_workspace_from_people_access_context(session: AsyncSession):
+    user = await _create_role_user(
+        session,
+        "practitioner",
+        email="care.delivery@zestiva.test",
+    )
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Zestiva Test Organization",
+        status="ACTIVE",
+    )
+    product = Product(
+        id=uuid.uuid4(),
+        key="fiteatsy-test",
+        name="FitEatsy Test",
+        status="ACTIVE",
+    )
+    session.add_all([organization, product])
+    await session.flush()
+    session.add_all(
+        [
+            OrganizationMembership(
+                user_id=user.id,
+                organization_id=organization.id,
+                primary_product_id=product.id,
+                status="ACTIVE",
+                is_verified=True,
+            ),
+            UserProductAccess(
+                user_id=user.id,
+                product_id=product.id,
+                organization_id=organization.id,
+                role_id=user.role_id,
+                status="ACTIVE",
+                is_primary=True,
+                permissions=["reports.view", "users.read"],
+            ),
+        ]
+    )
+    await session.flush()
+
+    with _always_allow_rate():
+        login_result = await auth_service.login(
+            session,
+            user.email,
+            "Correct123!",
+            ip_address="127.0.0.1",
+            user_agent="pytest access profile",
+        )
+
+    access_profile = login_result.user.access_profile
+    assert access_profile is not None
+    assert access_profile.role == "practitioner"
+    assert access_profile.active_organization is not None
+    assert access_profile.active_organization.name == "Zestiva Test Organization"
+    assert access_profile.active_product is not None
+    assert access_profile.active_product.name == "FitEatsy Test"
+    assert access_profile.capabilities == ["reports.view", "users.read"]
+    assert access_profile.workspace.id == "care-delivery"
+    assert access_profile.workspace.landing_page == "/dashboard/provider"
 
 
 @pytest.mark.asyncio

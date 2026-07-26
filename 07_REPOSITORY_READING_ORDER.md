@@ -1,0 +1,451 @@
+# 07 Repository Reading Order
+
+Generated for Phase -1 repository knowledge acquisition. This report is descriptive only and contains no architecture recommendations.
+
+This reading order is descriptive and derived from repository structure, document names, and source-of-truth signals.
+
+## 1. Repository Operating Rules
+
+- `AGENTS.md` — AGENTS.md \| 1. Document Metadata \| 2. Purpose \| 3. Startup Sequence
+- `ai/README.md` — Enterprise AI Operating System (EAIOS) \| AI Runtime & Engineering Governance \| Purpose \| Vision
+- `ai/foundation/AI_AGENT_OPERATING_RULES.md` — AI_AGENT_OPERATING_RULES.md \| Enterprise AI Operating System (EAIOS) \| AI Agent Operating Rules \| Purpose
+
+## 2. Repository Indexes
+
+- `ai/registry/AI-REGISTRY-001_ENTERPRISE_REGISTRY_ARCHITECTURE.md` — Enterprise AI Registry Architecture \| Purpose \| Objectives \| Scope
+- `ai/registry/AI-REGISTRY-002_REGISTRY_LIFECYCLE.md` — Enterprise AI Registry Lifecycle \| Purpose \| Objectives \| Scope
+- `ai/registry/AI-REGISTRY-003_REGISTRY_METADATA_STANDARD.md` — Enterprise AI Registry Metadata Standard \| Purpose \| Objectives \| Scope
+- `ai/registry/AI-REGISTRY-004_REGISTRY_DISCOVERY_ENGINE.md` — Enterprise AI Registry Discovery Engine \| Purpose \| Objectives \| Scope
+- `ai/registry/AI-REGISTRY-005_REGISTRY_RELATIONSHIP_GRAPH.md` — Enterprise AI Registry Relationship Graph \| Purpose \| Objectives \| Scope
+- `ai/registry/AI-REGISTRY-006_REGISTRY_GOVERNANCE.md` — Enterprise AI Registry Governance \| Purpose \| Objectives \| Scope
+- `ai/registry/AI-REGISTRY-007_REGISTRY_API_SPECIFICATION.md` — Enterprise AI Registry API Specification \| Purpose \| Objectives \| Scope
+- `ai/registry/AI-REGISTRY-008_REGISTRY_OBSERVABILITY.md` — Enterprise AI Registry Observability \| Purpose \| Objectives \| Scope
+- `ai/registry/AI-REGISTRY-009_REGISTRY_REFERENCE_ARCHITECTURE.md` — Enterprise AI Registry Reference Architecture \| Purpose \| Objectives \| Scope
+- `ai/registry/AI-REGISTRY-010_REGISTRY_IMPLEMENTATION_GUIDE.md` — Enterprise AI Registry Implementation Guide \| Purpose \| Objectives \| Scope
+- `ai/registry/AI-REGISTRY-011_REGISTRY_DOMAIN_INDEX.md` — Enterprise AI Registry Domain Index \| Purpose \| Objectives \| Registry Domain Overview
+- `docs/index/DOCUMENT_REGISTRY.md` — Document Registry \| Index Layer \| Root \| Governance
+- `docs/index/SOURCE_OF_TRUTH_MATRIX.md` — Source of Truth Matrix \| Duplicate Handling
+
+## 3. Project State And Roadmap
+
+- `ai/PROJECT_STATE.md` — PROJECT_STATE \| Product \| Current Milestone \| Completed
+- `docs/delivery/PROJECT_STATE.md` — Milestone 2 - Identity & Onboarding Workflow \| docs/delivery/PROJECT_STATE.md \| ZESTIVA ENTERPRISE PLATFORM \| PROJECT INFORMATION
+- `docs/delivery/ROADMAP.md` — RELEASE PLAN \| PURPOSE \| RELEASE STRATEGY \| BASELINE
+
+## 4. Product Bible
+
+- `docs/products/zestiva-one-platform/product-bible/00_EXECUTIVE_SUMMARY.md` — 00 Executive Summary \| Executive Summary \| Strategic Intent \| Business Impact
+- `docs/products/zestiva-one-platform/product-bible/01_VISION_AND_STRATEGY.md` — 01 Vision and Strategy \| Vision \| Product Vision \| Strategic Pillars
+- `docs/products/zestiva-one-platform/product-bible/02_BUSINESS_CAPABILITIES.md` — 02 Business Capabilities \| Purpose \| Capability Layers \| Capability Registry
+- `docs/products/zestiva-one-platform/product-bible/APPENDICES/EDO_PRODUCTION_ENGINEERING_MODE.md` — Enterprise Delivery Office Production Engineering Mode \| Purpose \| Mission \| Operating Viewpoints
+- `docs/products/zestiva-one-platform/product-bible/APPENDICES/ENTERPRISE_META_MODEL.md` — Enterprise Meta Model \| Purpose \| Scope \| Identifier Standard
+- `docs/products/zestiva-one-platform/product-bible/APPENDICES/GLOSSARY.md` — Product Bible Glossary \| Terms \| Zestiva One Platform \| Product
+- `docs/products/zestiva-one-platform/product-bible/APPENDICES/PPO_OPERATING_MODEL.md` — Platform Program Office Operating Model \| Purpose \| Scope \| Owner
+- `docs/products/zestiva-one-platform/product-bible/APPENDICES/ZEPO_OPERATING_MODEL.md` — Zestiva Enterprise Product Office Operating Model \| 1. Purpose \| 2. Mission \| 3. Organizational Representation
+- `docs/products/zestiva-one-platform/product-bible/CHANGELOG.md` — Product Bible Changelog \| 17 July 2026 \| MP-002 Enterprise Delivery Office Production Engineering Mode \| EPIC-001 Enterprise Onboarding Platform
+- `docs/products/zestiva-one-platform/product-bible/README.md` — Zestiva Product Bible \| Purpose \| Platform Mission \| Working Principles
+- `docs/products/zestiva-one-platform/product-bible/epics/EPIC-001_ENTERPRISE_ONBOARDING_PLATFORM.md` — EPIC-001 Enterprise Identity, Invitation, Provisioning and Persona-Based Onboarding Platform \| 1. Purpose \| 2. Scope \| 3. Business Mission
+
+## 5. Platform Architecture
+
+- `ai/EAIOS_ARCHITECTURE.md` — Enterprise AI Operating System (EAIOS) Architecture \| 1. Purpose \| 2. Vision \| 3. Mission
+- `ai/architecture/ADR/ADR-001_Authentication_Strategy.md` — ADR-001 Authentication Strategy
+- `ai/architecture/ADR/ADR-002_Multi_Tenant_Strategy.md` — ADR-002 Multi-Tenant Strategy
+- `ai/architecture/ADR/ADR-003_JWT_Strategy.md` — ADR-003 JWT Strategy
+- `ai/architecture/ADR/ADR_TEMPLATE.md` — ADR-XXX: Title \| Status \| Context \| Decision
+- `ai/architecture/ADR/README.md` — Architecture Decision Records
+- `ai/architecture/README.md` — Architecture \| Structure \| Reading Order
+- `ai/architecture/foundation/AUTHORIZATION_DOMAIN_MODEL.md` — Authorization Domain Model \| Flow \| Principles
+- `ai/architecture/foundation/ENTERPRISE_ARCHITECTURE_PRINCIPLES.md` — Enterprise Architecture Principles \| Principles
+- `ai/architecture/foundation/ORGANIZATION_DOMAIN_MODEL.md` — Organization Domain Model \| Core Entities \| Rules
+- `ai/architecture/foundation/PEOPLE_ACCESS_DOMAIN_MODEL.md` — People & Access Domain Model \| Purpose \| Pipeline \| Rules
+- `ai/architecture/foundation/PRODUCT_DOMAIN_MODEL.md` — Product Domain Model \| Core Entities \| Rules
+- `ai/architecture/foundation/README.md` — Foundation Architecture \| Purpose \| Reading Order \| Rules
+- `ai/architecture/foundation/WORKSPACE_DOMAIN_MODEL.md` — Workspace Domain Model \| Workspaces \| Rules
+- `ai/architecture/principles/API_FIRST.md` — API First
+- `ai/architecture/principles/CONFIGURATION_OVER_CODE.md` — Configuration over Code
+- `ai/architecture/principles/DDD.md` — Domain-Driven Design
+- `ai/architecture/principles/ENGINEERING_PRINCIPLES.md` — Engineering Principles
+- `ai/architecture/principles/EVENT_DRIVEN.md` — Event Driven
+- `ai/architecture/principles/SECURITY_BY_DESIGN.md` — Security by Design
+- `ai/architecture/reference_models/SYSTEM_CONTEXT.md` — System Context
+- `docs/platform/AUDIT_LOG_SPECIFICATION.md` — AUDIT_LOG_SPECIFICATION.md \| 1. Document Information \| 2. Purpose \| 3. Audit Architecture
+- `docs/platform/AUTH_SPECIFICATION.md` — AUTH_SPECIFICATION.md \| 1. Document Information \| 2. Purpose \| 3. Authentication Architecture
+- `docs/platform/ERROR_HANDLING_SPECIFICATION.md` — ERROR_HANDLING_SPECIFICATION.md \| 1. Document Information \| 2. Purpose \| 3. Storage Architecture
+- `docs/platform/FILE_STORAGE_SPECIFICATION.md` — FILE_STORAGE_SPECIFICATION.md \| 1. Document Information \| 2. Purpose \| 3. Storage Architecture
+- `docs/platform/IAM_CAPABILITY_ENGINE_SPECIFICATION.md` — IAM_CAPABILITY_ENGINE_SPECIFICATION.md \| 1. PURPOSE \| 2. DESIGN PRINCIPLES \| 3. IDENTITY MODEL
+- `docs/platform/LOGGING_MONITORING_SPECIFICATION.md` — LOGGING_MONITORING_SPECIFICATION.md \| 1. Document Information \| 2. Purpose \| 3. Architecture
+- `docs/platform/NOTIFICATION_SPECIFICATION.md` — NOTIFICATION_SPECIFICATION.md \| 1. Document Information \| 2. Purpose \| 3. Notification Architecture
+- `docs/platform/PEOPLE_ACCESS_SPECIFICATION.md` — PEOPLE_ACCESS_SPECIFICATION.md \| 1. Document Information \| 2. Purpose \| 3. Scope
+- `docs/platform/PLATFORM_CAPABILITY_TEMPLATE.md` — <Platform Capability Name> \| Purpose \| Business Context \| Scope
+- `docs/platform/README.md` — Platform Capability Documentation \| Purpose \| Objectives \| Platform Capability Catalogue
+- `docs/platform/identity/AUTHENTICATION_SPECIFICATION.md` — Authentication Specification \| Executive Summary \| Purpose \| Scope
+- `docs/platform/identity/IAM_SPECIFICATION.md` — Identity & Access Management (IAM) \| Executive Summary \| Purpose \| Business Context
+- `docs/platform/identity/IDENTITY_PLATFORM.md` — Identity Platform \| Executive Summary \| Purpose \| Business Context
+
+## 6. Security And RBAC
+
+- `ai/security/AI_API_SECURITY_STANDARD.md` — Enterprise AI Operating System (EAIOS) \| AI API Security Standard \| Purpose \| Objectives
+- `ai/security/AI_AUTHENTICATION_STANDARD.md` — Enterprise AI Operating System (EAIOS) \| AI Authentication Standard \| Purpose \| Objectives
+- `ai/security/AI_AUTHORIZATION_STANDARD.md` — Enterprise AI Operating System (EAIOS) \| AI Authorization Standard \| Purpose \| Objectives
+- `ai/security/AI_DATA_SECURITY_STANDARD.md` — Enterprise AI Operating System (EAIOS) \| AI Data Security Standard \| Purpose \| Objectives
+- `ai/security/AI_DEVSECOPS_STANDARD.md` — Enterprise AI Operating System (EAIOS) \| AI DevSecOps Standard \| Purpose \| Objectives
+- `ai/security/AI_DISASTER_RECOVERY_STANDARD.md` — Enterprise AI Operating System (EAIOS) \| AI Disaster Recovery Standard \| Purpose \| Objectives
+- `ai/security/AI_INCIDENT_RESPONSE_STANDARD.md` — Enterprise AI Operating System (EAIOS) \| AI Incident Response Standard \| Purpose \| Objectives
+- `ai/security/AI_INFRASTRUCTURE_SECURITY_STANDARD.md` — Enterprise AI Operating System (EAIOS) \| AI Infrastructure Security Standard \| Purpose \| Objectives
+- `ai/security/AI_SECRETS_MANAGEMENT_STANDARD.md` — Enterprise AI Operating System (EAIOS) \| AI Secrets Management Standard \| Purpose \| Objectives
+- `ai/security/AI_SECURE_CODING_STANDARD.md` — Enterprise AI Operating System (EAIOS) \| AI Secure Coding Standard \| Purpose \| Objectives
+- `ai/security/AI_SECURITY_GOVERNANCE.md` — Enterprise AI Operating System (EAIOS) \| AI Security Governance Framework \| Purpose \| Vision
+- `ai/security/AI_SECURITY_MONITORING_STANDARD.md` — Enterprise AI Operating System (EAIOS) \| AI Security Monitoring Standard \| Purpose \| Objectives
+- `ai/security/AI_SECURITY_TESTING_STANDARD.md` — Enterprise AI Operating System (EAIOS) \| AI Security Testing Standard \| Purpose \| Objectives
+- `ai/security/AI_SUPPLY_CHAIN_SECURITY_STANDARD.md` — Enterprise AI Operating System (EAIOS) \| AI Supply Chain Security Standard \| Purpose \| Objectives
+
+## 7. Delivery And Release Governance
+
+- `ai/delivery/AI_DEPLOYMENT_STANDARD.md` — Enterprise AI Operating System (EAIOS) \| AI Deployment Standard \| Purpose \| Core Principle
+- `ai/delivery/AI_FAILURE_RECOVERY_STANDARD.md` — Enterprise AI Operating System (EAIOS) \| AI Failure Recovery Standard \| Purpose \| Core Principle
+- `ai/delivery/AI_GIT_WORKFLOW.md` — Enterprise AI Operating System (EAIOS) \| AI Git Workflow Standard \| Purpose \| Core Principle
+- `ai/delivery/AI_RUNTIME_VERIFICATION_STANDARD.md` — Enterprise AI Operating System (EAIOS) \| AI Runtime Verification Standard \| Purpose \| Core Principle
+- `ai/operations/AI_BUSINESS_CONTINUITY_STANDARD.md` — AI_BUSINESS_CONTINUITY_STANDARD \| Purpose \| Objectives \| Scope
+- `ai/operations/AI_CHANGE_AND_RELEASE_STANDARD.md` — AI_CHANGE_AND_RELEASE_STANDARD \| Purpose \| Objectives \| Scope
+- `ai/operations/AI_INCIDENT_AND_RECOVERY_STANDARD.md` — AI_INCIDENT_AND_RECOVERY_STANDARD \| Purpose \| Objectives \| Scope
+- `ai/operations/AI_OBSERVABILITY_STANDARD.md` — AI_OBSERVABILITY_STANDARD \| Purpose \| Objectives \| Scope
+- `ai/operations/AI_OPERATIONAL_EXCELLENCE_STANDARD.md` — AI_OPERATIONAL_EXCELLENCE_STANDARD \| Purpose \| Objectives \| Scope
+- `ai/operations/AI_OPERATIONAL_INTELLIGENCE_STANDARD.md` — AI_OPERATIONAL_INTELLIGENCE_STANDARD \| Purpose \| Objectives \| Scope
+- `ai/operations/AI_OPERATIONS_GOVERNANCE.md` — AI_OPERATIONS_GOVERNANCE.md \| Purpose \| Objectives \| Scope
+- `ai/operations/AI_RUNTIME_OPERATIONS_STANDARD.md` — AI_RUNTIME_OPERATIONS_STANDARD \| Purpose \| Objectives \| Scope
+- `ai/operations/AI_SERVICE_OPERATIONS_STANDARD.md` — AI_SERVICE_OPERATIONS_STANDARD \| Purpose \| Objectives \| Scope
+- `ai/operations/AI_SERVICE_RELIABILITY_STANDARD.md` — AI_SERVICE_RELIABILITY_STANDARD \| Purpose \| Objectives \| Scope
+- `docs/delivery/README.md` — Delivery Documentation
+- `docs/delivery/RELEASE_CHECKLIST.md` — Release Checklist \| Purpose \| Release Philosophy \| Release Workflow
+- `docs/delivery/RELEASE_ENGINEERING_SPECIFICATION.md` — RELEASE_ENGINEERING_SPECIFICATION.md \| 1. PURPOSE \| 2. RELEASE PHILOSOPHY \| 3. BRANCHING STRATEGY
+- `docs/delivery/TESTING_STRATEGY.md` — Test Automation \| Test Coverage Expectations \| Defect Classification \| Exit Criteria
+
+## 8. Milestone Documentation
+
+- `docs/milestones/milestone-2-identity-onboarding/ACCEPTANCE_CRITERIA.md` — Milestone 2 – Acceptance Criteria \| Purpose \| Milestone Acceptance \| Slice Acceptance Template
+- `docs/milestones/milestone-2-identity-onboarding/ARCHITECT_APPROVAL.md` — Architecture Approval
+- `docs/milestones/milestone-2-identity-onboarding/AUDIT_LOG_SPECIFICATION.md` — Milestone 2 – Audit Log Specification \| Purpose \| Audit Event Shape \| Required Events By Slice
+- `docs/milestones/milestone-2-identity-onboarding/CHANGELOG.md` — Milestone 2 - Identity & Onboarding Workflow \| Milestone 2 – Changelog \| 2026-07-16 \| 2026-07-16
+- `docs/milestones/milestone-2-identity-onboarding/DEPLOYMENT_GUIDELINES.md` — Milestone 2 - Identity & Onboarding Workflow \| DEPLOYMENT_GUIDELINES.md \| Railway Deployment Verification \| Deployment Guidelines
+- `docs/milestones/milestone-2-identity-onboarding/EDGE_CASES.md` — Milestone 2 – Edge Cases \| Invitation Edge Cases \| Password Edge Cases \| Onboarding Edge Cases
+- `docs/milestones/milestone-2-identity-onboarding/EMAIL_WHATSAPP_TEMPLATES.md` — Milestone 2 – Email and WhatsApp Templates \| Purpose \| Template Rules \| Shared Variables
+- `docs/milestones/milestone-2-identity-onboarding/ENGINEERING_OPERATING_MANUAL.md` — Milestone 2 - Identity & Onboarding Workflow \| ZESTIVA LLP - ENGINEERING OPERATING MANUAL \| DOCUMENT OWNERSHIP & AUTONOMOUS EXECUTION \| ROLE
+- `docs/milestones/milestone-2-identity-onboarding/IAM_ECOSYSTEM_BLUEPRINT.md` — IAM Ecosystem Blueprint \| 1. Purpose \| 2. Core Principle \| 3. Access Context Resolution
+- `docs/milestones/milestone-2-identity-onboarding/MILESTONE_2_ACCEPTANCE_REVIEW.md` — MILESTONE_2_ACCEPTANCE_REVIEW.md \| Milestone 2 – Identity & Onboarding Platform \| Production Acceptance Review \| 1. Purpose
+- `docs/milestones/milestone-2-identity-onboarding/MILESTONE_2_API_SPECIFICATION.md` — MILESTONE_2_API_SPECIFICATION.md \| Milestone 2 – Identity & Onboarding Platform \| API Specification \| 1. Purpose
+- `docs/milestones/milestone-2-identity-onboarding/MILESTONE_2_ARCHITECTURE_REVIEW.md` — MILESTONE_2_ARCHITECTURE_REVIEW.md \| Milestone 2 – Identity & Onboarding Platform \| Architecture Review \| 1. Purpose
+- `docs/milestones/milestone-2-identity-onboarding/MILESTONE_2_DATABASE_DESIGN.md` — MILESTONE_2_DATABASE_DESIGN.md \| Milestone 2 – Identity & Onboarding Platform \| Database Design Specification \| 1. Purpose
+- `docs/milestones/milestone-2-identity-onboarding/MILESTONE_2_ENGINEERING_TASK_BREAKDOWN.md` — MILESTONE_2_ENGINEERING_TASK_BREAKDOWN.md \| Milestone 2 – Identity & Onboarding Platform \| Engineering Task Breakdown \| Purpose
+- `docs/milestones/milestone-2-identity-onboarding/MILESTONE_2_IMPLEMENTATION_PLAN.md` — MILESTONE_2_IMPLEMENTATION_PLAN.md \| Milestone 2 — Identity & Onboarding Platform \| 1. Executive Summary \| Objective
+- `docs/milestones/milestone-2-identity-onboarding/MILESTONE_2_ONBOARDING_WORKFLOW.md` — MILESTONE 2 - IDENTITY & ONBOARDING WORKFLOW \| PURPOSE \| BUSINESS OBJECTIVE \| SUPPORTED USER TYPES
+- `docs/milestones/milestone-2-identity-onboarding/MILESTONE_2_UX_SPECIFICATION.md` — MILESTONE_2_UX_SPECIFICATION.md \| Milestone 2 – Identity & Onboarding Platform \| UX Specification \| 1. Purpose
+- `docs/milestones/milestone-2-identity-onboarding/NOTIFICATION_SPECIFICATION.md` — Milestone 2 – Notification Specification \| Purpose \| Delivery Architecture \| Channels
+- `docs/milestones/milestone-2-identity-onboarding/PRD.md` — Milestone 2 - Identity & Onboarding Workflow \| Product Requirements Document (PRD) \| Document Information \| Executive Summary
+- `docs/milestones/milestone-2-identity-onboarding/RBAC_SPECIFICATION.md` — Milestone 2 – RBAC Specification \| Purpose \| Role Vocabulary \| Permission Groups
+- `docs/milestones/milestone-2-identity-onboarding/README.md` — Milestone 2 – Identity & Onboarding Platform \| Purpose \| Canonical Decisions \| Source Of Truth Order Inside This Milestone
+- `docs/milestones/milestone-2-identity-onboarding/SEQUENCE_DIAGRAMS.md` — Milestone 2 – Sequence Diagrams \| Invitation Creation \| Invitation Acceptance \| Password Setup
+- `docs/milestones/milestone-2-identity-onboarding/TDS.md` — Milestone 2 - Identity & Onboarding Workflow \| Technical Design Specification (TDS) \| Document Information \| 1. Executive Summary
+- `docs/milestones/milestone-2-identity-onboarding/TEST_SCENARIOS.md` — Milestone 2 – Test Scenarios \| Test Strategy \| Role Coverage \| Slice 1 – Invitation Engine
+
+## 9. Service And Frontend Documentation
+
+- `api-gateway/.pytest_cache/README.md` — pytest cache directory #
+- `nuetra-frontend/IMPLEMENTATION_SUMMARY.md` — Landing Page Enhancement - Implementation Summary \| Overview \| ✅ Completed Components \| 1. Analytics Utility (`utils/analytics.js`)
+- `nuetra-frontend/LANDING_PAGE_TESTING.md` — Landing Page Enhancement - Testing Guide \| Overview \| Testing Checklist \| ✅ Animation Performance (60fps)
+- `nuetra-frontend/node_modules/@alloc/quick-lru/readme.md` — quick-lru [![Build Status](https://travis-ci.org/sindresorhus/quick-lru.svg?branch=master)](https://travis-ci.org/sindresorhus/quick-lru) [![Coverage Status](https://coveralls.io/…
+- `nuetra-frontend/node_modules/@eslint-community/eslint-utils/README.md` — @eslint-community/eslint-utils \| 🏁 Goal \| 📖 Usage \| 📰 Changelog
+- `nuetra-frontend/node_modules/@eslint-community/regexpp/README.md` — @eslint-community/regexpp \| 💿 Installation \| 📖 Usage \| parseRegExpLiteral(source, options?)
+- `nuetra-frontend/node_modules/@eslint/eslintrc/README.md` — ESLintRC Library \| Installation \| or \| Usage (ESM)
+- `nuetra-frontend/node_modules/@eslint/js/README.md` — ESLint JavaScript Plugin \| Installation \| Usage \| License
+- `nuetra-frontend/node_modules/@humanwhocodes/config-array/README.md` — Config Array \| Description \| Background \| Installation
+- `nuetra-frontend/node_modules/@humanwhocodes/module-importer/CHANGELOG.md` — Changelog \| [1.0.1](https://github.com/humanwhocodes/module-importer/compare/v1.0.0...v1.0.1) (2022-08-18) \| Bug Fixes \| 1.0.0 (2022-08-17)
+- `nuetra-frontend/node_modules/@humanwhocodes/module-importer/README.md` — ModuleImporter \| Description \| Usage \| Node.js
+- `nuetra-frontend/node_modules/@humanwhocodes/object-schema/CHANGELOG.md` — Changelog \| [2.0.3](https://github.com/humanwhocodes/object-schema/compare/v2.0.2...v2.0.3) (2024-04-01) \| Bug Fixes \| [2.0.2](https://github.com/humanwhocodes/object-schema/co…
+- `nuetra-frontend/node_modules/@humanwhocodes/object-schema/README.md` — JavaScript ObjectSchema Package \| Overview \| Installation \| Usage
+- `nuetra-frontend/node_modules/@img/colour/LICENSE.md` — Licensing \| color \| color-convert \| color-string
+- `nuetra-frontend/node_modules/@img/colour/README.md` — `@img/colour`
+- `nuetra-frontend/node_modules/@img/sharp-darwin-arm64/README.md` — `@img/sharp-darwin-arm64` \| Licensing
+- `nuetra-frontend/node_modules/@img/sharp-libvips-darwin-arm64/README.md` — `@img/sharp-libvips-darwin-arm64` \| Licensing
+- `nuetra-frontend/node_modules/@jridgewell/gen-mapping/README.md` — @jridgewell/gen-mapping \| Installation \| Usage \| Smaller Sourcemaps
+- `nuetra-frontend/node_modules/@jridgewell/resolve-uri/README.md` — @jridgewell/resolve-uri \| Installation \| Usage
+- `nuetra-frontend/node_modules/@jridgewell/sourcemap-codec/README.md` — @jridgewell/sourcemap-codec \| Why? \| Installation \| Usage
+- `nuetra-frontend/node_modules/@jridgewell/trace-mapping/README.md` — @jridgewell/trace-mapping \| Installation \| Usage \| SectionedSourceMaps
+- `nuetra-frontend/node_modules/@kurkle/color/LICENSE.md` — LICENSE.md
+- `nuetra-frontend/node_modules/@kurkle/color/README.md` — @kurkle/color \| Overview \| Parsing \| Docs
+- `nuetra-frontend/node_modules/@next/env/README.md` — `@next/env`
+- `nuetra-frontend/node_modules/@next/swc-darwin-arm64/README.md` — `@next/swc-darwin-arm64`
+- `nuetra-frontend/node_modules/@nodelib/fs.scandir/README.md` — @nodelib/fs.scandir \| :bulb: Highlights \| Install \| Usage
+- `nuetra-frontend/node_modules/@nodelib/fs.stat/README.md` — @nodelib/fs.stat \| :bulb: Highlights \| Install \| Usage
+- `nuetra-frontend/node_modules/@nodelib/fs.walk/README.md` — @nodelib/fs.walk \| :bulb: Highlights \| Install \| Usage
+- `nuetra-frontend/node_modules/@types/node/README.md` — Installation \| Summary \| Details \| Additional Details
+- `nuetra-frontend/node_modules/@types/react/README.md` — Installation \| Summary \| Details \| Additional Details
+- `nuetra-frontend/node_modules/@ungap/structured-clone/README.md` — structuredClone polyfill \| Examples \| Global Polyfill \| Extra Features
+- `nuetra-frontend/node_modules/acorn-jsx/README.md` — Acorn-JSX \| Transpiler \| Usage \| License
+- `nuetra-frontend/node_modules/acorn/CHANGELOG.md` — 8.16.0 (2026-02-19) \| New features \| Bug fixes \| 8.15.0 (2025-06-08)
+- `nuetra-frontend/node_modules/acorn/README.md` — Acorn \| Community \| Installation \| Importing acorn
+- `nuetra-frontend/node_modules/adler-32/README.md` — adler32 \| Installation \| Usage \| Testing
+- `nuetra-frontend/node_modules/ajv/README.md` — Ajv: Another JSON Schema Validator \| Ajv v7 beta is released \| Mozilla MOSS grant and OpenJS Foundation \| Please [sponsor Ajv development](https://github.com/sponsors/epoberezk…
+- `nuetra-frontend/node_modules/ajv/lib/dotjs/README.md` — README.md
+- `nuetra-frontend/node_modules/ansi-regex/readme.md` — ansi-regex \| Install \| Usage \| API
+- `nuetra-frontend/node_modules/ansi-styles/readme.md` — ansi-styles [![Build Status](https://travis-ci.org/chalk/ansi-styles.svg?branch=master)](https://travis-ci.org/chalk/ansi-styles) \| Install \| Usage \| API
+- `nuetra-frontend/node_modules/any-promise/README.md` — Any Promise \| Usage with global Promise: \| Install any libraries depending on any-promise \| Usage with registration:
+- `nuetra-frontend/node_modules/anymatch/README.md` — anymatch(matchers, testString, [returnIndex], [options]) \| anymatch(matchers)
+- `nuetra-frontend/node_modules/arg/LICENSE.md` — LICENSE.md
+- `nuetra-frontend/node_modules/arg/README.md` — Arg \| Installation \| Usage \| Options
+- `nuetra-frontend/node_modules/argparse/CHANGELOG.md` — Changelog \| [2.0.1] - 2020-08-29 \| Fixed \| [2.0.0] - 2020-08-14
+- `nuetra-frontend/node_modules/argparse/README.md` — README.md
+- `nuetra-frontend/node_modules/asynckit/README.md` — asynckit [![NPM Module](https://img.shields.io/npm/v/asynckit.svg?style=flat)](https://www.npmjs.com/package/asynckit) \| Install \| Examples \| Parallel Jobs
+- `nuetra-frontend/node_modules/autoprefixer/README.md` — Autoprefixer [![Cult Of Martians][cult-img]][cult] \| Docs
+- `nuetra-frontend/node_modules/axios/CHANGELOG.md` — Changelog \| [1.13.3](https://github.com/axios/axios/compare/v1.13.2...v1.13.3) (2026-01-20) \| Bug Fixes \| Features
+- `nuetra-frontend/node_modules/axios/MIGRATION_GUIDE.md` — Axios Migration Guide \| Table of Contents \| Overview \| Key Changes Summary
+- `nuetra-frontend/node_modules/axios/README.md` — Table of Contents \| Features \| Browser Support \| Installing
+- `nuetra-frontend/node_modules/axios/lib/adapters/README.md` — axios // adapters \| Example
+- `nuetra-frontend/node_modules/axios/lib/core/README.md` — axios // core
+- `nuetra-frontend/node_modules/axios/lib/env/README.md` — axios // env
+- `nuetra-frontend/node_modules/axios/lib/helpers/README.md` — axios // helpers
+- `nuetra-frontend/node_modules/balanced-match/LICENSE.md` — LICENSE.md
+- `nuetra-frontend/node_modules/balanced-match/README.md` — balanced-match \| Example \| API \| var m = balanced(a, b, str)
+- `nuetra-frontend/node_modules/baseline-browser-mapping/README.md` — [`baseline-browser-mapping`](https://github.com/web-platform-dx/web-features/packages/baseline-browser-mapping) \| Install for local development \| Keeping `baseline-browser-mappi…
+- `nuetra-frontend/node_modules/binary-extensions/readme.md` — binary-extensions \| Install \| Usage \| Related
+- `nuetra-frontend/node_modules/brace-expansion/README.md` — brace-expansion \| Example \| API \| var expanded = expand(str)
+- `nuetra-frontend/node_modules/braces/README.md` — braces [![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=W8YFZ425KND68) [![NPM version](https:…
+- `nuetra-frontend/node_modules/browserslist/README.md` — Browserslist \| Browsers that we support \| Docs
+- `nuetra-frontend/node_modules/call-bind-apply-helpers/CHANGELOG.md` — Changelog \| [v1.0.2](https://github.com/ljharb/call-bind-apply-helpers/compare/v1.0.1...v1.0.2) - 2025-02-12 \| Commits \| [v1.0.1](https://github.com/ljharb/call-bind-apply-help…
+- `nuetra-frontend/node_modules/call-bind-apply-helpers/README.md` — call-bind-apply-helpers <sup>[![Version Badge][npm-version-svg]][package-url]</sup> \| Getting started \| Usage/Examples \| Tests
+- `nuetra-frontend/node_modules/callsites/readme.md` — callsites [![Build Status](https://travis-ci.org/sindresorhus/callsites.svg?branch=master)](https://travis-ci.org/sindresorhus/callsites) \| Install \| Usage \| API
+- `nuetra-frontend/node_modules/camelcase-css/README.md` — camelcase-css [![NPM Version][npm-image]][npm-url] [![Build Status][travis-image]][travis-url] \| Installation \| Usage
+- `nuetra-frontend/node_modules/caniuse-lite/README.md` — caniuse-lite \| Docs
+- `nuetra-frontend/node_modules/cfb/README.md` — Container File Blobs \| Installation \| Library Usage \| Command-Line Utility Usage
+- `nuetra-frontend/node_modules/chalk/readme.md` — Highlights \| Install \| Usage \| API
+- `nuetra-frontend/node_modules/chart.js/LICENSE.md` — LICENSE.md
+- `nuetra-frontend/node_modules/chart.js/README.md` — Documentation \| Contributing \| License
+- `nuetra-frontend/node_modules/chokidar/README.md` — Chokidar [![Weekly downloads](https://img.shields.io/npm/dw/chokidar.svg)](https://github.com/paulmillr/chokidar) [![Yearly downloads](https://img.shields.io/npm/dy/chokidar.svg)]…
+- `nuetra-frontend/node_modules/chokidar/node_modules/glob-parent/CHANGELOG.md` — [5.1.2](https://github.com/gulpjs/glob-parent/compare/v5.1.1...v5.1.2) (2021-03-06) \| Bug Fixes \| [5.1.1](https://github.com/gulpjs/glob-parent/compare/v5.1.0...v5.1.1) (2021-01…
+- `nuetra-frontend/node_modules/chokidar/node_modules/glob-parent/README.md` — glob-parent \| Usage \| API \| `globParent(maybeGlobString, [options])`
+- `nuetra-frontend/node_modules/clsx/readme.md` — clsx [![CI](https://github.com/lukeed/clsx/workflows/CI/badge.svg)](https://github.com/lukeed/clsx/actions?query=workflow%3ACI) [![codecov](https://badgen.net/codecov/c/github/luk…
+- `nuetra-frontend/node_modules/codepage/README.md` — js-codepage \| Setup \| Usage \| Known Excel Codepages
+- `nuetra-frontend/node_modules/color-convert/CHANGELOG.md` — 1.0.0 - 2016-01-07 \| 0.6.0 - 2015-07-23 \| 0.5.3 - 2015-06-02
+- `nuetra-frontend/node_modules/color-convert/README.md` — color-convert \| Install \| API \| Arrays
+- `nuetra-frontend/node_modules/color-name/README.md` — README.md
+- `nuetra-frontend/node_modules/combined-stream/Readme.md` — combined-stream \| Installation \| Usage \| API
+- `nuetra-frontend/node_modules/commander/CHANGELOG.md` — Changelog \| [4.1.1] (2020-02-02) \| Fixed \| [4.1.0] (2020-01-06)
+- Additional documents in this group: 255
+
+## 10. Templates And References
+
+- `ai/templates/AI-TEMPLATE-001_ENTERPRISE_TEMPLATE_ARCHITECTURE.md` — Enterprise AI Template Architecture \| Purpose \| Objectives \| Scope
+- `ai/templates/AI-TEMPLATE-002_TEMPLATE_LIFECYCLE.md` — Enterprise AI Template Lifecycle \| Purpose \| Objectives \| Scope
+- `ai/templates/AI-TEMPLATE-003_TEMPLATE_METADATA_STANDARD.md` — Enterprise AI Template Metadata Standard \| Purpose \| Objectives \| Scope
+- `ai/templates/AI-TEMPLATE-004_TEMPLATE_DISCOVERY_ENGINE.md` — Enterprise AI Template Discovery Engine \| Purpose \| Objectives \| Scope
+- `ai/templates/AI-TEMPLATE-005_TEMPLATE_RELATIONSHIP_GRAPH.md` — Enterprise AI Template Relationship Graph \| Purpose \| Objectives \| Scope
+- `ai/templates/AI-TEMPLATE-006_TEMPLATE_GOVERNANCE.md` — Enterprise AI Template Governance \| Purpose \| Objectives \| Scope
+- `ai/templates/AI-TEMPLATE-007_TEMPLATE_API_SPECIFICATION.md` — Enterprise AI Template API Specification \| Purpose \| Objectives \| Scope
+- `ai/templates/AI-TEMPLATE-008_TEMPLATE_OBSERVABILITY.md` — Enterprise AI Template Observability \| Purpose \| Objectives \| Scope
+- `ai/templates/AI-TEMPLATE-009_TEMPLATE_REFERENCE_ARCHITECTURE.md` — Enterprise AI Template Reference Architecture \| Purpose \| Objectives \| Scope
+- `ai/templates/AI-TEMPLATE-010_TEMPLATE_IMPLEMENTATION_GUIDE.md` — Enterprise AI Template Implementation Guide \| Purpose \| Objectives \| Scope
+- `ai/templates/AI-TEMPLATE-011_TEMPLATE_DOMAIN_INDEX.md` — Enterprise AI Template Domain Index \| Purpose \| Objectives \| Domain Overview
+
+## 11. Remaining Reference And Dependency Documents
+
+- `.pytest_cache/README.md` — Generated/Cache: pytest cache directory #
+- `README.md` — Repository Knowledge: Nuetra - AI-Powered Wellness Intelligence Platform \| Architecture \| Quick Start \| Prerequisites
+- `ai/ACTIVE_MODULE.md` — Repository Knowledge: Active Module
+- `ai/ARCHITECTURE_DECISION_RECORDS copy.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Architecture Decision Records \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/ARCHITECTURE_DECISION_RECORDS.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Architecture Decision Records \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/CODEX.md` — Repository Knowledge: CODEX.md \| Purpose \| Primary Objective \| Engineering Priorities
+- `ai/DECISION_LOG.md` — Repository Knowledge: Architecture Decision Log
+- `ai/DEPENDENCY_GRAPH.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Dependency Graph \| 1. Purpose \| 2. Dependency Philosophy \| 3. Architectural Dependency Hierarchy
+- `ai/DO_NOT_TOUCH.md` — Repository Knowledge: Protected Files
+- `ai/EXECUTION_LIFECYCLE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Execution Lifecycle \| 1. Purpose \| 2. Execution Philosophy \| 3. Execution Principles
+- `ai/FILE_MAP.md` — Repository Knowledge: File Map \| Authentication \| RBAC \| Onboarding
+- `ai/KNOWN_ISSUES.md` — Repository Knowledge: Known Issues
+- `ai/MASTER_ARCHITECT.md` — Repository Knowledge: MASTER ARCHITECT \| Enterprise AI Runtime Orchestrator \| Purpose \| Mission
+- `ai/PRODUCTION_ISSUES.md` — Repository Knowledge: PRODUCTION_ISSUES.md \| Zestiva Enterprise Platform \| Production Issues Register \| Issue Status
+- `ai/REPOSITORY_STRUCTURE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Repository Structure \| 1. Purpose \| 2. Repository Design Principles \| 3. Repository Philosophy
+- `ai/SYSTEM_THINKING_MODEL.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) System Thinking Model \| 1. Purpose \| 2. Thinking Philosophy \| 3. Cognitive Principles
+- `ai/TASK_TEMPLATE.md` — Repository Knowledge: Task Template
+- `ai/agents/AGENT_ARCHITECTURE.md` — Repository Knowledge: Enterprise AI Agent Architecture \| Purpose \| Objectives \| Scope
+- `ai/agents/AGENT_CAPABILITY_MODEL.md` — Repository Knowledge: Enterprise AI Agent Capability Model \| Purpose \| Objectives \| Scope
+- `ai/agents/AGENT_COMMUNICATION_MODEL.md` — Repository Knowledge: Enterprise AI Agent Communication Model \| Purpose \| Objectives \| Scope
+- `ai/agents/AGENT_DECISION_MODEL.md` — Repository Knowledge: Enterprise AI Agent Decision Model \| Purpose \| Objectives \| Scope
+- `ai/agents/AGENT_EXECUTION_MODEL.md` — Repository Knowledge: Enterprise AI Agent Execution Model \| Purpose \| Objectives \| Scope
+- `ai/agents/AGENT_GOVERNANCE.md` — Repository Knowledge: Enterprise AI Agent Governance \| Purpose \| Objectives \| Scope
+- `ai/agents/AGENT_INDEX.md` — Repository Knowledge: Enterprise AI Agent Architecture Index \| Purpose \| Objectives \| Agent Domain Overview
+- `ai/agents/AGENT_LIFECYCLE.md` — Repository Knowledge: Enterprise AI Agent Lifecycle \| Purpose \| Objectives \| Scope
+- `ai/agents/AGENT_OBSERVABILITY.md` — Repository Knowledge: Enterprise AI Agent Observability \| Purpose \| Objectives \| Scope
+- `ai/agents/AGENT_RUNTIME.md` — Repository Knowledge: Enterprise AI Agent Runtime \| Purpose \| Objectives \| Scope
+- `ai/agents/AGENT_SECURITY_MODEL.md` — Repository Knowledge: Enterprise AI Agent Security Model \| Purpose \| Objectives \| Scope
+- `ai/cognitive-runtime/AGENT_COORDINATION copy.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Agent Coordination \| Purpose \| Objectives \| Coordination Principles
+- `ai/cognitive-runtime/AGENT_COORDINATION.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Agent Coordination \| Purpose \| Objectives \| Coordination Principles
+- `ai/cognitive-runtime/AGENT_RUNTIME.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Agent Runtime \| Purpose \| Objectives \| Agent Runtime Principles
+- `ai/cognitive-runtime/CONTEXT_ENGINE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Context Engine \| Purpose \| Objectives \| Context Principles
+- `ai/cognitive-runtime/DECISION_ENGINE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Decision Engine \| Purpose \| Objectives \| Decision Principles
+- `ai/cognitive-runtime/EVALUATION_ENGINE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Evaluation Engine \| Purpose \| Objectives \| Evaluation Principles
+- `ai/cognitive-runtime/EXECUTION_CONTEXT.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Execution Context \| Purpose \| Objectives \| Context Principles
+- `ai/cognitive-runtime/INTENT_ENGINE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Intent Engine \| Purpose \| Objectives \| Intent Principles
+- `ai/cognitive-runtime/KNOWLEDGE_RUNTIME copy.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Knowledge Runtime \| Purpose \| Objectives \| Knowledge Runtime Principles
+- `ai/cognitive-runtime/KNOWLEDGE_RUNTIME.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Knowledge Runtime \| Purpose \| Objectives \| Knowledge Runtime Principles
+- `ai/cognitive-runtime/LEARNING_ENGINE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Learning Engine \| Purpose \| Objectives \| Learning Principles
+- `ai/cognitive-runtime/MEMORY_ENGINE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Memory Engine \| Purpose \| Objectives \| Memory Principles
+- `ai/cognitive-runtime/OBSERVABILITY.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Runtime Observability Framework \| Purpose \| Objectives \| Observability Principles
+- `ai/cognitive-runtime/PLANNING_ENGINE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Planning Engine \| Purpose \| Objectives \| Planning Principles
+- `ai/cognitive-runtime/RAG_RUNTIME.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) RAG Runtime \| Purpose \| Objectives \| RAG Principles
+- `ai/cognitive-runtime/REASONING_ENGINE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Reasoning Engine \| Purpose \| Objectives \| Reasoning Principles
+- `ai/cognitive-runtime/REQUEST_LIFECYCLE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Request Lifecycle \| Purpose \| Objectives \| Lifecycle Principles
+- `ai/cognitive-runtime/RESPONSE_ENGINE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Response Engine \| Purpose \| Objectives \| Response Principles
+- `ai/cognitive-runtime/RUNTIME_ARCHITECTURE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Runtime Architecture \| Purpose \| Objectives \| Runtime Principles
+- `ai/cognitive-runtime/RUNTIME_GOVERNANCE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Runtime Governance Framework \| Purpose \| Objectives \| Governance Principles
+- `ai/cognitive-runtime/RUNTIME_INDEX.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Runtime Index \| Purpose \| Objectives \| Runtime Mission
+- `ai/cognitive-runtime/RUNTIME_OVERVIEW.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Runtime Architecture \| Purpose \| Objectives \| Runtime Principles
+- `ai/cognitive-runtime/RUNTIME_PIPELINE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Runtime Pipeline \| Purpose \| Objectives \| Pipeline Principles
+- `ai/cognitive-runtime/TOOL_EXECUTION_ENGINE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Tool Execution Engine \| Purpose \| Objectives \| Tool Execution Principles
+- `ai/cognitive-runtime/WORKFLOW_ENGINE.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) Workflow Engine \| Purpose \| Objectives \| Workflow Principles
+- `ai/compliance/AI_AUDIT_MANAGEMENT_STANDARD.md` — Repository Knowledge: AI Audit Management Standard \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/compliance/AI_COMPLIANCE_GOVERNANCE.md` — Repository Knowledge: AI Compliance Governance \| 1. Purpose \| 2. Governance Authority \| 3. Guiding Principles
+- `ai/compliance/AI_COMPLIANCE_MONITORING_STANDARD.md` — Repository Knowledge: AI Compliance Monitoring Standard \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/compliance/AI_CORRECTIVE_ACTION_STANDARD.md` — Repository Knowledge: AI Corrective Action Standard \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/compliance/AI_ETHICS_AND_RESPONSIBLE_AI_STANDARD.md` — Repository Knowledge: AI Ethics and Responsible AI Standard \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/compliance/AI_POLICY_MANAGEMENT_STANDARD.md` — Repository Knowledge: AI Policy Management Standard \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/compliance/AI_RECORD_RETENTION_STANDARD.md` — Repository Knowledge: AI Record Retention Standard \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/compliance/AI_REGULATORY_COMPLIANCE_STANDARD.md` — Repository Knowledge: AI Regulatory Compliance Standard \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/context/AI-CONTEXT-001_CONTEXT_ENGINE_ARCHITECTURE.md` — Repository Knowledge: Enterprise AI Context Engine Architecture \| Purpose \| Objectives \| Scope
+- `ai/context/AI-CONTEXT-002_CONTEXT_LIFECYCLE.md` — Repository Knowledge: Enterprise AI Context Lifecycle \| Purpose \| Objectives \| Scope
+- `ai/context/AI-CONTEXT-003_SESSION_CONTEXT.md` — Repository Knowledge: Enterprise AI Session Context \| Purpose \| Objectives \| Scope
+- `ai/context/AI-CONTEXT-004_USER_CONTEXT.md` — Repository Knowledge: Enterprise AI User Context \| Purpose \| Objectives \| Scope
+- `ai/context/AI-CONTEXT-005_BUSINESS_CONTEXT.md` — Repository Knowledge: Enterprise AI Business Context \| Purpose \| Objectives \| Scope
+- `ai/context/AI-CONTEXT-006_WORKFLOW_CONTEXT.md` — Repository Knowledge: Enterprise AI Workflow Context \| Purpose \| Objectives \| Scope
+- `ai/context/AI-CONTEXT-007_KNOWLEDGE_CONTEXT.md` — Repository Knowledge: Enterprise AI Knowledge Context \| Purpose \| Objectives \| Scope
+- `ai/context/AI-CONTEXT-008_MEMORY_CONTEXT.md` — Repository Knowledge: Enterprise AI Memory Context \| Purpose \| Objectives \| Scope
+- `ai/context/AI-CONTEXT-009_AGENT_CONTEXT.md` — Repository Knowledge: Enterprise AI Agent Context \| Purpose \| Objectives \| Scope
+- `ai/context/AI-CONTEXT-010_CONTEXT_ASSEMBLY_ENGINE.md` — Repository Knowledge: Enterprise AI Context Assembly Engine \| Purpose \| Objectives \| Scope
+- `ai/context/AI-CONTEXT-011_CONTEXT_GOVERNANCE.md` — Repository Knowledge: Enterprise AI Context Governance \| Purpose \| Objectives \| Scope
+- `ai/context/AI-CONTEXT-012_CONTEXT_OBSERVABILITY.md` — Repository Knowledge: Enterprise AI Context Observability \| Purpose \| Objectives \| Scope
+- `ai/context/AI-CONTEXT-013_CONTEXT_REFERENCE_ARCHITECTURE.md` — Repository Knowledge: Enterprise AI Context Reference Architecture \| Purpose \| Objectives \| Scope
+- `ai/context/AI-CONTEXT-014_CONTEXT_IMPLEMENTATION_GUIDE.md` — Repository Knowledge: Enterprise AI Context Implementation Guide \| Purpose \| Objectives \| Scope
+- `ai/context/AI-CONTEXT-015_CONTEXT_DOMAIN_INDEX.md` — Repository Knowledge: Enterprise AI Context Domain Index \| Purpose \| Objectives \| Domain Overview
+- `ai/context/AI-REGISTRY-001_ENTERPRISE_REGISTRY_ARCHITECTURE.md` — Repository Knowledge: Enterprise AI Context Domain Index \| Purpose \| Objectives \| Domain Overview
+- `ai/data/AI_AI_DATASET_GOVERNANCE_STANDARD.md` — Repository Knowledge: AI AI Dataset Governance Standard \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/data/AI_DATA_CATALOG_STANDARD.md` — Repository Knowledge: AI Data Catalog Standard \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/data/AI_DATA_CLASSIFICATION_STANDARD.md` — Repository Knowledge: AI Data Classification Standard \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/data/AI_DATA_GOVERNANCE.md` — Repository Knowledge: AI Data Governance \| 1. Purpose \| 2. Governance Authority \| 3. Guiding Principles
+- `ai/data/AI_DATA_INTEGRATION_STANDARD.md` — Repository Knowledge: AI Data Integration Standard \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/data/AI_DATA_LIFECYCLE_STANDARD.md` — Repository Knowledge: AI Data Lifecycle Standard \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/data/AI_DATA_QUALITY_STANDARD.md` — Repository Knowledge: AI Data Quality Standard \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/data/AI_IDENTITY_AND_ACCESS_GOVERNANCE.md` — Repository Knowledge: AI Identity and Access Governance \| 1. Purpose \| 2. Governance Authority \| 3. Guiding Principles
+- `ai/data/AI_MASTER_DATA_MANAGEMENT_STANDARD.md` — Repository Knowledge: AI Data Quality Standard \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/data/AI_METADATA_MANAGEMENT_STANDARD.md` — Repository Knowledge: AI Metadata Management Standard \| 1. Purpose \| 2. Objectives \| 3. Scope
+- `ai/engineering/AI_ARCHITECTURE_REVIEW_STANDARD.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) \| AI Impact Analysis Standard \| Purpose \| Core Principle
+- `ai/engineering/AI_CODE_REVIEW_STANDARD.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) \| AI Code Review Standard \| Purpose \| Core Principle
+- `ai/engineering/AI_DEFINITION_OF_DONE.md` — Repository Knowledge: AI_DEFINITION_OF_DONE.md \| Enterprise AI Operating System (EAIOS) \| AI Definition of Done (DoD) \| Purpose
+- `ai/engineering/AI_ENGINEERING_DECISION_STANDARD.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) \| AI Engineering Decision Standard \| Purpose \| Core Principle
+- `ai/engineering/AI_ENGINEERING_EXECUTION_MODEL.md` — Repository Knowledge: AI_ENGINEERING_EXECUTION_MODEL.md \| Enterprise AI Operating System (EAIOS) \| AI Engineering Execution Model \| Purpose
+- `ai/engineering/AI_IMPACT_ANALYSIS_STANDARD.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) \| AI Impact Analysis Standard \| Purpose \| Core Principle
+- `ai/enterprise_engineering_repository/00_repository_governance/README.md` — Repository Knowledge: Readme
+- `ai/enterprise_engineering_repository/00_repository_governance/acronyms.md` — Repository Knowledge: Acronyms
+- `ai/enterprise_engineering_repository/00_repository_governance/dependency_graph.md` — Repository Knowledge: Dependency Graph
+- `ai/enterprise_engineering_repository/00_repository_governance/glossary.md` — Repository Knowledge: Glossary
+- `ai/enterprise_engineering_repository/00_repository_governance/implementation_roadmap.md` — Repository Knowledge: Implementation Roadmap
+- `ai/enterprise_engineering_repository/00_repository_governance/repository_index.md` — Repository Knowledge: Repository Index
+- `ai/enterprise_engineering_repository/00_repository_governance/repository_manifest.md` — Repository Knowledge: Repository Manifest
+- `ai/enterprise_engineering_repository/00_repository_governance/standards_matrix.md` — Repository Knowledge: Standards Matrix
+- `ai/enterprise_engineering_repository/01_engineering_constitution/README.md` — Repository Knowledge: Readme
+- `ai/enterprise_engineering_repository/01_engineering_constitution/architectural_principles.md` — Repository Knowledge: Architectural Principles
+- `ai/enterprise_engineering_repository/01_engineering_constitution/canonical_data_model.md` — Repository Knowledge: Canonical Data Model
+- `ai/enterprise_engineering_repository/01_engineering_constitution/document_standards.md` — Repository Knowledge: Document Standards
+- `ai/enterprise_engineering_repository/01_engineering_constitution/engineering_constitution.md` — Repository Knowledge: Engineering Constitution
+- `ai/enterprise_engineering_repository/01_engineering_constitution/engineering_principles.md` — Repository Knowledge: Engineering Principles
+- `ai/enterprise_engineering_repository/01_engineering_constitution/runtime_overview.md` — Repository Knowledge: Runtime Overview
+- `ai/enterprise_engineering_repository/02_enterprise_architecture/README.md` — Repository Knowledge: Readme
+- `ai/enterprise_engineering_repository/02_enterprise_architecture/bounded_contexts.md` — Repository Knowledge: Bounded Contexts
+- `ai/enterprise_engineering_repository/02_enterprise_architecture/business_capability_model.md` — Repository Knowledge: Business Capability Model
+- `ai/enterprise_engineering_repository/02_enterprise_architecture/domain_model.md` — Repository Knowledge: Domain Model
+- `ai/enterprise_engineering_repository/02_enterprise_architecture/integration_architecture.md` — Repository Knowledge: Integration Architecture
+- `ai/enterprise_engineering_repository/02_enterprise_architecture/logical_architecture.md` — Repository Knowledge: Logical Architecture
+- `ai/enterprise_engineering_repository/02_enterprise_architecture/physical_architecture.md` — Repository Knowledge: Physical Architecture
+- `ai/enterprise_engineering_repository/02_enterprise_architecture/reference_architecture.md` — Repository Knowledge: Reference Architecture
+- `ai/enterprise_engineering_repository/02_enterprise_architecture/service_landscape.md` — Repository Knowledge: Service Landscape
+- `ai/enterprise_engineering_repository/03_identity_and_access/README.md` — Repository Knowledge: Readme
+- `ai/enterprise_engineering_repository/03_identity_and_access/abac.md` — Repository Knowledge: Abac
+- `ai/enterprise_engineering_repository/03_identity_and_access/authentication.md` — Repository Knowledge: Authentication
+- `ai/enterprise_engineering_repository/03_identity_and_access/authorisation.md` — Repository Knowledge: Authorisation
+- `ai/enterprise_engineering_repository/03_identity_and_access/consent.md` — Repository Knowledge: Consent
+- `ai/enterprise_engineering_repository/03_identity_and_access/organisations.md` — Repository Knowledge: Organisations
+- `ai/enterprise_engineering_repository/03_identity_and_access/rbac.md` — Repository Knowledge: Rbac
+- `ai/enterprise_engineering_repository/03_identity_and_access/tenants.md` — Repository Knowledge: Tenants
+- `ai/enterprise_engineering_repository/04_platform_engineering/api_standards/README.md` — Repository Knowledge: Readme
+- `ai/enterprise_engineering_repository/04_platform_engineering/api_standards/api_architecture.md` — Repository Knowledge: Api Architecture
+- `ai/enterprise_engineering_repository/04_platform_engineering/api_standards/graphql.md` — Repository Knowledge: Graphql
+- `ai/enterprise_engineering_repository/04_platform_engineering/api_standards/rest_api.md` — Repository Knowledge: Rest Api
+- `ai/enterprise_engineering_repository/04_platform_engineering/database_standards/README.md` — Repository Knowledge: Readme
+- `ai/enterprise_engineering_repository/04_platform_engineering/database_standards/database_architecture.md` — Repository Knowledge: Database Architecture
+- `ai/enterprise_engineering_repository/04_platform_engineering/database_standards/schema_design.md` — Repository Knowledge: Schema Design
+- `ai/enterprise_engineering_repository/04_platform_engineering/event_standards/README.md` — Repository Knowledge: Readme
+- `ai/enterprise_engineering_repository/04_platform_engineering/event_standards/event_architecture.md` — Repository Knowledge: Event Architecture
+- `ai/enterprise_engineering_repository/04_platform_engineering/event_standards/event_sourcing.md` — Repository Knowledge: Event Sourcing
+- `ai/enterprise_engineering_repository/04_platform_engineering/runtime_standards/README.md` — Repository Knowledge: Readme
+- `ai/enterprise_engineering_repository/04_platform_engineering/runtime_standards/runtime_architecture.md` — Repository Knowledge: Runtime Architecture
+- `ai/enterprise_engineering_repository/04_platform_engineering/runtime_standards/service_lifecycle.md` — Repository Knowledge: Service Lifecycle
+- `ai/enterprise_engineering_repository/05_platform_operations/observability_standards/README.md` — Repository Knowledge: Readme
+- `ai/enterprise_engineering_repository/05_platform_operations/observability_standards/logging.md` — Repository Knowledge: Logging
+- `ai/enterprise_engineering_repository/05_platform_operations/observability_standards/metrics.md` — Repository Knowledge: Metrics
+- `ai/enterprise_engineering_repository/05_platform_operations/observability_standards/tracing.md` — Repository Knowledge: Tracing
+- `ai/enterprise_engineering_repository/05_platform_operations/security_standards/README.md` — Repository Knowledge: Readme
+- `ai/enterprise_engineering_repository/05_platform_operations/security_standards/cryptography.md` — Repository Knowledge: Cryptography
+- `ai/enterprise_engineering_repository/05_platform_operations/security_standards/zero_trust.md` — Repository Knowledge: Zero Trust
+- `ai/enterprise_engineering_repository/05_platform_operations/testing_standards/README.md` — Repository Knowledge: Readme
+- `ai/enterprise_engineering_repository/05_platform_operations/testing_standards/integration_testing.md` — Repository Knowledge: Integration Testing
+- `ai/enterprise_engineering_repository/05_platform_operations/testing_standards/testing_strategy.md` — Repository Knowledge: Testing Strategy
+- `ai/enterprise_engineering_repository/06_ai_platform/README.md` — Repository Knowledge: Readme
+- `ai/enterprise_engineering_repository/06_ai_platform/agent_architecture.md` — Repository Knowledge: Agent Architecture
+- `ai/enterprise_engineering_repository/06_ai_platform/memory.md` — Repository Knowledge: Memory
+- `ai/enterprise_engineering_repository/06_ai_platform/prompt_engineering.md` — Repository Knowledge: Prompt Engineering
+- `ai/enterprise_engineering_repository/06_ai_platform/rag.md` — Repository Knowledge: Rag
+- `ai/enterprise_engineering_repository/07_data_and_intelligence/algorithm_standards/README.md` — Repository Knowledge: Readme
+- `ai/enterprise_engineering_repository/07_data_and_intelligence/algorithm_standards/decision_engine.md` — Repository Knowledge: Decision Engine
+- `ai/enterprise_engineering_repository/07_data_and_intelligence/canonical_data_model/README.md` — Repository Knowledge: Readme
+- `ai/enterprise_engineering_repository/07_data_and_intelligence/canonical_data_model/canonical_model.md` — Repository Knowledge: Canonical Model
+- `ai/enterprise_engineering_repository/07_data_and_intelligence/mathematical_models/README.md` — Repository Knowledge: Readme
+- `ai/enterprise_engineering_repository/07_data_and_intelligence/mathematical_models/statistics.md` — Repository Knowledge: Statistics
+- `ai/enterprise_engineering_repository/08_enterprise_governance/governance_standards/README.md` — Repository Knowledge: Readme
+- `ai/enterprise_engineering_repository/08_enterprise_governance/governance_standards/adr.md` — Repository Knowledge: Adr
+- `ai/enterprise_engineering_repository/08_enterprise_governance/governance_standards/governance.md` — Repository Knowledge: Governance
+- `ai/enterprise_engineering_repository/CHANGELOG.md` — Repository Knowledge: CHANGELOG \| Version 0.2.0 (Current) \| Repository Direction \| Domains
+- `ai/enterprise_engineering_repository/README.md` — Repository Knowledge: Enterprise AI Operating System (EAIOS) \| Enterprise Engineering Repository \| Vision \| Repository Principles
+- `ai/enterprise_engineering_repository/ROADMAP.md` — Repository Knowledge: Enterprise Engineering Repository Roadmap \| Phase 1 — Foundation \| Phase 2 — AI Core \| Phase 3 — Enterprise Platform
+- `ai/enterprise_engineering_repository/foundation/product/CONSULTANT_PLATFORM_PRODUCT_BIBLE.md` — Repository Knowledge: CONSULTANT_PLATFORM_PRODUCT_BIBLE.md \| 1. Vision \| 2. Business Goals \| 3. Personas
+- `ai/enterprise_engineering_repository/foundation/product/DATA_MODEL.md` — Repository Knowledge: DATA MODEL
+- `ai/enterprise_engineering_repository/foundation/product/FEATURE_ROADMAP.md` — Repository Knowledge: FEATURE ROADMAP \| M1 \| M2 \| M3
+- `ai/enterprise_engineering_repository/foundation/product/INFORMATION_ARCHITECTURE.md` — Repository Knowledge: INFORMATION ARCHITECTURE
+- `ai/enterprise_engineering_repository/foundation/product/MODULE_CATALOG.md` — Repository Knowledge: MODULE CATALOG \| Foundation \| Clinical \| Productivity
+- `ai/enterprise_engineering_repository/foundation/product/NAVIGATION_SPECIFICATION.md` — Repository Knowledge: NAVIGATION SPECIFICATION
+- `ai/enterprise_engineering_repository/foundation/product/PERSONAS.md` — Repository Knowledge: PERSONAS \| Purpose \| Personas \| Super Admin
+- `ai/enterprise_engineering_repository/foundation/product/RBAC_SPECIFICATION.md` — Repository Knowledge: RBAC SPECIFICATION
+- `ai/enterprise_engineering_repository/foundation/product/USER_JOURNEYS.md` — Repository Knowledge: USER JOURNEYS \| Organisation Onboarding \| Consultant Onboarding \| Client Journey
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/ACCEPTANCE_CRITERIA.md` — Repository Knowledge: Acceptance Criteria
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/CODEX_TASKS.md` — Repository Knowledge: Codex Tasks
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/DATABASE_SCHEMA.md` — Repository Knowledge: Database Schema
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/IMPLEMENTATION_PLAN.md` — Repository Knowledge: Implementation Plan
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/PRD.md` — Repository Knowledge: PRD \| Objective \| Scope
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/SEQUENCE_DIAGRAMS.md` — Repository Knowledge: Sequence Diagrams \| Invitation
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/TDS.md` — Repository Knowledge: Technical Design \| Services \| Architecture
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/TEST_SCENARIOS.md` — Repository Knowledge: Test Scenarios
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/UI_FLOW.md` — Repository Knowledge: UI Flow
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/01_PRD.md` — Repository Knowledge: PRD
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/02_BUSINESS_RULES.md` — Repository Knowledge: Business Rules
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/03_DATABASE_SCHEMA.md` — Repository Knowledge: Database Schema
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/05_BACKEND_ARCHITECTURE.md` — Repository Knowledge: Backend Architecture
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/06_FRONTEND_ARCHITECTURE.md` — Repository Knowledge: Frontend
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/07_SECURITY_MODEL.md` — Repository Knowledge: Security
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/08_SESSION_MANAGEMENT.md` — Repository Knowledge: Sessions
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/09_JWT_STRATEGY.md` — Repository Knowledge: JWT Strategy
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/10_REFRESH_TOKEN.md` — Repository Knowledge: Refresh Tokens
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/11_PASSWORD_POLICY.md` — Repository Knowledge: Password Policy
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/12_FORGOT_PASSWORD.md` — Repository Knowledge: Forgot Password
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/13_LOGIN_FLOW.md` — Repository Knowledge: Login Flow
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/14_LOGOUT_FLOW.md` — Repository Knowledge: Logout Flow
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/15_EDGE_CASES.md` — Repository Knowledge: Edge Cases
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/16_ERROR_CODES.md` — Repository Knowledge: Error Codes
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/17_TEST_CASES.md` — Repository Knowledge: Test Cases
+- `ai/enterprise_engineering_repository/foundation/product/milestones/M1_Identity_Access/epics/EPIC-001_Authentication/18_SEQUENCE_DIAGRAMS.md` — Repository Knowledge: Sequence Diagrams
+- Additional remaining documents cataloged in `02_DOCUMENT_CATALOG.md`: 1122

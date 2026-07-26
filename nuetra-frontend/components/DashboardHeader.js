@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
-import { getDashboardPathForRole, getRoleKey } from '../lib/roleRoutes';
+import { getDashboardPathForUser, getRoleKey } from '../lib/roleRoutes';
 import LogoutButton from './LogoutButton';
 import NotificationSystem from './NotificationSystem';
 
@@ -116,8 +116,8 @@ export default function DashboardHeader({
   }, [user]);
 
   const getDashboardUrl = () => {
-    if (!user?.role) return '/';
-    return getDashboardPathForRole(user.role, '/');
+    if (!user) return '/';
+    return getDashboardPathForUser(user, '/');
   };
 
   const commandActions = useMemo(() => {

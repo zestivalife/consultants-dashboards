@@ -3,7 +3,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { useAuth } from '../context/AuthContext';
-import { getDashboardPathForRole } from '../lib/roleRoutes';
+import { getDashboardPathForUser } from '../lib/roleRoutes';
 import { ArrowLeft, Shield, Lock, Eye, FileText } from 'lucide-react';
 
 export default function PrivacyPolicyPage() {
@@ -14,7 +14,7 @@ export default function PrivacyPolicyPage() {
     if (!authUser) {
       return '/'; // Redirect to home if user is not authenticated
     }
-    return getDashboardPathForRole(authUser.role, '/dashboard/team-member');
+    return getDashboardPathForUser(authUser, '/dashboard/team-member');
   };
 
   return (
@@ -150,4 +150,3 @@ export default function PrivacyPolicyPage() {
     </div>
   );
 }
-
