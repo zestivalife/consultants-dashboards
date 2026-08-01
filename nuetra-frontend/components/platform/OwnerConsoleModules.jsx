@@ -361,19 +361,6 @@ function FilterDrawer({
               <option value="true">Archived users</option>
             </select>
           </Field>
-          <SectionLabel>Advanced</SectionLabel>
-          <div className="grid gap-3 md:grid-cols-2">
-            <Field label="Last login">
-              <select disabled className="w-full rounded-2xl border border-dashed border-gray-200 px-4 py-3 text-sm text-gray-400 outline-none">
-                <option>Coming with analytics filters</option>
-              </select>
-            </Field>
-            <Field label="Created date">
-              <select disabled className="w-full rounded-2xl border border-dashed border-gray-200 px-4 py-3 text-sm text-gray-400 outline-none">
-                <option>Coming with analytics filters</option>
-              </select>
-            </Field>
-          </div>
         </div>
 
         <div className="flex gap-3 border-t border-gray-100 bg-white p-6">
