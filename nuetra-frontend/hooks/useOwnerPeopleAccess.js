@@ -59,6 +59,10 @@ function compactQuery(currentQuery, patch) {
   return nextQuery;
 }
 
+function queryValue(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
   const [summary, setSummary] = useState(null);
   const [metadata, setMetadata] = useState(null);
@@ -71,7 +75,36 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const peopleRouteState = useMemo(() => parsePeopleRouteState(router.query), [router.query]);
+  const peopleRouteStateKey = useMemo(() => JSON.stringify({
+    search: queryValue(router.query.search) || '',
+    role: queryValue(router.query.role) || '',
+    organization_id: queryValue(router.query.organization_id) || '',
+    department_id: queryValue(router.query.department_id) || '',
+    product_id: queryValue(router.query.product_id) || '',
+    status: queryValue(router.query.status) || '',
+    verification: queryValue(router.query.verification) || '',
+    page: queryValue(router.query.page) || '',
+    page_size: queryValue(router.query.page_size) || '',
+    sort_by: queryValue(router.query.sort_by) || '',
+    sort_order: queryValue(router.query.sort_order) || '',
+    archived: queryValue(router.query.archived) || '',
+    user: queryValue(router.query.user) || '',
+  }), [
+    router.query.archived,
+    router.query.department_id,
+    router.query.organization_id,
+    router.query.page,
+    router.query.page_size,
+    router.query.product_id,
+    router.query.role,
+    router.query.search,
+    router.query.sort_by,
+    router.query.sort_order,
+    router.query.status,
+    router.query.user,
+    router.query.verification,
+  ]);
+  const peopleRouteState = useMemo(() => parsePeopleRouteState(JSON.parse(peopleRouteStateKey)), [peopleRouteStateKey]);
 
   const replaceCurrentQuery = useCallback((patch) => {
     const nextQuery = compactQuery(router.query, patch);
@@ -95,13 +128,17 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     const response = await ownerPeopleAccessAPI.listUsers(nextFilters);
     setUsers(response?.items || []);
     setPagination(response?.pagination || null);
-    if (!selectedUserId && response?.items?.length) {
-      setSelectedUserId(response.items[0].id);
-    } else if (selectedUserId && !response?.items?.some((item) => item.id === selectedUserId)) {
-      setSelectedUserId(response?.items?.[0]?.id || null);
-    }
+    setSelectedUserId((currentSelectedUserId) => {
+      if (!currentSelectedUserId && response?.items?.length) {
+        return response.items[0].id;
+      }
+      if (currentSelectedUserId && !response?.items?.some((item) => item.id === currentSelectedUserId)) {
+        return response?.items?.[0]?.id || null;
+      }
+      return currentSelectedUserId;
+    });
     return response;
-  }, [selectedUserId]);
+  }, []);
 
   const loadSelectedUser = useCallback(async (userId) => {
     if (!userId) {
@@ -136,9 +173,14 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
 
   useEffect(() => {
     if (!router.isReady || !enabled) return;
-    setSelectedUserId(peopleRouteState.selectedUserId);
     refresh(peopleRouteState.filters).catch(() => null);
-  }, [enabled, peopleRouteState.filters, peopleRouteState.selectedUserId, refresh, router.isReady]);
+  }, [enabled, peopleRouteState.filters, refresh, router.isReady]);
+
+  useEffect(() => {
+    if (!router.isReady || !enabled) return;
+    if (!peopleRouteState.selectedUserId) return;
+    setSelectedUserId(peopleRouteState.selectedUserId);
+  }, [enabled, peopleRouteState.selectedUserId, router.isReady]);
 
   useEffect(() => {
     if (!enabled || !detailEnabled || !selectedUserId) return;
