@@ -143,18 +143,20 @@ function EnterpriseToast({ notice, error }) {
   if (!message) return null;
 
   const isError = Boolean(error) || notice?.type === 'error';
+  const Icon = isError ? XCircle : CheckCircle2;
   return (
     <div
       role={isError ? 'alert' : 'status'}
       aria-live={isError ? 'assertive' : 'polite'}
       className={cn(
-        'fixed right-6 top-6 z-50 max-w-md rounded-2xl px-4 py-3 text-sm font-semibold shadow-2xl',
+        'fixed left-4 right-4 top-4 z-50 flex max-w-md items-start gap-3 rounded-2xl px-4 py-3 text-sm font-semibold shadow-2xl transition md:left-auto md:right-6 md:top-6',
         isError
           ? 'border border-red-200 bg-red-50 text-red-700'
           : 'border border-emerald-200 bg-emerald-50 text-emerald-700'
       )}
     >
-      {message}
+      <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+      <span>{message}</span>
     </div>
   );
 }
@@ -191,30 +193,62 @@ function CollectionToolbar({
 }) {
   const hasSelection = selectedCount > 0;
   return (
-    <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+    <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-gray-100 bg-slate-50/80 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone="blue">{total} Users</Badge>
-        <Badge tone={hasSelection ? 'violet' : 'neutral'}>{selectedCount} Selected</Badge>
+        <span className="text-sm font-black text-gray-900">{total} users</span>
+        <span className="h-1 w-1 rounded-full bg-gray-300" />
+        <span className="text-xs font-bold uppercase tracking-[0.16em] text-gray-400">
+          {isArchiveView ? 'Archive' : 'Active collection'}
+        </span>
         {hasSelection ? (
           isArchiveView ? (
             <>
-              <button onClick={onRestore} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:border-emerald-300 hover:text-emerald-700">Restore</button>
-              <button disabled className="rounded-full border border-dashed border-gray-300 bg-white px-3 py-2 text-xs font-bold text-gray-400">Bulk Permanent Delete (future)</button>
+              <Badge tone="violet">{selectedCount} selected</Badge>
+              <button onClick={onRestore} className="rounded-full border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700 transition hover:bg-emerald-50">Restore selected</button>
             </>
           ) : (
             <>
-              <button onClick={onArchive} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:border-amber-300 hover:text-amber-700">Archive</button>
+              <Badge tone="violet">{selectedCount} selected</Badge>
+              <button onClick={onArchive} className="rounded-full border border-amber-200 bg-white px-3 py-2 text-xs font-bold text-amber-700 transition hover:bg-amber-50">Archive selected</button>
             </>
           )
-        ) : (
-          <span className="text-xs font-semibold text-gray-500">Select rows to reveal bulk actions.</span>
-        )}
+        ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <button onClick={onExport} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:border-[#237afc] hover:text-[#237afc]">Export</button>
-        <button onClick={onImport} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:border-[#237afc] hover:text-[#237afc]">Import CSV</button>
+        <button onClick={onExport} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 transition hover:border-[#237afc] hover:text-[#237afc]">Export</button>
+        <button onClick={onImport} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 transition hover:border-[#237afc] hover:text-[#237afc]">Import</button>
       </div>
     </div>
+  );
+}
+
+function CollectionMetricButton({ label, value, icon: Icon, active, tone = 'blue', onClick }) {
+  const toneClasses = {
+    blue: active ? 'border-blue-200 bg-blue-50 text-blue-700' : 'hover:border-blue-200 hover:bg-blue-50/60',
+    violet: active ? 'border-violet-200 bg-violet-50 text-violet-700' : 'hover:border-violet-200 hover:bg-violet-50/60',
+    amber: active ? 'border-amber-200 bg-amber-50 text-amber-700' : 'hover:border-amber-200 hover:bg-amber-50/60',
+    green: active ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'hover:border-emerald-200 hover:bg-emerald-50/60',
+    red: active ? 'border-rose-200 bg-rose-50 text-rose-700' : 'hover:border-rose-200 hover:bg-rose-50/60',
+    slate: active ? 'border-slate-300 bg-slate-100 text-slate-800' : 'hover:border-slate-300 hover:bg-slate-50',
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={Boolean(active)}
+      className={cn(
+        'group flex min-h-[76px] items-center justify-between rounded-2xl border border-gray-100 bg-white px-4 py-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-blue-50',
+        toneClasses[tone] || toneClasses.blue
+      )}
+    >
+      <span>
+        <span className="block text-xl font-black tracking-tight text-gray-900">{value}</span>
+        <span className="mt-1 block text-xs font-bold uppercase tracking-[0.14em] text-gray-400">{label}</span>
+      </span>
+      <span className="rounded-xl bg-gray-50 p-2 text-gray-400 transition group-hover:bg-white group-hover:text-current">
+        <Icon className="h-4 w-4" />
+      </span>
+    </button>
   );
 }
 
@@ -238,20 +272,40 @@ function FilterDrawer({
   if (!open) return null;
 
   const setValue = (key, value) => setDraft((current) => ({ ...current, [key]: value, page: 1 }));
+  const activeCount = [
+    draft.role,
+    draft.status,
+    draft.organization_id,
+    draft.department_id,
+    draft.product_id,
+    draft.verification,
+    draft.archived ? 'archived' : '',
+  ].filter(Boolean).length;
+  const SectionLabel = ({ children }) => (
+    <p className="pt-2 text-xs font-black uppercase tracking-[0.18em] text-gray-400">{children}</p>
+  );
   return (
     <div className="fixed inset-0 z-40 bg-slate-950/25" role="dialog" aria-modal="true" aria-label="People filters">
       <button className="absolute inset-0 h-full w-full cursor-default" aria-label="Close filters" onClick={onClose} />
-      <aside className="absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto border-l border-gray-200 bg-white p-6 shadow-2xl">
+      <aside className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col border-l border-gray-200 bg-white shadow-2xl">
+        <div className="border-b border-gray-100 p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.24em] text-[#237afc]">Filters</p>
             <h3 className="mt-2 text-2xl font-black text-gray-900">Refine People & Access</h3>
             <p className="mt-1 text-sm text-gray-500">Filter the collection without losing your current search context.</p>
           </div>
-          <button onClick={onClose} className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500">Close</button>
+          <button onClick={onClose} className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500 transition hover:border-gray-300 hover:text-gray-900">Close</button>
+        </div>
+        {activeCount ? (
+          <div className="mt-4 inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-black uppercase tracking-[0.14em] text-[#237afc]">
+            {activeCount} active {activeCount === 1 ? 'filter' : 'filters'}
+          </div>
+        ) : null}
         </div>
 
-        <div className="mt-6 space-y-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-6">
+          <SectionLabel>Identity</SectionLabel>
           <Field label="Role">
             <select value={draft.role || ''} onChange={(event) => setValue('role', event.target.value)} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
               <option value="">All roles</option>
@@ -268,6 +322,7 @@ function FilterDrawer({
               ))}
             </select>
           </Field>
+          <SectionLabel>Organization scope</SectionLabel>
           <Field label="Organization">
             <select value={draft.organization_id || ''} onChange={(event) => setValue('organization_id', event.target.value)} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
               <option value="">All organizations</option>
@@ -284,6 +339,7 @@ function FilterDrawer({
               ))}
             </select>
           </Field>
+          <SectionLabel>Product and lifecycle</SectionLabel>
           <Field label="Product">
             <select value={draft.product_id || ''} onChange={(event) => setValue('product_id', event.target.value)} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
               <option value="">All products</option>
@@ -305,6 +361,7 @@ function FilterDrawer({
               <option value="true">Archived users</option>
             </select>
           </Field>
+          <SectionLabel>Advanced</SectionLabel>
           <div className="grid gap-3 md:grid-cols-2">
             <Field label="Last login">
               <select disabled className="w-full rounded-2xl border border-dashed border-gray-200 px-4 py-3 text-sm text-gray-400 outline-none">
@@ -319,7 +376,7 @@ function FilterDrawer({
           </div>
         </div>
 
-        <div className="sticky bottom-0 mt-6 flex gap-3 border-t border-gray-100 bg-white pt-4">
+        <div className="flex gap-3 border-t border-gray-100 bg-white p-6">
           <ActionButton icon={Filter} label="Apply" tone="primary" onClick={() => { onApply?.(draft); onClose?.(); }} />
           <ActionButton icon={XCircle} label="Reset" onClick={onReset} />
         </div>
@@ -350,6 +407,7 @@ function ColumnManager({ columns, visibleColumns, onToggleColumn }) {
 }
 
 function RowActionMenu({ person, isArchiveView, open, onToggle, onView, onArchive, onRestore, onAssignRole, onSuspend, onResetPassword }) {
+  const itemClass = 'flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-100';
   return (
     <div className="relative">
       <button
@@ -357,41 +415,41 @@ function RowActionMenu({ person, isArchiveView, open, onToggle, onView, onArchiv
         aria-label={`Open actions for ${person.name || person.email}`}
         aria-expanded={open}
         onClick={onToggle}
-        className="rounded-full border border-gray-200 bg-white p-2 text-gray-500 hover:border-[#237afc] hover:text-[#237afc]"
+        className="rounded-full border border-gray-200 bg-white p-2 text-gray-500 transition hover:border-[#237afc] hover:text-[#237afc] focus:outline-none focus:ring-4 focus:ring-blue-50"
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
       {open ? (
         <div className="absolute right-0 top-full z-20 mt-2 w-56 overflow-hidden rounded-2xl border border-gray-100 bg-white py-2 shadow-2xl">
-          <button onClick={onView} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50">
+          <button type="button" onClick={onView} className={cn(itemClass, 'text-gray-700 hover:bg-gray-50')}>
             <Eye className="h-4 w-4" />
             View profile
           </button>
           {!isArchiveView ? (
             <>
-              <button onClick={onView} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50">
+              <button type="button" onClick={onView} className={cn(itemClass, 'text-gray-700 hover:bg-gray-50')}>
                 <PencilLine className="h-4 w-4" />
                 Edit
               </button>
-              <button onClick={onAssignRole} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50">
+              <button type="button" onClick={onAssignRole} className={cn(itemClass, 'text-gray-700 hover:bg-gray-50')}>
                 <Shield className="h-4 w-4" />
                 Assign role
               </button>
-              <button onClick={onResetPassword} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50">
+              <button type="button" onClick={onResetPassword} className={cn(itemClass, 'text-gray-700 hover:bg-gray-50')}>
                 <KeyRound className="h-4 w-4" />
                 Reset password
               </button>
-              <button onClick={onSuspend} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-semibold text-rose-700 hover:bg-rose-50">
+              <button type="button" onClick={onSuspend} className={cn(itemClass, 'text-rose-700 hover:bg-rose-50')}>
                 <XCircle className="h-4 w-4" />
                 Suspend
               </button>
-              <button onClick={onArchive} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-semibold text-amber-700 hover:bg-amber-50">
+              <button type="button" onClick={onArchive} className={cn(itemClass, 'text-amber-700 hover:bg-amber-50')}>
                 <Archive className="h-4 w-4" />
                 Archive
               </button>
             </>
           ) : (
-            <button onClick={onRestore} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-semibold text-emerald-700 hover:bg-emerald-50">
+            <button type="button" onClick={onRestore} className={cn(itemClass, 'text-emerald-700 hover:bg-emerald-50')}>
               <RotateCcw className="h-4 w-4" />
               Restore
             </button>
@@ -1021,16 +1079,35 @@ export function PeopleAccessModule({
   const collectionColumns = isArchiveView ? archiveCollectionColumns : activeCollectionColumns;
   const displayColumns = collectionColumns.filter((column) => visibleColumnKeys.includes(column.key));
   const columnPreferencesKey = isArchiveView ? 'zestiva.peopleAccess.archive.columns' : 'zestiva.peopleAccess.active.columns';
-  const activeRoleChip =
-    filters?.role === 'platform_owner'
-      ? 'owners'
-      : filters?.role === 'mentor'
-        ? 'mentors'
-        : filters?.role === 'employee'
-          ? 'employees'
-          : filters?.role
-            ? 'admins'
-            : 'all';
+  const activeFilterPills = useMemo(() => {
+    const pills = [];
+    const roleLabel = roleOptions.find((role) => role.name.toLowerCase().replace(/ /g, '_') === filters?.role)?.name;
+    const productLabel = productOptions.find((product) => product.id === activeFilterProduct)?.name;
+    const organizationLabel = organizationOptions.find((organization) => organization.id === activeFilterOrganization)?.name;
+    const departmentLabel = departmentOptions.find((department) => department.id === activeFilterDepartment)?.name;
+    if (filters?.role) pills.push({ key: 'role', label: `Role: ${roleLabel || formatPeopleStatus(filters.role)}`, patch: { role: '', page: 1 } });
+    if (activeFilterStatus) pills.push({ key: 'status', label: `Status: ${formatPeopleStatus(activeFilterStatus)}`, patch: { status: '', page: 1 } });
+    if (activeFilterProduct) pills.push({ key: 'product', label: `Product: ${productLabel || 'Selected product'}`, patch: { product_id: '', page: 1 } });
+    if (activeFilterOrganization) pills.push({ key: 'organization', label: `Org: ${organizationLabel || 'Selected organization'}`, patch: { organization_id: '', page: 1 } });
+    if (activeFilterDepartment) pills.push({ key: 'department', label: `Dept: ${departmentLabel || 'Selected department'}`, patch: { department_id: '', page: 1 } });
+    if (activeFilterVerification) pills.push({ key: 'verification', label: `Verification: ${activeFilterVerification}`, patch: { verification: '', page: 1 } });
+    if (isArchiveView) pills.push({ key: 'archive', label: 'Archive view', patch: { archived: false, page: 1 } });
+    return pills;
+  }, [
+    activeFilterDepartment,
+    activeFilterOrganization,
+    activeFilterProduct,
+    activeFilterStatus,
+    activeFilterVerification,
+    departmentOptions,
+    filters?.role,
+    isArchiveView,
+    organizationOptions,
+    productOptions,
+    roleOptions,
+  ]);
+  const pageStart = totalUsers && pagination ? (pagination.page - 1) * pageSize + 1 : people.length ? 1 : 0;
+  const pageEnd = totalUsers && pagination ? Math.min(totalUsers, pagination.page * pageSize) : people.length;
 
   const updateForm = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const requireAction = (handler, label) => {
@@ -1118,7 +1195,11 @@ export function PeopleAccessModule({
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    window.localStorage.setItem('zestiva.peopleAccess.recentSearches', JSON.stringify(recentSearches.slice(0, 5)));
+    try {
+      window.localStorage.setItem('zestiva.peopleAccess.recentSearches', JSON.stringify(recentSearches.slice(0, 5)));
+    } catch {
+      // Recent search persistence is progressive enhancement only.
+    }
   }, [recentSearches]);
 
   useEffect(() => {
@@ -1163,6 +1244,14 @@ export function PeopleAccessModule({
     setActionNotice({ message, type });
     setActionError(null);
   };
+  useEffect(() => {
+    if (!actionNotice && !actionError) return undefined;
+    const timer = window.setTimeout(() => {
+      setActionNotice(null);
+      setActionError(null);
+    }, 4500);
+    return () => window.clearTimeout(timer);
+  }, [actionError, actionNotice]);
   const toggleListValue = (key, value) => {
     setForm((current) => {
       const values = current[key] || [];
@@ -1233,7 +1322,7 @@ export function PeopleAccessModule({
       return;
     }
     await navigator.clipboard.writeText(value);
-    setActionError(`${label} copied.`);
+    showNotice(`${label} copied.`);
   };
   const copyTemporaryCredentialBundle = async (credentials) => {
     const username = credentials?.username || '';
@@ -1428,7 +1517,7 @@ export function PeopleAccessModule({
         must_change_password: result.must_change_password,
         message: result.message,
       });
-      setActionError('Temporary password generated. Copy it before closing the credential panel.');
+      showNotice('Temporary password generated. Copy it before closing the credential panel.');
     } finally {
       setIsSubmitting(false);
     }
@@ -1669,15 +1758,24 @@ export function PeopleAccessModule({
       description="Manage users, roles and platform access."
       actions={
         <>
-          <ActionButton icon={UserCog} label="Refresh" onClick={() => runAction('Refresh People & Access', onRefresh)} />
           <ActionButton icon={Plus} label="Add User" tone="primary" onClick={() => openProvisioningWizard('practitioner')} />
+          <ActionButton icon={UserCog} label="Refresh" tone="ghost" onClick={() => runAction('Refresh People & Access', onRefresh)} />
         </>
       }
     >
-      <div className="rounded-[28px] border border-gray-100 bg-gradient-to-br from-white to-blue-50/40 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] lg:p-5">
+      <div className="rounded-[28px] border border-gray-100 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] lg:p-5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-sm focus-within:border-[#237afc] focus-within:ring-4 focus-within:ring-blue-50">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-gray-400">Smart search</p>
+                <p className="text-sm font-semibold text-gray-500">
+                  Showing {pageStart}-{pageEnd} of {totalUsers} identities
+                </p>
+              </div>
+              {loading ? <Badge tone="blue">Refreshing</Badge> : null}
+            </div>
+            <div className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-gray-50/70 px-4 py-3 shadow-inner transition focus-within:border-[#237afc] focus-within:bg-white focus-within:ring-4 focus-within:ring-blue-50">
               <Search className="h-4 w-4 shrink-0 text-gray-400" />
               <input
                 ref={searchInputRef}
@@ -1687,12 +1785,12 @@ export function PeopleAccessModule({
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') applyFilters({ search: searchDraft, page: 1 });
                 }}
-                placeholder="Smart Search users, roles, organizations, products, packages..."
+                placeholder="Search name, email, role, organization, product, package..."
                 aria-label="Search People and Access"
                 className="w-full bg-transparent text-sm font-semibold text-gray-900 outline-none placeholder:text-gray-400"
               />
               {searchDraft ? (
-                <button onClick={clearSearch} className="rounded-full px-2 py-1 text-xs font-black text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+                <button onClick={clearSearch} className="rounded-full px-2 py-1 text-xs font-black text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-100">
                   Clear
                 </button>
               ) : (
@@ -1709,18 +1807,41 @@ export function PeopleAccessModule({
                       setSearchDraft(search);
                       applyFilters({ search, page: 1 });
                     }}
-                    className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:border-[#237afc] hover:text-[#237afc]"
+                    className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 transition hover:border-[#237afc] hover:text-[#237afc] focus:outline-none focus:ring-2 focus:ring-blue-100"
                   >
                     {search}
                   </button>
                 ))}
               </div>
             ) : null}
+            {activeFilterPills.length ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-[0.16em] text-gray-400">Applied</span>
+                {activeFilterPills.map((filter) => (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    onClick={() => applyFilters(filter.patch)}
+                    className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 transition hover:border-blue-200 hover:bg-white"
+                  >
+                    {filter.label}
+                    <XCircle className="h-3.5 w-3.5" />
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="rounded-full px-3 py-1.5 text-xs font-black text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                >
+                  Clear all
+                </button>
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setShowAdvancedFilters(true)}
-              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 hover:border-[#237afc] hover:text-[#237afc]"
+              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 transition hover:border-[#237afc] hover:text-[#237afc] focus:outline-none focus:ring-4 focus:ring-blue-50"
             >
               <Filter className="h-4 w-4" />
               Filters
@@ -1729,7 +1850,7 @@ export function PeopleAccessModule({
             <div className="relative">
               <button
                 onClick={() => setShowColumnManager((current) => !current)}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 hover:border-[#237afc] hover:text-[#237afc]"
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 transition hover:border-[#237afc] hover:text-[#237afc] focus:outline-none focus:ring-4 focus:ring-blue-50"
                 aria-expanded={showColumnManager}
               >
                 <LayoutPanelTop className="h-4 w-4" />
@@ -1747,21 +1868,22 @@ export function PeopleAccessModule({
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
         {[
-          { label: 'People', value: summaryMetric('People') || people.length, icon: Users, tone: 'from-[#237afc] to-[#58b6ff]', patch: { role: '', status: '', archived: false, page: 1 } },
-          { label: 'Admins', value: adminsCount, icon: Shield, tone: 'from-violet-500 to-fuchsia-500', patch: { role: 'organization_admin', archived: false, page: 1 } },
-          { label: 'Mentors', value: mentorCount, icon: UserCog, tone: 'from-amber-500 to-orange-500', patch: { role: 'mentor', archived: false, page: 1 } },
-          { label: 'Consultants', value: consultantCount, icon: BriefcaseBusiness, tone: 'from-emerald-500 to-teal-500', patch: { role: 'consultant', archived: false, page: 1 } },
-          { label: 'Suspended', value: suspendedCount, icon: Mail, tone: 'from-rose-500 to-red-500', patch: { status: 'SUSPENDED', archived: false, page: 1 } },
-          { label: 'Archived', value: summaryMetric('Archived'), icon: Archive, tone: 'from-slate-500 to-gray-700', patch: { archived: true, role: '', status: '', page: 1 } },
+          { label: 'People', value: summaryMetric('People') || people.length, icon: Users, tone: 'blue', active: !filters?.role && !activeFilterStatus && !isArchiveView, patch: { role: '', status: '', archived: false, page: 1 } },
+          { label: 'Admins', value: adminsCount, icon: Shield, tone: 'violet', active: filters?.role === 'organization_admin', patch: { role: 'organization_admin', archived: false, page: 1 } },
+          { label: 'Mentors', value: mentorCount, icon: UserCog, tone: 'amber', active: filters?.role === 'mentor', patch: { role: 'mentor', archived: false, page: 1 } },
+          { label: 'Consultants', value: consultantCount, icon: BriefcaseBusiness, tone: 'green', active: filters?.role === 'consultant', patch: { role: 'consultant', archived: false, page: 1 } },
+          { label: 'Suspended', value: suspendedCount, icon: Mail, tone: 'red', active: activeFilterStatus === 'SUSPENDED', patch: { status: 'SUSPENDED', archived: false, page: 1 } },
+          { label: 'Archived', value: summaryMetric('Archived'), icon: Archive, tone: 'slate', active: isArchiveView, patch: { archived: true, role: '', status: '', page: 1 } },
         ].map((metric) => (
-          <button
+          <CollectionMetricButton
             key={metric.label}
-            type="button"
+            label={metric.label}
+            value={metric.value}
+            icon={metric.icon}
+            tone={metric.tone}
+            active={metric.active}
             onClick={() => applyFilters(metric.patch)}
-            className="text-left transition-transform hover:-translate-y-0.5"
-          >
-            <StatPill icon={metric.icon} label={metric.label} value={metric.value} tone={metric.tone} />
-          </button>
+          />
         ))}
       </div>
 
@@ -1821,11 +1943,11 @@ export function PeopleAccessModule({
                         aria-label="Select all visible users"
                         checked={people.length > 0 && people.every((person) => selectedIdSet.has(person.id))}
                         onChange={toggleSelectAll}
-                        className="h-4 w-4 rounded border-gray-300"
+                        className="h-4 w-4 rounded border-gray-300 text-[#237afc] focus:ring-[#237afc]"
                       />
                     </th>
                     <th className="sticky left-12 z-20 min-w-[240px] bg-gray-50 px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.18em] text-gray-400">
-                      <button onClick={() => applySort('name')} className="inline-flex items-center gap-1 hover:text-[#237afc]">
+                      <button type="button" onClick={() => applySort('name')} className="inline-flex items-center gap-1 rounded-lg px-1 py-0.5 transition hover:text-[#237afc] focus:outline-none focus:ring-2 focus:ring-blue-100">
                         Person
                         {sortBy === 'name' ? <span>{sortOrder === 'asc' ? '↑' : '↓'}</span> : null}
                       </button>
@@ -1833,7 +1955,7 @@ export function PeopleAccessModule({
                     {displayColumns.map((column) => (
                       <th key={column.key} className="min-w-[140px] px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.18em] text-gray-400">
                         {column.sortable ? (
-                          <button onClick={() => applySort(column.key)} className="inline-flex items-center gap-1 hover:text-[#237afc]">
+                          <button type="button" onClick={() => applySort(column.key)} className="inline-flex items-center gap-1 rounded-lg px-1 py-0.5 transition hover:text-[#237afc] focus:outline-none focus:ring-2 focus:ring-blue-100">
                             {column.label}
                             {sortBy === column.key ? <span>{sortOrder === 'asc' ? '↑' : '↓'}</span> : null}
                           </button>
@@ -1844,75 +1966,91 @@ export function PeopleAccessModule({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 bg-white">
-                  {people.map((person, rowIndex) => (
-                    <tr
-                      key={person.id}
-                      className={cn('cursor-pointer hover:bg-blue-50/40', rowIndex % 2 === 1 ? 'bg-gray-50/30' : 'bg-white')}
-                      onClick={() => openUserDrawer(person.id)}
-                    >
-                      <td className={cn('sticky left-0 z-10 px-4 py-3', rowIndex % 2 === 1 ? 'bg-gray-50' : 'bg-white')} onClick={(event) => event.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${person.name || person.email}`}
-                          checked={selectedIdSet.has(person.id)}
-                          onChange={() => toggleSelected(person.id)}
-                          className="h-4 w-4 rounded border-gray-300"
-                        />
-                      </td>
-                      <td className={cn('sticky left-12 z-10 min-w-[240px] px-4 py-3', rowIndex % 2 === 1 ? 'bg-gray-50' : 'bg-white')}>
-                        <button onClick={() => openUserDrawer(person.id)} className="text-left">
-                          <p className="font-semibold text-gray-900"><HighlightMatch value={person.name} query={searchDraft} /></p>
-                          <p className="text-xs text-gray-500"><HighlightMatch value={person.email} query={searchDraft} /></p>
-                        </button>
-                      </td>
-                      {displayColumns.map((column) => (
-                        <td key={column.key} className="px-4 py-3 text-sm text-gray-600">
-                          {column.key === 'role' ? <Badge tone="blue">{person.role.replace(/_/g, ' ')}</Badge> : null}
-                          {column.key === 'products' ? (person.products?.length ? person.products.join(', ') : 'No products') : null}
-                          {column.key === 'organization' ? <HighlightMatch value={person.organization || 'Unassigned'} query={searchDraft} /> : null}
-                          {column.key === 'package' ? <HighlightMatch value={person.package || 'No package'} query={searchDraft} /> : null}
-                          {column.key === 'verification' ? <Badge tone={person.verification === 'Verified' ? 'green' : 'amber'}>{person.verification}</Badge> : null}
-                          {column.key === 'status' ? <Badge tone={getPeopleStatusTone(person.status)}>{formatPeopleStatus(person.status)}</Badge> : null}
-                          {column.key === 'archived_at' ? (person.archived_at ? new Date(person.archived_at).toLocaleDateString() : '—') : null}
-                          {column.key === 'archived_by' ? (person.archived_by || 'System') : null}
-                          {column.key === 'archive_reason' ? (person.archive_reason || 'No reason recorded') : null}
+                  {people.map((person, rowIndex) => {
+                    const isSelected = selectedIdSet.has(person.id);
+                    const rowBg = isSelected ? 'bg-blue-50/70' : rowIndex % 2 === 1 ? 'bg-gray-50/30' : 'bg-white';
+                    const stickyBg = isSelected ? 'bg-blue-50' : rowIndex % 2 === 1 ? 'bg-gray-50' : 'bg-white';
+                    const initials = (person.name || person.email || '?')
+                      .split(' ')
+                      .map((part) => part[0])
+                      .join('')
+                      .slice(0, 2)
+                      .toUpperCase();
+                    return (
+                      <tr
+                        key={person.id}
+                        className={cn('cursor-pointer transition hover:bg-blue-50/60', rowBg)}
+                        onClick={() => openUserDrawer(person.id)}
+                      >
+                        <td className={cn('sticky left-0 z-10 px-4 py-3 transition', stickyBg)} onClick={(event) => event.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${person.name || person.email}`}
+                            checked={isSelected}
+                            onChange={() => toggleSelected(person.id)}
+                            className="h-4 w-4 rounded border-gray-300 text-[#237afc] focus:ring-[#237afc]"
+                          />
                         </td>
-                      ))}
-                      <td className="px-4 py-3 text-right" onClick={(event) => event.stopPropagation()}>
-                        <RowActionMenu
-                          person={person}
-                          isArchiveView={isArchiveView}
-                          open={actionMenuId === person.id}
-                          onToggle={() => setActionMenuId((current) => (current === person.id ? null : person.id))}
-                          onView={() => {
-                            setActionMenuId(null);
-                            openUserDrawer(person.id);
-                          }}
-                          onAssignRole={() => {
-                            setActionMenuId(null);
-                            openUserDrawer(person.id);
-                            setProfileTab('Permissions');
-                          }}
-                          onArchive={() => {
-                            setActionMenuId(null);
-                            requestArchiveUser(person);
-                          }}
-                          onSuspend={() => {
-                            setActionMenuId(null);
-                            applyBulkAction('suspend', { user_ids: [person.id] });
-                          }}
-                          onRestore={() => {
-                            setActionMenuId(null);
-                            requestRestoreUser(person);
-                          }}
-                          onResetPassword={() => {
-                            setActionMenuId(null);
-                            resetRowPassword(person.id);
-                          }}
-                        />
-                      </td>
-                    </tr>
-                  ))}
+                        <td className={cn('sticky left-12 z-10 min-w-[240px] px-4 py-3 transition', stickyBg)}>
+                          <button type="button" onClick={() => openUserDrawer(person.id)} className="flex items-center gap-3 rounded-2xl text-left focus:outline-none focus:ring-4 focus:ring-blue-50">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-[11px] font-black text-white shadow-sm">
+                              {initials}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate font-semibold text-gray-900"><HighlightMatch value={person.name} query={searchDraft} /></span>
+                              <span className="block truncate text-xs text-gray-500"><HighlightMatch value={person.email} query={searchDraft} /></span>
+                            </span>
+                          </button>
+                        </td>
+                        {displayColumns.map((column) => (
+                          <td key={column.key} className="px-4 py-3 text-sm text-gray-600">
+                            {column.key === 'role' ? <Badge tone="blue">{person.role.replace(/_/g, ' ')}</Badge> : null}
+                            {column.key === 'products' ? (person.products?.length ? person.products.join(', ') : <span className="text-gray-400">No products</span>) : null}
+                            {column.key === 'organization' ? <HighlightMatch value={person.organization || 'Unassigned'} query={searchDraft} /> : null}
+                            {column.key === 'package' ? <HighlightMatch value={person.package || 'No package'} query={searchDraft} /> : null}
+                            {column.key === 'verification' ? <Badge tone={person.verification === 'Verified' ? 'green' : 'amber'}>{person.verification}</Badge> : null}
+                            {column.key === 'status' ? <Badge tone={getPeopleStatusTone(person.status)}>{formatPeopleStatus(person.status)}</Badge> : null}
+                            {column.key === 'archived_at' ? (person.archived_at ? new Date(person.archived_at).toLocaleDateString() : '—') : null}
+                            {column.key === 'archived_by' ? (person.archived_by || 'System') : null}
+                            {column.key === 'archive_reason' ? (person.archive_reason || 'No reason recorded') : null}
+                          </td>
+                        ))}
+                        <td className="px-4 py-3 text-right" onClick={(event) => event.stopPropagation()}>
+                          <RowActionMenu
+                            person={person}
+                            isArchiveView={isArchiveView}
+                            open={actionMenuId === person.id}
+                            onToggle={() => setActionMenuId((current) => (current === person.id ? null : person.id))}
+                            onView={() => {
+                              setActionMenuId(null);
+                              openUserDrawer(person.id);
+                            }}
+                            onAssignRole={() => {
+                              setActionMenuId(null);
+                              openUserDrawer(person.id);
+                              setProfileTab('Permissions');
+                            }}
+                            onArchive={() => {
+                              setActionMenuId(null);
+                              requestArchiveUser(person);
+                            }}
+                            onSuspend={() => {
+                              setActionMenuId(null);
+                              applyBulkAction('suspend', { user_ids: [person.id] });
+                            }}
+                            onRestore={() => {
+                              setActionMenuId(null);
+                              requestRestoreUser(person);
+                            }}
+                            onResetPassword={() => {
+                              setActionMenuId(null);
+                              resetRowPassword(person.id);
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               {!people.length ? (
@@ -1924,6 +2062,16 @@ export function PeopleAccessModule({
                       isArchiveView
                         ? 'Archived users will appear here with their archived date, actor, reason, role, and organization.'
                         : 'Try clearing filters or searching by name, email, phone, role, product, organization, or package.'
+                    }
+                    action={
+                      <div className="flex flex-wrap justify-center gap-2">
+                        {activeFilterCount || searchDraft ? (
+                          <ActionButton icon={XCircle} label="Clear filters" onClick={resetFilters} />
+                        ) : null}
+                        {!isArchiveView ? (
+                          <ActionButton icon={Plus} label="Add User" tone="primary" onClick={() => openProvisioningWizard('practitioner')} />
+                        ) : null}
+                      </div>
                     }
                   />
                 </div>
@@ -1951,14 +2099,14 @@ export function PeopleAccessModule({
                   <button
                     onClick={() => applyFilters({ page: Math.max(1, pagination.page - 1) })}
                     disabled={pagination.page <= 1}
-                    className="rounded-full border border-gray-200 bg-white px-4 py-2 font-bold text-gray-600 disabled:opacity-50"
+                    className="rounded-full border border-gray-200 bg-white px-4 py-2 font-bold text-gray-600 transition hover:border-[#237afc] hover:text-[#237afc] focus:outline-none focus:ring-4 focus:ring-blue-50 disabled:pointer-events-none disabled:opacity-50"
                   >
                     Previous
                   </button>
                   <button
                     onClick={() => applyFilters({ page: Math.min(pagination.total_pages, pagination.page + 1) })}
                     disabled={pagination.page >= pagination.total_pages}
-                    className="rounded-full border border-gray-200 bg-white px-4 py-2 font-bold text-gray-600 disabled:opacity-50"
+                    className="rounded-full border border-gray-200 bg-white px-4 py-2 font-bold text-gray-600 transition hover:border-[#237afc] hover:text-[#237afc] focus:outline-none focus:ring-4 focus:ring-blue-50 disabled:pointer-events-none disabled:opacity-50"
                   >
                     Next
                   </button>
