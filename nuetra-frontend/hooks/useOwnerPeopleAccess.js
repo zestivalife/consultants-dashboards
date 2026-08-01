@@ -5,6 +5,8 @@ import { ownerPeopleAccessAPI } from '../lib/api';
 const DEFAULT_FILTERS = {
   search: '',
   role: '',
+  organization_id: '',
+  department_id: '',
   product_id: '',
   status: '',
   verification: '',
@@ -25,6 +27,8 @@ function parsePeopleRouteState(query) {
     filters: {
       search: typeof query.search === 'string' ? query.search : '',
       role: typeof query.role === 'string' ? query.role : '',
+      organization_id: typeof query.organization_id === 'string' ? query.organization_id : '',
+      department_id: typeof query.department_id === 'string' ? query.department_id : '',
       product_id: typeof query.product_id === 'string' ? query.product_id : '',
       status: typeof query.status === 'string' ? query.status : '',
       verification: typeof query.verification === 'string' ? query.verification : '',
@@ -147,6 +151,8 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     replaceCurrentQuery({
       search: patch.search !== undefined ? patch.search : peopleRouteState.filters.search,
       role: patch.role !== undefined ? patch.role : peopleRouteState.filters.role,
+      organization_id: patch.organization_id !== undefined ? patch.organization_id : peopleRouteState.filters.organization_id,
+      department_id: patch.department_id !== undefined ? patch.department_id : peopleRouteState.filters.department_id,
       product_id: patch.product_id !== undefined ? patch.product_id : peopleRouteState.filters.product_id,
       status: patch.status !== undefined ? patch.status : peopleRouteState.filters.status,
       verification: patch.verification !== undefined ? patch.verification : peopleRouteState.filters.verification,
