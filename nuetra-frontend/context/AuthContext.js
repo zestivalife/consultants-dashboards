@@ -13,6 +13,12 @@ function getPostLoginPath(user) {
   return getPostAuthPathForUser(user);
 }
 
+function shouldRedirectDuringSessionRestore(pathname, postAuthPath) {
+  if (!pathname || !postAuthPath) return false;
+  if (!pathname.startsWith('/dashboard')) return false;
+  return pathname === '/dashboard' || pathname === '/dashboard/index';
+}
+
 function readStoredSessionRecord() {
   if (typeof window === 'undefined') return null;
 
@@ -225,7 +231,7 @@ export function AuthProvider({ children }) {
           setUser(nextUser);
           persistSession(session, rememberMe);
           const postAuthPath = getPostAuthPathForUser(nextUser);
-          if (postAuthPath && router.pathname !== postAuthPath && router.pathname.startsWith('/dashboard')) {
+          if (shouldRedirectDuringSessionRestore(router.pathname, postAuthPath)) {
             router.replace(postAuthPath);
           }
           return true;
