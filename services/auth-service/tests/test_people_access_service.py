@@ -464,6 +464,202 @@ async def test_bulk_action_skips_platform_owner_lifecycle_mutation(session: Asyn
 
 
 @pytest.mark.asyncio
+async def test_archive_user_soft_deletes_access_and_audits(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    practitioner_role = await _create_role(session, "practitioner")
+    owner = await _create_user(session, owner_role, "owner@zestiva.in", first_name="Owner")
+    practitioner = await _create_user(session, practitioner_role, "practitioner@zestiva.in")
+    original_session_version = practitioner.current_session_version
+    original_refresh_version = practitioner.refresh_token_version
+    actor = _actor_from_user(owner, permissions=["users.edit", "users.read"])
+
+    detail = await people_access_service.archive_user(
+        session,
+        practitioner.id,
+        reason="No longer contracted",
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-archive-user",
+    )
+
+    assert detail.id == practitioner.id
+    assert detail.status == "ARCHIVED"
+    assert detail.archived_at is not None
+    assert detail.archived_by == "Owner"
+    assert detail.archive_reason == "No longer contracted"
+    assert practitioner.status == "ARCHIVED"
+    assert practitioner.is_active is False
+    assert practitioner.archived_at is not None
+    assert practitioner.archived_by_user_id == owner.id
+    assert practitioner.archive_reason == "No longer contracted"
+    assert practitioner.current_session_version == original_session_version + 1
+    assert practitioner.refresh_token_version == original_refresh_version + 1
+
+    status_history = await session.scalar(
+        select(UserStatusHistory).where(
+            UserStatusHistory.user_id == practitioner.id,
+            UserStatusHistory.new_status == "ARCHIVED",
+        )
+    )
+    assert status_history is not None
+    assert status_history.reason == "No longer contracted"
+
+    audit_event = await session.scalar(
+        select(AuditEvent).where(
+            AuditEvent.entity_id == str(practitioner.id),
+            AuditEvent.action == "USER_ARCHIVED",
+            AuditEvent.request_id == "req-archive-user",
+        )
+    )
+    assert audit_event is not None
+    assert audit_event.after_state["status"] == "ARCHIVED"
+    assert audit_event.after_state["archive_reason"] == "No longer contracted"
+
+
+@pytest.mark.asyncio
+async def test_list_users_hides_archived_by_default_and_returns_archive_view(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    consultant_role = await _create_role(session, "consultant")
+    owner = await _create_user(session, owner_role, "owner@zestiva.in", first_name="Owner")
+    active_user = await _create_user(session, consultant_role, "active@zestiva.in")
+    archived_user = await _create_user(session, consultant_role, "archived@zestiva.in")
+    actor = _actor_from_user(owner, permissions=["users.edit", "users.read"])
+
+    await people_access_service.archive_user(
+        session,
+        archived_user.id,
+        reason="Archive view test",
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-archive-list",
+    )
+
+    active_list = await people_access_service.list_users(session, page_size=50)
+    archive_list = await people_access_service.list_users(session, page_size=50, archived=True)
+
+    assert active_user.id in [item.id for item in active_list.items]
+    assert archived_user.id not in [item.id for item in active_list.items]
+    assert archived_user.id in [item.id for item in archive_list.items]
+    archived_row = next(item for item in archive_list.items if item.id == archived_user.id)
+    assert archived_row.status == "ARCHIVED"
+    assert archived_row.archive_reason == "Archive view test"
+    assert archived_row.archived_by == "Owner"
+
+
+@pytest.mark.asyncio
+async def test_restore_user_reactivates_archived_user_and_audits(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    mentor_role = await _create_role(session, "mentor")
+    owner = await _create_user(session, owner_role, "owner@zestiva.in", first_name="Owner")
+    mentor = await _create_user(session, mentor_role, "mentor@zestiva.in")
+    actor = _actor_from_user(owner, permissions=["users.edit", "users.read"])
+    await people_access_service.archive_user(
+        session,
+        mentor.id,
+        reason="Restore test",
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-archive-before-restore",
+    )
+
+    detail = await people_access_service.restore_user(
+        session,
+        mentor.id,
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-restore-user",
+    )
+
+    assert detail.status == "ACTIVE"
+    assert detail.archived_at is None
+    assert detail.archive_reason is None
+    assert mentor.status == "ACTIVE"
+    assert mentor.is_active is True
+    assert mentor.archived_at is None
+    assert mentor.archived_by_user_id is None
+    assert mentor.archive_reason is None
+
+    audit_event = await session.scalar(
+        select(AuditEvent).where(
+            AuditEvent.entity_id == str(mentor.id),
+            AuditEvent.action == "USER_RESTORED",
+            AuditEvent.request_id == "req-restore-user",
+        )
+    )
+    assert audit_event is not None
+    assert audit_event.after_state["status"] == "ACTIVE"
+
+
+@pytest.mark.asyncio
+async def test_archive_user_rejects_platform_owner_lifecycle_mutation(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    owner = await _create_user(session, owner_role, "owner@zestiva.in")
+    actor = _actor_from_user(owner, permissions=["users.edit"])
+
+    with pytest.raises(ForbiddenException):
+        await people_access_service.archive_user(
+            session,
+            owner.id,
+            reason="Should be blocked",
+            actor=actor,
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+            request_id="req-archive-owner-blocked",
+        )
+
+    assert owner.status == "ACTIVE"
+    assert owner.is_active is True
+    assert owner.is_verified is True
+    assert owner.archived_at is None
+
+
+@pytest.mark.asyncio
+async def test_bulk_archive_uses_reason_and_restore_clears_archive_metadata(session: AsyncSession):
+    owner_role = await _create_role(session, "platform_owner")
+    consultant_role = await _create_role(session, "consultant")
+    owner = await _create_user(session, owner_role, "owner@zestiva.in")
+    consultant = await _create_user(session, consultant_role, "consultant@zestiva.in")
+    actor = _actor_from_user(owner, permissions=["users.edit"])
+
+    archive_result = await people_access_service.bulk_action(
+        session,
+        action="archive",
+        user_ids=[consultant.id],
+        actor=actor,
+        reason="Bulk archive reason",
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-bulk-archive",
+    )
+
+    assert archive_result.processed == 1
+    assert consultant.status == "ARCHIVED"
+    assert consultant.is_active is False
+    assert consultant.archive_reason == "Bulk archive reason"
+
+    restore_result = await people_access_service.bulk_action(
+        session,
+        action="restore",
+        user_ids=[consultant.id],
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="req-bulk-restore",
+    )
+
+    assert restore_result.processed == 1
+    assert consultant.status == "ACTIVE"
+    assert consultant.is_active is True
+    assert consultant.archived_at is None
+    assert consultant.archived_by_user_id is None
+    assert consultant.archive_reason is None
+
+
+@pytest.mark.asyncio
 async def test_bulk_action_request_defaults_to_empty_user_ids():
     request = BulkActionRequest(action="activate")
     assert request.user_ids == []

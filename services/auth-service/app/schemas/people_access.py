@@ -81,6 +81,9 @@ class PeopleAccessUserRow(BaseModel):
     products: list[str] = Field(default_factory=list)
     created_at: datetime
     last_login_at: datetime | None = None
+    archived_at: datetime | None = None
+    archived_by: str | None = None
+    archive_reason: str | None = None
     tags: list[str] = Field(default_factory=list)
 
 
@@ -223,6 +226,9 @@ class UserProfileDetail(BaseModel):
     must_change_password: bool = False
     last_login_at: datetime | None = None
     created_at: datetime
+    archived_at: datetime | None = None
+    archived_by: str | None = None
+    archive_reason: str | None = None
     memberships: list[MembershipSummary] = Field(default_factory=list)
     product_access: list[UserProductAccessItem] = Field(default_factory=list)
     package_assignments: list[UserPackageAssignmentItem] = Field(default_factory=list)
@@ -342,6 +348,10 @@ class ManagedUserUpdateRequest(BaseModel):
     note: str | None = None
 
 
+class UserArchiveRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=1000)
+
+
 class UserNoteCreateRequest(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
 
@@ -365,6 +375,7 @@ class BulkActionRequest(BaseModel):
     package_id: uuid.UUID | None = None
     service_id: uuid.UUID | None = None
     status: str | None = None
+    reason: str | None = Field(default=None, max_length=1000)
 
 
 class BulkActionResponse(BaseModel):
