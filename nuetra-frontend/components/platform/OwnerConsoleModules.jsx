@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   Archive,
@@ -135,6 +135,270 @@ function HighlightMatch({ value, query }) {
         )
       )}
     </>
+  );
+}
+
+function EnterpriseToast({ notice, error }) {
+  const message = error || notice?.message;
+  if (!message) return null;
+
+  const isError = Boolean(error) || notice?.type === 'error';
+  return (
+    <div
+      role={isError ? 'alert' : 'status'}
+      aria-live={isError ? 'assertive' : 'polite'}
+      className={cn(
+        'fixed right-6 top-6 z-50 max-w-md rounded-2xl px-4 py-3 text-sm font-semibold shadow-2xl',
+        isError
+          ? 'border border-red-200 bg-red-50 text-red-700'
+          : 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+      )}
+    >
+      {message}
+    </div>
+  );
+}
+
+function SkeletonRows({ columns = 8, rows = 6 }) {
+  return (
+    <div className="overflow-hidden rounded-3xl border border-gray-100 bg-white">
+      <div className="grid gap-3 border-b border-gray-100 bg-gray-50 px-4 py-3" style={{ gridTemplateColumns: `repeat(${columns}, minmax(90px, 1fr))` }}>
+        {Array.from({ length: columns }).map((_, index) => (
+          <div key={index} className="h-3 rounded-full bg-gray-200" />
+        ))}
+      </div>
+      <div className="divide-y divide-gray-100">
+        {Array.from({ length: rows }).map((_, rowIndex) => (
+          <div key={rowIndex} className="grid gap-3 px-4 py-4" style={{ gridTemplateColumns: `repeat(${columns}, minmax(90px, 1fr))` }}>
+            {Array.from({ length: columns }).map((_, columnIndex) => (
+              <div key={columnIndex} className="h-4 animate-pulse rounded-full bg-gray-100" />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CollectionToolbar({
+  total = 0,
+  selectedCount = 0,
+  isArchiveView = false,
+  onArchive,
+  onRestore,
+  onExport,
+  onImport,
+}) {
+  const hasSelection = selectedCount > 0;
+  return (
+    <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone="blue">{total} Users</Badge>
+        <Badge tone={hasSelection ? 'violet' : 'neutral'}>{selectedCount} Selected</Badge>
+        {hasSelection ? (
+          isArchiveView ? (
+            <>
+              <button onClick={onRestore} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:border-emerald-300 hover:text-emerald-700">Restore</button>
+              <button disabled className="rounded-full border border-dashed border-gray-300 bg-white px-3 py-2 text-xs font-bold text-gray-400">Bulk Permanent Delete (future)</button>
+            </>
+          ) : (
+            <>
+              <button onClick={onArchive} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:border-amber-300 hover:text-amber-700">Archive</button>
+            </>
+          )
+        ) : (
+          <span className="text-xs font-semibold text-gray-500">Select rows to reveal bulk actions.</span>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button onClick={onExport} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:border-[#237afc] hover:text-[#237afc]">Export</button>
+        <button onClick={onImport} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 hover:border-[#237afc] hover:text-[#237afc]">Import CSV</button>
+      </div>
+    </div>
+  );
+}
+
+function FilterDrawer({
+  open,
+  filters,
+  roleOptions = [],
+  productOptions = [],
+  departmentOptions = [],
+  organizationOptions = [],
+  onApply,
+  onReset,
+  onClose,
+}) {
+  const [draft, setDraft] = useState(filters || {});
+
+  useEffect(() => {
+    if (open) setDraft(filters || {});
+  }, [filters, open]);
+
+  if (!open) return null;
+
+  const setValue = (key, value) => setDraft((current) => ({ ...current, [key]: value, page: 1 }));
+  return (
+    <div className="fixed inset-0 z-40 bg-slate-950/25" role="dialog" aria-modal="true" aria-label="People filters">
+      <button className="absolute inset-0 h-full w-full cursor-default" aria-label="Close filters" onClick={onClose} />
+      <aside className="absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto border-l border-gray-200 bg-white p-6 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.24em] text-[#237afc]">Filters</p>
+            <h3 className="mt-2 text-2xl font-black text-gray-900">Refine People & Access</h3>
+            <p className="mt-1 text-sm text-gray-500">Filter the collection without losing your current search context.</p>
+          </div>
+          <button onClick={onClose} className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500">Close</button>
+        </div>
+
+        <div className="mt-6 space-y-4">
+          <Field label="Role">
+            <select value={draft.role || ''} onChange={(event) => setValue('role', event.target.value)} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+              <option value="">All roles</option>
+              {roleOptions.map((role) => (
+                <option key={role.id} value={role.name.toLowerCase().replace(/ /g, '_')}>{role.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Status">
+            <select value={draft.status || ''} onChange={(event) => setValue('status', event.target.value)} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+              <option value="">All statuses</option>
+              {Object.keys(PEOPLE_STATUS_LABELS).filter((status) => status !== 'DELETED').map((status) => (
+                <option key={status} value={status}>{formatPeopleStatus(status)}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Organization">
+            <select value={draft.organization_id || ''} onChange={(event) => setValue('organization_id', event.target.value)} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+              <option value="">All organizations</option>
+              {organizationOptions.map((organization) => (
+                <option key={organization.id} value={organization.id}>{organization.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Department">
+            <select value={draft.department_id || ''} onChange={(event) => setValue('department_id', event.target.value)} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+              <option value="">All departments</option>
+              {departmentOptions.map((department) => (
+                <option key={department.id} value={department.id}>{department.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Product">
+            <select value={draft.product_id || ''} onChange={(event) => setValue('product_id', event.target.value)} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+              <option value="">All products</option>
+              {productOptions.map((product) => (
+                <option key={product.id} value={product.id}>{product.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Verification">
+            <select value={draft.verification || ''} onChange={(event) => setValue('verification', event.target.value)} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+              <option value="">All verification</option>
+              <option value="verified">Verified</option>
+              <option value="pending">Pending</option>
+            </select>
+          </Field>
+          <Field label="Archive status">
+            <select value={draft.archived ? 'true' : 'false'} onChange={(event) => setValue('archived', event.target.value === 'true')} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+              <option value="false">Active collection</option>
+              <option value="true">Archived users</option>
+            </select>
+          </Field>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="Last login">
+              <select disabled className="w-full rounded-2xl border border-dashed border-gray-200 px-4 py-3 text-sm text-gray-400 outline-none">
+                <option>Coming with analytics filters</option>
+              </select>
+            </Field>
+            <Field label="Created date">
+              <select disabled className="w-full rounded-2xl border border-dashed border-gray-200 px-4 py-3 text-sm text-gray-400 outline-none">
+                <option>Coming with analytics filters</option>
+              </select>
+            </Field>
+          </div>
+        </div>
+
+        <div className="sticky bottom-0 mt-6 flex gap-3 border-t border-gray-100 bg-white pt-4">
+          <ActionButton icon={Filter} label="Apply" tone="primary" onClick={() => { onApply?.(draft); onClose?.(); }} />
+          <ActionButton icon={XCircle} label="Reset" onClick={onReset} />
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function ColumnManager({ columns, visibleColumns, onToggleColumn }) {
+  return (
+    <div className="absolute right-0 top-full z-20 mt-2 w-64 rounded-2xl border border-gray-100 bg-white p-3 shadow-2xl">
+      <p className="px-2 pb-2 text-xs font-black uppercase tracking-[0.18em] text-gray-400">Show columns</p>
+      <div className="space-y-1">
+        {columns.filter((column) => !column.locked).map((column) => (
+          <label key={column.key} className="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50">
+            <input
+              type="checkbox"
+              checked={visibleColumns.includes(column.key)}
+              onChange={() => onToggleColumn(column.key)}
+              className="h-4 w-4 rounded border-gray-300"
+            />
+            {column.label}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RowActionMenu({ person, isArchiveView, open, onToggle, onView, onArchive, onRestore, onAssignRole, onSuspend, onResetPassword }) {
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-label={`Open actions for ${person.name || person.email}`}
+        aria-expanded={open}
+        onClick={onToggle}
+        className="rounded-full border border-gray-200 bg-white p-2 text-gray-500 hover:border-[#237afc] hover:text-[#237afc]"
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+      {open ? (
+        <div className="absolute right-0 top-full z-20 mt-2 w-56 overflow-hidden rounded-2xl border border-gray-100 bg-white py-2 shadow-2xl">
+          <button onClick={onView} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50">
+            <Eye className="h-4 w-4" />
+            View profile
+          </button>
+          {!isArchiveView ? (
+            <>
+              <button onClick={onView} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                <PencilLine className="h-4 w-4" />
+                Edit
+              </button>
+              <button onClick={onAssignRole} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                <Shield className="h-4 w-4" />
+                Assign role
+              </button>
+              <button onClick={onResetPassword} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                <KeyRound className="h-4 w-4" />
+                Reset password
+              </button>
+              <button onClick={onSuspend} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-semibold text-rose-700 hover:bg-rose-50">
+                <XCircle className="h-4 w-4" />
+                Suspend
+              </button>
+              <button onClick={onArchive} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-semibold text-amber-700 hover:bg-amber-50">
+                <Archive className="h-4 w-4" />
+                Archive
+              </button>
+            </>
+          ) : (
+            <button onClick={onRestore} className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-semibold text-emerald-700 hover:bg-emerald-50">
+              <RotateCcw className="h-4 w-4" />
+              Restore
+            </button>
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -464,13 +728,25 @@ export function PeopleAccessModule({
   const [latestTemporaryCredentials, setLatestTemporaryCredentials] = useState(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [showColumnManager, setShowColumnManager] = useState(false);
   const [isProfileDrawerOpen, setIsProfileDrawerOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionError, setActionError] = useState(null);
   const [actionNotice, setActionNotice] = useState(null);
+  const [actionMenuId, setActionMenuId] = useState(null);
+  const [recentSearches, setRecentSearches] = useState([]);
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [restoreTarget, setRestoreTarget] = useState(null);
   const [archiveReasonDraft, setArchiveReasonDraft] = useState('');
+  const searchInputRef = useRef(null);
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState([
+    'role',
+    'products',
+    'organization',
+    'package',
+    'verification',
+    'status',
+  ]);
   const [noteDraft, setNoteDraft] = useState('');
   const [attachmentDraft, setAttachmentDraft] = useState({
     file_name: '',
@@ -704,7 +980,47 @@ export function PeopleAccessModule({
   const activeFilterProduct = filters?.product_id || '';
   const activeFilterStatus = filters?.status || '';
   const activeFilterVerification = filters?.verification || '';
+  const activeFilterOrganization = filters?.organization_id || '';
+  const activeFilterDepartment = filters?.department_id || '';
   const isArchiveView = filters?.archived === true || filters?.archived === 'true';
+  const pageSize = Number(filters?.page_size || pagination?.page_size || 20);
+  const sortBy = filters?.sort_by || 'created_at';
+  const sortOrder = filters?.sort_order || 'desc';
+  const totalUsers = pagination?.total ?? people.length;
+  const activeFilterCount = [
+    filters?.role,
+    activeFilterProduct,
+    activeFilterStatus,
+    activeFilterVerification,
+    activeFilterOrganization,
+    activeFilterDepartment,
+    isArchiveView ? 'archived' : '',
+  ].filter(Boolean).length;
+  const activeCollectionColumns = useMemo(
+    () => [
+      { key: 'role', label: 'Role' },
+      { key: 'products', label: 'Products' },
+      { key: 'organization', label: 'Organizations' },
+      { key: 'package', label: 'Assigned packages' },
+      { key: 'verification', label: 'Verification' },
+      { key: 'status', label: 'Status', sortable: true },
+    ],
+    []
+  );
+  const archiveCollectionColumns = useMemo(
+    () => [
+      { key: 'role', label: 'Current Role' },
+      { key: 'organization', label: 'Organization' },
+      { key: 'archived_at', label: 'Archived Date' },
+      { key: 'archived_by', label: 'Archived By' },
+      { key: 'archive_reason', label: 'Reason' },
+      { key: 'status', label: 'Status', sortable: true },
+    ],
+    []
+  );
+  const collectionColumns = isArchiveView ? archiveCollectionColumns : activeCollectionColumns;
+  const displayColumns = collectionColumns.filter((column) => visibleColumnKeys.includes(column.key));
+  const columnPreferencesKey = isArchiveView ? 'zestiva.peopleAccess.archive.columns' : 'zestiva.peopleAccess.active.columns';
   const activeRoleChip =
     filters?.role === 'platform_owner'
       ? 'owners'
@@ -738,8 +1054,103 @@ export function PeopleAccessModule({
   const applyFilters = (patch) => {
     const action = requireAction(onFilterChange, 'Filtering people');
     if (!action) return;
+    const nextSearch = patch.search !== undefined ? patch.search : searchDraft;
+    if (nextSearch?.trim()) {
+      setRecentSearches((current) => [nextSearch.trim(), ...current.filter((item) => item !== nextSearch.trim())].slice(0, 5));
+    }
     action(patch);
   };
+
+  const toggleColumn = (columnKey) => {
+    setVisibleColumnKeys((current) => {
+      if (current.includes(columnKey)) {
+        const next = current.filter((key) => key !== columnKey);
+        return next.length ? next : current;
+      }
+      return [...current, columnKey];
+    });
+  };
+
+  const applySort = (columnKey) => {
+    const nextOrder = sortBy === columnKey && sortOrder === 'asc' ? 'desc' : 'asc';
+    applyFilters({ sort_by: columnKey, sort_order: nextOrder, page: 1 });
+  };
+
+  const clearSearch = () => {
+    setSearchDraft('');
+    applyFilters({ search: '', page: 1 });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds((current) => {
+      const visibleIds = people.map((person) => person.id);
+      const allSelected = visibleIds.length > 0 && visibleIds.every((id) => current.includes(id));
+      if (allSelected) return current.filter((id) => !visibleIds.includes(id));
+      return [...new Set([...current, ...visibleIds])];
+    });
+  };
+
+  const resetFilters = () => {
+    setSearchDraft('');
+    applyFilters({
+      search: '',
+      role: '',
+      organization_id: '',
+      department_id: '',
+      product_id: '',
+      status: '',
+      verification: '',
+      archived: false,
+      page: 1,
+    });
+    setShowAdvancedFilters(false);
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const stored = window.localStorage.getItem('zestiva.peopleAccess.recentSearches');
+      if (stored) setRecentSearches(JSON.parse(stored).slice(0, 5));
+    } catch {
+      setRecentSearches([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('zestiva.peopleAccess.recentSearches', JSON.stringify(recentSearches.slice(0, 5)));
+  }, [recentSearches]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const stored = window.sessionStorage.getItem(columnPreferencesKey);
+      setVisibleColumnKeys(stored ? JSON.parse(stored) : collectionColumns.map((column) => column.key));
+    } catch {
+      setVisibleColumnKeys(collectionColumns.map((column) => column.key));
+    }
+  }, [collectionColumns, columnPreferencesKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.sessionStorage.setItem(columnPreferencesKey, JSON.stringify(visibleColumnKeys));
+  }, [columnPreferencesKey, visibleColumnKeys]);
+
+  useEffect(() => {
+    const handleShortcut = (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      }
+      if (event.key === 'Escape') {
+        setShowAdvancedFilters(false);
+        setShowColumnManager(false);
+        setActionMenuId(null);
+      }
+    };
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, []);
   useEffect(() => {
     if ((filters?.search || '') === searchDraft) return undefined;
     const timer = window.setTimeout(() => {
@@ -1023,6 +1434,24 @@ export function PeopleAccessModule({
     }
   };
 
+  const resetRowPassword = async (userId) => {
+    if (!userId) return;
+    setIsSubmitting(true);
+    try {
+      const result = await runAction('Reset password', onResetUserPassword, userId);
+      if (result === null) return;
+      setLatestTemporaryCredentials({
+        username: result.username,
+        temporary_password: result.temporary_password,
+        must_change_password: result.must_change_password,
+        message: result.message,
+      });
+      showNotice('Temporary password generated. Copy it before closing the credential panel.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const requestArchiveUser = (person = safeSelectedUser) => {
     if (!person?.id) {
       setActionError('Select a user before archiving.');
@@ -1236,20 +1665,86 @@ export function PeopleAccessModule({
   return (
     <ModuleFrame
       badge="People & access"
-      title="Identity, authority, sessions, and workforce governance"
-      description="Search, filter, bulk-edit, import, export, and govern platform identities across owners, admins, mentors, consultants, practitioners, and employees."
+      title="People & Access"
+      description="Manage users, roles and platform access."
       actions={
         <>
-          <ActionButton icon={Upload} label="CSV import" onClick={() => setShowImportModal(true)} />
-          <ActionButton icon={Download} label="CSV export" onClick={handleCsvExport} />
           <ActionButton icon={UserCog} label="Refresh" onClick={() => runAction('Refresh People & Access', onRefresh)} />
-          <ActionButton icon={Plus} label="Add practitioner" onClick={() => openProvisioningWizard('practitioner')} />
-          <ActionButton icon={Plus} label="Add mentor" onClick={() => openProvisioningWizard('mentor')} />
-          <ActionButton icon={Plus} label="Add consultant" onClick={() => openProvisioningWizard('consultant')} />
-          <ActionButton icon={Plus} label="Add corporate admin" tone="primary" onClick={() => openProvisioningWizard('corporate_admin')} />
+          <ActionButton icon={Plus} label="Add User" tone="primary" onClick={() => openProvisioningWizard('practitioner')} />
         </>
       }
     >
+      <div className="rounded-[28px] border border-gray-100 bg-gradient-to-br from-white to-blue-50/40 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] lg:p-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-sm focus-within:border-[#237afc] focus-within:ring-4 focus-within:ring-blue-50">
+              <Search className="h-4 w-4 shrink-0 text-gray-400" />
+              <input
+                ref={searchInputRef}
+                type="search"
+                value={searchDraft}
+                onChange={(event) => setSearchDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') applyFilters({ search: searchDraft, page: 1 });
+                }}
+                placeholder="Smart Search users, roles, organizations, products, packages..."
+                aria-label="Search People and Access"
+                className="w-full bg-transparent text-sm font-semibold text-gray-900 outline-none placeholder:text-gray-400"
+              />
+              {searchDraft ? (
+                <button onClick={clearSearch} className="rounded-full px-2 py-1 text-xs font-black text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+                  Clear
+                </button>
+              ) : (
+                <kbd className="hidden rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] font-black text-gray-400 md:inline-flex">⌘K</kbd>
+              )}
+            </div>
+            {recentSearches.length ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-[0.16em] text-gray-400">Recent</span>
+                {recentSearches.map((search) => (
+                  <button
+                    key={search}
+                    onClick={() => {
+                      setSearchDraft(search);
+                      applyFilters({ search, page: 1 });
+                    }}
+                    className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:border-[#237afc] hover:text-[#237afc]"
+                  >
+                    {search}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setShowAdvancedFilters(true)}
+              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 hover:border-[#237afc] hover:text-[#237afc]"
+            >
+              <Filter className="h-4 w-4" />
+              Filters
+              {activeFilterCount ? <Badge tone="blue">{activeFilterCount}</Badge> : null}
+            </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowColumnManager((current) => !current)}
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 hover:border-[#237afc] hover:text-[#237afc]"
+                aria-expanded={showColumnManager}
+              >
+                <LayoutPanelTop className="h-4 w-4" />
+                View
+              </button>
+              {showColumnManager ? (
+                <ColumnManager columns={collectionColumns} visibleColumns={visibleColumnKeys} onToggleColumn={toggleColumn} />
+              ) : null}
+            </div>
+            <ActionButton icon={Upload} label="CSV import" onClick={() => setShowImportModal(true)} />
+            <ActionButton icon={Download} label="CSV export" onClick={handleCsvExport} />
+          </div>
+        </div>
+      </div>
+
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
         {[
           { label: 'People', value: summaryMetric('People') || people.length, icon: Users, tone: 'from-[#237afc] to-[#58b6ff]', patch: { role: '', status: '', archived: false, page: 1 } },
@@ -1275,109 +1770,9 @@ export function PeopleAccessModule({
           {error}
         </div>
       ) : null}
-      {actionError ? (
-        <div className="fixed right-6 top-6 z-50 max-w-md rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 shadow-2xl">
-          {actionError}
-        </div>
-      ) : null}
-      {actionNotice ? (
-        <div className={cn(
-          'fixed right-6 top-6 z-50 max-w-md rounded-2xl px-4 py-3 text-sm font-semibold shadow-2xl',
-          actionNotice.type === 'error'
-            ? 'border border-red-200 bg-red-50 text-red-700'
-            : 'border border-emerald-200 bg-emerald-50 text-emerald-700'
-        )}>
-          {actionNotice.message}
-        </div>
-      ) : null}
+      <EnterpriseToast notice={actionNotice} error={actionError} />
 
       <div className="mt-8 space-y-6">
-          <ControlBar
-            searchPlaceholder="Search people, roles, organizations, sessions, or package assignments..."
-            searchValue={searchDraft}
-            onSearchChange={setSearchDraft}
-            onSearchKeyDown={(event) => {
-              if (event.key === 'Enter') applyFilters({ search: searchDraft, page: 1 });
-            }}
-            filters={[
-              { key: 'all', label: 'All' },
-              { key: 'owners', label: 'Platform Owners' },
-              { key: 'admins', label: 'Admins' },
-              { key: 'mentors', label: 'Mentors' },
-              { key: 'employees', label: 'Employees' },
-              { key: 'archive', label: 'Archive' },
-            ]}
-            activeFilter={isArchiveView ? 'archive' : activeRoleChip}
-            onFilterChange={(key) => {
-              if (key === 'archive') return applyFilters({ archived: true, role: '', status: '', page: 1 });
-              if (key === 'all') return applyFilters({ archived: false, role: '', page: 1 });
-              if (key === 'owners') return applyFilters({ archived: false, role: 'platform_owner', page: 1 });
-              if (key === 'mentors') return applyFilters({ archived: false, role: 'mentor', page: 1 });
-              if (key === 'employees') return applyFilters({ archived: false, role: 'employee', page: 1 });
-              return applyFilters({ archived: false, role: 'organization_admin', page: 1 });
-            }}
-            rightControls={
-              <div className="ml-2 flex items-center gap-2">
-                <select
-                  value={activeFilterProduct}
-                  onChange={(event) => applyFilters({ product_id: event.target.value, page: 1 })}
-                  className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600 outline-none"
-                >
-                  <option value="">All products</option>
-                  {productOptions.map((product) => (
-                    <option key={product.id} value={product.id}>{product.name}</option>
-                  ))}
-                </select>
-                <select
-                  value={activeFilterStatus}
-                  onChange={(event) => applyFilters({ status: event.target.value, page: 1 })}
-                  className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600 outline-none"
-                >
-                  <option value="">All statuses</option>
-                  <option value="INVITED">Temporary credentials issued</option>
-                  <option value="FIRST_LOGIN">First login completed</option>
-                  <option value="ONBOARDING_IN_PROGRESS">Onboarding in progress</option>
-                  <option value="ONBOARDING_COMPLETED">Onboarding completed</option>
-                  <option value="UNDER_REVIEW">Under admin review</option>
-                  <option value="APPROVED">Approved</option>
-                  <option value="PASSWORD_CHANGE_REQUIRED">Permanent password required</option>
-                  <option value="ACTIVE">Active</option>
-                  <option value="PENDING_PROFILE">Pending profile setup</option>
-                  <option value="INACTIVE">Inactive</option>
-                  <option value="REJECTED">Rejected</option>
-                  <option value="ON_HOLD">On hold</option>
-                  <option value="LOCKED">Locked</option>
-                  <option value="SUSPENDED">Suspended</option>
-                  <option value="EXPIRED">Expired</option>
-                  <option value="DEACTIVATED">Deactivated</option>
-                </select>
-                <select
-                  value={activeFilterVerification}
-                  onChange={(event) => applyFilters({ verification: event.target.value, page: 1 })}
-                  className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600 outline-none"
-                >
-                  <option value="">All verification</option>
-                  <option value="verified">Verified</option>
-                  <option value="pending">Pending</option>
-                </select>
-                <button
-                  onClick={() => setShowAdvancedFilters(true)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600"
-                >
-                  <Filter className="h-4 w-4" />
-                  Advanced
-                </button>
-                <button
-                  onClick={() => applyFilters({ search: searchDraft, page: 1 })}
-                  className="inline-flex items-center gap-2 rounded-xl border border-[#237afc] bg-[#f5f9ff] px-3 py-2 text-sm font-bold text-[#237afc]"
-                >
-                  <Search className="h-4 w-4" />
-                  Apply search
-                </button>
-              </div>
-            }
-          />
-
           <Panel
             title={isArchiveView ? 'User Archive' : 'Enterprise roster'}
             subtitle={
@@ -1386,106 +1781,135 @@ export function PeopleAccessModule({
                 : 'Bulk-ready people management with status, role, and org visibility.'
             }
           >
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-gray-50 px-4 py-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge tone="blue">{selectedIds.length} selected</Badge>
-                {isArchiveView ? (
-                  <>
-                    <button onClick={restoreSelectedUsers} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Bulk Restore</button>
-                    <button disabled className="rounded-full border border-dashed border-gray-300 bg-white px-3 py-2 text-xs font-bold text-gray-400">Bulk Permanent Delete (future)</button>
-                  </>
-                ) : (
-                  <>
-                    <button onClick={() => applyBulkAction('activate')} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Activate</button>
-                    <button onClick={() => applyBulkAction('suspend')} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Suspend</button>
-                    <button onClick={requestArchiveSelected} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Archive</button>
-                    <select
-                      value={roleBulkDraft}
-                      onChange={(event) => setRoleBulkDraft(event.target.value)}
-                      className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 outline-none"
-                    >
-                      <option value="consultant">consultant</option>
-                      <option value="mentor">mentor</option>
-                      <option value="practitioner">practitioner</option>
-                      <option value="organization_admin">organization admin</option>
-                    </select>
-                    <button onClick={() => applyBulkAction('assign_role', { role: roleBulkDraft })} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Assign role</button>
-                  </>
-                )}
+            <CollectionToolbar
+              total={totalUsers}
+              selectedCount={selectedIds.length}
+              isArchiveView={isArchiveView}
+              onArchive={requestArchiveSelected}
+              onRestore={restoreSelectedUsers}
+              onExport={handleCsvExport}
+              onImport={() => setShowImportModal(true)}
+            />
+            {selectedIds.length && !isArchiveView ? (
+              <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-violet-100 bg-violet-50/60 px-4 py-3">
+                <span className="text-xs font-black uppercase tracking-[0.16em] text-violet-500">Bulk role</span>
+                <select
+                  value={roleBulkDraft}
+                  onChange={(event) => setRoleBulkDraft(event.target.value)}
+                  className="rounded-full border border-violet-100 bg-white px-3 py-2 text-xs font-bold text-gray-700 outline-none"
+                >
+                  <option value="consultant">consultant</option>
+                  <option value="mentor">mentor</option>
+                  <option value="practitioner">practitioner</option>
+                  <option value="organization_admin">organization admin</option>
+                </select>
+                <button onClick={() => applyBulkAction('assign_role', { role: roleBulkDraft })} className="rounded-full border border-violet-100 bg-white px-3 py-2 text-xs font-bold text-violet-700">Assign role</button>
+                <button onClick={() => applyBulkAction('activate')} className="rounded-full border border-violet-100 bg-white px-3 py-2 text-xs font-bold text-violet-700">Activate</button>
+                <button onClick={() => applyBulkAction('suspend')} className="rounded-full border border-violet-100 bg-white px-3 py-2 text-xs font-bold text-violet-700">Suspend</button>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button onClick={() => setShowProvisioningModal(true)} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Create user</button>
-                <button onClick={() => setShowImportModal(true)} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Import CSV</button>
-              </div>
-            </div>
-            <div className="overflow-hidden rounded-3xl border border-gray-100">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
+            ) : null}
+            {loading ? (
+              <SkeletonRows columns={Math.max(displayColumns.length + 3, 6)} rows={pageSize > 25 ? 8 : 6} />
+            ) : (
+            <div className="overflow-auto rounded-3xl border border-gray-100">
+              <table className="min-w-[1040px] w-full text-sm">
+                <thead className="sticky top-0 z-10 bg-gray-50">
                   <tr>
-                    {(isArchiveView
-                      ? ['Select', 'Person', 'Current Role', 'Organization', 'Archived Date', 'Archived By', 'Reason', 'Status', 'Actions']
-                      : ['Select', 'Person', 'Role', 'Products', 'Organizations', 'Assigned packages', 'Verification', 'Status', 'Actions']
-                    ).map((header) => (
-                      <th key={header} className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.18em] text-gray-400">{header}</th>
+                    <th className="sticky left-0 z-20 w-12 bg-gray-50 px-4 py-3 text-left">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all visible users"
+                        checked={people.length > 0 && people.every((person) => selectedIdSet.has(person.id))}
+                        onChange={toggleSelectAll}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                    </th>
+                    <th className="sticky left-12 z-20 min-w-[240px] bg-gray-50 px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.18em] text-gray-400">
+                      <button onClick={() => applySort('name')} className="inline-flex items-center gap-1 hover:text-[#237afc]">
+                        Person
+                        {sortBy === 'name' ? <span>{sortOrder === 'asc' ? '↑' : '↓'}</span> : null}
+                      </button>
+                    </th>
+                    {displayColumns.map((column) => (
+                      <th key={column.key} className="min-w-[140px] px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.18em] text-gray-400">
+                        {column.sortable ? (
+                          <button onClick={() => applySort(column.key)} className="inline-flex items-center gap-1 hover:text-[#237afc]">
+                            {column.label}
+                            {sortBy === column.key ? <span>{sortOrder === 'asc' ? '↑' : '↓'}</span> : null}
+                          </button>
+                        ) : column.label}
+                      </th>
                     ))}
+                    <th className="min-w-[96px] px-4 py-3 text-right text-[11px] font-black uppercase tracking-[0.18em] text-gray-400">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 bg-white">
-                  {people.map((person) => (
-                    <tr key={person.id} className="cursor-pointer hover:bg-gray-50/80" onClick={() => openUserDrawer(person.id)}>
-                      <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
+                  {people.map((person, rowIndex) => (
+                    <tr
+                      key={person.id}
+                      className={cn('cursor-pointer hover:bg-blue-50/40', rowIndex % 2 === 1 ? 'bg-gray-50/30' : 'bg-white')}
+                      onClick={() => openUserDrawer(person.id)}
+                    >
+                      <td className={cn('sticky left-0 z-10 px-4 py-3', rowIndex % 2 === 1 ? 'bg-gray-50' : 'bg-white')} onClick={(event) => event.stopPropagation()}>
                         <input
                           type="checkbox"
+                          aria-label={`Select ${person.name || person.email}`}
                           checked={selectedIdSet.has(person.id)}
                           onChange={() => toggleSelected(person.id)}
                           className="h-4 w-4 rounded border-gray-300"
                         />
                       </td>
-                      <td className="px-4 py-3">
+                      <td className={cn('sticky left-12 z-10 min-w-[240px] px-4 py-3', rowIndex % 2 === 1 ? 'bg-gray-50' : 'bg-white')}>
                         <button onClick={() => openUserDrawer(person.id)} className="text-left">
                           <p className="font-semibold text-gray-900"><HighlightMatch value={person.name} query={searchDraft} /></p>
                           <p className="text-xs text-gray-500"><HighlightMatch value={person.email} query={searchDraft} /></p>
                         </button>
                       </td>
-                      <td className="px-4 py-3"><Badge tone="blue">{person.role.replace(/_/g, ' ')}</Badge></td>
-                      {isArchiveView ? (
-                        <>
-                          <td className="px-4 py-3 text-sm text-gray-500"><HighlightMatch value={person.organization || 'Unassigned'} query={searchDraft} /></td>
-                          <td className="px-4 py-3 text-sm text-gray-500">{person.archived_at ? new Date(person.archived_at).toLocaleDateString() : '—'}</td>
-                          <td className="px-4 py-3 text-sm text-gray-500">{person.archived_by || 'System'}</td>
-                          <td className="px-4 py-3 text-sm text-gray-500">{person.archive_reason || 'No reason recorded'}</td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="px-4 py-3 text-sm text-gray-500">{person.products?.length ? person.products.join(', ') : 'No products'}</td>
-                          <td className="px-4 py-3 text-sm text-gray-500"><HighlightMatch value={person.organization || 'Unassigned'} query={searchDraft} /></td>
-                          <td className="px-4 py-3 text-sm text-gray-500"><HighlightMatch value={person.package || 'No package'} query={searchDraft} /></td>
-                          <td className="px-4 py-3">
-                            <Badge tone={person.verification === 'Verified' ? 'green' : 'amber'}>{person.verification}</Badge>
-                          </td>
-                        </>
-                      )}
-                      <td className="px-4 py-3">
-                        <Badge tone={getPeopleStatusTone(person.status)}>{formatPeopleStatus(person.status)}</Badge>
-                      </td>
-                      <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
-                        {isArchiveView ? (
-                          <button
-                            onClick={() => requestRestoreUser(person)}
-                            className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600"
-                          >
-                            <RotateCcw className="h-3.5 w-3.5" />
-                            Restore
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => requestArchiveUser(person)}
-                            className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600"
-                          >
-                            <Archive className="h-3.5 w-3.5" />
-                            Archive
-                          </button>
-                        )}
+                      {displayColumns.map((column) => (
+                        <td key={column.key} className="px-4 py-3 text-sm text-gray-600">
+                          {column.key === 'role' ? <Badge tone="blue">{person.role.replace(/_/g, ' ')}</Badge> : null}
+                          {column.key === 'products' ? (person.products?.length ? person.products.join(', ') : 'No products') : null}
+                          {column.key === 'organization' ? <HighlightMatch value={person.organization || 'Unassigned'} query={searchDraft} /> : null}
+                          {column.key === 'package' ? <HighlightMatch value={person.package || 'No package'} query={searchDraft} /> : null}
+                          {column.key === 'verification' ? <Badge tone={person.verification === 'Verified' ? 'green' : 'amber'}>{person.verification}</Badge> : null}
+                          {column.key === 'status' ? <Badge tone={getPeopleStatusTone(person.status)}>{formatPeopleStatus(person.status)}</Badge> : null}
+                          {column.key === 'archived_at' ? (person.archived_at ? new Date(person.archived_at).toLocaleDateString() : '—') : null}
+                          {column.key === 'archived_by' ? (person.archived_by || 'System') : null}
+                          {column.key === 'archive_reason' ? (person.archive_reason || 'No reason recorded') : null}
+                        </td>
+                      ))}
+                      <td className="px-4 py-3 text-right" onClick={(event) => event.stopPropagation()}>
+                        <RowActionMenu
+                          person={person}
+                          isArchiveView={isArchiveView}
+                          open={actionMenuId === person.id}
+                          onToggle={() => setActionMenuId((current) => (current === person.id ? null : person.id))}
+                          onView={() => {
+                            setActionMenuId(null);
+                            openUserDrawer(person.id);
+                          }}
+                          onAssignRole={() => {
+                            setActionMenuId(null);
+                            openUserDrawer(person.id);
+                            setProfileTab('Permissions');
+                          }}
+                          onArchive={() => {
+                            setActionMenuId(null);
+                            requestArchiveUser(person);
+                          }}
+                          onSuspend={() => {
+                            setActionMenuId(null);
+                            applyBulkAction('suspend', { user_ids: [person.id] });
+                          }}
+                          onRestore={() => {
+                            setActionMenuId(null);
+                            requestRestoreUser(person);
+                          }}
+                          onResetPassword={() => {
+                            setActionMenuId(null);
+                            resetRowPassword(person.id);
+                          }}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -1505,11 +1929,24 @@ export function PeopleAccessModule({
                 </div>
               ) : null}
             </div>
+            )}
             {pagination ? (
-              <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
-                <p>
-                  Page {pagination.page} of {pagination.total_pages} · {pagination.total} total identities
-                </p>
+              <div className="mt-4 flex flex-col gap-3 text-sm text-gray-500 md:flex-row md:items-center md:justify-between">
+                <div className="flex flex-wrap items-center gap-3">
+                  <p>
+                    Page {pagination.page} of {pagination.total_pages} · {pagination.total} total identities
+                  </p>
+                  <select
+                    value={pageSize}
+                    onChange={(event) => applyFilters({ page_size: Number(event.target.value), page: 1 })}
+                    className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 outline-none"
+                    aria-label="Rows per page"
+                  >
+                    {[10, 25, 50, 100].map((size) => (
+                      <option key={size} value={size}>{size} / page</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => applyFilters({ page: Math.max(1, pagination.page - 1) })}
@@ -2200,61 +2637,17 @@ export function PeopleAccessModule({
         </div>
       ) : null}
 
-      {showAdvancedFilters ? (
-        <div className="fixed inset-0 z-40 bg-slate-950/25">
-          <div className="absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto border-l border-gray-200 bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.24em] text-[#237afc]">Advanced filters</p>
-                <h3 className="mt-2 text-2xl font-black text-gray-900">Refine the roster</h3>
-              </div>
-              <button onClick={() => setShowAdvancedFilters(false)} className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500">Close</button>
-            </div>
-            <div className="mt-6 space-y-4">
-              <select value={filters?.role || ''} onChange={(event) => applyFilters({ role: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                <option value="">All roles</option>
-                {roleOptions.map((role) => (
-                  <option key={role.id} value={role.name.toLowerCase().replace(/ /g, '_')}>{role.name}</option>
-                ))}
-              </select>
-              <select value={activeFilterProduct} onChange={(event) => applyFilters({ product_id: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                <option value="">All products</option>
-                {productOptions.map((product) => (
-                  <option key={product.id} value={product.id}>{product.name}</option>
-                ))}
-              </select>
-              <select value={activeFilterStatus} onChange={(event) => applyFilters({ status: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                <option value="">All statuses</option>
-                <option value="INVITED">Temporary credentials issued</option>
-                <option value="FIRST_LOGIN">First login completed</option>
-                <option value="ONBOARDING_IN_PROGRESS">Onboarding in progress</option>
-                <option value="ONBOARDING_COMPLETED">Onboarding completed</option>
-                <option value="UNDER_REVIEW">Under admin review</option>
-                <option value="APPROVED">Approved</option>
-                <option value="PASSWORD_CHANGE_REQUIRED">Permanent password required</option>
-                <option value="ACTIVE">Active</option>
-                <option value="PENDING_PROFILE">Pending profile setup</option>
-                <option value="INACTIVE">Inactive</option>
-                <option value="REJECTED">Rejected</option>
-                <option value="ON_HOLD">On hold</option>
-                <option value="LOCKED">Locked</option>
-                <option value="SUSPENDED">Suspended</option>
-                <option value="EXPIRED">Expired</option>
-                <option value="DEACTIVATED">Deactivated</option>
-              </select>
-              <select value={activeFilterVerification} onChange={(event) => applyFilters({ verification: event.target.value, page: 1 })} className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                <option value="">All verification</option>
-                <option value="verified">Verified</option>
-                <option value="pending">Pending</option>
-              </select>
-            </div>
-            <div className="mt-6 flex gap-3">
-              <ActionButton icon={Filter} label="Apply filters" tone="primary" onClick={() => setShowAdvancedFilters(false)} />
-              <ActionButton icon={XCircle} label="Reset" onClick={() => applyFilters({ role: '', product_id: '', status: '', verification: '', search: '', page: 1 })} />
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <FilterDrawer
+        open={showAdvancedFilters}
+        filters={filters}
+        roleOptions={roleOptions}
+        productOptions={productOptions}
+        departmentOptions={departmentOptions}
+        organizationOptions={organizationOptions}
+        onApply={(nextFilters) => applyFilters(nextFilters)}
+        onReset={resetFilters}
+        onClose={() => setShowAdvancedFilters(false)}
+      />
 
       {isProfileDrawerOpen ? (
         <div className="fixed inset-0 z-40 bg-slate-950/25">
