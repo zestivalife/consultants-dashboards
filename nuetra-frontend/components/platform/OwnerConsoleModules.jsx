@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
+  Archive,
   ArrowUpRight,
   Blocks,
   Bot,
@@ -23,6 +24,7 @@ import {
   MoreHorizontal,
   PencilLine,
   Plus,
+  RotateCcw,
   Save,
   Search,
   Settings,
@@ -75,6 +77,7 @@ const PEOPLE_STATUS_LABELS = {
   SUSPENDED: 'Suspended',
   EXPIRED: 'Expired',
   DEACTIVATED: 'Deactivated',
+  ARCHIVED: 'Archived',
   DELETED: 'Deleted',
 };
 
@@ -96,6 +99,7 @@ const PEOPLE_STATUS_TONES = {
   SUSPENDED: 'red',
   EXPIRED: 'red',
   DEACTIVATED: 'red',
+  ARCHIVED: 'neutral',
   DELETED: 'red',
 };
 
@@ -105,7 +109,33 @@ function formatPeopleStatus(status = '') {
 }
 
 function getPeopleStatusTone(status = '') {
-  return PEOPLE_STATUS_TONES[status.toString().toUpperCase()] || 'gray';
+  return PEOPLE_STATUS_TONES[status.toString().toUpperCase()] || 'neutral';
+}
+
+function escapeRegExp(value = '') {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function HighlightMatch({ value, query }) {
+  const text = value === null || value === undefined ? '' : String(value);
+  const trimmedQuery = (query || '').trim();
+  if (!trimmedQuery) return text || '—';
+
+  const pattern = new RegExp(`(${escapeRegExp(trimmedQuery)})`, 'ig');
+  const parts = text.split(pattern);
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.toLowerCase() === trimmedQuery.toLowerCase() ? (
+          <mark key={`${part}-${index}`} className="rounded bg-amber-100 px-0.5 text-amber-900">
+            {part}
+          </mark>
+        ) : (
+          <span key={`${part}-${index}`}>{part}</span>
+        )
+      )}
+    </>
+  );
 }
 
 export function CommandCenterModule({ data }) {
@@ -409,6 +439,8 @@ export function PeopleAccessModule({
   onFilterChange,
   onCreateUser,
   onUpdateUser,
+  onArchiveUser,
+  onRestoreUser,
   onBulkAction,
   onAddNote,
   onAddAttachment,
@@ -435,6 +467,10 @@ export function PeopleAccessModule({
   const [isProfileDrawerOpen, setIsProfileDrawerOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionError, setActionError] = useState(null);
+  const [actionNotice, setActionNotice] = useState(null);
+  const [archiveTarget, setArchiveTarget] = useState(null);
+  const [restoreTarget, setRestoreTarget] = useState(null);
+  const [archiveReasonDraft, setArchiveReasonDraft] = useState('');
   const [noteDraft, setNoteDraft] = useState('');
   const [attachmentDraft, setAttachmentDraft] = useState({
     file_name: '',
@@ -668,6 +704,7 @@ export function PeopleAccessModule({
   const activeFilterProduct = filters?.product_id || '';
   const activeFilterStatus = filters?.status || '';
   const activeFilterVerification = filters?.verification || '';
+  const isArchiveView = filters?.archived === true || filters?.archived === 'true';
   const activeRoleChip =
     filters?.role === 'platform_owner'
       ? 'owners'
@@ -702,6 +739,18 @@ export function PeopleAccessModule({
     const action = requireAction(onFilterChange, 'Filtering people');
     if (!action) return;
     action(patch);
+  };
+  useEffect(() => {
+    if ((filters?.search || '') === searchDraft) return undefined;
+    const timer = window.setTimeout(() => {
+      applyFilters({ search: searchDraft, page: 1 });
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [filters?.search, searchDraft]);
+
+  const showNotice = (message, type = 'success') => {
+    setActionNotice({ message, type });
+    setActionError(null);
   };
   const toggleListValue = (key, value) => {
     setForm((current) => {
@@ -901,12 +950,14 @@ export function PeopleAccessModule({
     const targetIds = extra.user_ids?.length ? extra.user_ids : selectedIds;
     if (!targetIds.length) {
       setActionError('Select at least one user before running a bulk action.');
-      return;
+      return null;
     }
     setIsSubmitting(true);
     try {
-      await runAction('Bulk user action', onBulkAction, { action, user_ids: targetIds, ...extra });
+      const result = await runAction('Bulk user action', onBulkAction, { action, user_ids: targetIds, ...extra });
+      if (result === null) return null;
       setSelectedIds([]);
+      return result;
     } finally {
       setIsSubmitting(false);
     }
@@ -969,6 +1020,77 @@ export function PeopleAccessModule({
       setActionError('Temporary password generated. Copy it before closing the credential panel.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const requestArchiveUser = (person = safeSelectedUser) => {
+    if (!person?.id) {
+      setActionError('Select a user before archiving.');
+      return;
+    }
+    setArchiveTarget({ id: person.id, name: person.name || person.email, email: person.email });
+    setArchiveReasonDraft('');
+  };
+
+  const requestArchiveSelected = () => {
+    if (!selectedIds.length) {
+      setActionError('Select at least one user before archiving.');
+      return;
+    }
+    setArchiveTarget({ ids: selectedIds, name: `${selectedIds.length} selected users`, email: null });
+    setArchiveReasonDraft('');
+  };
+
+  const confirmArchiveUser = async () => {
+    if (!archiveTarget?.id && !archiveTarget?.ids?.length) return;
+    setIsSubmitting(true);
+    try {
+      const result = archiveTarget.ids?.length
+        ? await runAction('Archive users', onBulkAction, {
+            action: 'archive',
+            user_ids: archiveTarget.ids,
+            reason: archiveReasonDraft.trim() || null,
+          })
+        : await runAction('Archive user', onArchiveUser, archiveTarget.id, archiveReasonDraft.trim() || null);
+      if (result === null) {
+        showNotice('Unable to archive user.', 'error');
+        return;
+      }
+      setArchiveTarget(null);
+      setArchiveReasonDraft('');
+      setSelectedIds((current) => current.filter((id) => id !== archiveTarget.id && !archiveTarget.ids?.includes(id)));
+      showNotice('User archived successfully.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const requestRestoreUser = (person = safeSelectedUser) => {
+    if (!person?.id) {
+      setActionError('Select an archived user before restoring.');
+      return;
+    }
+    setRestoreTarget({ id: person.id, name: person.name || person.email, email: person.email });
+  };
+
+  const confirmRestoreUser = async () => {
+    if (!restoreTarget?.id) return;
+    setIsSubmitting(true);
+    try {
+      const result = await runAction('Restore user', onRestoreUser, restoreTarget.id);
+      if (result === null) return;
+      setRestoreTarget(null);
+      setSelectedIds((current) => current.filter((id) => id !== restoreTarget.id));
+      showNotice('User restored successfully.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const restoreSelectedUsers = async () => {
+    const result = await applyBulkAction('restore');
+    if (result !== null) {
+      showNotice('User restored successfully.');
     }
   };
 
@@ -1128,13 +1250,14 @@ export function PeopleAccessModule({
         </>
       }
     >
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
         {[
-          { label: 'People', value: summaryMetric('People') || people.length, icon: Users, tone: 'from-[#237afc] to-[#58b6ff]', patch: { role: '', status: '', page: 1 } },
-          { label: 'Admins', value: adminsCount, icon: Shield, tone: 'from-violet-500 to-fuchsia-500', patch: { role: 'organization_admin', page: 1 } },
-          { label: 'Mentors', value: mentorCount, icon: UserCog, tone: 'from-amber-500 to-orange-500', patch: { role: 'mentor', page: 1 } },
-          { label: 'Consultants', value: consultantCount, icon: BriefcaseBusiness, tone: 'from-emerald-500 to-teal-500', patch: { role: 'consultant', page: 1 } },
-          { label: 'Suspended', value: suspendedCount, icon: Mail, tone: 'from-rose-500 to-red-500', patch: { status: 'SUSPENDED', page: 1 } },
+          { label: 'People', value: summaryMetric('People') || people.length, icon: Users, tone: 'from-[#237afc] to-[#58b6ff]', patch: { role: '', status: '', archived: false, page: 1 } },
+          { label: 'Admins', value: adminsCount, icon: Shield, tone: 'from-violet-500 to-fuchsia-500', patch: { role: 'organization_admin', archived: false, page: 1 } },
+          { label: 'Mentors', value: mentorCount, icon: UserCog, tone: 'from-amber-500 to-orange-500', patch: { role: 'mentor', archived: false, page: 1 } },
+          { label: 'Consultants', value: consultantCount, icon: BriefcaseBusiness, tone: 'from-emerald-500 to-teal-500', patch: { role: 'consultant', archived: false, page: 1 } },
+          { label: 'Suspended', value: suspendedCount, icon: Mail, tone: 'from-rose-500 to-red-500', patch: { status: 'SUSPENDED', archived: false, page: 1 } },
+          { label: 'Archived', value: summaryMetric('Archived'), icon: Archive, tone: 'from-slate-500 to-gray-700', patch: { archived: true, role: '', status: '', page: 1 } },
         ].map((metric) => (
           <button
             key={metric.label}
@@ -1157,6 +1280,16 @@ export function PeopleAccessModule({
           {actionError}
         </div>
       ) : null}
+      {actionNotice ? (
+        <div className={cn(
+          'fixed right-6 top-6 z-50 max-w-md rounded-2xl px-4 py-3 text-sm font-semibold shadow-2xl',
+          actionNotice.type === 'error'
+            ? 'border border-red-200 bg-red-50 text-red-700'
+            : 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+        )}>
+          {actionNotice.message}
+        </div>
+      ) : null}
 
       <div className="mt-8 space-y-6">
           <ControlBar
@@ -1172,14 +1305,16 @@ export function PeopleAccessModule({
               { key: 'admins', label: 'Admins' },
               { key: 'mentors', label: 'Mentors' },
               { key: 'employees', label: 'Employees' },
+              { key: 'archive', label: 'Archive' },
             ]}
-            activeFilter={activeRoleChip}
+            activeFilter={isArchiveView ? 'archive' : activeRoleChip}
             onFilterChange={(key) => {
-              if (key === 'all') return applyFilters({ role: '', page: 1 });
-              if (key === 'owners') return applyFilters({ role: 'platform_owner', page: 1 });
-              if (key === 'mentors') return applyFilters({ role: 'mentor', page: 1 });
-              if (key === 'employees') return applyFilters({ role: 'employee', page: 1 });
-              return applyFilters({ role: 'organization_admin', page: 1 });
+              if (key === 'archive') return applyFilters({ archived: true, role: '', status: '', page: 1 });
+              if (key === 'all') return applyFilters({ archived: false, role: '', page: 1 });
+              if (key === 'owners') return applyFilters({ archived: false, role: 'platform_owner', page: 1 });
+              if (key === 'mentors') return applyFilters({ archived: false, role: 'mentor', page: 1 });
+              if (key === 'employees') return applyFilters({ archived: false, role: 'employee', page: 1 });
+              return applyFilters({ archived: false, role: 'organization_admin', page: 1 });
             }}
             rightControls={
               <div className="ml-2 flex items-center gap-2">
@@ -1243,24 +1378,40 @@ export function PeopleAccessModule({
             }
           />
 
-          <Panel title="Enterprise roster" subtitle="Bulk-ready people management with status, role, and org visibility.">
+          <Panel
+            title={isArchiveView ? 'User Archive' : 'Enterprise roster'}
+            subtitle={
+              isArchiveView
+                ? 'Archived users are retained for governance and can be restored without losing history.'
+                : 'Bulk-ready people management with status, role, and org visibility.'
+            }
+          >
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-gray-50 px-4 py-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge tone="blue">{selectedIds.length} selected</Badge>
-                <button onClick={() => applyBulkAction('activate')} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Activate</button>
-                <button onClick={() => applyBulkAction('suspend')} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Suspend</button>
-                <button onClick={() => applyBulkAction('deactivate')} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Deactivate</button>
-                <select
-                  value={roleBulkDraft}
-                  onChange={(event) => setRoleBulkDraft(event.target.value)}
-                  className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 outline-none"
-                >
-                  <option value="consultant">consultant</option>
-                  <option value="mentor">mentor</option>
-                  <option value="practitioner">practitioner</option>
-                  <option value="organization_admin">organization admin</option>
-                </select>
-                <button onClick={() => applyBulkAction('assign_role', { role: roleBulkDraft })} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Assign role</button>
+                {isArchiveView ? (
+                  <>
+                    <button onClick={restoreSelectedUsers} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Bulk Restore</button>
+                    <button disabled className="rounded-full border border-dashed border-gray-300 bg-white px-3 py-2 text-xs font-bold text-gray-400">Bulk Permanent Delete (future)</button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => applyBulkAction('activate')} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Activate</button>
+                    <button onClick={() => applyBulkAction('suspend')} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Suspend</button>
+                    <button onClick={requestArchiveSelected} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Archive</button>
+                    <select
+                      value={roleBulkDraft}
+                      onChange={(event) => setRoleBulkDraft(event.target.value)}
+                      className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 outline-none"
+                    >
+                      <option value="consultant">consultant</option>
+                      <option value="mentor">mentor</option>
+                      <option value="practitioner">practitioner</option>
+                      <option value="organization_admin">organization admin</option>
+                    </select>
+                    <button onClick={() => applyBulkAction('assign_role', { role: roleBulkDraft })} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Assign role</button>
+                  </>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button onClick={() => setShowProvisioningModal(true)} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600">Create user</button>
@@ -1271,7 +1422,10 @@ export function PeopleAccessModule({
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
-                    {['Select', 'Person', 'Role', 'Products', 'Organizations', 'Assigned packages', 'Verification', 'Status'].map((header) => (
+                    {(isArchiveView
+                      ? ['Select', 'Person', 'Current Role', 'Organization', 'Archived Date', 'Archived By', 'Reason', 'Status', 'Actions']
+                      : ['Select', 'Person', 'Role', 'Products', 'Organizations', 'Assigned packages', 'Verification', 'Status', 'Actions']
+                    ).map((header) => (
                       <th key={header} className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-[0.18em] text-gray-400">{header}</th>
                     ))}
                   </tr>
@@ -1289,24 +1443,67 @@ export function PeopleAccessModule({
                       </td>
                       <td className="px-4 py-3">
                         <button onClick={() => openUserDrawer(person.id)} className="text-left">
-                          <p className="font-semibold text-gray-900">{person.name}</p>
-                          <p className="text-xs text-gray-500">{person.email}</p>
+                          <p className="font-semibold text-gray-900"><HighlightMatch value={person.name} query={searchDraft} /></p>
+                          <p className="text-xs text-gray-500"><HighlightMatch value={person.email} query={searchDraft} /></p>
                         </button>
                       </td>
                       <td className="px-4 py-3"><Badge tone="blue">{person.role.replace(/_/g, ' ')}</Badge></td>
-                      <td className="px-4 py-3 text-sm text-gray-500">{person.products?.length ? person.products.join(', ') : 'No products'}</td>
-                      <td className="px-4 py-3 text-sm text-gray-500">{person.organization || 'Unassigned'}</td>
-                      <td className="px-4 py-3 text-sm text-gray-500">{person.package || 'No package'}</td>
-                      <td className="px-4 py-3">
-                        <Badge tone={person.verification === 'Verified' ? 'green' : 'amber'}>{person.verification}</Badge>
-                      </td>
+                      {isArchiveView ? (
+                        <>
+                          <td className="px-4 py-3 text-sm text-gray-500"><HighlightMatch value={person.organization || 'Unassigned'} query={searchDraft} /></td>
+                          <td className="px-4 py-3 text-sm text-gray-500">{person.archived_at ? new Date(person.archived_at).toLocaleDateString() : '—'}</td>
+                          <td className="px-4 py-3 text-sm text-gray-500">{person.archived_by || 'System'}</td>
+                          <td className="px-4 py-3 text-sm text-gray-500">{person.archive_reason || 'No reason recorded'}</td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="px-4 py-3 text-sm text-gray-500">{person.products?.length ? person.products.join(', ') : 'No products'}</td>
+                          <td className="px-4 py-3 text-sm text-gray-500"><HighlightMatch value={person.organization || 'Unassigned'} query={searchDraft} /></td>
+                          <td className="px-4 py-3 text-sm text-gray-500"><HighlightMatch value={person.package || 'No package'} query={searchDraft} /></td>
+                          <td className="px-4 py-3">
+                            <Badge tone={person.verification === 'Verified' ? 'green' : 'amber'}>{person.verification}</Badge>
+                          </td>
+                        </>
+                      )}
                       <td className="px-4 py-3">
                         <Badge tone={getPeopleStatusTone(person.status)}>{formatPeopleStatus(person.status)}</Badge>
+                      </td>
+                      <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
+                        {isArchiveView ? (
+                          <button
+                            onClick={() => requestRestoreUser(person)}
+                            className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            Restore
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => requestArchiveUser(person)}
+                            className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600"
+                          >
+                            <Archive className="h-3.5 w-3.5" />
+                            Archive
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              {!people.length ? (
+                <div className="bg-white px-6 py-12">
+                  <EmptyState
+                    icon={isArchiveView ? Archive : Users}
+                    title={isArchiveView ? 'No archived users found' : 'No people match this search'}
+                    description={
+                      isArchiveView
+                        ? 'Archived users will appear here with their archived date, actor, reason, role, and organization.'
+                        : 'Try clearing filters or searching by name, email, phone, role, product, organization, or package.'
+                    }
+                  />
+                </div>
+              ) : null}
             </div>
             {pagination ? (
               <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
@@ -1844,6 +2041,87 @@ export function PeopleAccessModule({
         </WorkflowModal>
       ) : null}
 
+      {archiveTarget ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-6">
+          <div className="w-full max-w-xl rounded-[28px] bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-amber-600">Archive confirmation</p>
+                <h3 className="mt-2 text-2xl font-black text-gray-900">Archive User?</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setArchiveTarget(null);
+                  setArchiveReasonDraft('');
+                }}
+                className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500"
+              >
+                Cancel
+              </button>
+            </div>
+            <p className="mt-4 text-sm font-semibold leading-6 text-gray-600">
+              This user will be moved to the Archive. No data will be deleted. The user will immediately lose access to the platform. You can restore this user at any time.
+            </p>
+            <div className="mt-5 rounded-2xl bg-gray-50 p-4">
+              <p className="z-label text-gray-500">Target</p>
+              <p className="mt-1 z-table-content font-black text-gray-900">{archiveTarget.name}</p>
+              {archiveTarget.email ? <p className="mt-1 text-sm text-gray-500">{archiveTarget.email}</p> : null}
+            </div>
+            <textarea
+              value={archiveReasonDraft}
+              onChange={(event) => setArchiveReasonDraft(event.target.value)}
+              placeholder="Archive reason (optional)"
+              className="mt-5 min-h-[110px] w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none"
+            />
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              <ActionButton
+                icon={XCircle}
+                label="Cancel"
+                onClick={() => {
+                  setArchiveTarget(null);
+                  setArchiveReasonDraft('');
+                }}
+                disabled={isSubmitting}
+              />
+              <ActionButton icon={Archive} label="Archive User" tone="primary" onClick={confirmArchiveUser} disabled={isSubmitting} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {restoreTarget ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-6">
+          <div className="w-full max-w-lg rounded-[28px] bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-[#237afc]">Restore confirmation</p>
+                <h3 className="mt-2 text-2xl font-black text-gray-900">Restore User?</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRestoreTarget(null)}
+                className="rounded-2xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-500"
+              >
+                Cancel
+              </button>
+            </div>
+            <p className="mt-4 text-sm font-semibold leading-6 text-gray-600">
+              This user will return to the active People & Access roster. Access remains governed by their status, role, organization, product assignments, and permissions.
+            </p>
+            <div className="mt-5 rounded-2xl bg-gray-50 p-4">
+              <p className="z-label text-gray-500">Target</p>
+              <p className="mt-1 z-table-content font-black text-gray-900">{restoreTarget.name}</p>
+              {restoreTarget.email ? <p className="mt-1 text-sm text-gray-500">{restoreTarget.email}</p> : null}
+            </div>
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              <ActionButton icon={XCircle} label="Cancel" onClick={() => setRestoreTarget(null)} disabled={isSubmitting} />
+              <ActionButton icon={RotateCcw} label="Restore User" tone="primary" onClick={confirmRestoreUser} disabled={isSubmitting} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {showImportModal ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-6">
           <div className="w-full max-w-3xl rounded-[28px] bg-white p-6 shadow-2xl">
@@ -2055,7 +2333,7 @@ export function PeopleAccessModule({
                   ))}
                 </select>
                 <select value={form.status} onChange={(event) => updateForm('status', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                  {['ACTIVE', 'INACTIVE', 'LOCKED', 'SUSPENDED', 'DELETED'].map((item) => (
+                  {['ACTIVE', 'INACTIVE', 'LOCKED', 'SUSPENDED'].map((item) => (
                     <option key={item} value={item}>{item}</option>
                   ))}
                 </select>
@@ -2089,6 +2367,11 @@ export function PeopleAccessModule({
                   <ActionButton icon={KeyRound} label="Reset password" onClick={resetSelectedUserPassword} disabled={isSubmitting} />
                   <ActionButton icon={KeyRound} label="Force logout" onClick={() => runAction('Force logout', onForceLogout, safeSelectedUser.id)} />
                   <ActionButton icon={Save} label="Sync assignments" onClick={syncProductAssignments} disabled={isSubmitting} />
+                  {safeSelectedUser.status === 'ARCHIVED' || safeSelectedUser.archived_at ? (
+                    <ActionButton icon={RotateCcw} label="Restore user" onClick={() => requestRestoreUser(safeSelectedUser)} disabled={isSubmitting} />
+                  ) : (
+                    <ActionButton icon={Archive} label="Archive user" onClick={() => requestArchiveUser(safeSelectedUser)} disabled={isSubmitting} />
+                  )}
                 </div>
 
                 <div className="mt-6 rounded-3xl bg-gray-50 p-5">
@@ -2098,6 +2381,13 @@ export function PeopleAccessModule({
                     <p><span className="font-bold text-gray-900">Phone:</span> {safeSelectedUser.phone || 'Not added'}</p>
                     <p><span className="font-bold text-gray-900">Created:</span> {safeSelectedUser.created_at ? new Date(safeSelectedUser.created_at).toLocaleString() : 'Not recorded'}</p>
                     <p><span className="font-bold text-gray-900">Status:</span> {safeSelectedUser.status}</p>
+                    {safeSelectedUser.archived_at ? (
+                      <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-amber-900">
+                        <p><span className="font-bold">Archived:</span> {new Date(safeSelectedUser.archived_at).toLocaleString()}</p>
+                        <p className="mt-1"><span className="font-bold">Archived by:</span> {safeSelectedUser.archived_by || 'System'}</p>
+                        <p className="mt-1"><span className="font-bold">Reason:</span> {safeSelectedUser.archive_reason || 'No reason recorded'}</p>
+                      </div>
+                    ) : null}
                   </div>
                 )}
                 {profileTab === 'Professional' && (

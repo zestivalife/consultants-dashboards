@@ -75,6 +75,7 @@ from app.services.iam_lifecycle import (
     CREDENTIAL_TEMPORARY,
     INACTIVE_STATUSES,
     STATUS_ACTIVE,
+    STATUS_ARCHIVED,
     STATUS_INVITED,
     STATUS_PASSWORD_CHANGE_REQUIRED,
     temporary_password_expiry,
@@ -103,6 +104,7 @@ MANAGEABLE_STATUSES = {
     "EXPIRED",
     "DEACTIVATED",
     "DELETED",
+    "ARCHIVED",
 }
 PROTECTED_PLATFORM_OWNER_ROLES = {"platform_owner", "superuser"}
 ROLE_ALIASES = {
@@ -306,6 +308,9 @@ def _user_to_row(user: User) -> PeopleAccessUserRow:
         created_at=user.created_at,
         last_login_at=user.last_login_at,
         tags=membership.tags if membership else [],
+        archived_at=user.archived_at,
+        archived_by=_display_name(user.archived_by) if getattr(user, "archived_by", None) else None,
+        archive_reason=user.archive_reason,
     )
 
 
@@ -322,6 +327,7 @@ async def get_summary(session: AsyncSession) -> PeopleAccessSummaryResponse:
             PeopleAccessSummaryMetric(label="Organizations", value=counts["organizations"]),
             PeopleAccessSummaryMetric(label="Pending credentials", value=counts["pending_credentials"]),
             PeopleAccessSummaryMetric(label="Suspended", value=counts["suspended"]),
+            PeopleAccessSummaryMetric(label="Archived", value=counts["archived"]),
             PeopleAccessSummaryMetric(label="Pending approvals", value=counts["pending_profiles"]),
         ],
         role_distribution=[
@@ -350,6 +356,7 @@ async def list_users(
     page_size: int = 20,
     sort_by: str = "created_at",
     sort_order: str = "desc",
+    archived: bool = False,
 ) -> PeopleAccessUsersResponse:
     repo = PeopleAccessRepository(session)
     users, total = await repo.list_users(
@@ -364,6 +371,7 @@ async def list_users(
         page_size=page_size,
         sort_by=sort_by,
         sort_order=sort_order,
+        archived=archived,
     )
     return PeopleAccessUsersResponse(
         items=[_user_to_row(user) for user in users],
@@ -484,6 +492,9 @@ async def get_user_detail(session: AsyncSession, user_id: uuid.UUID) -> UserProf
         must_change_password=user.must_change_password,
         last_login_at=user.last_login_at,
         created_at=user.created_at,
+        archived_at=user.archived_at,
+        archived_by=_display_name(user.archived_by) if getattr(user, "archived_by", None) else None,
+        archive_reason=user.archive_reason,
         memberships=[_membership_to_summary(membership) for membership in user.organization_memberships],
         product_access=[_serialize_product_access(access) for access in user.product_access],
         package_assignments=[_serialize_package_assignment(item) for item in user.package_assignments],
@@ -894,6 +905,146 @@ async def update_user(
     )
     await session.flush()
     await session.refresh(user, attribute_names=["role"])
+    return await get_user_detail(session, user.id)
+
+
+async def _revoke_user_access(
+    repo: PeopleAccessRepository,
+    token_repo: RefreshTokenRepository,
+    user: User,
+    *,
+    reason: str,
+) -> None:
+    """Immediately invalidate active sessions without deleting account history."""
+    user.current_session_version = (user.current_session_version or 1) + 1
+    user.refresh_token_version = (user.refresh_token_version or 1) + 1
+    sessions = await repo.revoke_all_login_sessions_for_user(user.id)
+    for session_row in sessions:
+        if session_row.refresh_token_id:
+            await token_repo.revoke(session_row.refresh_token_id)
+
+
+async def archive_user(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    reason: str | None,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> UserProfileDetail:
+    repo = PeopleAccessRepository(session)
+    token_repo = RefreshTokenRepository(session)
+    user = await repo.get_user_detail(user_id)
+    if user is None:
+        raise NotFoundException("User not found")
+    _ensure_tenant_provisioning_allowed(user, "archive_user")
+
+    if user.status == STATUS_ARCHIVED or user.archived_at is not None:
+        return await get_user_detail(session, user.id)
+
+    now = datetime.now(timezone.utc)
+    previous_status = user.status
+    before_state = {
+        "status": user.status,
+        "is_active": user.is_active,
+        "archived_at": user.archived_at.isoformat() if user.archived_at else None,
+    }
+    user.status = STATUS_ARCHIVED
+    user.is_active = False
+    user.archived_at = now
+    user.archived_by_user_id = actor.id
+    user.archive_reason = reason
+
+    await _revoke_user_access(repo, token_repo, user, reason="archived")
+    await repo.add_status_history(
+        UserStatusHistory(
+            user_id=user.id,
+            previous_status=previous_status,
+            new_status=STATUS_ARCHIVED,
+            reason=reason or "Archived from People & Access",
+            changed_by_user_id=actor.id,
+        )
+    )
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="user",
+            entity_id=str(user.id),
+            action="USER_ARCHIVED",
+            before_state=before_state,
+            after_state={
+                "status": user.status,
+                "is_active": user.is_active,
+                "archived_at": user.archived_at.isoformat(),
+                "archived_by_user_id": str(user.archived_by_user_id),
+                "archive_reason": user.archive_reason,
+            },
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    await session.flush()
+    return await get_user_detail(session, user.id)
+
+
+async def restore_user(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    actor: UserResponse,
+    ip_address: str | None,
+    user_agent: str | None,
+    request_id: str | None,
+) -> UserProfileDetail:
+    repo = PeopleAccessRepository(session)
+    user = await repo.get_user_detail(user_id)
+    if user is None:
+        raise NotFoundException("User not found")
+    _ensure_tenant_provisioning_allowed(user, "restore_user")
+
+    if user.status != STATUS_ARCHIVED and user.archived_at is None:
+        return await get_user_detail(session, user.id)
+
+    previous_status = user.status
+    before_state = {
+        "status": user.status,
+        "is_active": user.is_active,
+        "archived_at": user.archived_at.isoformat() if user.archived_at else None,
+        "archive_reason": user.archive_reason,
+    }
+    user.status = STATUS_ACTIVE
+    user.is_active = True
+    user.deleted_at = None
+    user.archived_at = None
+    user.archived_by_user_id = None
+    user.archive_reason = None
+
+    await repo.add_status_history(
+        UserStatusHistory(
+            user_id=user.id,
+            previous_status=previous_status,
+            new_status=STATUS_ACTIVE,
+            reason="Restored from People & Access archive",
+            changed_by_user_id=actor.id,
+        )
+    )
+    await repo.add_audit_event(
+        AuditEvent(
+            actor_user_id=actor.id,
+            entity_type="user",
+            entity_id=str(user.id),
+            action="USER_RESTORED",
+            before_state=before_state,
+            after_state={"status": user.status, "is_active": user.is_active},
+            ip_address=ip_address,
+            browser=user_agent,
+            request_id=request_id,
+        )
+    )
+    await session.flush()
     return await get_user_detail(session, user.id)
 
 
@@ -1441,12 +1592,16 @@ async def bulk_action(
     role_name: str | None = None,
     package_name: str | None = None,
     status: str | None = None,
+    reason: str | None = None,
     ip_address: str | None = None,
     user_agent: str | None = None,
     request_id: str | None = None,
 ) -> BulkActionResponse:
     repo = PeopleAccessRepository(session)
+    token_repo = RefreshTokenRepository(session)
     normalized_action = action.strip().lower()
+    if normalized_action == "delete":
+        normalized_action = "archive"
     affected_ids: list[uuid.UUID] = []
     target_role = await repo.get_role_by_name(normalize_role_name(role_name)) if role_name else None
 
@@ -1463,16 +1618,28 @@ async def bulk_action(
             )
             continue
 
-        if normalized_action in {"activate", "deactivate", "suspend", "delete"}:
+        if normalized_action in {"activate", "deactivate", "suspend", "archive", "restore"}:
             next_status = {
                 "activate": "ACTIVE",
                 "deactivate": "INACTIVE",
                 "suspend": "SUSPENDED",
-                "delete": "DELETED",
+                "archive": STATUS_ARCHIVED,
+                "restore": STATUS_ACTIVE,
             }[normalized_action]
             previous_status = user.status
             user.status = next_status
             user.is_active = next_status not in INACTIVE_STATUSES
+            if normalized_action == "archive":
+                now = datetime.now(timezone.utc)
+                user.archived_at = now
+                user.archived_by_user_id = actor.id
+                user.archive_reason = reason or "Bulk archive from People & Access"
+                await _revoke_user_access(repo, token_repo, user, reason="bulk_archive")
+            elif normalized_action == "restore":
+                user.deleted_at = None
+                user.archived_at = None
+                user.archived_by_user_id = None
+                user.archive_reason = None
             await repo.add_status_history(
                 UserStatusHistory(
                     user_id=user.id,
@@ -1514,7 +1681,12 @@ async def bulk_action(
                 entity_id=str(user.id),
                 action=f"users.bulk.{normalized_action}",
                 before_state=None,
-                after_state={"status": user.status, "role_id": str(user.role_id)},
+                after_state={
+                    "status": user.status,
+                    "role_id": str(user.role_id),
+                    "archived_at": user.archived_at.isoformat() if user.archived_at else None,
+                    "archive_reason": user.archive_reason,
+                },
                 ip_address=ip_address,
                 browser=user_agent,
                 request_id=request_id,

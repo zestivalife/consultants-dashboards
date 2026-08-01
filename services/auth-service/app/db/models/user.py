@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, Boolean, Integer, DateTime, ForeignKey, JSON
+from sqlalchemy import String, Boolean, Integer, DateTime, ForeignKey, JSON, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -69,6 +69,13 @@ class User(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    archived_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    archive_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -109,6 +116,11 @@ class User(Base):
     )
     status_history: Mapped[list["UserStatusHistory"]] = relationship(  # noqa: F821
         foreign_keys="UserStatusHistory.user_id", back_populates="user"
+    )
+    archived_by: Mapped["User | None"] = relationship(
+        "User",
+        foreign_keys=[archived_by_user_id],
+        remote_side=[id],
     )
 
 

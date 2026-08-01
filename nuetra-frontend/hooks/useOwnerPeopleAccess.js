@@ -12,6 +12,7 @@ const DEFAULT_FILTERS = {
   page_size: 20,
   sort_by: 'created_at',
   sort_order: 'desc',
+  archived: false,
 };
 
 function parsePositiveInt(value, fallback) {
@@ -31,6 +32,7 @@ function parsePeopleRouteState(query) {
       page_size: parsePositiveInt(query.page_size, 20),
       sort_by: typeof query.sort_by === 'string' ? query.sort_by : 'created_at',
       sort_order: query.sort_order === 'asc' ? 'asc' : 'desc',
+      archived: query.archived === 'true',
     },
     selectedUserId: typeof query.user === 'string' ? query.user : null,
   };
@@ -152,6 +154,7 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
       page_size: patch.page_size !== undefined ? patch.page_size : peopleRouteState.filters.page_size,
       sort_by: patch.sort_by !== undefined ? patch.sort_by : peopleRouteState.filters.sort_by,
       sort_order: patch.sort_order !== undefined ? patch.sort_order : peopleRouteState.filters.sort_order,
+      archived: patch.archived !== undefined ? patch.archived : peopleRouteState.filters.archived,
     });
   }, [peopleRouteState.filters, replaceCurrentQuery]);
 
@@ -180,6 +183,24 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     }
     return updated;
   }, [loadSelectedUser, onSelectUser, refresh]);
+
+  const onArchiveUser = useCallback(async (userId, reason) => {
+    const updated = await ownerPeopleAccessAPI.archiveUser(userId, { reason });
+    await refresh();
+    if (selectedUserId === userId) {
+      await loadSelectedUser(userId);
+    }
+    return updated;
+  }, [loadSelectedUser, refresh, selectedUserId]);
+
+  const onRestoreUser = useCallback(async (userId) => {
+    const updated = await ownerPeopleAccessAPI.restoreUser(userId);
+    await refresh();
+    if (selectedUserId === userId) {
+      await loadSelectedUser(userId);
+    }
+    return updated;
+  }, [loadSelectedUser, refresh, selectedUserId]);
 
   const onBulkAction = useCallback(async (payload) => {
     const result = await ownerPeopleAccessAPI.bulkAction(payload);
@@ -301,6 +322,8 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     onSelectUser,
     onCreateUser,
     onUpdateUser,
+    onArchiveUser,
+    onRestoreUser,
     onBulkAction,
     onAddNote,
     onAddAttachment,

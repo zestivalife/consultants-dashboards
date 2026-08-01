@@ -35,20 +35,32 @@ class PeopleAccessRepository:
         self._session = session
 
     async def get_summary_counts(self) -> dict[str, int]:
-        total_users = await self._session.scalar(select(func.count(User.id))) or 0
+        active_user_filter = (
+            User.deleted_at.is_(None),
+            User.archived_at.is_(None),
+            User.status.notin_(["ARCHIVED", "DELETED"]),
+        )
+        total_users = await self._session.scalar(select(func.count(User.id)).where(*active_user_filter)) or 0
+        archived = await self._session.scalar(
+            select(func.count(User.id)).where(or_(User.status == "ARCHIVED", User.archived_at.is_not(None)))
+        ) or 0
         pending_credentials = await self._session.scalar(
-            select(func.count(User.id)).where(User.must_change_password.is_(True))
+            select(func.count(User.id)).where(User.must_change_password.is_(True), *active_user_filter)
         ) or 0
         pending_profiles = await self._session.scalar(
             select(func.count(User.id)).where(
                 (User.status.in_(["INVITED", "FIRST_LOGIN", "ONBOARDING_IN_PROGRESS", "PENDING_PROFILE"]))
-                | (User.must_change_password.is_(True))
+                | (User.must_change_password.is_(True)),
+                *active_user_filter,
             )
         ) or 0
-        suspended = await self._session.scalar(select(func.count(User.id)).where(User.status == "SUSPENDED")) or 0
+        suspended = await self._session.scalar(
+            select(func.count(User.id)).where(User.status == "SUSPENDED", User.archived_at.is_(None))
+        ) or 0
         organizations = await self._session.scalar(select(func.count(Organization.id))) or 0
         return {
             "users": total_users,
+            "archived": archived,
             "organizations": organizations,
             "pending_credentials": pending_credentials,
             "pending_profiles": pending_profiles,
@@ -59,6 +71,7 @@ class PeopleAccessRepository:
         stmt = (
             select(Role.name, func.count(User.id))
             .join(User, User.role_id == Role.id)
+            .where(User.deleted_at.is_(None), User.archived_at.is_(None), User.status.notin_(["ARCHIVED", "DELETED"]))
             .group_by(Role.name)
             .order_by(func.count(User.id).desc(), Role.name.asc())
         )
@@ -99,6 +112,7 @@ class PeopleAccessRepository:
         page_size: int = 20,
         sort_by: str = "created_at",
         sort_order: str = "desc",
+        archived: bool = False,
     ) -> tuple[list[User], int]:
         membership_subq = (
             select(
@@ -107,7 +121,11 @@ class PeopleAccessRepository:
                 OrganizationMembership.package_name.label("package_name"),
                 OrganizationMembership.organization_id.label("organization_id"),
                 OrganizationMembership.department_id.label("department_id"),
+                Organization.name.label("organization_name"),
+                Department.name.label("department_name"),
             )
+            .outerjoin(Organization, Organization.id == OrganizationMembership.organization_id)
+            .outerjoin(Department, Department.id == OrganizationMembership.department_id)
             .subquery()
         )
 
@@ -115,6 +133,7 @@ class PeopleAccessRepository:
             select(User)
             .options(
                 joinedload(User.role),
+                joinedload(User.archived_by),
                 selectinload(User.organization_memberships).joinedload(OrganizationMembership.organization),
                 selectinload(User.organization_memberships).joinedload(OrganizationMembership.department),
                 selectinload(User.organization_memberships).joinedload(OrganizationMembership.primary_product),
@@ -128,6 +147,17 @@ class PeopleAccessRepository:
             .outerjoin(membership_subq, membership_subq.c.user_id == User.id)
         )
 
+        if archived:
+            stmt = stmt.where(or_(User.status == "ARCHIVED", User.archived_at.is_not(None)))
+        elif status == "ARCHIVED":
+            stmt = stmt.where(or_(User.status == "ARCHIVED", User.archived_at.is_not(None)))
+        else:
+            stmt = stmt.where(
+                User.deleted_at.is_(None),
+                User.archived_at.is_(None),
+                User.status.notin_(["ARCHIVED", "DELETED"]),
+            )
+
         if search:
             search_term = f"%{search.strip()}%"
             stmt = stmt.where(
@@ -135,7 +165,18 @@ class PeopleAccessRepository:
                     User.email.ilike(search_term),
                     User.first_name.ilike(search_term),
                     User.last_name.ilike(search_term),
+                    User.phone.ilike(search_term),
+                    User.mobile.ilike(search_term),
                     cast(membership_subq.c.employee_id, String).ilike(search_term),
+                    membership_subq.c.package_name.ilike(search_term),
+                    membership_subq.c.organization_name.ilike(search_term),
+                    membership_subq.c.department_name.ilike(search_term),
+                    User.role_id.in_(select(Role.id).where(Role.name.ilike(search_term))),
+                    User.id.in_(
+                        select(UserProductAccess.user_id)
+                        .join(Product, Product.id == UserProductAccess.product_id)
+                        .where(Product.name.ilike(search_term))
+                    ),
                 )
             )
 
@@ -173,10 +214,13 @@ class PeopleAccessRepository:
         sort_expr = sort_column.asc() if sort_order == "asc" else sort_column.desc()
         stmt = stmt.order_by(sort_expr, User.email.asc())
 
-        count_stmt = select(func.count(func.distinct(User.id))).select_from(stmt.subquery())
+        filtered_user_ids = stmt.with_only_columns(User.id).order_by(None).subquery()
+        count_stmt = select(func.count(func.distinct(filtered_user_ids.c.id)))
         total = await self._session.scalar(count_stmt) or 0
 
-        result = await self._session.execute(stmt.offset((page - 1) * page_size).limit(page_size))
+        result = await self._session.execute(
+            stmt.execution_options(populate_existing=True).offset((page - 1) * page_size).limit(page_size)
+        )
         users = list(result.scalars().unique().all())
         return users, total
 
@@ -239,7 +283,12 @@ class PeopleAccessRepository:
                 selectinload(User.organization_memberships).joinedload(OrganizationMembership.organization),
                 selectinload(User.product_access).joinedload(UserProductAccess.product),
             )
-            .where(Role.name.in_(role_names), User.status != "DELETED")
+            .where(
+                Role.name.in_(role_names),
+                User.deleted_at.is_(None),
+                User.archived_at.is_(None),
+                User.status.notin_(["ARCHIVED", "DELETED"]),
+            )
             .order_by(User.first_name.asc().nulls_last(), User.email.asc())
         )
         result = await self._session.execute(stmt)
@@ -250,6 +299,7 @@ class PeopleAccessRepository:
             select(User)
             .options(
                 joinedload(User.role),
+                joinedload(User.archived_by),
                 selectinload(User.user_roles).joinedload(UserRole.role),
                 selectinload(User.organization_memberships).joinedload(OrganizationMembership.organization),
                 selectinload(User.organization_memberships).joinedload(OrganizationMembership.department),
@@ -271,7 +321,7 @@ class PeopleAccessRepository:
             )
             .where(User.id == user_id)
         )
-        result = await self._session.execute(stmt)
+        result = await self._session.execute(stmt.execution_options(populate_existing=True))
         return result.scalar_one_or_none()
 
     async def get_user_by_email(self, email: str) -> User | None:

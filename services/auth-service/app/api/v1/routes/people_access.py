@@ -18,6 +18,7 @@ from app.schemas.people_access import (
     RoleCloneRequest,
     RolePermissionUpdateRequest,
     UserAttachmentCreateRequest,
+    UserArchiveRequest,
     UserPackageAssignmentRequest,
     UserProductAssignmentRequest,
     UserServiceAssignmentRequest,
@@ -92,6 +93,7 @@ async def list_users(
     page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str = Query(default="created_at"),
     sort_order: str = Query(default="desc", pattern="^(asc|desc)$"),
+    archived: bool = Query(default=False),
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
@@ -109,6 +111,7 @@ async def list_users(
         page_size=page_size,
         sort_by=sort_by,
         sort_order=sort_order,
+        archived=archived,
     )
     return success_response(data=result.model_dump(mode="json"))
 
@@ -159,6 +162,42 @@ async def update_user(
         **_request_meta(request),
     )
     return success_response(data=result.model_dump(mode="json"), message="User updated")
+
+
+@router.post("/users/{user_id}/archive")
+async def archive_user(
+    user_id: uuid.UUID,
+    body: UserArchiveRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
+):
+    await _require_people_access(session, current_user, "users.edit")
+    result = await people_access_service.archive_user(
+        session,
+        user_id,
+        reason=body.reason,
+        actor=current_user,
+        **_request_meta(request),
+    )
+    return success_response(data=result.model_dump(mode="json"), message="User archived successfully.")
+
+
+@router.post("/users/{user_id}/restore")
+async def restore_user(
+    user_id: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
+):
+    await _require_people_access(session, current_user, "users.edit")
+    result = await people_access_service.restore_user(
+        session,
+        user_id,
+        actor=current_user,
+        **_request_meta(request),
+    )
+    return success_response(data=result.model_dump(mode="json"), message="User restored successfully.")
 
 
 @router.post("/users/{user_id}/reset-password")
@@ -417,6 +456,7 @@ async def bulk_actions(
         role_name=body.role,
         package_name=body.package_name,
         status=body.status,
+        reason=body.reason,
         **_request_meta(request),
     )
     return success_response(data=result.model_dump(mode="json"), message="Bulk action applied")

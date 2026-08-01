@@ -415,6 +415,19 @@ export const ownerPeopleAccessAPI = {
     });
   },
 
+  archiveUser(userId, payload = {}) {
+    return apiRequest(`/owner/people-access/users/${userId}/archive`, {
+      method: 'POST',
+      body: payload,
+    });
+  },
+
+  restoreUser(userId) {
+    return apiRequest(`/owner/people-access/users/${userId}/restore`, {
+      method: 'POST',
+    });
+  },
+
   resetUserPassword(userId) {
     return apiRequest(`/owner/people-access/users/${userId}/reset-password`, {
       method: 'POST',
