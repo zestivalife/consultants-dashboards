@@ -57,6 +57,7 @@ import {
   EnterpriseActionMenu,
   EnterpriseAvatar,
   EnterpriseBulkToolbar,
+  EnterpriseChip,
   EnterpriseCollectionToolbar,
   EnterpriseConfirmationDialog,
   EnterpriseEmptyState,
