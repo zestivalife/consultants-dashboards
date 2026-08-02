@@ -41,7 +41,6 @@ import {
   ActionButton,
   Badge,
   cn,
-  ControlBar,
   EmptyState,
   Field,
   FormSection,
@@ -54,6 +53,20 @@ import {
   WorkflowCard,
   WorkflowModal,
 } from './OwnerConsolePrimitives';
+import {
+  EnterpriseActionMenu,
+  EnterpriseAvatar,
+  EnterpriseBulkToolbar,
+  EnterpriseCollectionToolbar,
+  EnterpriseConfirmationDialog,
+  EnterpriseEmptyState,
+  EnterpriseFilterDrawer,
+  EnterprisePagination,
+  EnterpriseSmartSearch,
+  EnterpriseStatusBadge,
+  EnterpriseTable,
+  EnterpriseToast as SharedEnterpriseToast,
+} from './EnterpriseWorkspaceFramework';
 import {
   buildUserProvisioningWorkflowSteps,
   getUserProvisioningWorkflowState,
@@ -142,23 +155,7 @@ function EnterpriseToast({ notice, error }) {
   const message = error || notice?.message;
   if (!message) return null;
 
-  const isError = Boolean(error) || notice?.type === 'error';
-  const Icon = isError ? XCircle : CheckCircle2;
-  return (
-    <div
-      role={isError ? 'alert' : 'status'}
-      aria-live={isError ? 'assertive' : 'polite'}
-      className={cn(
-        'fixed left-4 right-4 top-4 z-50 flex max-w-md items-start gap-3 rounded-2xl px-4 py-3 text-sm font-semibold shadow-2xl transition md:left-auto md:right-6 md:top-6',
-        isError
-          ? 'border border-red-200 bg-red-50 text-red-700'
-          : 'border border-emerald-200 bg-emerald-50 text-emerald-700'
-      )}
-    >
-      <Icon className="mt-0.5 h-4 w-4 shrink-0" />
-      <span>{message}</span>
-    </div>
-  );
+  return <SharedEnterpriseToast message={message} type={Boolean(error) || notice?.type === 'error' ? 'error' : 'success'} />;
 }
 
 function SkeletonRows({ columns = 8, rows = 6 }) {
@@ -502,13 +499,68 @@ export function CommandCenterModule({ data }) {
   );
 }
 
-export function OrganizationsModule({ organizations }) {
+export function OrganizationsModule({ organizations = [] }) {
   const [selectedId, setSelectedId] = useState(organizations[0]?.id || '');
   const [subPage, setSubPage] = useState('list');
+  const [searchDraft, setSearchDraft] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [showOrgFilters, setShowOrgFilters] = useState(false);
+  const [orgActionMenuId, setOrgActionMenuId] = useState(null);
+  const [orgNotice, setOrgNotice] = useState(null);
+  const [pendingOrgAction, setPendingOrgAction] = useState(null);
   const selected = useMemo(
     () => organizations.find((item) => item.id === selectedId) || organizations[0],
     [organizations, selectedId]
   );
+  const statusTone = (status) => (status === 'Active' ? 'green' : status === 'At Risk' ? 'amber' : 'red');
+  const normalizedSearch = searchDraft.trim().toLowerCase();
+  const filteredOrganizations = useMemo(() => {
+    return organizations.filter((organization) => {
+      const matchesStatus = statusFilter === 'all' || organization.status.toLowerCase().replace(/\s+/g, '-') === statusFilter;
+      const haystack = [
+        organization.name,
+        organization.gstNumber,
+        organization.primaryContact,
+        organization.contactEmail,
+        organization.subscription,
+        organization.industry,
+        organization.country,
+      ].filter(Boolean).join(' ').toLowerCase();
+      return matchesStatus && (!normalizedSearch || haystack.includes(normalizedSearch));
+    });
+  }, [organizations, normalizedSearch, statusFilter]);
+  const totalOrganizationPages = Math.max(1, Math.ceil(filteredOrganizations.length / pageSize));
+  const pagedOrganizations = filteredOrganizations.slice((page - 1) * pageSize, page * pageSize);
+
+  useEffect(() => {
+    if (page > totalOrganizationPages) setPage(totalOrganizationPages);
+  }, [page, totalOrganizationPages]);
+
+  const organizationFilterPills = [
+    statusFilter !== 'all'
+      ? {
+          key: 'status',
+          label: `Status: ${statusFilter.replace(/-/g, ' ')}`,
+          onClick: () => {
+            setStatusFilter('all');
+            setPage(1);
+          },
+        }
+      : null,
+  ].filter(Boolean);
+
+  const resetOrganizationFilters = () => {
+    setSearchDraft('');
+    setStatusFilter('all');
+    setPage(1);
+  };
+
+  const announceOrganizationAction = (message) => {
+    setOrgNotice({ message });
+    window.setTimeout(() => setOrgNotice(null), 2500);
+  };
 
   const subPages = [
     ['list', 'Organization List'],
@@ -532,11 +584,12 @@ export function OrganizationsModule({ organizations }) {
       description="Manage account lifecycle, package assignments, staffing, analytics, and audit visibility across enterprise clients."
       actions={
         <>
-          <ActionButton icon={FileSpreadsheet} label="Generate report" />
-          <ActionButton icon={Plus} label="Create organization" tone="primary" />
+          <ActionButton icon={FileSpreadsheet} label="Generate report" onClick={() => announceOrganizationAction('Organization report queued for export.')} />
+          <ActionButton icon={Plus} label="Create organization" tone="primary" onClick={() => setSubPage('create')} />
         </>
       }
     >
+      <SharedEnterpriseToast message={orgNotice?.message} type="success" />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatPill icon={Building2} label="Organizations" value={organizations.length} />
         <StatPill icon={Users} label="Employees" value={organizations.reduce((sum, item) => sum + item.employees, 0)} tone="from-emerald-500 to-teal-500" />
@@ -547,87 +600,159 @@ export function OrganizationsModule({ organizations }) {
 
       <div className="mt-8 flex flex-wrap gap-2">
         {subPages.map(([key, label]) => (
-          <button
+          <EnterpriseChip
             key={key}
             onClick={() => setSubPage(key)}
-            className={cn(
-              'rounded-full px-4 py-2 text-sm font-bold transition-colors',
-              subPage === key
-                ? 'bg-[#237afc] text-white shadow-sm'
-                : 'bg-white text-gray-600 border border-gray-200 hover:border-[#237afc] hover:text-[#237afc]'
-            )}
+            active={subPage === key}
           >
             {label}
-          </button>
+          </EnterpriseChip>
         ))}
       </div>
 
       <div className="mt-8 grid gap-8 xl:grid-cols-[1.25fr_0.95fr]">
         <div className="space-y-6">
-          <ControlBar
-            searchPlaceholder="Search organization, GST number, contact, or package..."
-            filters={[
-              { key: 'all', label: 'All' },
-              { key: 'active', label: 'Active' },
-              { key: 'risk', label: 'At Risk' },
-              { key: 'suspended', label: 'Suspended' },
-            ]}
-            activeFilter="all"
-            rightControls={
-              <div className="ml-2 flex items-center gap-2">
-                <button className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600">
+          <EnterpriseCollectionToolbar
+            left={
+              <EnterpriseSmartSearch
+                summary={`${filteredOrganizations.length} of ${organizations.length} organizations`}
+                value={searchDraft}
+                onChange={(value) => {
+                  setSearchDraft(value);
+                  setPage(1);
+                }}
+                onClear={() => {
+                  setSearchDraft('');
+                  setPage(1);
+                }}
+                placeholder="Search organization, GST number, contact, or package..."
+                activeFilters={organizationFilterPills}
+                onClearAll={resetOrganizationFilters}
+              />
+            }
+            right={
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowOrgFilters(true)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 transition hover:border-[#237afc] hover:text-[#237afc] focus:outline-none focus:ring-4 focus:ring-blue-50"
+                >
                   <Filter className="h-4 w-4" />
+                  Filters
+                  {statusFilter !== 'all' ? <EnterpriseStatusBadge tone="blue">1</EnterpriseStatusBadge> : null}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => announceOrganizationAction('Saved organization view applied.')}
+                  className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 transition hover:border-[#237afc] hover:text-[#237afc] focus:outline-none focus:ring-4 focus:ring-blue-50"
+                >
+                  <LayoutPanelTop className="h-4 w-4" />
                   Saved Views
                 </button>
-                <button className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-600">
-                  <Download className="h-4 w-4" />
-                  Export
-                </button>
-              </div>
+                <ActionButton icon={Download} label="Export" onClick={() => announceOrganizationAction('Organization export prepared.')} />
+              </>
             }
           />
 
           {(subPage === 'list' || subPage === 'details') && (
             <Panel title="Organization roster" subtitle="Search, sort, and inspect enterprise accounts.">
-              <div className="space-y-3">
-                {organizations.map((organization) => (
-                  <button
+              <EnterpriseBulkToolbar
+                selectedCount={selected ? 1 : 0}
+                actions={
+                  <>
+                    <button type="button" onClick={() => announceOrganizationAction(`${selected?.name || 'Organization'} report queued.`)} className="rounded-full border border-blue-100 bg-white px-3 py-2 text-xs font-bold text-blue-700">Generate report</button>
+                    <button type="button" onClick={() => setSubPage('edit')} className="rounded-full border border-blue-100 bg-white px-3 py-2 text-xs font-bold text-blue-700">Edit selected</button>
+                  </>
+                }
+              />
+              <EnterpriseTable
+                columns={[
+                  { key: 'organization', label: 'Organization', className: 'min-w-[260px]' },
+                  { key: 'status', label: 'Status' },
+                  { key: 'subscription', label: 'Subscription' },
+                  { key: 'employees', label: 'Employees' },
+                  { key: 'contact', label: 'Primary Contact' },
+                  { key: 'renewal', label: 'Renewal' },
+                  { key: 'actions', label: 'Actions', className: 'text-right' },
+                ]}
+              >
+                {pagedOrganizations.map((organization) => (
+                  <tr
                     key={organization.id}
                     onClick={() => {
                       setSelectedId(organization.id);
                       setSubPage('details');
                     }}
-                    className={cn(
-                      'flex w-full items-start justify-between rounded-2xl border px-5 py-4 text-left transition',
-                      selected?.id === organization.id
-                        ? 'border-[#237afc] bg-[#f5f9ff]'
-                        : 'border-gray-100 bg-white hover:border-gray-200 hover:bg-gray-50'
-                    )}
+                    className={cn('cursor-pointer transition hover:bg-blue-50/60', selected?.id === organization.id ? 'bg-blue-50/70' : 'bg-white')}
                   >
-                    <div className="flex items-start gap-4">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#237afc] to-[#58b6ff] text-sm font-black text-white">
-                        {organization.logo}
-                      </div>
-                      <div>
-                        <p className="text-base font-black text-gray-900">{organization.name}</p>
-                        <p className="mt-1 text-sm text-gray-500">
-                          {organization.subscription} · {organization.companySize}
-                        </p>
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <Badge tone={organization.status === 'Active' ? 'green' : organization.status === 'At Risk' ? 'amber' : 'red'}>
-                            {organization.status}
-                          </Badge>
-                          <Badge tone="blue">{organization.industry}</Badge>
-                          <Badge>{organization.country}</Badge>
+                    <td className="px-4 py-4">
+                      <div className="flex items-center gap-3">
+                        <EnterpriseAvatar label={organization.logo} />
+                        <div>
+                          <p className="text-sm font-black text-gray-900"><HighlightMatch value={organization.name} query={searchDraft} /></p>
+                          <p className="mt-1 text-xs font-semibold text-gray-500">{organization.industry} · {organization.country}</p>
                         </div>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-gray-900">{organization.primaryContact}</p>
-                      <p className="mt-1 text-xs text-gray-500">Renews {organization.renewalDate}</p>
-                    </div>
-                  </button>
+                    </td>
+                    <td className="px-4 py-4"><EnterpriseStatusBadge tone={statusTone(organization.status)}>{organization.status}</EnterpriseStatusBadge></td>
+                    <td className="px-4 py-4 text-sm font-semibold text-gray-600">{organization.subscription}</td>
+                    <td className="px-4 py-4 text-sm font-semibold text-gray-600">{organization.employees}</td>
+                    <td className="px-4 py-4 text-sm text-gray-600">
+                      <p className="font-bold text-gray-900"><HighlightMatch value={organization.primaryContact} query={searchDraft} /></p>
+                      <p className="text-xs text-gray-500"><HighlightMatch value={organization.contactEmail} query={searchDraft} /></p>
+                    </td>
+                    <td className="px-4 py-4 text-sm font-semibold text-gray-600">{organization.renewalDate}</td>
+                    <td className="px-4 py-4 text-right" onClick={(event) => event.stopPropagation()}>
+                      <EnterpriseActionMenu
+                        open={orgActionMenuId === organization.id}
+                        onToggle={() => setOrgActionMenuId((current) => (current === organization.id ? null : organization.id))}
+                      >
+                        {[
+                          ['View details', () => { setSelectedId(organization.id); setSubPage('details'); }],
+                          ['Edit organization', () => { setSelectedId(organization.id); setSubPage('edit'); }],
+                          ['Assign package', () => announceOrganizationAction(`Package assignment opened for ${organization.name}.`)],
+                          ['Generate report', () => announceOrganizationAction(`Report queued for ${organization.name}.`)],
+                          ['Suspend', () => setPendingOrgAction({ type: 'suspend', organization })],
+                        ].map(([label, handler]) => (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => {
+                              setOrgActionMenuId(null);
+                              handler();
+                            }}
+                            className={cn('block w-full px-4 py-2.5 text-left text-sm font-bold transition hover:bg-gray-50', label === 'Suspend' ? 'text-red-700 hover:bg-red-50' : 'text-gray-700')}
+                            role="menuitem"
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </EnterpriseActionMenu>
+                    </td>
+                  </tr>
                 ))}
+              </EnterpriseTable>
+              {!pagedOrganizations.length ? (
+                <div className="mt-4">
+                  <EnterpriseEmptyState
+                    icon={Building2}
+                    title="No organizations match this view"
+                    description="Try clearing search or resetting the status filter."
+                    action={<ActionButton icon={XCircle} label="Clear filters" onClick={resetOrganizationFilters} />}
+                  />
+                </div>
+              ) : null}
+              <div className="mt-4">
+                <EnterprisePagination
+                  page={page}
+                  pageSize={pageSize}
+                  total={filteredOrganizations.length}
+                  onPageChange={setPage}
+                  onPageSizeChange={(size) => {
+                    setPageSize(size);
+                    setPage(1);
+                  }}
+                />
               </div>
             </Panel>
           )}
@@ -708,16 +833,16 @@ export function OrganizationsModule({ organizations }) {
               <Panel title="Quick actions" subtitle="Owner controls for this account.">
                 <div className="grid gap-3 sm:grid-cols-2">
                   {[
-                    ['Suspend', XCircle],
-                    ['Assign Package', FolderKanban],
-                    ['Assign Practitioner', BriefcaseBusiness],
-                    ['Assign Mentor', UserCog],
-                    ['Assign Consultant', Users],
-                    ['Add Employees', Mail],
-                    ['Generate Report', FileSpreadsheet],
-                    ['Open Settings', Settings],
-                  ].map(([label, Icon]) => (
-                    <button key={label} className="flex items-center justify-between rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4 text-left hover:border-[#237afc] hover:bg-white">
+                    ['Suspend', XCircle, () => setPendingOrgAction({ type: 'suspend', organization: selected })],
+                    ['Assign Package', FolderKanban, () => announceOrganizationAction(`Package assignment opened for ${selected.name}.`)],
+                    ['Assign Practitioner', BriefcaseBusiness, () => announceOrganizationAction(`Practitioner assignment opened for ${selected.name}.`)],
+                    ['Assign Mentor', UserCog, () => announceOrganizationAction(`Mentor assignment opened for ${selected.name}.`)],
+                    ['Assign Consultant', Users, () => announceOrganizationAction(`Consultant assignment opened for ${selected.name}.`)],
+                    ['Add Employees', Mail, () => announceOrganizationAction(`Employee invite workflow opened for ${selected.name}.`)],
+                    ['Generate Report', FileSpreadsheet, () => announceOrganizationAction(`Report queued for ${selected.name}.`)],
+                    ['Open Settings', Settings, () => setSubPage('settings')],
+                  ].map(([label, Icon, handler]) => (
+                    <button key={label} type="button" onClick={handler} className="flex items-center justify-between rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4 text-left hover:border-[#237afc] hover:bg-white">
                       <span className="text-sm font-bold text-gray-800">{label}</span>
                       <Icon className="h-4 w-4 text-gray-400" />
                     </button>
@@ -726,10 +851,52 @@ export function OrganizationsModule({ organizations }) {
               </Panel>
             </>
           ) : (
-            <EmptyState icon={Building2} title="No organization selected" description="Pick an organization to inspect details and actions." />
+            <EnterpriseEmptyState icon={Building2} title="No organization selected" description="Pick an organization to inspect details and actions." />
           )}
         </div>
       </div>
+      <EnterpriseFilterDrawer
+        open={showOrgFilters}
+        title="Organization filters"
+        onClose={() => setShowOrgFilters(false)}
+        footer={
+          <div className="flex flex-wrap gap-3">
+            <ActionButton icon={Filter} label="Apply filters" tone="primary" onClick={() => setShowOrgFilters(false)} />
+            <ActionButton icon={XCircle} label="Reset" onClick={() => { resetOrganizationFilters(); setShowOrgFilters(false); }} />
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <label className="block space-y-2">
+            <span className="text-sm font-black text-gray-700">Status</span>
+            <select
+              value={statusFilter}
+              onChange={(event) => {
+                setStatusFilter(event.target.value);
+                setPage(1);
+              }}
+              className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 outline-none focus:border-[#237afc]"
+            >
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="at-risk">At Risk</option>
+              <option value="suspended">Suspended</option>
+            </select>
+          </label>
+        </div>
+      </EnterpriseFilterDrawer>
+      <EnterpriseConfirmationDialog
+        open={Boolean(pendingOrgAction)}
+        title="Suspend organization?"
+        description={`This keeps the existing organization record intact and records the owner intent for ${pendingOrgAction?.organization?.name || 'this organization'}.`}
+        confirmLabel="Suspend"
+        tone="danger"
+        onCancel={() => setPendingOrgAction(null)}
+        onConfirm={() => {
+          announceOrganizationAction(`${pendingOrgAction?.organization?.name || 'Organization'} suspension request captured.`);
+          setPendingOrgAction(null);
+        }}
+      />
     </ModuleFrame>
   );
 }
@@ -1750,82 +1917,33 @@ export function PeopleAccessModule({
         </>
       }
     >
-      <div className="rounded-[28px] border border-gray-100 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] lg:p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="min-w-0 flex-1">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.16em] text-gray-400">Smart search</p>
-                <p className="text-sm font-semibold text-gray-500">
-                  Showing {pageStart}-{pageEnd} of {totalUsers} identities
-                </p>
-              </div>
-              {loading ? <Badge tone="blue">Refreshing</Badge> : null}
-            </div>
-            <div className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-gray-50/70 px-4 py-3 shadow-inner transition focus-within:border-[#237afc] focus-within:bg-white focus-within:ring-4 focus-within:ring-blue-50">
-              <Search className="h-4 w-4 shrink-0 text-gray-400" />
-              <input
-                ref={searchInputRef}
-                type="search"
-                value={searchDraft}
-                onChange={(event) => setSearchDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') applyFilters({ search: searchDraft, page: 1 });
-                }}
-                placeholder="Search name, email, role, organization, product, package..."
-                aria-label="Search People and Access"
-                className="w-full bg-transparent text-sm font-semibold text-gray-900 outline-none placeholder:text-gray-400"
-              />
-              {searchDraft ? (
-                <button onClick={clearSearch} className="rounded-full px-2 py-1 text-xs font-black text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-100">
-                  Clear
-                </button>
-              ) : (
-                <kbd className="hidden rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] font-black text-gray-400 md:inline-flex">⌘K</kbd>
-              )}
-            </div>
-            {recentSearches.length ? (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <span className="text-xs font-black uppercase tracking-[0.16em] text-gray-400">Recent</span>
-                {recentSearches.map((search) => (
-                  <button
-                    key={search}
-                    onClick={() => {
-                      setSearchDraft(search);
-                      applyFilters({ search, page: 1 });
-                    }}
-                    className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 transition hover:border-[#237afc] hover:text-[#237afc] focus:outline-none focus:ring-2 focus:ring-blue-100"
-                  >
-                    {search}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            {activeFilterPills.length ? (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <span className="text-xs font-black uppercase tracking-[0.16em] text-gray-400">Applied</span>
-                {activeFilterPills.map((filter) => (
-                  <button
-                    key={filter.key}
-                    type="button"
-                    onClick={() => applyFilters(filter.patch)}
-                    className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 transition hover:border-blue-200 hover:bg-white"
-                  >
-                    {filter.label}
-                    <XCircle className="h-3.5 w-3.5" />
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                  className="rounded-full px-3 py-1.5 text-xs font-black text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
-                >
-                  Clear all
-                </button>
-              </div>
-            ) : null}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+      <EnterpriseCollectionToolbar
+        left={
+          <EnterpriseSmartSearch
+            summary={`Showing ${pageStart}-${pageEnd} of ${totalUsers} identities`}
+            value={searchDraft}
+            onChange={setSearchDraft}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') applyFilters({ search: searchDraft, page: 1 });
+            }}
+            onClear={clearSearch}
+            placeholder="Search name, email, role, organization, product, package..."
+            inputRef={searchInputRef}
+            loading={loading}
+            recentSearches={recentSearches}
+            onRecentSearch={(search) => {
+              setSearchDraft(search);
+              applyFilters({ search, page: 1 });
+            }}
+            activeFilters={activeFilterPills.map((filter) => ({
+              ...filter,
+              onClick: () => applyFilters(filter.patch),
+            }))}
+            onClearAll={resetFilters}
+          />
+        }
+        right={
+          <>
             <button
               onClick={() => setShowAdvancedFilters(true)}
               className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 transition hover:border-[#237afc] hover:text-[#237afc] focus:outline-none focus:ring-4 focus:ring-blue-50"
@@ -1849,9 +1967,9 @@ export function PeopleAccessModule({
             </div>
             <ActionButton icon={Upload} label="CSV import" onClick={() => setShowImportModal(true)} />
             <ActionButton icon={Download} label="CSV export" onClick={handleCsvExport} />
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
         {[
@@ -2066,38 +2184,15 @@ export function PeopleAccessModule({
             </div>
             )}
             {pagination ? (
-              <div className="mt-4 flex flex-col gap-3 text-sm text-gray-500 md:flex-row md:items-center md:justify-between">
-                <div className="flex flex-wrap items-center gap-3">
-                  <p>
-                    Page {pagination.page} of {pagination.total_pages} · {pagination.total} total identities
-                  </p>
-                  <select
-                    value={pageSize}
-                    onChange={(event) => applyFilters({ page_size: Number(event.target.value), page: 1 })}
-                    className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 outline-none"
-                    aria-label="Rows per page"
-                  >
-                    {[10, 25, 50, 100].map((size) => (
-                      <option key={size} value={size}>{size} / page</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => applyFilters({ page: Math.max(1, pagination.page - 1) })}
-                    disabled={pagination.page <= 1}
-                    className="rounded-full border border-gray-200 bg-white px-4 py-2 font-bold text-gray-600 transition hover:border-[#237afc] hover:text-[#237afc] focus:outline-none focus:ring-4 focus:ring-blue-50 disabled:pointer-events-none disabled:opacity-50"
-                  >
-                    Previous
-                  </button>
-                  <button
-                    onClick={() => applyFilters({ page: Math.min(pagination.total_pages, pagination.page + 1) })}
-                    disabled={pagination.page >= pagination.total_pages}
-                    className="rounded-full border border-gray-200 bg-white px-4 py-2 font-bold text-gray-600 transition hover:border-[#237afc] hover:text-[#237afc] focus:outline-none focus:ring-4 focus:ring-blue-50 disabled:pointer-events-none disabled:opacity-50"
-                  >
-                    Next
-                  </button>
-                </div>
+              <div className="mt-4">
+                <EnterprisePagination
+                  page={pagination.page}
+                  pageSize={pageSize}
+                  total={pagination.total}
+                  pageSizeOptions={[10, 25, 50, 100]}
+                  onPageChange={(nextPage) => applyFilters({ page: nextPage })}
+                  onPageSizeChange={(nextSize) => applyFilters({ page_size: nextSize, page: 1 })}
+                />
               </div>
             ) : null}
           </Panel>
