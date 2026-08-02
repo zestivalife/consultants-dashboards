@@ -1,7 +1,7 @@
 const React = require('react');
 const { useState, useEffect } = React;
 const { Bell, X, Calendar, Users, TrendingUp, AlertCircle } = require('lucide-react');
-const { apiRequest } = require('../lib/api');
+const { apiRequest, getToken } = require('../lib/api');
 
 const NotificationSystem = () => {
   const [notifications, setNotifications] = useState([]);
@@ -15,10 +15,18 @@ const NotificationSystem = () => {
   }, []);
 
   useEffect(() => {
-    fetchNotifications();
+    if (getToken()) {
+      fetchNotifications();
+    }
   }, []);
 
   const fetchNotifications = async () => {
+    if (!getToken()) {
+      setNotifications([]);
+      setUnreadCount(0);
+      return;
+    }
+
     try {
       const data = await apiRequest('/notifications?limit=50');
       const items = Array.isArray(data) ? data : (data?.notifications || []);
