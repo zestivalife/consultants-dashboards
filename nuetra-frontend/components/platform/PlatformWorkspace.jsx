@@ -45,12 +45,7 @@ const roleKinds = {
 };
 
 const consultantNav = [
-  { id: 'command-center', label: 'Command Center', icon: LayoutGrid },
   { id: 'clients', label: 'Clients', icon: Users },
-  { id: 'protocols', label: 'Protocols', icon: Sparkles },
-  { id: 'communication', label: 'Communication', icon: MessageSquare },
-  { id: 'intelligence', label: 'Intelligence', icon: TrendingUp },
-  { id: 'organizations', label: 'Organizations', icon: FileBarChart2 },
 ];
 
 const mentorNav = [
@@ -358,7 +353,7 @@ function buildFiteatsyClientRecords(apiClients) {
       action: '',
     },
     recoveryMomentum: {
-      label: 'Not calculated',
+      label: 'Not available',
       direction: 'right',
       status: 'stable',
     },
@@ -372,6 +367,26 @@ function getFiteatsyClientsErrorMessage(error) {
   if (error.status === 401) return 'Session expired';
   if (error.status === 403) return 'Consultant access required';
   return error.message || 'Unable to load Fiteatsy clients.';
+}
+
+function buildEmptyPlatformState() {
+  return {
+    employees: [],
+    plans: [],
+    sessions: [],
+    tasks: [],
+    communicationThreads: [],
+    recoveryAlerts: [],
+    reportPipeline: [],
+    finance: {
+      billing: [],
+      revenue: [],
+    },
+    quality: [],
+    organizationOverview: [],
+    notifications: [],
+    knowledgeBase: [],
+  };
 }
 
 function buildNutritionProfileSnapshot(employee) {
@@ -1644,9 +1659,9 @@ function SmartClientQueues({ queueViews, activeQueue, setActiveQueue, filteredCl
                 <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.brand} · {client.packageLabel} · {client.brand === 'Nuetra' ? client.organization : client.recoveryStage}</p>
               </div>
               <div><StatusChip status={isRealFiteatsy ? client.planStatus : client.riskLevel}>{isRealFiteatsy ? client.recoveryStage : client.riskLevel}</StatusChip></div>
-              <div className="text-sm text-[var(--fluent-color-neutral-foreground-1)]">{isRealFiteatsy ? 'Not calculated' : `${client.adherenceScore}%`}</div>
+              <div className="text-sm text-[var(--fluent-color-neutral-foreground-1)]">{isRealFiteatsy ? 'Not available' : `${client.adherenceScore}%`}</div>
               <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{isRealFiteatsy ? client.lastActivity : client.mentorName}</div>
-              <div><StatusChip status={client.planStatus}>{isRealFiteatsy ? 'No action yet' : formatStatusLabel(client.planStatus)}</StatusChip></div>
+              <div><StatusChip status={client.planStatus}>{isRealFiteatsy ? 'No action assigned' : formatStatusLabel(client.planStatus)}</StatusChip></div>
             </motion.button>
           )) : (
             <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
@@ -1734,7 +1749,7 @@ function QueueBottomSheet({ isOpen, onClose, queueViews, activeQueue, setActiveQ
                         <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{client.name}</p>
                         <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.trendSummary.title}</p>
                         <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
-                          {isRealFiteatsy ? `${client.brand} • ${client.packageLabel} • ${client.lastActivity} • adherence not calculated` : `${client.brand} • ${client.packageLabel} • ${client.mentorName} • ${client.adherenceScore}% adherence`}
+                          {isRealFiteatsy ? `${client.brand} • ${client.packageLabel} • ${client.lastActivity} • adherence not available` : `${client.brand} • ${client.packageLabel} • ${client.mentorName} • ${client.adherenceScore}% adherence`}
                         </p>
                       </div>
                       <div className="flex flex-col items-end gap-2">
@@ -3761,13 +3776,13 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
               </div>
               <div className="min-w-0 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.packageLabel}</div>
               <div className="min-w-0">
-                <StatusChip status={isRealFiteatsy ? 'pending' : client.recoveryMomentum.status}>{isRealFiteatsy ? 'Not calculated' : client.recoveryMomentum.label}</StatusChip>
+                <StatusChip status={isRealFiteatsy ? 'pending' : client.recoveryMomentum.status}>{isRealFiteatsy ? 'Not available' : client.recoveryMomentum.label}</StatusChip>
                 <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{client.trendSummary.title}</p>
               </div>
-              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{isRealFiteatsy ? 'Not calculated' : `${client.adherenceScore}%`}</div>
+              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{isRealFiteatsy ? 'Not available' : `${client.adherenceScore}%`}</div>
               <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{formatStatusLabel(client.planStatus)}</div>
               <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.lastActivity}</div>
-              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{isRealFiteatsy ? 'No action yet' : client.conditionFocus.action.split('.')[0]}</div>
+              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{isRealFiteatsy ? 'No action assigned' : client.conditionFocus.action.split('.')[0]}</div>
             </button>
           )) : (
             <div className="px-4 py-8 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
@@ -3945,7 +3960,10 @@ function PlatformWorkspace({ forcedRole }) {
   const resolvedRole = forcedRole || user?.role || 'consultant';
   const roleKind = getRoleKind(resolvedRole);
   const isSuperAdmin = superAdminRoles.has(String(resolvedRole).toLowerCase());
+  const usesRealFiteatsyClients = roleKind === 'consultant';
   const [state, setState] = useState(() => {
+    if (usesRealFiteatsyClients) return buildEmptyPlatformState();
+
     const initial = buildInitialPlatformState();
     return {
       ...initial,
@@ -3958,7 +3976,7 @@ function PlatformWorkspace({ forcedRole }) {
       }),
     };
   });
-  const [nav, setNav] = useState('command-center');
+  const [nav, setNav] = useState(() => (usesRealFiteatsyClients ? 'clients' : 'command-center'));
   const [timeframe, setTimeframe] = useState('Week');
   const [brandView, setBrandView] = useState('All Brands');
   const [globalSearch, setGlobalSearch] = useState('');
@@ -3981,8 +3999,6 @@ function PlatformWorkspace({ forcedRole }) {
   const [fiteatsyClients, setFiteatsyClients] = useState([]);
   const [fiteatsyClientsLoading, setFiteatsyClientsLoading] = useState(false);
   const [fiteatsyClientsError, setFiteatsyClientsError] = useState(null);
-
-  const usesRealFiteatsyClients = roleKind === 'consultant';
 
   useEffect(() => {
     if (selectedClientId) {
@@ -4066,6 +4082,13 @@ function PlatformWorkspace({ forcedRole }) {
     };
   }, [usesRealFiteatsyClients]);
 
+  useEffect(() => {
+    if (!usesRealFiteatsyClients) return;
+    console.info('CLIENT DATA SOURCE:', 'API');
+    console.info('CLIENT COUNT:', fiteatsyClients.length);
+    console.info('FIRST CLIENT:', fiteatsyClients[0]?.name || 'NONE');
+  }, [fiteatsyClients, usesRealFiteatsyClients]);
+
   const mockClients = useMemo(() => buildClientRecords(state), [state]);
   const realFiteatsyClients = useMemo(() => buildFiteatsyClientRecords(fiteatsyClients), [fiteatsyClients]);
   const allClients = useMemo(() => (usesRealFiteatsyClients ? realFiteatsyClients : mockClients), [mockClients, realFiteatsyClients, usesRealFiteatsyClients]);
@@ -4088,34 +4111,13 @@ function PlatformWorkspace({ forcedRole }) {
 
   const queueViews = useMemo(() => {
     if (usesRealFiteatsyClients) {
-      const definitions = [
-        {
-          key: 'registered_clients',
-          title: 'Registered Clients',
-          subtitle: 'Real Fiteatsy users returned by the backend consultant API',
-          tone: 'stable',
-          filter: () => true,
-        },
-        {
-          key: 'onboarding_complete',
-          title: 'Onboarding Complete',
-          subtitle: 'Clients with profile foundation available',
-          tone: 'complete',
-          filter: (client) => client.profileCompleted,
-        },
-        {
-          key: 'onboarding_pending',
-          title: 'Onboarding Pending',
-          subtitle: 'Clients who still need to finish onboarding before deeper metrics are shown',
-          tone: 'pending',
-          filter: (client) => !client.profileCompleted,
-        },
+      return [
+        { key: 'needs_review', title: 'Needs Review', subtitle: 'Awaiting M2 report intelligence synchronization', tone: 'stable', count: 0, filter: () => true },
+        { key: 'ai_draft_ready', title: 'AI Draft Ready', subtitle: 'Awaiting M2 report intelligence synchronization', tone: 'stable', count: 0, filter: () => true },
+        { key: 'critical_biomarker_drift', title: 'Critical Biomarker Drift', subtitle: 'Awaiting M2 biomarker timeline synchronization', tone: 'stable', count: 0, filter: () => true },
+        { key: 'adherence_declining', title: 'Adherence Declining', subtitle: 'Awaiting M2 adherence synchronization', tone: 'stable', count: 0, filter: () => true },
+        { key: 'burnout_escalation', title: 'Burnout Escalation', subtitle: 'Awaiting M2 intelligence synchronization', tone: 'stable', count: 0, filter: () => true },
       ];
-
-      return definitions.map((definition) => ({
-        ...definition,
-        count: clients.filter(definition.filter).length,
-      }));
     }
 
     const definitions = [
@@ -4200,7 +4202,7 @@ function PlatformWorkspace({ forcedRole }) {
   useEffect(() => {
     if (!usesRealFiteatsyClients) return;
     if (!queueViews.some((view) => view.key === activeQueue)) {
-      setActiveQueue('registered_clients');
+      setActiveQueue('needs_review');
     }
   }, [activeQueue, queueViews, usesRealFiteatsyClients]);
 
