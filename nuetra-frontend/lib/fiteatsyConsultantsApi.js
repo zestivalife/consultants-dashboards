@@ -1,4 +1,4 @@
-import { getToken } from './api';
+import { getToken, refreshAccessToken } from './api';
 
 const DEFAULT_FITEATSY_API_URL = 'https://fiteatsy-mobile-production.up.railway.app';
 
@@ -30,23 +30,45 @@ async function readJsonResponse(response) {
   }
 }
 
-export async function listFiteatsyConsultantClients() {
+function buildAuthHeaders(token) {
+  return {
+    Accept: 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+async function requestFiteatsy(path) {
   const token = getToken();
-  const response = await fetch(`${getFiteatsyApiBaseUrl()}/v1/consultants/clients`, {
+  const url = `${getFiteatsyApiBaseUrl()}${path}`;
+  let response = await fetch(url, {
     method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: buildAuthHeaders(token),
   });
-  const body = await readJsonResponse(response);
+  let body = await readJsonResponse(response);
+
+  if (response.status === 401) {
+    const refreshedToken = await refreshAccessToken().catch(() => null);
+    if (refreshedToken) {
+      response = await fetch(url, {
+        method: 'GET',
+        headers: buildAuthHeaders(refreshedToken),
+      });
+      body = await readJsonResponse(response);
+    }
+  }
 
   if (!response.ok) {
-    const error = new Error(body?.message || body?.error || `Fiteatsy clients request failed (${response.status})`);
+    const error = new Error(body?.message || body?.error || `Fiteatsy request failed (${response.status})`);
     error.status = response.status;
     error.data = body;
     throw error;
   }
+
+  return body;
+}
+
+export async function listFiteatsyConsultantClients() {
+  const body = await requestFiteatsy('/v1/consultants/clients');
 
   return {
     clients: Array.isArray(body?.clients) ? body.clients.map(mapClient) : [],

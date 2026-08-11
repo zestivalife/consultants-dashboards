@@ -135,7 +135,7 @@ function requestWithXhr(url, options = {}) {
   });
 }
 
-async function refreshAccessToken() {
+export async function refreshAccessToken() {
   if (typeof window === 'undefined') return null;
 
   const refreshToken = getRefreshToken();
