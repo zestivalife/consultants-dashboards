@@ -1,20 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
+  Activity,
   Bell,
   Bot,
   CalendarDays,
   ChevronRight,
   Clock3,
   Command,
+  Dumbbell,
   FileBarChart2,
   Filter,
+  Flame,
+  HeartPulse,
   LayoutGrid,
   ListChecks,
+  Mail,
   MessageSquare,
+  Phone,
+  Ruler,
   Search,
   Settings,
+  ShieldCheck,
   Sparkles,
+  Scale,
   TrendingUp,
   Users,
   Wallet,
@@ -23,7 +32,7 @@ import {
 import withAuth from '../../hocs/withAuth';
 import { useAuth } from '../../context/AuthContext';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
-import { listFiteatsyConsultantClients } from '../../lib/fiteatsyConsultantsApi';
+import { getFiteatsyConsultantClientProfile, listFiteatsyConsultantClients } from '../../lib/fiteatsyConsultantsApi';
 import { corporateAPI } from '../../lib/api';
 import { ADMIN_ACCESS_POLICY, DELIVERY_ACCESS_POLICY, MENTOR_ACCESS_POLICY, ORGANIZATION_ACCESS_POLICY } from '../../lib/roleRoutes';
 
@@ -825,6 +834,310 @@ function Surface({ children, className = '', animated = false }) {
 
 function StatusChip({ status, children }) {
   return <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium capitalize ${toneForStatus(status)}`}>{children}</span>;
+}
+
+function LoadingSkeleton({ className = '' }) {
+  return <div className={`animate-pulse rounded-[14px] bg-[var(--fluent-color-neutral-background-3)] ${className}`} />;
+}
+
+function formatDisplayValue(value, fallback = 'Not available') {
+  if (value == null || value === '') return fallback;
+  if (Array.isArray(value)) return value.length ? value.join(', ') : fallback;
+  return String(value);
+}
+
+function formatMetricNumber(value, suffix = '') {
+  if (value == null || Number.isNaN(Number(value))) return 'Not available';
+  return `${value}${suffix}`;
+}
+
+function formatMetricCardValue(metric, fallback) {
+  if (!metric || metric.status !== 'AVAILABLE') return fallback;
+  return `${metric.value}${metric.unit ? ` ${metric.unit}` : ''}`;
+}
+
+function getHealthMetricStatusLabel(metric, fallback) {
+  if (!metric) return fallback;
+  if (metric.status === 'AVAILABLE') return metric.category || 'Available';
+  return metric.reason || fallback;
+}
+
+function getProfileErrorMessage(error) {
+  if (!error) return null;
+  if (error.status === 401) return 'Session expired';
+  if (error.status === 403) return 'Consultant access required';
+  if (error.status === 404) return 'Client profile not found';
+  return error.message || 'Unable to load client profile.';
+}
+
+function biomarkerTone(status) {
+  const normalized = String(status || '').toUpperCase();
+  if (['LOW', 'HIGH', 'CRITICAL'].includes(normalized)) return 'critical';
+  return 'stable';
+}
+
+function trendLabel(trend) {
+  if (!trend) return 'No trend';
+  if (trend === 'UP') return 'Trending up';
+  if (trend === 'DOWN') return 'Trending down';
+  return 'Stable trend';
+}
+
+function HealthMetricCard({ icon: Icon, title, value, detail }) {
+  return (
+    <Surface className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] p-2.5 text-[var(--fluent-color-brand-foreground-link)]">
+            <Icon size={18} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">{title}</p>
+            <p className="mt-2 text-[24px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">{value}</p>
+          </div>
+        </div>
+      </div>
+      <p className="mt-3 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{detail}</p>
+    </Surface>
+  );
+}
+
+function OverviewStat({ icon: Icon, label, value }) {
+  return (
+    <div className="flex items-start gap-3 rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+      <div className="mt-0.5 rounded-[12px] bg-[var(--fluent-color-neutral-background-1)] p-2 text-[var(--fluent-color-brand-foreground-link)] shadow-[0_1px_4px_rgba(15,23,42,0.08)]">
+        <Icon size={16} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
+        <p className="mt-1 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)] break-words">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function DetailField({ label, value }) {
+  return (
+    <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+      <p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
+      <p className="mt-1 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{value}</p>
+    </div>
+  );
+}
+
+function RealClientProfileDrawer({
+  isOpen,
+  onClose,
+  summaryClient,
+  profile,
+  loading,
+  error,
+}) {
+  const message = getProfileErrorMessage(error);
+  const client = profile?.client;
+  const onboarding = profile?.onboarding;
+  const healthProfile = profile?.healthProfile;
+  const metrics = profile?.healthMetrics;
+  const biomarkers = profile?.biomarkers || [];
+  const metricCards = [
+    {
+      key: 'bmi',
+      icon: Scale,
+      title: 'BMI',
+      value: formatMetricCardValue(metrics?.bmi, 'Not available'),
+      detail: getHealthMetricStatusLabel(metrics?.bmi, 'Height and weight required'),
+    },
+    {
+      key: 'bmr',
+      icon: Flame,
+      title: 'BMR',
+      value: formatMetricCardValue(metrics?.bmr, 'Not available'),
+      detail: getHealthMetricStatusLabel(metrics?.bmr, 'Age, sex, height, and weight required'),
+    },
+    {
+      key: 'tdee',
+      icon: Activity,
+      title: 'TDEE',
+      value: formatMetricCardValue(metrics?.tdee, 'Not available'),
+      detail: getHealthMetricStatusLabel(metrics?.tdee, 'Activity level required'),
+    },
+    {
+      key: 'targetHeartRate',
+      icon: HeartPulse,
+      title: 'Target Heart Rate',
+      value:
+        metrics?.targetHeartRate?.status === 'AVAILABLE'
+          ? metrics.targetHeartRate.category || formatMetricCardValue(metrics.targetHeartRate, 'Not available')
+          : 'Not available',
+      detail: metrics?.targetHeartRate?.status === 'AVAILABLE' ? 'Recommended working range' : getHealthMetricStatusLabel(metrics?.targetHeartRate, 'Age required'),
+    },
+    {
+      key: 'bodyFat',
+      icon: Ruler,
+      title: 'Body Fat',
+      value: formatMetricCardValue(metrics?.bodyFat, 'Measurements required'),
+      detail: metrics?.bodyFat?.status === 'AVAILABLE' ? 'Estimated body fat percentage' : 'Measurements required',
+    },
+    {
+      key: 'oneRepMax',
+      icon: Dumbbell,
+      title: 'One Rep Max',
+      value: formatMetricCardValue(metrics?.oneRepMax, 'Workout data required'),
+      detail: metrics?.oneRepMax?.status === 'AVAILABLE' ? 'Estimated strength ceiling' : 'Workout data required',
+    },
+  ];
+
+  return (
+    <AnimatePresence>
+      {isOpen ? (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[72] bg-[rgba(15,23,42,0.18)] backdrop-blur-[2px]"
+          onClick={onClose}
+        >
+          <motion.aside
+            initial={{ x: 32, opacity: 0.98 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 24, opacity: 0.98 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+            onClick={(event) => event.stopPropagation()}
+            className="absolute right-0 top-0 h-full w-full max-w-[920px] overflow-hidden bg-[var(--fluent-color-neutral-background-canvas)] shadow-[-18px_0_42px_rgba(15,23,42,0.16)]"
+          >
+            <div className="flex h-full flex-col">
+              <div className="border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[rgba(255,255,255,0.94)] px-5 py-4 backdrop-blur">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client Profile Intelligence</p>
+                    <h2 className="mt-2 text-[28px] font-semibold tracking-[-0.03em] text-[var(--fluent-color-neutral-foreground-1)]">
+                      {client?.name || summaryClient?.name || 'Client'}
+                    </h2>
+                    <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                      Backend-calculated health metrics and validated biomarkers for consultant review.
+                    </p>
+                  </div>
+                  <button
+                    onClick={onClose}
+                    className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-2 text-[var(--fluent-color-neutral-foreground-2)] transition hover:bg-[var(--fluent-color-neutral-background-2)]"
+                    aria-label="Close client profile"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-5 py-5">
+                {loading ? (
+                  <div className="space-y-4">
+                    <LoadingSkeleton className="h-28 w-full" />
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <LoadingSkeleton className="h-36 w-full" />
+                      <LoadingSkeleton className="h-36 w-full" />
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      {Array.from({ length: 6 }).map((_, index) => <LoadingSkeleton key={index} className="h-32 w-full" />)}
+                    </div>
+                    <LoadingSkeleton className="h-56 w-full" />
+                  </div>
+                ) : message ? (
+                  <Surface className="border-[var(--fluent-color-status-danger-foreground)] bg-[var(--fluent-color-status-danger-background)] p-5">
+                    <p className="text-sm font-semibold text-[var(--fluent-color-status-danger-foreground)]">{message}</p>
+                  </Surface>
+                ) : (
+                  <div className="space-y-4">
+                    <Surface className="p-5" animated>
+                      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">1. Client Overview</p>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        <OverviewStat icon={Mail} label="Email" value={formatDisplayValue(client?.email)} />
+                        <OverviewStat icon={Phone} label="Mobile" value={formatDisplayValue(client?.mobileNumberMasked || client?.mobile)} />
+                        <OverviewStat icon={CalendarDays} label="Registration date" value={formatDateLabel(client?.registrationDate)} />
+                        <OverviewStat icon={ShieldCheck} label="Account status" value={formatDisplayValue(client?.accountStatus)} />
+                      </div>
+                    </Surface>
+
+                    <Surface className="p-5" animated>
+                      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">2. Personal Health Profile</p>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        <DetailField label="Age" value={formatDisplayValue(client?.age)} />
+                        <DetailField label="Gender" value={formatDisplayValue(client?.gender)} />
+                        <DetailField label="Height" value={onboarding?.height != null ? `${onboarding.height} cm` : 'Not available'} />
+                        <DetailField label="Weight" value={onboarding?.weight != null ? `${onboarding.weight} kg` : 'Not available'} />
+                        <DetailField label="Goal" value={formatDisplayValue(onboarding?.goal)} />
+                        <DetailField label="Activity level" value={formatDisplayValue(onboarding?.activityLevel)} />
+                        <DetailField label="Diet preference" value={formatDisplayValue(onboarding?.dietPreference)} />
+                        <DetailField label="Medical conditions" value={formatDisplayValue(onboarding?.medicalConditions)} />
+                      </div>
+                    </Surface>
+
+                    <Surface className="p-5" animated>
+                      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">3. Body Metrics Dashboard</p>
+                          <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                            These values come directly from the Fiteatsy backend health intelligence engine.
+                          </p>
+                        </div>
+                        <div className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+                          Last health update: {formatDateLabel(healthProfile?.lastHealthUpdate)}
+                        </div>
+                      </div>
+                      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        {metricCards.map((metric) => (
+                          <HealthMetricCard key={metric.key} icon={metric.icon} title={metric.title} value={metric.value} detail={metric.detail} />
+                        ))}
+                      </div>
+                    </Surface>
+
+                    <Surface className="p-5" animated>
+                      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">4. Biomarker Health Summary</p>
+                          <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                            Showing validated biomarkers only. OCR drafts, rejected values, and extraction logs are excluded.
+                          </p>
+                        </div>
+                        <div className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+                          Reports count: {formatMetricNumber(healthProfile?.reportsCount, '')}
+                        </div>
+                      </div>
+                      {biomarkers.length ? (
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          {biomarkers.map((biomarker) => (
+                            <div key={biomarker.biomarkerId} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{biomarker.name}</p>
+                                  <p className="mt-2 text-[24px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">
+                                    {`${biomarker.value} ${biomarker.unit}`.trim()}
+                                  </p>
+                                </div>
+                                <StatusChip status={biomarkerTone(biomarker.status)}>{biomarker.status}</StatusChip>
+                              </div>
+                              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                                <DetailField label="Reference" value={formatDisplayValue(biomarker.referenceRange)} />
+                                <DetailField label="Trend" value={trendLabel(biomarker.trend)} />
+                                <DetailField label="Previous value" value={biomarker.previousValue != null ? `${biomarker.previousValue} ${biomarker.unit}`.trim() : 'Not available'} />
+                                <DetailField label="Test date" value={formatDateLabel(biomarker.testDate)} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                          No validated biomarkers available yet.
+                        </div>
+                      )}
+                    </Surface>
+                  </div>
+                )}
+              </div>
+            </div>
+          </motion.aside>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
 }
 
 function ProgressTrack({ value, tone = '#1E88E5' }) {
@@ -1665,11 +1978,9 @@ function SmartClientQueues({ queueViews, activeQueue, setActiveQueue, filteredCl
           ) : filteredClients.length ? filteredClients.map((client) => (
             <motion.button
               key={client.id}
-              onClick={() => {
-                if (!isRealFiteatsy) onClientOpen(client.id);
-              }}
-              {...(!isRealFiteatsy ? hoverLift : {})}
-              className={`grid w-full gap-3 px-4 py-4 text-left transition lg:grid-cols-[1.5fr_0.7fr_0.7fr_1fr_1fr] lg:items-center ${isRealFiteatsy ? 'cursor-default' : 'hover:bg-[var(--fluent-color-neutral-background-2)]'}`}
+              onClick={() => onClientOpen(client.id)}
+              {...hoverLift}
+              className="grid w-full gap-3 px-4 py-4 text-left transition hover:bg-[var(--fluent-color-neutral-background-2)] lg:grid-cols-[1.5fr_0.7fr_0.7fr_1fr_1fr] lg:items-center"
             >
               <div>
                 <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{client.name}</p>
@@ -1755,12 +2066,10 @@ function QueueBottomSheet({ isOpen, onClose, queueViews, activeQueue, setActiveQ
                     <button
                       key={client.id}
                       onClick={() => {
-                        if (!isRealFiteatsy) {
-                          onClientOpen(client.id);
-                          onClose();
-                        }
+                        onClientOpen(client.id);
+                        onClose();
                       }}
-                      className={`flex w-full items-center justify-between rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-left transition ${isRealFiteatsy ? 'cursor-default' : 'hover:bg-[#f7f9fc]'}`}
+                      className="flex w-full items-center justify-between rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-left transition hover:bg-[#f7f9fc]"
                     >
                       <div>
                         <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{client.name}</p>
@@ -3791,10 +4100,8 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
           ) : filteredClients.length ? filteredClients.slice(0, 16).map((client) => (
             <button
               key={client.id}
-              onClick={() => {
-                if (!isRealFiteatsy) onClientOpen(client.id);
-              }}
-              className={`grid w-full grid-cols-[1.3fr_0.9fr_1fr_0.8fr_1fr_0.9fr_1.1fr] gap-3 px-4 py-4 text-left transition ${isRealFiteatsy ? 'cursor-default' : 'hover:bg-[var(--fluent-color-neutral-background-2)]'}`}
+              onClick={() => onClientOpen(client.id)}
+              className="grid w-full grid-cols-[1.3fr_0.9fr_1fr_0.8fr_1fr_0.9fr_1.1fr] gap-3 px-4 py-4 text-left transition hover:bg-[var(--fluent-color-neutral-background-2)]"
             >
               <div>
                 <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{client.name}</p>
@@ -4029,6 +4336,10 @@ function PlatformWorkspace({ forcedRole }) {
   const [fiteatsyClients, setFiteatsyClients] = useState([]);
   const [fiteatsyClientsLoading, setFiteatsyClientsLoading] = useState(false);
   const [fiteatsyClientsError, setFiteatsyClientsError] = useState(null);
+  const [realClientDrawerOpen, setRealClientDrawerOpen] = useState(false);
+  const [realClientProfile, setRealClientProfile] = useState(null);
+  const [realClientProfileLoading, setRealClientProfileLoading] = useState(false);
+  const [realClientProfileError, setRealClientProfileError] = useState(null);
 
   useEffect(() => {
     if (selectedClientId) {
@@ -4119,6 +4430,33 @@ function PlatformWorkspace({ forcedRole }) {
     console.info('CLIENT COUNT:', activeClients.length);
     console.info('FIRST CLIENT:', activeClients[0]?.name || 'NONE');
   }, [fiteatsyClients, state.employees, usesRealFiteatsyClients]);
+
+  useEffect(() => {
+    if (!usesRealFiteatsyClients || !realClientDrawerOpen || !selectedClientId) return undefined;
+
+    let cancelled = false;
+    setRealClientProfileLoading(true);
+    setRealClientProfileError(null);
+
+    getFiteatsyConsultantClientProfile(selectedClientId)
+      .then((payload) => {
+        if (cancelled) return;
+        setRealClientProfile(payload);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setRealClientProfile(null);
+        setRealClientProfileError(error);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setRealClientProfileLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [realClientDrawerOpen, selectedClientId, usesRealFiteatsyClients]);
 
   const mockClients = useMemo(() => buildClientRecords(state), [state]);
   const realFiteatsyClients = useMemo(() => buildFiteatsyClientRecords(fiteatsyClients), [fiteatsyClients]);
@@ -4562,6 +4900,8 @@ function PlatformWorkspace({ forcedRole }) {
 
   function openClient(clientId, targetTab = 'Overview') {
     if (usesRealFiteatsyClients) {
+      setSelectedClientId(clientId);
+      setRealClientDrawerOpen(true);
       setSearchOpen(false);
       return;
     }
@@ -4969,6 +5309,16 @@ function PlatformWorkspace({ forcedRole }) {
 
       {roleKind === 'consultant' ? (
         <>
+          {usesRealFiteatsyClients ? (
+            <RealClientProfileDrawer
+              isOpen={realClientDrawerOpen}
+              onClose={() => setRealClientDrawerOpen(false)}
+              summaryClient={selectedClient}
+              profile={realClientProfile}
+              loading={realClientProfileLoading}
+              error={realClientProfileError}
+            />
+          ) : null}
           {!usesRealFiteatsyClients ? (
             <>
               <ClientIntelligenceDrawer
