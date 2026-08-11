@@ -343,14 +343,14 @@ function buildFiteatsyClientRecords(apiClients) {
     stress: 0,
     burnoutRisk: 'stable',
     trendSummary: {
-      title: client.profileCompleted ? 'Onboarding profile available' : 'Awaiting onboarding completion',
-      explanation: 'Biomarker timelines and adherence analytics will appear after M2 synchronization.',
-      action: '',
+      title: 'No health insight available',
+      explanation: 'Health insights will appear once Fiteatsy assessment and reporting data are connected.',
+      action: 'No action assigned',
     },
     conditionFocus: {
       condition: 'Client profile foundation',
       drivers: [],
-      action: '',
+      action: 'No action assigned',
     },
     recoveryMomentum: {
       label: 'Not available',
@@ -4083,11 +4083,12 @@ function PlatformWorkspace({ forcedRole }) {
   }, [usesRealFiteatsyClients]);
 
   useEffect(() => {
-    if (!usesRealFiteatsyClients) return;
-    console.info('CLIENT DATA SOURCE:', 'API');
-    console.info('CLIENT COUNT:', fiteatsyClients.length);
-    console.info('FIRST CLIENT:', fiteatsyClients[0]?.name || 'NONE');
-  }, [fiteatsyClients, usesRealFiteatsyClients]);
+    const source = usesRealFiteatsyClients ? 'API' : 'MOCK';
+    const activeClients = usesRealFiteatsyClients ? fiteatsyClients : state.employees;
+    console.info('CLIENT DATA SOURCE:', source);
+    console.info('CLIENT COUNT:', activeClients.length);
+    console.info('FIRST CLIENT:', activeClients[0]?.name || 'NONE');
+  }, [fiteatsyClients, state.employees, usesRealFiteatsyClients]);
 
   const mockClients = useMemo(() => buildClientRecords(state), [state]);
   const realFiteatsyClients = useMemo(() => buildFiteatsyClientRecords(fiteatsyClients), [fiteatsyClients]);
@@ -4112,11 +4113,11 @@ function PlatformWorkspace({ forcedRole }) {
   const queueViews = useMemo(() => {
     if (usesRealFiteatsyClients) {
       return [
-        { key: 'needs_review', title: 'Needs Review', subtitle: 'Awaiting M2 report intelligence synchronization', tone: 'stable', count: 0, filter: () => true },
-        { key: 'ai_draft_ready', title: 'AI Draft Ready', subtitle: 'Awaiting M2 report intelligence synchronization', tone: 'stable', count: 0, filter: () => true },
-        { key: 'critical_biomarker_drift', title: 'Critical Biomarker Drift', subtitle: 'Awaiting M2 biomarker timeline synchronization', tone: 'stable', count: 0, filter: () => true },
-        { key: 'adherence_declining', title: 'Adherence Declining', subtitle: 'Awaiting M2 adherence synchronization', tone: 'stable', count: 0, filter: () => true },
-        { key: 'burnout_escalation', title: 'Burnout Escalation', subtitle: 'Awaiting M2 intelligence synchronization', tone: 'stable', count: 0, filter: () => true },
+        { key: 'needs_review', title: 'Needs Review', subtitle: 'Awaiting backend review intelligence', tone: 'stable', count: 0, filter: () => false },
+        { key: 'ai_draft_ready', title: 'AI Draft Ready', subtitle: 'Awaiting backend AI draft pipeline', tone: 'stable', count: 0, filter: () => false },
+        { key: 'critical_biomarker_drift', title: 'Critical Biomarker Drift', subtitle: 'Awaiting biomarker timeline synchronization', tone: 'stable', count: 0, filter: () => false },
+        { key: 'adherence_declining', title: 'Adherence Declining', subtitle: 'Awaiting adherence synchronization', tone: 'stable', count: 0, filter: () => false },
+        { key: 'burnout_escalation', title: 'Burnout Escalation', subtitle: 'Awaiting intelligence synchronization', tone: 'stable', count: 0, filter: () => false },
       ];
     }
 
@@ -4207,6 +4208,14 @@ function PlatformWorkspace({ forcedRole }) {
   }, [activeQueue, queueViews, usesRealFiteatsyClients]);
 
   const filteredClients = useMemo(() => {
+    if (usesRealFiteatsyClients) {
+      const query = globalSearch.toLowerCase();
+      return clients.filter((client) => {
+        const haystack = `${client.name} ${client.organization} ${client.recoveryStage} ${client.packageLabel} ${client.lastActivity}`.toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+
     const activeView = queueViews.find((view) => view.key === activeQueue);
     return clients.filter((client) => {
       const matchesQueue = activeView ? activeView.filter(client) : true;
@@ -4214,9 +4223,11 @@ function PlatformWorkspace({ forcedRole }) {
       const matchesSearch = haystack.includes(globalSearch.toLowerCase());
       return matchesQueue && matchesSearch;
     });
-  }, [activeQueue, clients, globalSearch, queueViews]);
+  }, [activeQueue, clients, globalSearch, queueViews, usesRealFiteatsyClients]);
 
   const priorityQueue = useMemo(() => {
+    if (usesRealFiteatsyClients) return [];
+
     return clients
       .map((client) => ({
         clientId: client.id,
@@ -4242,9 +4253,18 @@ function PlatformWorkspace({ forcedRole }) {
       }))
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
-  }, [clients]);
+  }, [clients, usesRealFiteatsyClients]);
 
   const dailySummary = useMemo(() => {
+    if (usesRealFiteatsyClients) {
+      return [
+        `${clients.length} registered Fiteatsy clients`,
+        'Programs not yet assigned',
+        'Adherence not yet available',
+        'Biomarker drift not yet available',
+      ];
+    }
+
     const worseningGlucose = clients.filter((client) => client.biomarkers.some((item) => item.name === 'HbA1c' && (item.status === 'declining' || item.status === 'critical'))).length;
     const burnoutCluster = clients.filter((client) => client.organization === 'Zenith Forge' && (client.burnoutRisk === 'critical' || client.burnoutRisk === 'high')).length;
     const improvingAdherence = clients.filter((client) => client.adherenceScore >= 70).length;
@@ -4255,20 +4275,38 @@ function PlatformWorkspace({ forcedRole }) {
       `Adherence improving across ${improvingAdherence} employees`,
       `${awaitingApproval} plans awaiting approval`,
     ];
-  }, [clients, state.plans]);
+  }, [clients, state.plans, usesRealFiteatsyClients]);
 
   const healthMovement = useMemo(() => ({
     period: timeframe,
-    items: [
+    items: usesRealFiteatsyClients ? [
+      { label: 'Clients registered', value: String(clients.length), delta: 'Live API', comparison: 'Registered Fiteatsy clients available in consultant workspace', spark: [0, 0, 0, 0, 0, 0, clients.length], color: '#1E88E5', status: 'stable' },
+      { label: 'Programs', value: 'Not available', delta: 'Pending M2', comparison: 'Program assignment will appear after care-plan synchronization', spark: [0, 0, 0, 0, 0, 0, 0], color: '#637CEF', status: 'stable' },
+      { label: 'Adherence', value: 'Not available', delta: 'Pending M2', comparison: 'Adherence metrics are not available yet', spark: [0, 0, 0, 0, 0, 0, 0], color: '#1E88E5', status: 'stable' },
+      { label: 'Biomarker drift', value: 'Not available', delta: 'Pending M2', comparison: 'Clinical trend intelligence is not available yet', spark: [0, 0, 0, 0, 0, 0, 0], color: '#FB8C00', status: 'stable' },
+      { label: 'Burnout risk', value: 'Not available', delta: 'Pending M2', comparison: 'Behavioral recovery risk is not available yet', spark: [0, 0, 0, 0, 0, 0, 0], color: '#5C6BC0', status: 'stable' },
+    ] : [
       { label: 'Clients improving', value: '42', delta: '+6 WoW', comparison: 'More clients are moving into recovery gains', spark: [16, 19, 24, 28, 35, 39, 42], color: '#2E7D32', status: 'improving' },
       { label: 'Clients declining', value: '11', delta: '-2 WoW', comparison: 'Fewer clients are sliding backward this week', spark: [18, 16, 15, 14, 12, 12, 11], color: '#EF5350', status: 'declining' },
       { label: 'Adherence', value: '+4%', delta: '+4% WoW', comparison: 'Meal and hydration consistency is trending upward', spark: [48, 49, 51, 52, 53, 54, 56], color: '#1E88E5', status: 'improving' },
       { label: 'Burnout risk', value: '-7%', delta: '-7% WoW', comparison: 'High-risk burnout cases are easing modestly', spark: [22, 21, 20, 19, 18, 17, 15], color: '#FB8C00', status: 'stable' },
       { label: 'Sleep consistency', value: '+5%', delta: '+5% WoW', comparison: 'Routine stability is improving across coached cohorts', spark: [44, 45, 46, 47, 48, 49, 51], color: '#5C6BC0', status: 'improving' },
     ],
-  }), [timeframe]);
+  }), [clients.length, timeframe, usesRealFiteatsyClients]);
 
   const organizationSignals = useMemo(() => {
+    if (usesRealFiteatsyClients) {
+      return [{
+        name: 'Fiteatsy',
+        highRisk: 0,
+        signals: [
+          { label: 'Review intelligence', delta: '0', status: 'stable' },
+          { label: 'Adherence trend', delta: '0', status: 'stable' },
+          { label: 'Biomarker drift', delta: '0', status: 'stable' },
+        ],
+      }];
+    }
+
     const byOrg = clients.reduce((acc, client) => {
       if (!acc[client.organization]) acc[client.organization] = [];
       acc[client.organization].push(client);
@@ -4284,7 +4322,7 @@ function PlatformWorkspace({ forcedRole }) {
         { label: 'Hydration', delta: '-6%', status: 'declining' },
       ],
     }));
-  }, [clients]);
+  }, [clients, usesRealFiteatsyClients]);
 
   const uploadPipeline = useMemo(() => state.reportPipeline.slice(0, 4), [state.reportPipeline]);
   const reviewPipeline = useMemo(() => state.plans.filter((plan) => ['consultant_review', 'consultant_modified', 'senior_review'].includes(plan.state)).slice(0, 4).map((plan) => ({
@@ -4292,13 +4330,28 @@ function PlatformWorkspace({ forcedRole }) {
     state: plan.state,
     stateLabel: formatStatusLabel(plan.state),
   })), [state.plans]);
-  const briefingMeta = useMemo(() => `Last ${timeframe === 'Day' ? '24 hours' : timeframe === 'Week' ? '7 days' : timeframe === 'Month' ? '30 days' : timeframe === 'Quarter' ? '90 days' : 'custom range'} • ${clients.length} active clients monitored`, [clients.length, timeframe]);
-  const clusters = useMemo(() => [
-    { title: 'HbA1c Risk Cluster', subtitle: 'Worsening glucose movement and low adherence', count: clients.filter((client) => client.biomarkers.some((item) => item.name === 'HbA1c' && (item.status === 'declining' || item.status === 'critical'))).length, status: 'critical' },
-    { title: 'Burnout Escalations', subtitle: 'Recovery overload and sleep inconsistency', count: clients.filter((client) => client.burnoutRisk === 'critical' || client.burnoutRisk === 'high').length, status: 'high' },
-    { title: 'Adherence Decline >20%', subtitle: 'Behavioral consistency dropped materially', count: clients.filter((client) => client.adherenceScore < 60).length, status: 'medium' },
-    { title: 'Sleep Recovery Issues', subtitle: 'Sleep debt affecting stress and recovery', count: clients.filter((client) => client.sleepQuality < 60).length, status: 'medium' },
-  ], [clients]);
+  const briefingMeta = useMemo(() => {
+    if (usesRealFiteatsyClients) {
+      return `${clients.length} registered clients • live API data only`;
+    }
+    return `Last ${timeframe === 'Day' ? '24 hours' : timeframe === 'Week' ? '7 days' : timeframe === 'Month' ? '30 days' : timeframe === 'Quarter' ? '90 days' : 'custom range'} • ${clients.length} active clients monitored`;
+  }, [clients.length, timeframe, usesRealFiteatsyClients]);
+  const clusters = useMemo(() => {
+    if (usesRealFiteatsyClients) {
+      return [
+        { title: 'Needs Review', subtitle: 'Awaiting backend review intelligence', count: 0, status: 'stable' },
+        { title: 'AI Draft Ready', subtitle: 'Awaiting backend AI draft pipeline', count: 0, status: 'stable' },
+        { title: 'Critical Biomarker Drift', subtitle: 'Awaiting biomarker timeline synchronization', count: 0, status: 'stable' },
+        { title: 'Adherence Declining', subtitle: 'Awaiting adherence synchronization', count: 0, status: 'stable' },
+      ];
+    }
+    return [
+      { title: 'HbA1c Risk Cluster', subtitle: 'Worsening glucose movement and low adherence', count: clients.filter((client) => client.biomarkers.some((item) => item.name === 'HbA1c' && (item.status === 'declining' || item.status === 'critical'))).length, status: 'critical' },
+      { title: 'Burnout Escalations', subtitle: 'Recovery overload and sleep inconsistency', count: clients.filter((client) => client.burnoutRisk === 'critical' || client.burnoutRisk === 'high').length, status: 'high' },
+      { title: 'Adherence Decline >20%', subtitle: 'Behavioral consistency dropped materially', count: clients.filter((client) => client.adherenceScore < 60).length, status: 'medium' },
+      { title: 'Sleep Recovery Issues', subtitle: 'Sleep debt affecting stress and recovery', count: clients.filter((client) => client.sleepQuality < 60).length, status: 'medium' },
+    ];
+  }, [clients, usesRealFiteatsyClients]);
 
   const searchResults = useMemo(() => {
     const query = globalSearch.trim().toLowerCase();
@@ -4384,28 +4437,63 @@ function PlatformWorkspace({ forcedRole }) {
     ];
   }, [allClients, globalSearch, state.tasks]);
 
-  const pulseItems = useMemo(() => [
-    { label: 'Worsening', value: clusters[0]?.count || 0, delta: '+4 WoW', status: 'critical', spark: [8, 10, 11, 12, 13, 14, clusters[0]?.count || 14], color: '#D13438', targetQueue: 'critical_biomarker_drift' },
-    { label: 'Pending Reviews', value: reviewPipeline.length, delta: '-3 WoW', status: 'pending', spark: [9, 8, 7, 7, 6, 5, reviewPipeline.length || 5], color: '#637CEF', targetQueue: 'needs_review' },
-    { label: 'Inactive', value: queueViews.find((view) => view.key === 'inactive_clients')?.count || 0, delta: '+1 WoW', status: 'medium', spark: [2, 2, 3, 3, 4, 4, queueViews.find((view) => view.key === 'inactive_clients')?.count || 4], color: '#FFB900', targetQueue: 'inactive_clients' },
-    { label: 'Improving', value: clients.filter((client) => client.recoveryMomentum.status === 'improving').length, delta: '+6 WoW', status: 'improving', spark: [16, 19, 24, 28, 35, 39, clients.filter((client) => client.recoveryMomentum.status === 'improving').length || 39], color: '#107C10', targetQueue: 'recovery_momentum_improving' },
-    { label: 'Critical Escalations', value: clients.filter((client) => client.riskLevel === 'critical').length, delta: '+2 WoW', status: 'high', spark: [3, 4, 4, 5, 5, 6, clients.filter((client) => client.riskLevel === 'critical').length || 6], color: '#FF8C00', targetQueue: 'burnout_escalation' },
-  ], [clients, clusters, queueViews, reviewPipeline.length]);
+  const pulseItems = useMemo(() => {
+    if (usesRealFiteatsyClients) {
+      return [
+        { label: 'Needs Review', value: 0, delta: 'Pending M2', status: 'stable', spark: [0, 0, 0, 0, 0, 0, 0], color: '#637CEF', targetQueue: 'needs_review' },
+        { label: 'AI Draft Ready', value: 0, delta: 'Pending M2', status: 'stable', spark: [0, 0, 0, 0, 0, 0, 0], color: '#1E88E5', targetQueue: 'ai_draft_ready' },
+        { label: 'Critical Biomarker Drift', value: 0, delta: 'Pending M2', status: 'stable', spark: [0, 0, 0, 0, 0, 0, 0], color: '#D13438', targetQueue: 'critical_biomarker_drift' },
+        { label: 'Adherence Declining', value: 0, delta: 'Pending M2', status: 'stable', spark: [0, 0, 0, 0, 0, 0, 0], color: '#FFB900', targetQueue: 'adherence_declining' },
+        { label: 'Burnout Escalation', value: 0, delta: 'Pending M2', status: 'stable', spark: [0, 0, 0, 0, 0, 0, 0], color: '#FF8C00', targetQueue: 'burnout_escalation' },
+      ];
+    }
+    return [
+      { label: 'Worsening', value: clusters[0]?.count || 0, delta: '+4 WoW', status: 'critical', spark: [8, 10, 11, 12, 13, 14, clusters[0]?.count || 14], color: '#D13438', targetQueue: 'critical_biomarker_drift' },
+      { label: 'Pending Reviews', value: reviewPipeline.length, delta: '-3 WoW', status: 'pending', spark: [9, 8, 7, 7, 6, 5, reviewPipeline.length || 5], color: '#637CEF', targetQueue: 'needs_review' },
+      { label: 'Inactive', value: queueViews.find((view) => view.key === 'inactive_clients')?.count || 0, delta: '+1 WoW', status: 'medium', spark: [2, 2, 3, 3, 4, 4, queueViews.find((view) => view.key === 'inactive_clients')?.count || 4], color: '#FFB900', targetQueue: 'inactive_clients' },
+      { label: 'Improving', value: clients.filter((client) => client.recoveryMomentum.status === 'improving').length, delta: '+6 WoW', status: 'improving', spark: [16, 19, 24, 28, 35, 39, clients.filter((client) => client.recoveryMomentum.status === 'improving').length || 39], color: '#107C10', targetQueue: 'recovery_momentum_improving' },
+      { label: 'Critical Escalations', value: clients.filter((client) => client.riskLevel === 'critical').length, delta: '+2 WoW', status: 'high', spark: [3, 4, 4, 5, 5, 6, clients.filter((client) => client.riskLevel === 'critical').length || 6], color: '#FF8C00', targetQueue: 'burnout_escalation' },
+    ];
+  }, [clients, clusters, queueViews, reviewPipeline.length, usesRealFiteatsyClients]);
 
-  const workloadItems = useMemo(() => ([
-    { label: 'Pending reviews', value: reviewPipeline.length, detail: 'Drafts and report interpretations waiting for consultant judgment.', status: 'pending' },
-    { label: 'Unresolved escalations', value: clients.filter((client) => client.riskLevel === 'critical').length, detail: 'Critical cases still requiring consultant or mentor follow-through.', status: 'critical' },
-    { label: 'Overdue follow-ups', value: clients.filter((client) => client.adherenceScore < 60).length, detail: 'Low adherence cases at risk of slipping further without intervention.', status: 'high' },
-    { label: 'Active critical cases', value: priorityQueue.filter((item) => item.risk === 'critical').length, detail: 'Biomarker drift or recovery decline needs same-cycle action.', status: 'critical' },
-  ]), [clients, priorityQueue, reviewPipeline.length]);
+  const workloadItems = useMemo(() => (
+    usesRealFiteatsyClients
+      ? [
+          { label: 'Pending reviews', value: 0, detail: 'Review intelligence has not been connected yet.', status: 'stable' },
+          { label: 'Unresolved escalations', value: 0, detail: 'Escalation intelligence has not been connected yet.', status: 'stable' },
+          { label: 'Overdue follow-ups', value: 0, detail: 'Follow-up intelligence has not been connected yet.', status: 'stable' },
+          { label: 'Active critical cases', value: 0, detail: 'Clinical risk intelligence has not been connected yet.', status: 'stable' },
+        ]
+      : [
+          { label: 'Pending reviews', value: reviewPipeline.length, detail: 'Drafts and report interpretations waiting for consultant judgment.', status: 'pending' },
+          { label: 'Unresolved escalations', value: clients.filter((client) => client.riskLevel === 'critical').length, detail: 'Critical cases still requiring consultant or mentor follow-through.', status: 'critical' },
+          { label: 'Overdue follow-ups', value: clients.filter((client) => client.adherenceScore < 60).length, detail: 'Low adherence cases at risk of slipping further without intervention.', status: 'high' },
+          { label: 'Active critical cases', value: priorityQueue.filter((item) => item.risk === 'critical').length, detail: 'Biomarker drift or recovery decline needs same-cycle action.', status: 'critical' },
+        ]
+  ), [clients, priorityQueue, reviewPipeline.length, usesRealFiteatsyClients]);
 
-  const memoryItems = useMemo(() => ([
-    { title: 'Emerging pattern', detail: `Late dinner timing is emerging across ${clusters[0]?.count || 0} worsening HbA1c cases.` },
-    { title: 'Behavioral learning', detail: 'Hydration-first recovery improved adherence by 18% in similar corporate stress profiles.' },
-    { title: 'Fiteatsy learning', detail: 'Hormonal recovery clients respond better when breakfast complexity is reduced before supplement intensification.' },
-  ]), [clusters]);
+  const memoryItems = useMemo(() => (
+    usesRealFiteatsyClients
+      ? [
+          { title: 'Client roster', detail: `${clients.length} Fiteatsy clients are available from the live consultant API.` },
+          { title: 'Programs', detail: 'Program assignment will appear after the backend care-plan contract is connected.' },
+          { title: 'Insights', detail: 'Health insights stay hidden until real clinical and adherence data are available.' },
+        ]
+      : [
+          { title: 'Emerging pattern', detail: `Late dinner timing is emerging across ${clusters[0]?.count || 0} worsening HbA1c cases.` },
+          { title: 'Behavioral learning', detail: 'Hydration-first recovery improved adherence by 18% in similar corporate stress profiles.' },
+          { title: 'Fiteatsy learning', detail: 'Hormonal recovery clients respond better when breakfast complexity is reduced before supplement intensification.' },
+        ]
+  ), [clients.length, clusters, usesRealFiteatsyClients]);
 
   const railItems = useMemo(() => {
+    if (usesRealFiteatsyClients) {
+      return memoryItems.map((item) => ({
+        ...item,
+        status: 'stable',
+        badge: 'Live API',
+      }));
+    }
     const alertItems = state.recoveryAlerts.slice(0, 2).map((alert) => ({
       title: alert.employee,
       detail: alert.alert,
@@ -4424,7 +4512,7 @@ function PlatformWorkspace({ forcedRole }) {
       badge: 'Pattern',
     }));
     return [...alertItems, ...escalationItems, ...memory];
-  }, [memoryItems, priorityQueue, state.recoveryAlerts]);
+  }, [memoryItems, priorityQueue, state.recoveryAlerts, usesRealFiteatsyClients]);
 
   function openClient(clientId, targetTab = 'Overview') {
     if (usesRealFiteatsyClients) {
