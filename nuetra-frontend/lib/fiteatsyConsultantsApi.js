@@ -7,6 +7,36 @@ export function getFiteatsyApiBaseUrl() {
   return configured.replace(/\/+$/, '');
 }
 
+function mapHealthMetric(metric) {
+  if (!metric || typeof metric !== 'object') return null;
+  return {
+    status: metric.status || 'NOT_AVAILABLE',
+    value: metric.value ?? null,
+    unit: metric.unit ?? null,
+    category: metric.category ?? null,
+    reason: metric.reason ?? null,
+    formulaVersion: metric.formulaVersion ?? null,
+    calculatedAt: metric.calculatedAt ?? null,
+    values: metric.values && typeof metric.values === 'object' ? metric.values : {},
+  };
+}
+
+function mapBiomarker(record) {
+  return {
+    biomarkerId: record.biomarkerId,
+    name: record.name || 'Biomarker',
+    value: typeof record.value === 'number' ? record.value : Number(record.value),
+    unit: record.unit || '',
+    status: record.status || 'VALIDATED',
+    referenceRange: record.referenceRange ?? null,
+    confidence: record.confidence ?? null,
+    testDate: record.testDate ?? null,
+    trend: record.trend ?? null,
+    previousValue: record.previousValue ?? null,
+    previousTestDate: record.previousTestDate ?? null,
+  };
+}
+
 function mapClient(record) {
   return {
     id: record.clientId,
@@ -64,5 +94,41 @@ export async function listFiteatsyConsultantClients() {
 
   return {
     clients: Array.isArray(body?.clients) ? body.clients.map(mapClient) : [],
+  };
+}
+
+export async function getFiteatsyConsultantClientProfile(clientId) {
+  const token = getToken();
+  const response = await fetch(`${getFiteatsyApiBaseUrl()}/v1/consultants/clients/${encodeURIComponent(clientId)}`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  const body = await readJsonResponse(response);
+
+  if (!response.ok) {
+    const error = new Error(body?.message || body?.error || `Fiteatsy client profile request failed (${response.status})`);
+    error.status = response.status;
+    error.data = body;
+    throw error;
+  }
+
+  return {
+    client: body?.client || null,
+    onboarding: body?.onboarding || null,
+    healthProfile: body?.healthProfile || null,
+    healthMetrics: body?.healthMetrics
+      ? {
+          bmi: mapHealthMetric(body.healthMetrics.bmi),
+          bmr: mapHealthMetric(body.healthMetrics.bmr),
+          tdee: mapHealthMetric(body.healthMetrics.tdee),
+          targetHeartRate: mapHealthMetric(body.healthMetrics.targetHeartRate),
+          bodyFat: mapHealthMetric(body.healthMetrics.bodyFat),
+          oneRepMax: mapHealthMetric(body.healthMetrics.oneRepMax),
+        }
+      : null,
+    biomarkers: Array.isArray(body?.biomarkers) ? body.biomarkers.map(mapBiomarker) : [],
   };
 }
