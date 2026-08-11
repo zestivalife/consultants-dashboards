@@ -314,37 +314,54 @@ function buildFiteatsyClientRecords(apiClients) {
     clientId: client.clientId,
     name: client.name,
     brand: 'Fiteatsy',
+    email: client.email,
+    mobile: client.mobile,
+    mobileNumberMasked: client.mobileNumberMasked,
+    status: client.status,
+    accountStatus: client.accountStatus,
     packageName: 'Not assigned',
     packageLabel: 'Not assigned',
     organization: 'Fiteatsy',
-    recoveryStage: client.profileCompleted ? 'Onboarding completed' : 'Onboarding pending',
+    recoveryStage: client.profileCompleted ? 'Onboarding completed' : 'Registration completed',
     profileCompleted: client.profileCompleted,
     age: client.age,
     gender: client.gender,
+    height: client.height,
+    weight: client.weight,
+    goal: client.goal,
+    activityLevel: client.activityLevel,
+    dietPreference: client.dietPreference,
+    reportsCount: client.reportsCount ?? 0,
+    lastHealthUpdate: client.lastHealthUpdate,
+    biomarkerStatus: client.biomarkerStatus,
     registeredAt: client.registeredAt,
-    lastActivity: formatDateLabel(client.lastActiveAt || client.registeredAt),
+    lastActivity: formatDateLabel(client.lastHealthUpdate || client.lastActiveAt || client.registeredAt),
     lastActiveAt: client.lastActiveAt,
     riskLevel: 'stable',
     adherenceScore: null,
     mentorName: 'Not assigned',
     planStatus: client.profileCompleted ? 'complete' : 'pending',
     confidence: null,
-    conditions: [],
+    conditions: client.medicalConditions || [],
     biomarkers: [],
     reports: [],
     interventions: [],
     notes: [],
-    goals: [],
+    goals: client.goal ? [client.goal] : [],
     region: 'Not available',
-    dietaryStyle: 'Not available',
+    dietaryStyle: client.dietPreference || 'Not available',
     recovery: 0,
     sleepQuality: 0,
     hydration: 0,
     stress: 0,
     burnoutRisk: 'stable',
     trendSummary: {
-      title: 'No health insight available',
-      explanation: 'Health insights will appear once Fiteatsy assessment and reporting data are connected.',
+      title: client.goal
+        ? `${client.goal} • ${client.reportsCount ?? 0} ${client.reportsCount === 1 ? 'report' : 'reports'}`
+        : client.profileCompleted
+          ? 'Profile completed • live registration'
+          : 'Registration completed • onboarding pending',
+      explanation: 'Only real registration and onboarding data are shown here until deeper clinical intelligence is synchronized.',
       action: 'No action assigned',
     },
     conditionFocus: {
@@ -1665,7 +1682,7 @@ function SmartClientQueues({ queueViews, activeQueue, setActiveQueue, filteredCl
             </motion.button>
           )) : (
             <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-              No Fiteatsy clients registered yet. Clients will appear here after users complete Fiteatsy onboarding.
+              No Fiteatsy clients registered yet. New users will appear here automatically after they register in Fiteatsy.
             </div>
           )}
         </div>
@@ -3719,7 +3736,7 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
   );
 }
 
-function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filteredClients, onClientOpen, loading = false, error = null, isRealFiteatsy = false }) {
+function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filteredClients, totalCount = 0, onClientOpen, loading = false, error = null, isRealFiteatsy = false }) {
   const errorMessage = getFiteatsyClientsErrorMessage(error);
 
   return (
@@ -3729,9 +3746,18 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
           <div>
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client Directory</p>
             <h2 className="mt-2 text-[24px] font-semibold tracking-[-0.02em]">Healthcare operating roster</h2>
-            <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Filter the client population by risk, momentum, inactivity, and intervention stage before opening the workspace.</p>
+            <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+              {isRealFiteatsy
+                ? `${totalCount} registered Fiteatsy users are available from the live consultant API.`
+                : 'Filter the client population by risk, momentum, inactivity, and intervention stage before opening the workspace.'}
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {isRealFiteatsy ? (
+              <span className="rounded-full bg-[var(--fluent-color-status-info-background)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-status-info-foreground)]">
+                Total registered users · {totalCount}
+              </span>
+            ) : null}
             {queueViews.slice(0, 5).map((view) => (
               <button
                 key={view.key}
@@ -3772,7 +3798,11 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
             >
               <div>
                 <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{client.name}</p>
-                <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{client.brand} · {client.organization}</p>
+                <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+                  {isRealFiteatsy
+                    ? [client.email, client.mobile || client.mobileNumberMasked].filter(Boolean).join(' · ') || 'Contact not available'
+                    : `${client.brand} · ${client.organization}`}
+                </p>
               </div>
               <div className="min-w-0 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.packageLabel}</div>
               <div className="min-w-0">
@@ -3786,7 +3816,7 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
             </button>
           )) : (
             <div className="px-4 py-8 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-              No Fiteatsy clients registered yet. Clients will appear here after users complete Fiteatsy onboarding.
+              No Fiteatsy clients registered yet. New users will appear here automatically after they register in Fiteatsy.
             </div>
           )}
         </div>
@@ -4211,7 +4241,23 @@ function PlatformWorkspace({ forcedRole }) {
     if (usesRealFiteatsyClients) {
       const query = globalSearch.toLowerCase();
       return clients.filter((client) => {
-        const haystack = `${client.name} ${client.organization} ${client.recoveryStage} ${client.packageLabel} ${client.lastActivity}`.toLowerCase();
+        const haystack = [
+          client.name,
+          client.email,
+          client.mobile,
+          client.mobileNumberMasked,
+          client.organization,
+          client.recoveryStage,
+          client.packageLabel,
+          client.lastActivity,
+          client.goal,
+          client.gender,
+          client.accountStatus,
+          ...(client.conditions || []),
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
         return haystack.includes(query);
       });
     }
@@ -4873,6 +4919,7 @@ function PlatformWorkspace({ forcedRole }) {
               activeQueue={activeQueue}
               setActiveQueue={setActiveQueue}
               filteredClients={filteredClients}
+              totalCount={clients.length}
               onClientOpen={openClient}
               loading={fiteatsyClientsLoading}
               error={fiteatsyClientsError}
