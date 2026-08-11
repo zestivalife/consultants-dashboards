@@ -23,6 +23,7 @@ import {
 import withAuth from '../../hocs/withAuth';
 import { useAuth } from '../../context/AuthContext';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
+import { listFiteatsyConsultantClients } from '../../lib/fiteatsyConsultantsApi';
 import { corporateAPI } from '../../lib/api';
 import { ADMIN_ACCESS_POLICY, DELIVERY_ACCESS_POLICY, MENTOR_ACCESS_POLICY, ORGANIZATION_ACCESS_POLICY } from '../../lib/roleRoutes';
 
@@ -44,12 +45,7 @@ const roleKinds = {
 };
 
 const consultantNav = [
-  { id: 'command-center', label: 'Command Center', icon: LayoutGrid },
   { id: 'clients', label: 'Clients', icon: Users },
-  { id: 'protocols', label: 'Protocols', icon: Sparkles },
-  { id: 'communication', label: 'Communication', icon: MessageSquare },
-  { id: 'intelligence', label: 'Intelligence', icon: TrendingUp },
-  { id: 'organizations', label: 'Organizations', icon: FileBarChart2 },
 ];
 
 const mentorNav = [
@@ -299,6 +295,98 @@ function buildClientRecords(state) {
     brandContext: employee.brand === 'Fiteatsy' ? 'Hormonal recovery' : 'Corporate wellness',
     packageLabel: employee.packageName || (employee.brand === 'Nuetra' ? 'Annual Corporate Program' : 'Recovery Program'),
   }));
+}
+
+function formatDateLabel(value) {
+  if (!value) return 'Not available';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Not available';
+  return date.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function buildFiteatsyClientRecords(apiClients) {
+  return apiClients.map((client) => ({
+    id: client.clientId,
+    clientId: client.clientId,
+    name: client.name,
+    brand: 'Fiteatsy',
+    packageName: 'Not assigned',
+    packageLabel: 'Not assigned',
+    organization: 'Fiteatsy',
+    recoveryStage: client.profileCompleted ? 'Onboarding completed' : 'Onboarding pending',
+    profileCompleted: client.profileCompleted,
+    age: client.age,
+    gender: client.gender,
+    registeredAt: client.registeredAt,
+    lastActivity: formatDateLabel(client.lastActiveAt || client.registeredAt),
+    lastActiveAt: client.lastActiveAt,
+    riskLevel: 'stable',
+    adherenceScore: null,
+    mentorName: 'Not assigned',
+    planStatus: client.profileCompleted ? 'complete' : 'pending',
+    confidence: null,
+    conditions: [],
+    biomarkers: [],
+    reports: [],
+    interventions: [],
+    notes: [],
+    goals: [],
+    region: 'Not available',
+    dietaryStyle: 'Not available',
+    recovery: 0,
+    sleepQuality: 0,
+    hydration: 0,
+    stress: 0,
+    burnoutRisk: 'stable',
+    trendSummary: {
+      title: 'No health insight available',
+      explanation: 'Health insights will appear once Fiteatsy assessment and reporting data are connected.',
+      action: 'No action assigned',
+    },
+    conditionFocus: {
+      condition: 'Client profile foundation',
+      drivers: [],
+      action: 'No action assigned',
+    },
+    recoveryMomentum: {
+      label: 'Not available',
+      direction: 'right',
+      status: 'stable',
+    },
+    behavioralCorrelation: 'Not available until health data synchronization is enabled.',
+    brandContext: 'Fiteatsy client profile',
+  }));
+}
+
+function getFiteatsyClientsErrorMessage(error) {
+  if (!error) return null;
+  if (error.status === 401) return 'Session expired';
+  if (error.status === 403) return 'Consultant access required';
+  return error.message || 'Unable to load Fiteatsy clients.';
+}
+
+function buildEmptyPlatformState() {
+  return {
+    employees: [],
+    plans: [],
+    sessions: [],
+    tasks: [],
+    communicationThreads: [],
+    recoveryAlerts: [],
+    reportPipeline: [],
+    finance: {
+      billing: [],
+      revenue: [],
+    },
+    quality: [],
+    organizationOverview: [],
+    notifications: [],
+    knowledgeBase: [],
+  };
 }
 
 function buildNutritionProfileSnapshot(employee) {
@@ -846,7 +934,7 @@ function TopAppBar({ roleName, timeframe, setTimeframe, search, setSearch, onSea
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {resumeLabel ? (
+          {resumeLabel && onResumeWorkspace ? (
             <motion.button {...hoverLift} onClick={onResumeWorkspace} className="hidden rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-neutral-foreground-1)] shadow-[0_2px_8px_var(--fluent-shadow-ambient),0_12px_28px_var(--fluent-shadow-key)] lg:inline-flex">
               Resume workspace - {resumeLabel}
             </motion.button>
@@ -1522,7 +1610,9 @@ function ConsultantHome({
   );
 }
 
-function SmartClientQueues({ queueViews, activeQueue, setActiveQueue, filteredClients, onClientOpen, onQueueOpen }) {
+function SmartClientQueues({ queueViews, activeQueue, setActiveQueue, filteredClients, onClientOpen, onQueueOpen, loading = false, error = null, isRealFiteatsy = false }) {
+  const errorMessage = getFiteatsyClientsErrorMessage(error);
+
   return (
     <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
       <Surface className="p-4" animated>
@@ -1551,25 +1641,42 @@ function SmartClientQueues({ queueViews, activeQueue, setActiveQueue, filteredCl
       </Surface>
       <Surface className="p-3">
         <div className="divide-y divide-[#EEF2F6]">
-          {filteredClients.map((client) => (
-            <motion.button key={client.id} onClick={() => onClientOpen(client.id)} {...hoverLift} className="grid w-full gap-3 px-4 py-4 text-left transition hover:bg-[var(--fluent-color-neutral-background-2)] lg:grid-cols-[1.5fr_0.7fr_0.7fr_1fr_1fr] lg:items-center">
+          {loading ? (
+            <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading Fiteatsy clients...</div>
+          ) : errorMessage ? (
+            <div className="rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-5 text-sm font-medium text-[var(--fluent-color-status-danger-foreground)]">{errorMessage}</div>
+          ) : filteredClients.length ? filteredClients.map((client) => (
+            <motion.button
+              key={client.id}
+              onClick={() => {
+                if (!isRealFiteatsy) onClientOpen(client.id);
+              }}
+              {...(!isRealFiteatsy ? hoverLift : {})}
+              className={`grid w-full gap-3 px-4 py-4 text-left transition lg:grid-cols-[1.5fr_0.7fr_0.7fr_1fr_1fr] lg:items-center ${isRealFiteatsy ? 'cursor-default' : 'hover:bg-[var(--fluent-color-neutral-background-2)]'}`}
+            >
               <div>
                 <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{client.name}</p>
                 <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.brand} · {client.packageLabel} · {client.brand === 'Nuetra' ? client.organization : client.recoveryStage}</p>
               </div>
-              <div><StatusChip status={client.riskLevel}>{client.riskLevel}</StatusChip></div>
-              <div className="text-sm text-[var(--fluent-color-neutral-foreground-1)]">{client.adherenceScore}%</div>
-              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.mentorName}</div>
-              <div><StatusChip status={client.planStatus}>{formatStatusLabel(client.planStatus)}</StatusChip></div>
+              <div><StatusChip status={isRealFiteatsy ? client.planStatus : client.riskLevel}>{isRealFiteatsy ? client.recoveryStage : client.riskLevel}</StatusChip></div>
+              <div className="text-sm text-[var(--fluent-color-neutral-foreground-1)]">{isRealFiteatsy ? 'Not available' : `${client.adherenceScore}%`}</div>
+              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{isRealFiteatsy ? client.lastActivity : client.mentorName}</div>
+              <div><StatusChip status={client.planStatus}>{isRealFiteatsy ? 'No action assigned' : formatStatusLabel(client.planStatus)}</StatusChip></div>
             </motion.button>
-          ))}
+          )) : (
+            <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+              No Fiteatsy clients registered yet. Clients will appear here after users complete Fiteatsy onboarding.
+            </div>
+          )}
         </div>
       </Surface>
     </div>
   );
 }
 
-function QueueBottomSheet({ isOpen, onClose, queueViews, activeQueue, setActiveQueue, filteredClients, onClientOpen }) {
+function QueueBottomSheet({ isOpen, onClose, queueViews, activeQueue, setActiveQueue, filteredClients, onClientOpen, loading = false, error = null, isRealFiteatsy = false }) {
+  const errorMessage = getFiteatsyClientsErrorMessage(error);
+
   return (
     <AnimatePresence>
       {isOpen ? (
@@ -1623,27 +1730,37 @@ function QueueBottomSheet({ isOpen, onClose, queueViews, activeQueue, setActiveQ
                   </div>
                 </div>
                 <div className="space-y-2">
-                  {filteredClients.length ? filteredClients.map((client) => (
+                  {loading ? (
+                    <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading Fiteatsy clients...</div>
+                  ) : errorMessage ? (
+                    <div className="rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-4 text-sm font-medium text-[var(--fluent-color-status-danger-foreground)]">{errorMessage}</div>
+                  ) : filteredClients.length ? filteredClients.map((client) => (
                     <button
                       key={client.id}
                       onClick={() => {
-                        onClientOpen(client.id);
-                        onClose();
+                        if (!isRealFiteatsy) {
+                          onClientOpen(client.id);
+                          onClose();
+                        }
                       }}
-                      className="flex w-full items-center justify-between rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-left transition hover:bg-[#f7f9fc]"
+                      className={`flex w-full items-center justify-between rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-left transition ${isRealFiteatsy ? 'cursor-default' : 'hover:bg-[#f7f9fc]'}`}
                     >
                       <div>
                         <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{client.name}</p>
                         <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.trendSummary.title}</p>
-                        <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{client.brand} • {client.packageLabel} • {client.mentorName} • {client.adherenceScore}% adherence</p>
+                        <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+                          {isRealFiteatsy ? `${client.brand} • ${client.packageLabel} • ${client.lastActivity} • adherence not available` : `${client.brand} • ${client.packageLabel} • ${client.mentorName} • ${client.adherenceScore}% adherence`}
+                        </p>
                       </div>
                       <div className="flex flex-col items-end gap-2">
-                        <StatusChip status={client.riskLevel}>{client.riskLevel}</StatusChip>
+                        <StatusChip status={isRealFiteatsy ? client.planStatus : client.riskLevel}>{isRealFiteatsy ? client.recoveryStage : client.riskLevel}</StatusChip>
                         <StatusChip status={client.planStatus}>{formatStatusLabel(client.planStatus)}</StatusChip>
                       </div>
                     </button>
                   )) : (
-                    <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No clients match this queue and filter combination.</div>
+                    <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                      {isRealFiteatsy ? 'No Fiteatsy clients registered yet. Clients will appear here after users complete Fiteatsy onboarding.' : 'No clients match this queue and filter combination.'}
+                    </div>
                   )}
                 </div>
               </div>
@@ -3602,7 +3719,9 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
   );
 }
 
-function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filteredClients, onClientOpen }) {
+function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filteredClients, onClientOpen, loading = false, error = null, isRealFiteatsy = false }) {
+  const errorMessage = getFiteatsyClientsErrorMessage(error);
+
   return (
     <div className="space-y-4">
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
@@ -3639,11 +3758,17 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
           <span>Next action</span>
         </div>
         <div className="divide-y divide-[var(--fluent-color-neutral-stroke-1)]">
-          {filteredClients.slice(0, 16).map((client) => (
+          {loading ? (
+            <div className="px-4 py-8 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading Fiteatsy clients...</div>
+          ) : errorMessage ? (
+            <div className="px-4 py-8 text-sm font-medium text-[var(--fluent-color-status-danger-foreground)]">{errorMessage}</div>
+          ) : filteredClients.length ? filteredClients.slice(0, 16).map((client) => (
             <button
               key={client.id}
-              onClick={() => onClientOpen(client.id)}
-              className="grid w-full grid-cols-[1.3fr_0.9fr_1fr_0.8fr_1fr_0.9fr_1.1fr] gap-3 px-4 py-4 text-left transition hover:bg-[var(--fluent-color-neutral-background-2)]"
+              onClick={() => {
+                if (!isRealFiteatsy) onClientOpen(client.id);
+              }}
+              className={`grid w-full grid-cols-[1.3fr_0.9fr_1fr_0.8fr_1fr_0.9fr_1.1fr] gap-3 px-4 py-4 text-left transition ${isRealFiteatsy ? 'cursor-default' : 'hover:bg-[var(--fluent-color-neutral-background-2)]'}`}
             >
               <div>
                 <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{client.name}</p>
@@ -3651,15 +3776,19 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
               </div>
               <div className="min-w-0 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.packageLabel}</div>
               <div className="min-w-0">
-                <StatusChip status={client.recoveryMomentum.status}>{client.recoveryMomentum.label}</StatusChip>
+                <StatusChip status={isRealFiteatsy ? 'pending' : client.recoveryMomentum.status}>{isRealFiteatsy ? 'Not available' : client.recoveryMomentum.label}</StatusChip>
                 <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{client.trendSummary.title}</p>
               </div>
-              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.adherenceScore}%</div>
+              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{isRealFiteatsy ? 'Not available' : `${client.adherenceScore}%`}</div>
               <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{formatStatusLabel(client.planStatus)}</div>
               <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.lastActivity}</div>
-              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.conditionFocus.action.split('.')[0]}</div>
+              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{isRealFiteatsy ? 'No action assigned' : client.conditionFocus.action.split('.')[0]}</div>
             </button>
-          ))}
+          )) : (
+            <div className="px-4 py-8 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+              No Fiteatsy clients registered yet. Clients will appear here after users complete Fiteatsy onboarding.
+            </div>
+          )}
         </div>
       </Surface>
     </div>
@@ -3831,7 +3960,10 @@ function PlatformWorkspace({ forcedRole }) {
   const resolvedRole = forcedRole || user?.role || 'consultant';
   const roleKind = getRoleKind(resolvedRole);
   const isSuperAdmin = superAdminRoles.has(String(resolvedRole).toLowerCase());
+  const usesRealFiteatsyClients = roleKind === 'consultant';
   const [state, setState] = useState(() => {
+    if (usesRealFiteatsyClients) return buildEmptyPlatformState();
+
     const initial = buildInitialPlatformState();
     return {
       ...initial,
@@ -3844,7 +3976,7 @@ function PlatformWorkspace({ forcedRole }) {
       }),
     };
   });
-  const [nav, setNav] = useState('command-center');
+  const [nav, setNav] = useState(() => (usesRealFiteatsyClients ? 'clients' : 'command-center'));
   const [timeframe, setTimeframe] = useState('Week');
   const [brandView, setBrandView] = useState('All Brands');
   const [globalSearch, setGlobalSearch] = useState('');
@@ -3864,6 +3996,9 @@ function PlatformWorkspace({ forcedRole }) {
   const [aiDraftStatus, setAiDraftStatus] = useState('idle');
   const [aiDraftProgress, setAiDraftProgress] = useState(0);
   const [aiDraftStageLabel, setAiDraftStageLabel] = useState(aiDraftProgressStages[0].label);
+  const [fiteatsyClients, setFiteatsyClients] = useState([]);
+  const [fiteatsyClientsLoading, setFiteatsyClientsLoading] = useState(false);
+  const [fiteatsyClientsError, setFiteatsyClientsError] = useState(null);
 
   useEffect(() => {
     if (selectedClientId) {
@@ -3920,7 +4055,44 @@ function PlatformWorkspace({ forcedRole }) {
     return () => window.clearInterval(timer);
   }, [aiDraftModalOpen, aiDraftStatus]);
 
-  const allClients = useMemo(() => buildClientRecords(state), [state]);
+  useEffect(() => {
+    if (!usesRealFiteatsyClients) return undefined;
+
+    let cancelled = false;
+    setFiteatsyClientsLoading(true);
+    setFiteatsyClientsError(null);
+
+    listFiteatsyConsultantClients()
+      .then(({ clients: apiClients }) => {
+        if (cancelled) return;
+        setFiteatsyClients(apiClients);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setFiteatsyClients([]);
+        setFiteatsyClientsError(error);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setFiteatsyClientsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [usesRealFiteatsyClients]);
+
+  useEffect(() => {
+    const source = usesRealFiteatsyClients ? 'API' : 'MOCK';
+    const activeClients = usesRealFiteatsyClients ? fiteatsyClients : state.employees;
+    console.info('CLIENT DATA SOURCE:', source);
+    console.info('CLIENT COUNT:', activeClients.length);
+    console.info('FIRST CLIENT:', activeClients[0]?.name || 'NONE');
+  }, [fiteatsyClients, state.employees, usesRealFiteatsyClients]);
+
+  const mockClients = useMemo(() => buildClientRecords(state), [state]);
+  const realFiteatsyClients = useMemo(() => buildFiteatsyClientRecords(fiteatsyClients), [fiteatsyClients]);
+  const allClients = useMemo(() => (usesRealFiteatsyClients ? realFiteatsyClients : mockClients), [mockClients, realFiteatsyClients, usesRealFiteatsyClients]);
   const clients = useMemo(() => (
     brandView === 'All Brands' ? allClients : allClients.filter((client) => client.brand === brandView)
   ), [allClients, brandView]);
@@ -3939,6 +4111,16 @@ function PlatformWorkspace({ forcedRole }) {
       };
 
   const queueViews = useMemo(() => {
+    if (usesRealFiteatsyClients) {
+      return [
+        { key: 'needs_review', title: 'Needs Review', subtitle: 'Awaiting backend review intelligence', tone: 'stable', count: 0, filter: () => false },
+        { key: 'ai_draft_ready', title: 'AI Draft Ready', subtitle: 'Awaiting backend AI draft pipeline', tone: 'stable', count: 0, filter: () => false },
+        { key: 'critical_biomarker_drift', title: 'Critical Biomarker Drift', subtitle: 'Awaiting biomarker timeline synchronization', tone: 'stable', count: 0, filter: () => false },
+        { key: 'adherence_declining', title: 'Adherence Declining', subtitle: 'Awaiting adherence synchronization', tone: 'stable', count: 0, filter: () => false },
+        { key: 'burnout_escalation', title: 'Burnout Escalation', subtitle: 'Awaiting intelligence synchronization', tone: 'stable', count: 0, filter: () => false },
+      ];
+    }
+
     const definitions = [
       {
         key: 'needs_review',
@@ -4016,9 +4198,24 @@ function PlatformWorkspace({ forcedRole }) {
       ...definition,
       count: clients.filter(definition.filter).length,
     }));
-  }, [clients]);
+  }, [clients, usesRealFiteatsyClients]);
+
+  useEffect(() => {
+    if (!usesRealFiteatsyClients) return;
+    if (!queueViews.some((view) => view.key === activeQueue)) {
+      setActiveQueue('needs_review');
+    }
+  }, [activeQueue, queueViews, usesRealFiteatsyClients]);
 
   const filteredClients = useMemo(() => {
+    if (usesRealFiteatsyClients) {
+      const query = globalSearch.toLowerCase();
+      return clients.filter((client) => {
+        const haystack = `${client.name} ${client.organization} ${client.recoveryStage} ${client.packageLabel} ${client.lastActivity}`.toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+
     const activeView = queueViews.find((view) => view.key === activeQueue);
     return clients.filter((client) => {
       const matchesQueue = activeView ? activeView.filter(client) : true;
@@ -4026,9 +4223,11 @@ function PlatformWorkspace({ forcedRole }) {
       const matchesSearch = haystack.includes(globalSearch.toLowerCase());
       return matchesQueue && matchesSearch;
     });
-  }, [activeQueue, clients, globalSearch, queueViews]);
+  }, [activeQueue, clients, globalSearch, queueViews, usesRealFiteatsyClients]);
 
   const priorityQueue = useMemo(() => {
+    if (usesRealFiteatsyClients) return [];
+
     return clients
       .map((client) => ({
         clientId: client.id,
@@ -4054,9 +4253,18 @@ function PlatformWorkspace({ forcedRole }) {
       }))
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
-  }, [clients]);
+  }, [clients, usesRealFiteatsyClients]);
 
   const dailySummary = useMemo(() => {
+    if (usesRealFiteatsyClients) {
+      return [
+        `${clients.length} registered Fiteatsy clients`,
+        'Programs not yet assigned',
+        'Adherence not yet available',
+        'Biomarker drift not yet available',
+      ];
+    }
+
     const worseningGlucose = clients.filter((client) => client.biomarkers.some((item) => item.name === 'HbA1c' && (item.status === 'declining' || item.status === 'critical'))).length;
     const burnoutCluster = clients.filter((client) => client.organization === 'Zenith Forge' && (client.burnoutRisk === 'critical' || client.burnoutRisk === 'high')).length;
     const improvingAdherence = clients.filter((client) => client.adherenceScore >= 70).length;
@@ -4067,20 +4275,38 @@ function PlatformWorkspace({ forcedRole }) {
       `Adherence improving across ${improvingAdherence} employees`,
       `${awaitingApproval} plans awaiting approval`,
     ];
-  }, [clients, state.plans]);
+  }, [clients, state.plans, usesRealFiteatsyClients]);
 
   const healthMovement = useMemo(() => ({
     period: timeframe,
-    items: [
+    items: usesRealFiteatsyClients ? [
+      { label: 'Clients registered', value: String(clients.length), delta: 'Live API', comparison: 'Registered Fiteatsy clients available in consultant workspace', spark: [0, 0, 0, 0, 0, 0, clients.length], color: '#1E88E5', status: 'stable' },
+      { label: 'Programs', value: 'Not available', delta: 'Pending M2', comparison: 'Program assignment will appear after care-plan synchronization', spark: [0, 0, 0, 0, 0, 0, 0], color: '#637CEF', status: 'stable' },
+      { label: 'Adherence', value: 'Not available', delta: 'Pending M2', comparison: 'Adherence metrics are not available yet', spark: [0, 0, 0, 0, 0, 0, 0], color: '#1E88E5', status: 'stable' },
+      { label: 'Biomarker drift', value: 'Not available', delta: 'Pending M2', comparison: 'Clinical trend intelligence is not available yet', spark: [0, 0, 0, 0, 0, 0, 0], color: '#FB8C00', status: 'stable' },
+      { label: 'Burnout risk', value: 'Not available', delta: 'Pending M2', comparison: 'Behavioral recovery risk is not available yet', spark: [0, 0, 0, 0, 0, 0, 0], color: '#5C6BC0', status: 'stable' },
+    ] : [
       { label: 'Clients improving', value: '42', delta: '+6 WoW', comparison: 'More clients are moving into recovery gains', spark: [16, 19, 24, 28, 35, 39, 42], color: '#2E7D32', status: 'improving' },
       { label: 'Clients declining', value: '11', delta: '-2 WoW', comparison: 'Fewer clients are sliding backward this week', spark: [18, 16, 15, 14, 12, 12, 11], color: '#EF5350', status: 'declining' },
       { label: 'Adherence', value: '+4%', delta: '+4% WoW', comparison: 'Meal and hydration consistency is trending upward', spark: [48, 49, 51, 52, 53, 54, 56], color: '#1E88E5', status: 'improving' },
       { label: 'Burnout risk', value: '-7%', delta: '-7% WoW', comparison: 'High-risk burnout cases are easing modestly', spark: [22, 21, 20, 19, 18, 17, 15], color: '#FB8C00', status: 'stable' },
       { label: 'Sleep consistency', value: '+5%', delta: '+5% WoW', comparison: 'Routine stability is improving across coached cohorts', spark: [44, 45, 46, 47, 48, 49, 51], color: '#5C6BC0', status: 'improving' },
     ],
-  }), [timeframe]);
+  }), [clients.length, timeframe, usesRealFiteatsyClients]);
 
   const organizationSignals = useMemo(() => {
+    if (usesRealFiteatsyClients) {
+      return [{
+        name: 'Fiteatsy',
+        highRisk: 0,
+        signals: [
+          { label: 'Review intelligence', delta: '0', status: 'stable' },
+          { label: 'Adherence trend', delta: '0', status: 'stable' },
+          { label: 'Biomarker drift', delta: '0', status: 'stable' },
+        ],
+      }];
+    }
+
     const byOrg = clients.reduce((acc, client) => {
       if (!acc[client.organization]) acc[client.organization] = [];
       acc[client.organization].push(client);
@@ -4096,7 +4322,7 @@ function PlatformWorkspace({ forcedRole }) {
         { label: 'Hydration', delta: '-6%', status: 'declining' },
       ],
     }));
-  }, [clients]);
+  }, [clients, usesRealFiteatsyClients]);
 
   const uploadPipeline = useMemo(() => state.reportPipeline.slice(0, 4), [state.reportPipeline]);
   const reviewPipeline = useMemo(() => state.plans.filter((plan) => ['consultant_review', 'consultant_modified', 'senior_review'].includes(plan.state)).slice(0, 4).map((plan) => ({
@@ -4104,13 +4330,28 @@ function PlatformWorkspace({ forcedRole }) {
     state: plan.state,
     stateLabel: formatStatusLabel(plan.state),
   })), [state.plans]);
-  const briefingMeta = useMemo(() => `Last ${timeframe === 'Day' ? '24 hours' : timeframe === 'Week' ? '7 days' : timeframe === 'Month' ? '30 days' : timeframe === 'Quarter' ? '90 days' : 'custom range'} • ${clients.length} active clients monitored`, [clients.length, timeframe]);
-  const clusters = useMemo(() => [
-    { title: 'HbA1c Risk Cluster', subtitle: 'Worsening glucose movement and low adherence', count: clients.filter((client) => client.biomarkers.some((item) => item.name === 'HbA1c' && (item.status === 'declining' || item.status === 'critical'))).length, status: 'critical' },
-    { title: 'Burnout Escalations', subtitle: 'Recovery overload and sleep inconsistency', count: clients.filter((client) => client.burnoutRisk === 'critical' || client.burnoutRisk === 'high').length, status: 'high' },
-    { title: 'Adherence Decline >20%', subtitle: 'Behavioral consistency dropped materially', count: clients.filter((client) => client.adherenceScore < 60).length, status: 'medium' },
-    { title: 'Sleep Recovery Issues', subtitle: 'Sleep debt affecting stress and recovery', count: clients.filter((client) => client.sleepQuality < 60).length, status: 'medium' },
-  ], [clients]);
+  const briefingMeta = useMemo(() => {
+    if (usesRealFiteatsyClients) {
+      return `${clients.length} registered clients • live API data only`;
+    }
+    return `Last ${timeframe === 'Day' ? '24 hours' : timeframe === 'Week' ? '7 days' : timeframe === 'Month' ? '30 days' : timeframe === 'Quarter' ? '90 days' : 'custom range'} • ${clients.length} active clients monitored`;
+  }, [clients.length, timeframe, usesRealFiteatsyClients]);
+  const clusters = useMemo(() => {
+    if (usesRealFiteatsyClients) {
+      return [
+        { title: 'Needs Review', subtitle: 'Awaiting backend review intelligence', count: 0, status: 'stable' },
+        { title: 'AI Draft Ready', subtitle: 'Awaiting backend AI draft pipeline', count: 0, status: 'stable' },
+        { title: 'Critical Biomarker Drift', subtitle: 'Awaiting biomarker timeline synchronization', count: 0, status: 'stable' },
+        { title: 'Adherence Declining', subtitle: 'Awaiting adherence synchronization', count: 0, status: 'stable' },
+      ];
+    }
+    return [
+      { title: 'HbA1c Risk Cluster', subtitle: 'Worsening glucose movement and low adherence', count: clients.filter((client) => client.biomarkers.some((item) => item.name === 'HbA1c' && (item.status === 'declining' || item.status === 'critical'))).length, status: 'critical' },
+      { title: 'Burnout Escalations', subtitle: 'Recovery overload and sleep inconsistency', count: clients.filter((client) => client.burnoutRisk === 'critical' || client.burnoutRisk === 'high').length, status: 'high' },
+      { title: 'Adherence Decline >20%', subtitle: 'Behavioral consistency dropped materially', count: clients.filter((client) => client.adherenceScore < 60).length, status: 'medium' },
+      { title: 'Sleep Recovery Issues', subtitle: 'Sleep debt affecting stress and recovery', count: clients.filter((client) => client.sleepQuality < 60).length, status: 'medium' },
+    ];
+  }, [clients, usesRealFiteatsyClients]);
 
   const searchResults = useMemo(() => {
     const query = globalSearch.trim().toLowerCase();
@@ -4196,28 +4437,63 @@ function PlatformWorkspace({ forcedRole }) {
     ];
   }, [allClients, globalSearch, state.tasks]);
 
-  const pulseItems = useMemo(() => [
-    { label: 'Worsening', value: clusters[0]?.count || 0, delta: '+4 WoW', status: 'critical', spark: [8, 10, 11, 12, 13, 14, clusters[0]?.count || 14], color: '#D13438', targetQueue: 'critical_biomarker_drift' },
-    { label: 'Pending Reviews', value: reviewPipeline.length, delta: '-3 WoW', status: 'pending', spark: [9, 8, 7, 7, 6, 5, reviewPipeline.length || 5], color: '#637CEF', targetQueue: 'needs_review' },
-    { label: 'Inactive', value: queueViews.find((view) => view.key === 'inactive_clients')?.count || 0, delta: '+1 WoW', status: 'medium', spark: [2, 2, 3, 3, 4, 4, queueViews.find((view) => view.key === 'inactive_clients')?.count || 4], color: '#FFB900', targetQueue: 'inactive_clients' },
-    { label: 'Improving', value: clients.filter((client) => client.recoveryMomentum.status === 'improving').length, delta: '+6 WoW', status: 'improving', spark: [16, 19, 24, 28, 35, 39, clients.filter((client) => client.recoveryMomentum.status === 'improving').length || 39], color: '#107C10', targetQueue: 'recovery_momentum_improving' },
-    { label: 'Critical Escalations', value: clients.filter((client) => client.riskLevel === 'critical').length, delta: '+2 WoW', status: 'high', spark: [3, 4, 4, 5, 5, 6, clients.filter((client) => client.riskLevel === 'critical').length || 6], color: '#FF8C00', targetQueue: 'burnout_escalation' },
-  ], [clients, clusters, queueViews, reviewPipeline.length]);
+  const pulseItems = useMemo(() => {
+    if (usesRealFiteatsyClients) {
+      return [
+        { label: 'Needs Review', value: 0, delta: 'Pending M2', status: 'stable', spark: [0, 0, 0, 0, 0, 0, 0], color: '#637CEF', targetQueue: 'needs_review' },
+        { label: 'AI Draft Ready', value: 0, delta: 'Pending M2', status: 'stable', spark: [0, 0, 0, 0, 0, 0, 0], color: '#1E88E5', targetQueue: 'ai_draft_ready' },
+        { label: 'Critical Biomarker Drift', value: 0, delta: 'Pending M2', status: 'stable', spark: [0, 0, 0, 0, 0, 0, 0], color: '#D13438', targetQueue: 'critical_biomarker_drift' },
+        { label: 'Adherence Declining', value: 0, delta: 'Pending M2', status: 'stable', spark: [0, 0, 0, 0, 0, 0, 0], color: '#FFB900', targetQueue: 'adherence_declining' },
+        { label: 'Burnout Escalation', value: 0, delta: 'Pending M2', status: 'stable', spark: [0, 0, 0, 0, 0, 0, 0], color: '#FF8C00', targetQueue: 'burnout_escalation' },
+      ];
+    }
+    return [
+      { label: 'Worsening', value: clusters[0]?.count || 0, delta: '+4 WoW', status: 'critical', spark: [8, 10, 11, 12, 13, 14, clusters[0]?.count || 14], color: '#D13438', targetQueue: 'critical_biomarker_drift' },
+      { label: 'Pending Reviews', value: reviewPipeline.length, delta: '-3 WoW', status: 'pending', spark: [9, 8, 7, 7, 6, 5, reviewPipeline.length || 5], color: '#637CEF', targetQueue: 'needs_review' },
+      { label: 'Inactive', value: queueViews.find((view) => view.key === 'inactive_clients')?.count || 0, delta: '+1 WoW', status: 'medium', spark: [2, 2, 3, 3, 4, 4, queueViews.find((view) => view.key === 'inactive_clients')?.count || 4], color: '#FFB900', targetQueue: 'inactive_clients' },
+      { label: 'Improving', value: clients.filter((client) => client.recoveryMomentum.status === 'improving').length, delta: '+6 WoW', status: 'improving', spark: [16, 19, 24, 28, 35, 39, clients.filter((client) => client.recoveryMomentum.status === 'improving').length || 39], color: '#107C10', targetQueue: 'recovery_momentum_improving' },
+      { label: 'Critical Escalations', value: clients.filter((client) => client.riskLevel === 'critical').length, delta: '+2 WoW', status: 'high', spark: [3, 4, 4, 5, 5, 6, clients.filter((client) => client.riskLevel === 'critical').length || 6], color: '#FF8C00', targetQueue: 'burnout_escalation' },
+    ];
+  }, [clients, clusters, queueViews, reviewPipeline.length, usesRealFiteatsyClients]);
 
-  const workloadItems = useMemo(() => ([
-    { label: 'Pending reviews', value: reviewPipeline.length, detail: 'Drafts and report interpretations waiting for consultant judgment.', status: 'pending' },
-    { label: 'Unresolved escalations', value: clients.filter((client) => client.riskLevel === 'critical').length, detail: 'Critical cases still requiring consultant or mentor follow-through.', status: 'critical' },
-    { label: 'Overdue follow-ups', value: clients.filter((client) => client.adherenceScore < 60).length, detail: 'Low adherence cases at risk of slipping further without intervention.', status: 'high' },
-    { label: 'Active critical cases', value: priorityQueue.filter((item) => item.risk === 'critical').length, detail: 'Biomarker drift or recovery decline needs same-cycle action.', status: 'critical' },
-  ]), [clients, priorityQueue, reviewPipeline.length]);
+  const workloadItems = useMemo(() => (
+    usesRealFiteatsyClients
+      ? [
+          { label: 'Pending reviews', value: 0, detail: 'Review intelligence has not been connected yet.', status: 'stable' },
+          { label: 'Unresolved escalations', value: 0, detail: 'Escalation intelligence has not been connected yet.', status: 'stable' },
+          { label: 'Overdue follow-ups', value: 0, detail: 'Follow-up intelligence has not been connected yet.', status: 'stable' },
+          { label: 'Active critical cases', value: 0, detail: 'Clinical risk intelligence has not been connected yet.', status: 'stable' },
+        ]
+      : [
+          { label: 'Pending reviews', value: reviewPipeline.length, detail: 'Drafts and report interpretations waiting for consultant judgment.', status: 'pending' },
+          { label: 'Unresolved escalations', value: clients.filter((client) => client.riskLevel === 'critical').length, detail: 'Critical cases still requiring consultant or mentor follow-through.', status: 'critical' },
+          { label: 'Overdue follow-ups', value: clients.filter((client) => client.adherenceScore < 60).length, detail: 'Low adherence cases at risk of slipping further without intervention.', status: 'high' },
+          { label: 'Active critical cases', value: priorityQueue.filter((item) => item.risk === 'critical').length, detail: 'Biomarker drift or recovery decline needs same-cycle action.', status: 'critical' },
+        ]
+  ), [clients, priorityQueue, reviewPipeline.length, usesRealFiteatsyClients]);
 
-  const memoryItems = useMemo(() => ([
-    { title: 'Emerging pattern', detail: `Late dinner timing is emerging across ${clusters[0]?.count || 0} worsening HbA1c cases.` },
-    { title: 'Behavioral learning', detail: 'Hydration-first recovery improved adherence by 18% in similar corporate stress profiles.' },
-    { title: 'Fiteatsy learning', detail: 'Hormonal recovery clients respond better when breakfast complexity is reduced before supplement intensification.' },
-  ]), [clusters]);
+  const memoryItems = useMemo(() => (
+    usesRealFiteatsyClients
+      ? [
+          { title: 'Client roster', detail: `${clients.length} Fiteatsy clients are available from the live consultant API.` },
+          { title: 'Programs', detail: 'Program assignment will appear after the backend care-plan contract is connected.' },
+          { title: 'Insights', detail: 'Health insights stay hidden until real clinical and adherence data are available.' },
+        ]
+      : [
+          { title: 'Emerging pattern', detail: `Late dinner timing is emerging across ${clusters[0]?.count || 0} worsening HbA1c cases.` },
+          { title: 'Behavioral learning', detail: 'Hydration-first recovery improved adherence by 18% in similar corporate stress profiles.' },
+          { title: 'Fiteatsy learning', detail: 'Hormonal recovery clients respond better when breakfast complexity is reduced before supplement intensification.' },
+        ]
+  ), [clients.length, clusters, usesRealFiteatsyClients]);
 
   const railItems = useMemo(() => {
+    if (usesRealFiteatsyClients) {
+      return memoryItems.map((item) => ({
+        ...item,
+        status: 'stable',
+        badge: 'Live API',
+      }));
+    }
     const alertItems = state.recoveryAlerts.slice(0, 2).map((alert) => ({
       title: alert.employee,
       detail: alert.alert,
@@ -4236,9 +4512,13 @@ function PlatformWorkspace({ forcedRole }) {
       badge: 'Pattern',
     }));
     return [...alertItems, ...escalationItems, ...memory];
-  }, [memoryItems, priorityQueue, state.recoveryAlerts]);
+  }, [memoryItems, priorityQueue, state.recoveryAlerts, usesRealFiteatsyClients]);
 
   function openClient(clientId, targetTab = 'Overview') {
+    if (usesRealFiteatsyClients) {
+      setSearchOpen(false);
+      return;
+    }
     setSelectedClientId(clientId);
     setClientWorkspaceTab(targetTab);
     setClientDrawerOpen(true);
@@ -4550,7 +4830,7 @@ function PlatformWorkspace({ forcedRole }) {
         user={user}
         logout={logout}
         onQuickAction={() => setSearchOpen(true)}
-        onResumeWorkspace={() => openClient(selectedClientId, clientWorkspaceTab)}
+        onResumeWorkspace={usesRealFiteatsyClients ? undefined : () => openClient(selectedClientId, clientWorkspaceTab)}
         resumeLabel={selectedClient?.name}
       />
 
@@ -4594,6 +4874,9 @@ function PlatformWorkspace({ forcedRole }) {
               setActiveQueue={setActiveQueue}
               filteredClients={filteredClients}
               onClientOpen={openClient}
+              loading={fiteatsyClientsLoading}
+              error={fiteatsyClientsError}
+              isRealFiteatsy={usesRealFiteatsyClients}
             />
           ) : null}
 
@@ -4639,47 +4922,51 @@ function PlatformWorkspace({ forcedRole }) {
 
       {roleKind === 'consultant' ? (
         <>
-          <ClientIntelligenceDrawer
-            isOpen={clientDrawerOpen}
-            onClose={() => setClientDrawerOpen(false)}
-            employee={selectedClient}
-            plan={selectedPlan}
-            activeTab={clientWorkspaceTab}
-            setActiveTab={setClientWorkspaceTab}
-            noteDraft={noteDraft}
-            setNoteDraft={setNoteDraft}
-            noteType={noteType}
-            setNoteType={setNoteType}
-            noteSeverity={noteSeverity}
-            setNoteSeverity={setNoteSeverity}
-            onAddNote={addNote}
-            onEditPlan={startEditPlanBlock}
-            onGenerateDraft={openGenerateDraftModal}
-            onRegenerateBlock={regenerateBlock}
-            onPlanStateChange={setPlanState}
-            onExportDocx={exportDietPlanDocx}
-            onDietCellChange={updateDietCell}
-          />
-          <AIDraftProgressModal
-            isOpen={aiDraftModalOpen}
-            onClose={closeGenerateDraftModal}
-            status={aiDraftStatus}
-            progress={aiDraftProgress}
-            stageLabel={aiDraftStageLabel}
-            clientName={selectedClient?.name}
-            onDownload={exportDietPlanDocx}
-            onShareEmail={shareDietPlanViaEmail}
-            onShareWhatsapp={shareDietPlanViaWhatsapp}
-          />
-          <QueueConsole
-            mode={queueConsoleMode}
-            setMode={setQueueConsoleMode}
-            queueViews={queueViews}
-            activeQueue={activeQueue}
-            setActiveQueue={setActiveQueue}
-            filteredClients={filteredClients}
-            onClientOpen={openClient}
-          />
+          {!usesRealFiteatsyClients ? (
+            <>
+              <ClientIntelligenceDrawer
+                isOpen={clientDrawerOpen}
+                onClose={() => setClientDrawerOpen(false)}
+                employee={selectedClient}
+                plan={selectedPlan}
+                activeTab={clientWorkspaceTab}
+                setActiveTab={setClientWorkspaceTab}
+                noteDraft={noteDraft}
+                setNoteDraft={setNoteDraft}
+                noteType={noteType}
+                setNoteType={setNoteType}
+                noteSeverity={noteSeverity}
+                setNoteSeverity={setNoteSeverity}
+                onAddNote={addNote}
+                onEditPlan={startEditPlanBlock}
+                onGenerateDraft={openGenerateDraftModal}
+                onRegenerateBlock={regenerateBlock}
+                onPlanStateChange={setPlanState}
+                onExportDocx={exportDietPlanDocx}
+                onDietCellChange={updateDietCell}
+              />
+              <AIDraftProgressModal
+                isOpen={aiDraftModalOpen}
+                onClose={closeGenerateDraftModal}
+                status={aiDraftStatus}
+                progress={aiDraftProgress}
+                stageLabel={aiDraftStageLabel}
+                clientName={selectedClient?.name}
+                onDownload={exportDietPlanDocx}
+                onShareEmail={shareDietPlanViaEmail}
+                onShareWhatsapp={shareDietPlanViaWhatsapp}
+              />
+              <QueueConsole
+                mode={queueConsoleMode}
+                setMode={setQueueConsoleMode}
+                queueViews={queueViews}
+                activeQueue={activeQueue}
+                setActiveQueue={setActiveQueue}
+                filteredClients={filteredClients}
+                onClientOpen={openClient}
+              />
+            </>
+          ) : null}
           <QueueBottomSheet
             isOpen={queueSheetOpen}
             onClose={() => setQueueSheetOpen(false)}
@@ -4688,6 +4975,9 @@ function PlatformWorkspace({ forcedRole }) {
             setActiveQueue={setActiveQueue}
             filteredClients={filteredClients}
             onClientOpen={openClient}
+            loading={fiteatsyClientsLoading}
+            error={fiteatsyClientsError}
+            isRealFiteatsy={usesRealFiteatsyClients}
           />
         </>
       ) : null}
