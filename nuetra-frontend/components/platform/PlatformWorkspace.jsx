@@ -23,6 +23,7 @@ import {
 import withAuth from '../../hocs/withAuth';
 import { useAuth } from '../../context/AuthContext';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
+import { listFiteatsyConsultantClients } from '../../lib/fiteatsyConsultantsApi';
 import { corporateAPI } from '../../lib/api';
 import { ADMIN_ACCESS_POLICY, DELIVERY_ACCESS_POLICY, MENTOR_ACCESS_POLICY, ORGANIZATION_ACCESS_POLICY } from '../../lib/roleRoutes';
 
@@ -299,6 +300,78 @@ function buildClientRecords(state) {
     brandContext: employee.brand === 'Fiteatsy' ? 'Hormonal recovery' : 'Corporate wellness',
     packageLabel: employee.packageName || (employee.brand === 'Nuetra' ? 'Annual Corporate Program' : 'Recovery Program'),
   }));
+}
+
+function formatDateLabel(value) {
+  if (!value) return 'Not available';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Not available';
+  return date.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function buildFiteatsyClientRecords(apiClients) {
+  return apiClients.map((client) => ({
+    id: client.clientId,
+    clientId: client.clientId,
+    name: client.name,
+    brand: 'Fiteatsy',
+    packageName: 'Not assigned',
+    packageLabel: 'Not assigned',
+    organization: 'Fiteatsy',
+    recoveryStage: client.profileCompleted ? 'Onboarding completed' : 'Onboarding pending',
+    profileCompleted: client.profileCompleted,
+    age: client.age,
+    gender: client.gender,
+    registeredAt: client.registeredAt,
+    lastActivity: formatDateLabel(client.lastActiveAt || client.registeredAt),
+    lastActiveAt: client.lastActiveAt,
+    riskLevel: 'stable',
+    adherenceScore: null,
+    mentorName: 'Not assigned',
+    planStatus: client.profileCompleted ? 'complete' : 'pending',
+    confidence: null,
+    conditions: [],
+    biomarkers: [],
+    reports: [],
+    interventions: [],
+    notes: [],
+    goals: [],
+    region: 'Not available',
+    dietaryStyle: 'Not available',
+    recovery: 0,
+    sleepQuality: 0,
+    hydration: 0,
+    stress: 0,
+    burnoutRisk: 'stable',
+    trendSummary: {
+      title: client.profileCompleted ? 'Onboarding profile available' : 'Awaiting onboarding completion',
+      explanation: 'Biomarker timelines and adherence analytics will appear after M2 synchronization.',
+      action: '',
+    },
+    conditionFocus: {
+      condition: 'Client profile foundation',
+      drivers: [],
+      action: '',
+    },
+    recoveryMomentum: {
+      label: 'Not calculated',
+      direction: 'right',
+      status: 'stable',
+    },
+    behavioralCorrelation: 'Not available until health data synchronization is enabled.',
+    brandContext: 'Fiteatsy client profile',
+  }));
+}
+
+function getFiteatsyClientsErrorMessage(error) {
+  if (!error) return null;
+  if (error.status === 401) return 'Session expired';
+  if (error.status === 403) return 'Consultant access required';
+  return error.message || 'Unable to load Fiteatsy clients.';
 }
 
 function buildNutritionProfileSnapshot(employee) {
@@ -846,7 +919,7 @@ function TopAppBar({ roleName, timeframe, setTimeframe, search, setSearch, onSea
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {resumeLabel ? (
+          {resumeLabel && onResumeWorkspace ? (
             <motion.button {...hoverLift} onClick={onResumeWorkspace} className="hidden rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-neutral-foreground-1)] shadow-[0_2px_8px_var(--fluent-shadow-ambient),0_12px_28px_var(--fluent-shadow-key)] lg:inline-flex">
               Resume workspace - {resumeLabel}
             </motion.button>
@@ -1522,7 +1595,9 @@ function ConsultantHome({
   );
 }
 
-function SmartClientQueues({ queueViews, activeQueue, setActiveQueue, filteredClients, onClientOpen, onQueueOpen }) {
+function SmartClientQueues({ queueViews, activeQueue, setActiveQueue, filteredClients, onClientOpen, onQueueOpen, loading = false, error = null, isRealFiteatsy = false }) {
+  const errorMessage = getFiteatsyClientsErrorMessage(error);
+
   return (
     <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
       <Surface className="p-4" animated>
@@ -1551,25 +1626,42 @@ function SmartClientQueues({ queueViews, activeQueue, setActiveQueue, filteredCl
       </Surface>
       <Surface className="p-3">
         <div className="divide-y divide-[#EEF2F6]">
-          {filteredClients.map((client) => (
-            <motion.button key={client.id} onClick={() => onClientOpen(client.id)} {...hoverLift} className="grid w-full gap-3 px-4 py-4 text-left transition hover:bg-[var(--fluent-color-neutral-background-2)] lg:grid-cols-[1.5fr_0.7fr_0.7fr_1fr_1fr] lg:items-center">
+          {loading ? (
+            <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading Fiteatsy clients...</div>
+          ) : errorMessage ? (
+            <div className="rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-5 text-sm font-medium text-[var(--fluent-color-status-danger-foreground)]">{errorMessage}</div>
+          ) : filteredClients.length ? filteredClients.map((client) => (
+            <motion.button
+              key={client.id}
+              onClick={() => {
+                if (!isRealFiteatsy) onClientOpen(client.id);
+              }}
+              {...(!isRealFiteatsy ? hoverLift : {})}
+              className={`grid w-full gap-3 px-4 py-4 text-left transition lg:grid-cols-[1.5fr_0.7fr_0.7fr_1fr_1fr] lg:items-center ${isRealFiteatsy ? 'cursor-default' : 'hover:bg-[var(--fluent-color-neutral-background-2)]'}`}
+            >
               <div>
                 <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{client.name}</p>
                 <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.brand} · {client.packageLabel} · {client.brand === 'Nuetra' ? client.organization : client.recoveryStage}</p>
               </div>
-              <div><StatusChip status={client.riskLevel}>{client.riskLevel}</StatusChip></div>
-              <div className="text-sm text-[var(--fluent-color-neutral-foreground-1)]">{client.adherenceScore}%</div>
-              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.mentorName}</div>
-              <div><StatusChip status={client.planStatus}>{formatStatusLabel(client.planStatus)}</StatusChip></div>
+              <div><StatusChip status={isRealFiteatsy ? client.planStatus : client.riskLevel}>{isRealFiteatsy ? client.recoveryStage : client.riskLevel}</StatusChip></div>
+              <div className="text-sm text-[var(--fluent-color-neutral-foreground-1)]">{isRealFiteatsy ? 'Not calculated' : `${client.adherenceScore}%`}</div>
+              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{isRealFiteatsy ? client.lastActivity : client.mentorName}</div>
+              <div><StatusChip status={client.planStatus}>{isRealFiteatsy ? 'No action yet' : formatStatusLabel(client.planStatus)}</StatusChip></div>
             </motion.button>
-          ))}
+          )) : (
+            <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+              No Fiteatsy clients registered yet. Clients will appear here after users complete Fiteatsy onboarding.
+            </div>
+          )}
         </div>
       </Surface>
     </div>
   );
 }
 
-function QueueBottomSheet({ isOpen, onClose, queueViews, activeQueue, setActiveQueue, filteredClients, onClientOpen }) {
+function QueueBottomSheet({ isOpen, onClose, queueViews, activeQueue, setActiveQueue, filteredClients, onClientOpen, loading = false, error = null, isRealFiteatsy = false }) {
+  const errorMessage = getFiteatsyClientsErrorMessage(error);
+
   return (
     <AnimatePresence>
       {isOpen ? (
@@ -1623,27 +1715,37 @@ function QueueBottomSheet({ isOpen, onClose, queueViews, activeQueue, setActiveQ
                   </div>
                 </div>
                 <div className="space-y-2">
-                  {filteredClients.length ? filteredClients.map((client) => (
+                  {loading ? (
+                    <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading Fiteatsy clients...</div>
+                  ) : errorMessage ? (
+                    <div className="rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-4 text-sm font-medium text-[var(--fluent-color-status-danger-foreground)]">{errorMessage}</div>
+                  ) : filteredClients.length ? filteredClients.map((client) => (
                     <button
                       key={client.id}
                       onClick={() => {
-                        onClientOpen(client.id);
-                        onClose();
+                        if (!isRealFiteatsy) {
+                          onClientOpen(client.id);
+                          onClose();
+                        }
                       }}
-                      className="flex w-full items-center justify-between rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-left transition hover:bg-[#f7f9fc]"
+                      className={`flex w-full items-center justify-between rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-left transition ${isRealFiteatsy ? 'cursor-default' : 'hover:bg-[#f7f9fc]'}`}
                     >
                       <div>
                         <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{client.name}</p>
                         <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.trendSummary.title}</p>
-                        <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{client.brand} • {client.packageLabel} • {client.mentorName} • {client.adherenceScore}% adherence</p>
+                        <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+                          {isRealFiteatsy ? `${client.brand} • ${client.packageLabel} • ${client.lastActivity} • adherence not calculated` : `${client.brand} • ${client.packageLabel} • ${client.mentorName} • ${client.adherenceScore}% adherence`}
+                        </p>
                       </div>
                       <div className="flex flex-col items-end gap-2">
-                        <StatusChip status={client.riskLevel}>{client.riskLevel}</StatusChip>
+                        <StatusChip status={isRealFiteatsy ? client.planStatus : client.riskLevel}>{isRealFiteatsy ? client.recoveryStage : client.riskLevel}</StatusChip>
                         <StatusChip status={client.planStatus}>{formatStatusLabel(client.planStatus)}</StatusChip>
                       </div>
                     </button>
                   )) : (
-                    <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No clients match this queue and filter combination.</div>
+                    <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                      {isRealFiteatsy ? 'No Fiteatsy clients registered yet. Clients will appear here after users complete Fiteatsy onboarding.' : 'No clients match this queue and filter combination.'}
+                    </div>
                   )}
                 </div>
               </div>
@@ -3602,7 +3704,9 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
   );
 }
 
-function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filteredClients, onClientOpen }) {
+function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filteredClients, onClientOpen, loading = false, error = null, isRealFiteatsy = false }) {
+  const errorMessage = getFiteatsyClientsErrorMessage(error);
+
   return (
     <div className="space-y-4">
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
@@ -3639,11 +3743,17 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
           <span>Next action</span>
         </div>
         <div className="divide-y divide-[var(--fluent-color-neutral-stroke-1)]">
-          {filteredClients.slice(0, 16).map((client) => (
+          {loading ? (
+            <div className="px-4 py-8 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading Fiteatsy clients...</div>
+          ) : errorMessage ? (
+            <div className="px-4 py-8 text-sm font-medium text-[var(--fluent-color-status-danger-foreground)]">{errorMessage}</div>
+          ) : filteredClients.length ? filteredClients.slice(0, 16).map((client) => (
             <button
               key={client.id}
-              onClick={() => onClientOpen(client.id)}
-              className="grid w-full grid-cols-[1.3fr_0.9fr_1fr_0.8fr_1fr_0.9fr_1.1fr] gap-3 px-4 py-4 text-left transition hover:bg-[var(--fluent-color-neutral-background-2)]"
+              onClick={() => {
+                if (!isRealFiteatsy) onClientOpen(client.id);
+              }}
+              className={`grid w-full grid-cols-[1.3fr_0.9fr_1fr_0.8fr_1fr_0.9fr_1.1fr] gap-3 px-4 py-4 text-left transition ${isRealFiteatsy ? 'cursor-default' : 'hover:bg-[var(--fluent-color-neutral-background-2)]'}`}
             >
               <div>
                 <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{client.name}</p>
@@ -3651,15 +3761,19 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
               </div>
               <div className="min-w-0 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.packageLabel}</div>
               <div className="min-w-0">
-                <StatusChip status={client.recoveryMomentum.status}>{client.recoveryMomentum.label}</StatusChip>
+                <StatusChip status={isRealFiteatsy ? 'pending' : client.recoveryMomentum.status}>{isRealFiteatsy ? 'Not calculated' : client.recoveryMomentum.label}</StatusChip>
                 <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{client.trendSummary.title}</p>
               </div>
-              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.adherenceScore}%</div>
+              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{isRealFiteatsy ? 'Not calculated' : `${client.adherenceScore}%`}</div>
               <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{formatStatusLabel(client.planStatus)}</div>
               <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.lastActivity}</div>
-              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.conditionFocus.action.split('.')[0]}</div>
+              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{isRealFiteatsy ? 'No action yet' : client.conditionFocus.action.split('.')[0]}</div>
             </button>
-          ))}
+          )) : (
+            <div className="px-4 py-8 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+              No Fiteatsy clients registered yet. Clients will appear here after users complete Fiteatsy onboarding.
+            </div>
+          )}
         </div>
       </Surface>
     </div>
@@ -3864,6 +3978,11 @@ function PlatformWorkspace({ forcedRole }) {
   const [aiDraftStatus, setAiDraftStatus] = useState('idle');
   const [aiDraftProgress, setAiDraftProgress] = useState(0);
   const [aiDraftStageLabel, setAiDraftStageLabel] = useState(aiDraftProgressStages[0].label);
+  const [fiteatsyClients, setFiteatsyClients] = useState([]);
+  const [fiteatsyClientsLoading, setFiteatsyClientsLoading] = useState(false);
+  const [fiteatsyClientsError, setFiteatsyClientsError] = useState(null);
+
+  const usesRealFiteatsyClients = roleKind === 'consultant';
 
   useEffect(() => {
     if (selectedClientId) {
@@ -3920,7 +4039,36 @@ function PlatformWorkspace({ forcedRole }) {
     return () => window.clearInterval(timer);
   }, [aiDraftModalOpen, aiDraftStatus]);
 
-  const allClients = useMemo(() => buildClientRecords(state), [state]);
+  useEffect(() => {
+    if (!usesRealFiteatsyClients) return undefined;
+
+    let cancelled = false;
+    setFiteatsyClientsLoading(true);
+    setFiteatsyClientsError(null);
+
+    listFiteatsyConsultantClients()
+      .then(({ clients: apiClients }) => {
+        if (cancelled) return;
+        setFiteatsyClients(apiClients);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setFiteatsyClients([]);
+        setFiteatsyClientsError(error);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setFiteatsyClientsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [usesRealFiteatsyClients]);
+
+  const mockClients = useMemo(() => buildClientRecords(state), [state]);
+  const realFiteatsyClients = useMemo(() => buildFiteatsyClientRecords(fiteatsyClients), [fiteatsyClients]);
+  const allClients = useMemo(() => (usesRealFiteatsyClients ? realFiteatsyClients : mockClients), [mockClients, realFiteatsyClients, usesRealFiteatsyClients]);
   const clients = useMemo(() => (
     brandView === 'All Brands' ? allClients : allClients.filter((client) => client.brand === brandView)
   ), [allClients, brandView]);
@@ -3939,6 +4087,37 @@ function PlatformWorkspace({ forcedRole }) {
       };
 
   const queueViews = useMemo(() => {
+    if (usesRealFiteatsyClients) {
+      const definitions = [
+        {
+          key: 'registered_clients',
+          title: 'Registered Clients',
+          subtitle: 'Real Fiteatsy users returned by the backend consultant API',
+          tone: 'stable',
+          filter: () => true,
+        },
+        {
+          key: 'onboarding_complete',
+          title: 'Onboarding Complete',
+          subtitle: 'Clients with profile foundation available',
+          tone: 'complete',
+          filter: (client) => client.profileCompleted,
+        },
+        {
+          key: 'onboarding_pending',
+          title: 'Onboarding Pending',
+          subtitle: 'Clients who still need to finish onboarding before deeper metrics are shown',
+          tone: 'pending',
+          filter: (client) => !client.profileCompleted,
+        },
+      ];
+
+      return definitions.map((definition) => ({
+        ...definition,
+        count: clients.filter(definition.filter).length,
+      }));
+    }
+
     const definitions = [
       {
         key: 'needs_review',
@@ -4016,7 +4195,14 @@ function PlatformWorkspace({ forcedRole }) {
       ...definition,
       count: clients.filter(definition.filter).length,
     }));
-  }, [clients]);
+  }, [clients, usesRealFiteatsyClients]);
+
+  useEffect(() => {
+    if (!usesRealFiteatsyClients) return;
+    if (!queueViews.some((view) => view.key === activeQueue)) {
+      setActiveQueue('registered_clients');
+    }
+  }, [activeQueue, queueViews, usesRealFiteatsyClients]);
 
   const filteredClients = useMemo(() => {
     const activeView = queueViews.find((view) => view.key === activeQueue);
@@ -4239,6 +4425,10 @@ function PlatformWorkspace({ forcedRole }) {
   }, [memoryItems, priorityQueue, state.recoveryAlerts]);
 
   function openClient(clientId, targetTab = 'Overview') {
+    if (usesRealFiteatsyClients) {
+      setSearchOpen(false);
+      return;
+    }
     setSelectedClientId(clientId);
     setClientWorkspaceTab(targetTab);
     setClientDrawerOpen(true);
@@ -4550,7 +4740,7 @@ function PlatformWorkspace({ forcedRole }) {
         user={user}
         logout={logout}
         onQuickAction={() => setSearchOpen(true)}
-        onResumeWorkspace={() => openClient(selectedClientId, clientWorkspaceTab)}
+        onResumeWorkspace={usesRealFiteatsyClients ? undefined : () => openClient(selectedClientId, clientWorkspaceTab)}
         resumeLabel={selectedClient?.name}
       />
 
@@ -4594,6 +4784,9 @@ function PlatformWorkspace({ forcedRole }) {
               setActiveQueue={setActiveQueue}
               filteredClients={filteredClients}
               onClientOpen={openClient}
+              loading={fiteatsyClientsLoading}
+              error={fiteatsyClientsError}
+              isRealFiteatsy={usesRealFiteatsyClients}
             />
           ) : null}
 
@@ -4639,47 +4832,51 @@ function PlatformWorkspace({ forcedRole }) {
 
       {roleKind === 'consultant' ? (
         <>
-          <ClientIntelligenceDrawer
-            isOpen={clientDrawerOpen}
-            onClose={() => setClientDrawerOpen(false)}
-            employee={selectedClient}
-            plan={selectedPlan}
-            activeTab={clientWorkspaceTab}
-            setActiveTab={setClientWorkspaceTab}
-            noteDraft={noteDraft}
-            setNoteDraft={setNoteDraft}
-            noteType={noteType}
-            setNoteType={setNoteType}
-            noteSeverity={noteSeverity}
-            setNoteSeverity={setNoteSeverity}
-            onAddNote={addNote}
-            onEditPlan={startEditPlanBlock}
-            onGenerateDraft={openGenerateDraftModal}
-            onRegenerateBlock={regenerateBlock}
-            onPlanStateChange={setPlanState}
-            onExportDocx={exportDietPlanDocx}
-            onDietCellChange={updateDietCell}
-          />
-          <AIDraftProgressModal
-            isOpen={aiDraftModalOpen}
-            onClose={closeGenerateDraftModal}
-            status={aiDraftStatus}
-            progress={aiDraftProgress}
-            stageLabel={aiDraftStageLabel}
-            clientName={selectedClient?.name}
-            onDownload={exportDietPlanDocx}
-            onShareEmail={shareDietPlanViaEmail}
-            onShareWhatsapp={shareDietPlanViaWhatsapp}
-          />
-          <QueueConsole
-            mode={queueConsoleMode}
-            setMode={setQueueConsoleMode}
-            queueViews={queueViews}
-            activeQueue={activeQueue}
-            setActiveQueue={setActiveQueue}
-            filteredClients={filteredClients}
-            onClientOpen={openClient}
-          />
+          {!usesRealFiteatsyClients ? (
+            <>
+              <ClientIntelligenceDrawer
+                isOpen={clientDrawerOpen}
+                onClose={() => setClientDrawerOpen(false)}
+                employee={selectedClient}
+                plan={selectedPlan}
+                activeTab={clientWorkspaceTab}
+                setActiveTab={setClientWorkspaceTab}
+                noteDraft={noteDraft}
+                setNoteDraft={setNoteDraft}
+                noteType={noteType}
+                setNoteType={setNoteType}
+                noteSeverity={noteSeverity}
+                setNoteSeverity={setNoteSeverity}
+                onAddNote={addNote}
+                onEditPlan={startEditPlanBlock}
+                onGenerateDraft={openGenerateDraftModal}
+                onRegenerateBlock={regenerateBlock}
+                onPlanStateChange={setPlanState}
+                onExportDocx={exportDietPlanDocx}
+                onDietCellChange={updateDietCell}
+              />
+              <AIDraftProgressModal
+                isOpen={aiDraftModalOpen}
+                onClose={closeGenerateDraftModal}
+                status={aiDraftStatus}
+                progress={aiDraftProgress}
+                stageLabel={aiDraftStageLabel}
+                clientName={selectedClient?.name}
+                onDownload={exportDietPlanDocx}
+                onShareEmail={shareDietPlanViaEmail}
+                onShareWhatsapp={shareDietPlanViaWhatsapp}
+              />
+              <QueueConsole
+                mode={queueConsoleMode}
+                setMode={setQueueConsoleMode}
+                queueViews={queueViews}
+                activeQueue={activeQueue}
+                setActiveQueue={setActiveQueue}
+                filteredClients={filteredClients}
+                onClientOpen={openClient}
+              />
+            </>
+          ) : null}
           <QueueBottomSheet
             isOpen={queueSheetOpen}
             onClose={() => setQueueSheetOpen(false)}
@@ -4688,6 +4885,9 @@ function PlatformWorkspace({ forcedRole }) {
             setActiveQueue={setActiveQueue}
             filteredClients={filteredClients}
             onClientOpen={openClient}
+            loading={fiteatsyClientsLoading}
+            error={fiteatsyClientsError}
+            isRealFiteatsy={usesRealFiteatsyClients}
           />
         </>
       ) : null}

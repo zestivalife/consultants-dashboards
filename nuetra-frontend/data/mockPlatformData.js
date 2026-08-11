@@ -51,9 +51,9 @@ export const practitioners = {
 };
 
 const FIRST_NAMES = [
-  'Aarav', 'Aditi', 'Akash', 'Ananya', 'Arjun', 'Bhavna', 'Charu', 'Dev', 'Esha', 'Farhan',
+  'Aarav', 'Aditi', 'Akash', 'Arjun', 'Bhavna', 'Charu', 'Dev', 'Gauri', 'Harsh', 'Ishita',
   'Gauri', 'Harsh', 'Ishita', 'Jay', 'Karan', 'Kavya', 'Meera', 'Neha', 'Nikhil', 'Pooja',
-  'Rahul', 'Rhea', 'Ritu', 'Saanvi', 'Sameer', 'Shreya', 'Tanmay', 'Tanya', 'Varun', 'Zoya',
+  'Rahul', 'Rhea', 'Ritu', 'Shreya', 'Tanmay', 'Tanya', 'Varun', 'Advait', 'Diya', 'Tara',
 ];
 
 const LAST_NAMES = [

@@ -179,8 +179,8 @@ export const platformOwnerConsoleData = {
     },
     {
       id: 'usr-003',
-      name: 'Ananya Joshi',
-      email: 'ananya.joshi@nuetra.in',
+      name: 'Operations Admin',
+      email: 'operations.admin@nuetra.in',
       role: 'admin',
       status: 'Active',
       organizations: ['Zenith Forge', 'Atlas Commerce'],
@@ -475,9 +475,9 @@ export const platformOwnerConsoleData = {
     ],
   },
   auditLogs: [
-    { id: 'log-001', actor: 'Lalit Paunikar', action: 'Updated authority bundle', target: 'Ananya Joshi', oldValue: 'Admin', newValue: 'Admin + Audit', timestamp: '2026-07-10 09:45', ip: '103.82.19.21', browser: 'Chrome 138', requestId: 'req-71a9' },
+    { id: 'log-001', actor: 'Lalit Paunikar', action: 'Updated authority bundle', target: 'Operations Admin', oldValue: 'Admin', newValue: 'Admin + Audit', timestamp: '2026-07-10 09:45', ip: '103.82.19.21', browser: 'Chrome 138', requestId: 'req-71a9' },
     { id: 'log-002', actor: 'Priyanshi', action: 'Created organization', target: 'Northstar Labs', oldValue: '-', newValue: 'Active', timestamp: '2026-07-10 08:22', ip: '49.43.55.103', browser: 'Chrome 138', requestId: 'req-71b0' },
-    { id: 'log-003', actor: 'Ananya Joshi', action: 'Bulk created employees', target: 'Atlas Commerce', oldValue: '0 users', newValue: '22 users', timestamp: '2026-07-09 18:10', ip: '117.201.98.10', browser: 'Edge 138', requestId: 'req-70fc' },
+    { id: 'log-003', actor: 'Operations Admin', action: 'Bulk created employees', target: 'Atlas Commerce', oldValue: '0 users', newValue: '22 users', timestamp: '2026-07-09 18:10', ip: '117.201.98.10', browser: 'Edge 138', requestId: 'req-70fc' },
   ],
   settings: [
     { id: 'set-001', group: 'Workspace', title: 'Workspace profile', description: 'Brand name, legal entity, and primary operations metadata.', status: 'Configured' },
