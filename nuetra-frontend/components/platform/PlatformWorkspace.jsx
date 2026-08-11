@@ -4297,7 +4297,8 @@ function PlatformWorkspace({ forcedRole }) {
   const resolvedRole = forcedRole || user?.role || 'consultant';
   const roleKind = getRoleKind(resolvedRole);
   const isSuperAdmin = superAdminRoles.has(String(resolvedRole).toLowerCase());
-  const usesRealFiteatsyClients = roleKind === 'consultant';
+  const [brandView, setBrandView] = useState('All Brands');
+  const usesRealFiteatsyClients = roleKind === 'consultant' || brandView === 'Fiteatsy';
   const [state, setState] = useState(() => {
     if (usesRealFiteatsyClients) return buildEmptyPlatformState();
 
@@ -4315,7 +4316,6 @@ function PlatformWorkspace({ forcedRole }) {
   });
   const [nav, setNav] = useState(() => (usesRealFiteatsyClients ? 'clients' : 'command-center'));
   const [timeframe, setTimeframe] = useState('Week');
-  const [brandView, setBrandView] = useState('All Brands');
   const [globalSearch, setGlobalSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [activeQueue, setActiveQueue] = useState('needs_review');
@@ -5296,6 +5296,18 @@ function PlatformWorkspace({ forcedRole }) {
                 <OrganizationsPage organizationSignals={organizationSignals} />
               ) : nav === 'people' ? (
                 isSuperAdmin ? <SuperAdminPeoplePage /> : <CompactPageHeader title="Restricted" subtitle="Only super admins can manage mentors, consultants, admins, and their authorities." />
+              ) : nav === 'clients' && usesRealFiteatsyClients ? (
+                <ClientDirectoryPage
+                  queueViews={queueViews}
+                  activeQueue={activeQueue}
+                  setActiveQueue={setActiveQueue}
+                  filteredClients={filteredClients}
+                  totalCount={clients.length}
+                  onClientOpen={openClient}
+                  loading={fiteatsyClientsLoading}
+                  error={fiteatsyClientsError}
+                  isRealFiteatsy={usesRealFiteatsyClients}
+                />
               ) : (
                 <>
                   <CompactPageHeader title={adminHeader.title} subtitle={adminHeader.subtitle} />
@@ -5307,18 +5319,19 @@ function PlatformWorkspace({ forcedRole }) {
         </main>
       </div>
 
+      {usesRealFiteatsyClients ? (
+        <RealClientProfileDrawer
+          isOpen={realClientDrawerOpen}
+          onClose={() => setRealClientDrawerOpen(false)}
+          summaryClient={selectedClient}
+          profile={realClientProfile}
+          loading={realClientProfileLoading}
+          error={realClientProfileError}
+        />
+      ) : null}
+
       {roleKind === 'consultant' ? (
         <>
-          {usesRealFiteatsyClients ? (
-            <RealClientProfileDrawer
-              isOpen={realClientDrawerOpen}
-              onClose={() => setRealClientDrawerOpen(false)}
-              summaryClient={selectedClient}
-              profile={realClientProfile}
-              loading={realClientProfileLoading}
-              error={realClientProfileError}
-            />
-          ) : null}
           {!usesRealFiteatsyClients ? (
             <>
               <ClientIntelligenceDrawer
