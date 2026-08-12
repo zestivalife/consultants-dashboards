@@ -23,7 +23,7 @@ import {
 import withAuth from '../../hocs/withAuth';
 import { useAuth } from '../../context/AuthContext';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
-import { listFiteatsyConsultantClients } from '../../lib/fiteatsyConsultantsApi';
+import { getFiteatsyConsultantClientProfile, listFiteatsyConsultantClients } from '../../lib/fiteatsyConsultantsApi';
 import { corporateAPI } from '../../lib/api';
 import { ADMIN_ACCESS_POLICY, DELIVERY_ACCESS_POLICY, MENTOR_ACCESS_POLICY, ORGANIZATION_ACCESS_POLICY } from '../../lib/roleRoutes';
 
@@ -1852,25 +1852,66 @@ function QueueBottomSheet({ isOpen, onClose, queueViews, activeQueue, setActiveQ
 }
 
 function RealFiteatsyClientDrawer({ isOpen, onClose, client }) {
+  const [profile, setProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState(null);
+  const [profileReloadKey, setProfileReloadKey] = useState(0);
+
+  useEffect(() => {
+    if (!isOpen || !client?.clientId) return undefined;
+
+    let cancelled = false;
+    setProfileLoading(true);
+    setProfileError(null);
+
+    getFiteatsyConsultantClientProfile(client.clientId)
+      .then((payload) => {
+        if (cancelled) return;
+        setProfile(payload);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setProfile(null);
+        setProfileError(error);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setProfileLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client?.clientId, isOpen, profileReloadKey]);
+
   if (!client) return null;
 
+  const detailClient = profile?.client || {};
+  const onboarding = profile?.onboarding || {};
+  const healthProfile = profile?.healthProfile || {};
+  const healthMetrics = profile?.healthMetrics || {};
+  const biomarkers = Array.isArray(profile?.biomarkers) ? profile.biomarkers : [];
   const profileItems = [
-    ['Email', client.email || 'Not available'],
-    ['Mobile', client.mobile || client.mobileNumberMasked || 'Not available'],
-    ['Status', client.accountStatus || client.status || 'Not available'],
-    ['Registered', formatDateLabel(client.registeredAt)],
+    ['Email', detailClient.email || client.email || 'Not available'],
+    ['Mobile', detailClient.mobile || detailClient.mobileNumberMasked || client.mobile || client.mobileNumberMasked || 'Not available'],
+    ['Status', detailClient.accountStatus || detailClient.status || client.accountStatus || client.status || 'Not available'],
+    ['Registered', formatDateLabel(detailClient.registrationDate || client.registeredAt)],
     ['Last activity', client.lastActivity],
     ['Data source', client.dataSourceLabel],
   ];
   const onboardingItems = [
-    ['Age', client.age ?? 'Not available'],
-    ['Gender', client.gender || 'Not available'],
-    ['Height', client.height ? `${client.height} cm` : 'Not available'],
-    ['Weight', client.weight ? `${client.weight} kg` : 'Not available'],
-    ['Goal', client.goal || 'Not available'],
-    ['Activity', client.activityLevel || 'Not available'],
-    ['Diet', client.dietPreference || 'Not available'],
+    ['Age', detailClient.age ?? client.age ?? 'Not available'],
+    ['Gender', detailClient.gender || client.gender || 'Not available'],
+    ['Height', onboarding.height || client.height ? `${onboarding.height || client.height} cm` : 'Not available'],
+    ['Weight', onboarding.weight || client.weight ? `${onboarding.weight || client.weight} kg` : 'Not available'],
+    ['Goal', onboarding.goal || client.goal || 'Not available'],
+    ['Activity', onboarding.activityLevel || client.activityLevel || 'Not available'],
+    ['Diet', onboarding.dietPreference || client.dietPreference || 'Not available'],
   ];
+  const reportsCount = healthProfile.reportsCount ?? client.reportsCount ?? 0;
+  const healthScore = healthMetrics.overallScore ?? healthMetrics.healthScore ?? healthMetrics.score ?? null;
+  const actionLabel = (profile?.healthProfile?.profileCompleted ?? client.profileCompleted) ? 'Review profile' : 'Complete onboarding';
+  const detailErrorMessage = getFiteatsyClientsErrorMessage(profileError);
 
   return (
     <AnimatePresence>
@@ -1910,24 +1951,43 @@ function RealFiteatsyClientDrawer({ isOpen, onClose, client }) {
                 <div className="mt-4 grid gap-2 sm:grid-cols-4">
                   <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-3">
                     <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Profile</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{client.profileCompleted ? 'Completed' : 'Pending'}</p>
+                    <p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{healthProfile.profileCompleted ?? client.profileCompleted ? 'Completed' : 'Pending'}</p>
                   </div>
                   <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-3">
                     <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Reports</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{client.reportsCount}</p>
+                    <p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{profileLoading ? 'Loading...' : reportsCount}</p>
                   </div>
                   <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-3">
                     <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Health score</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Not calculated</p>
+                    <p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{profileLoading ? 'Loading...' : healthScore ?? 'Not calculated'}</p>
                   </div>
                   <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-3">
                     <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Next action</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{client.profileCompleted ? 'Review profile' : 'Complete onboarding'}</p>
+                    <p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{actionLabel}</p>
                   </div>
                 </div>
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+                {profileLoading ? (
+                  <div className="mb-4 grid gap-3 xl:grid-cols-3">
+                    {[0, 1, 2].map((item) => (
+                      <div key={item} className="animate-pulse rounded-[20px] bg-[var(--fluent-color-neutral-background-1)] p-4">
+                        <div className="h-4 w-32 rounded-full bg-[var(--fluent-color-neutral-background-3)]" />
+                        <div className="mt-3 h-3 w-52 rounded-full bg-[var(--fluent-color-neutral-background-2)]" />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {detailErrorMessage ? (
+                  <DirectoryStateMessage
+                    tone="danger"
+                    title="Unable to load client health context"
+                    message={detailErrorMessage}
+                    actionLabel="Retry"
+                    onAction={() => setProfileReloadKey((value) => value + 1)}
+                  />
+                ) : null}
                 <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
                   <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4">
                     <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Profile summary</p>
@@ -1956,10 +2016,10 @@ function RealFiteatsyClientDrawer({ isOpen, onClose, client }) {
 
                 <div className="mt-4 grid gap-4 xl:grid-cols-3">
                   {[
-                    ['Medical reports', client.reportsCount ? `${client.reportsCount} report${client.reportsCount === 1 ? '' : 's'} recorded. Detailed report review will load from the report service in the next workspace layer.` : 'Client has not uploaded any health reports yet.'],
-                    ['Biomarkers', client.reportsCount ? 'Validated biomarkers will appear here once the consultant biomarker timeline endpoint is enabled.' : 'No validated biomarker timeline is available yet.'],
+                    ['Medical reports', reportsCount ? `${reportsCount} report${reportsCount === 1 ? '' : 's'} recorded. Detailed report review loads progressively from Fiteatsy.` : 'Client has not uploaded any health reports yet.'],
+                    ['Biomarkers', biomarkers.length ? `${biomarkers.length} validated biomarker${biomarkers.length === 1 ? '' : 's'} available for consultant review.` : 'No validated biomarker timeline is available yet.'],
                     ['Wearables', 'Connect wearable device to unlock recovery, sleep, activity, and calm insights.'],
-                    ['Recommendations', 'No report-backed recommendation has been generated for this client yet.'],
+                    ['Recommendations', healthScore ? 'Health score is available. Recommendation intelligence can now be layered without loading the full report ecosystem in the roster.' : 'No report-backed recommendation has been generated for this client yet.'],
                     ['Nutrition protocol', 'No active nutrition protocol assigned.'],
                     ['Audit note', 'This workspace is showing live Fiteatsy registration and onboarding data only. No mock health values are rendered.'],
                   ].map(([title, message]) => (

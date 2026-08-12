@@ -94,3 +94,13 @@ export async function listFiteatsyConsultantClients() {
     clients: Array.isArray(body?.clients) ? body.clients.map(mapClient) : [],
   };
 }
+
+export async function getFiteatsyConsultantClientProfile(clientId) {
+  if (!clientId) {
+    const error = new Error('Client ID is required');
+    error.status = 400;
+    throw error;
+  }
+
+  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}`);
+}
