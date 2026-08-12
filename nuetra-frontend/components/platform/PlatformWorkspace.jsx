@@ -945,18 +945,26 @@ function RealClientProfileDrawer({
   const biomarkers = profile?.biomarkers || [];
   const reports = profile?.reports || [];
   const timeline = profile?.timeline || [];
+  const bodyComposition = {
+    waistCm: healthProfile?.waistCm ?? null,
+    hipCm: healthProfile?.hipCm ?? null,
+    neckCm: healthProfile?.neckCm ?? null,
+    goalWeightKg: healthProfile?.goalWeightKg ?? null,
+  };
+  const lifestyleSleepQuality = onboarding?.lifestyle?.sleepQuality || healthProfile?.sleepQualityLabel || null;
+  const lifestyleStressLevel = onboarding?.lifestyle?.stressLevel || healthProfile?.stressLevelLabel || null;
   const workspaceTabs = ['Overview', 'Health Profile', 'Lifestyle', 'Reports', 'Biomarkers', 'Nutrition Plan', 'Activity', 'Timeline'];
   const goalLabel = onboarding?.goal || summaryClient?.program || 'Not assigned';
   const profileStrength = healthProfile?.completionPercent ?? healthProfile?.profileCompleteness ?? summaryClient?.profileCompletedPercent;
   const lastSynced = syncMetadata?.lastSyncedAt || healthProfile?.lastHealthUpdate || client?.lastActiveAt || summaryClient?.lastActivityAt;
   const riskFlags = [
     biomarkers.some((item) => String(item.name || '').toLowerCase().includes('b12') && ['LOW', 'CRITICAL'].includes(String(item.status || '').toUpperCase())) ? 'Low B12' : null,
-    ['Poor', 'Average'].includes(onboarding?.lifestyle?.sleepQuality) ? 'Poor sleep' : null,
-    ['High', 'Very High'].includes(onboarding?.lifestyle?.stressLevel) ? 'High stress' : null,
+    ['Poor', 'Average'].includes(lifestyleSleepQuality) ? 'Poor sleep' : null,
+    ['High', 'Very High'].includes(lifestyleStressLevel) ? 'High stress' : null,
   ].filter(Boolean);
   const recommendedActions = [
-    nutritionProtocol?.proteinTargetGrams != null ? 'Review protein target with the client' : null,
-    onboarding?.lifestyle?.sleepQuality ? 'Improve sleep routine before advancing intensity' : null,
+    nutritionProtocol?.macroTargets?.proteinGrams != null ? 'Review protein target with the client' : null,
+    lifestyleSleepQuality ? 'Improve sleep routine before advancing intensity' : null,
     biomarkers.length ? 'Review latest validated report markers' : null,
   ].filter(Boolean);
   const metricCards = [
@@ -1010,7 +1018,7 @@ function RealClientProfileDrawer({
     { icon: Scale, title: 'BMI', value: bodyMetrics?.bmi != null ? `${bodyMetrics.bmi}` : formatMetricCardValue(metrics?.bmi, 'Complete profile'), detail: 'Body status' },
     { icon: ListChecks, title: 'Goal', value: formatDisplayValue(goalLabel), detail: 'Current programme focus' },
     { icon: Flame, title: 'Calories', value: nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : formatMetricCardValue(metrics?.tdee, 'Needs profile'), detail: 'Daily target' },
-    { icon: Dumbbell, title: 'Protein', value: nutritionProtocol?.proteinTargetGrams != null ? `${nutritionProtocol.proteinTargetGrams}g` : 'Needs profile', detail: 'Daily target' },
+    { icon: Dumbbell, title: 'Protein', value: nutritionProtocol?.macroTargets?.proteinGrams != null ? `${nutritionProtocol.macroTargets.proteinGrams}g` : 'Needs profile', detail: 'Daily target' },
     { icon: Activity, title: 'Hydration', value: nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters}L` : 'Needs profile', detail: 'Daily target' },
   ];
 
@@ -1077,9 +1085,11 @@ function RealClientProfileDrawer({
         <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Body Composition</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <DetailField label="BMI" value={bodyMetrics?.bmi != null ? `${bodyMetrics.bmi}` : 'Complete profile to calculate'} />
-          <DetailField label="Body Fat" value={bodyMetrics?.bodyFatPct != null ? `${bodyMetrics.bodyFatPct}%` : formatMetricCardValue(metrics?.bodyFat, 'Measurements required')} />
-          <DetailField label="Waist" value={onboarding?.bodyComposition?.waistCm != null ? `${onboarding.bodyComposition.waistCm} cm` : 'Not available'} />
-          <DetailField label="Hip" value={onboarding?.bodyComposition?.hipCm != null ? `${onboarding.bodyComposition.hipCm} cm` : 'Not available'} />
+          <DetailField label="Body Fat" value={bodyMetrics?.bodyFat != null ? `${bodyMetrics.bodyFat}%` : formatMetricCardValue(metrics?.bodyFat, 'Measurements required')} />
+          <DetailField label="Waist" value={bodyComposition.waistCm != null ? `${bodyComposition.waistCm} cm` : 'Not available'} />
+          <DetailField label="Hip" value={bodyComposition.hipCm != null ? `${bodyComposition.hipCm} cm` : 'Not available'} />
+          <DetailField label="Neck" value={bodyComposition.neckCm != null ? `${bodyComposition.neckCm} cm` : 'Not available'} />
+          <DetailField label="Goal weight" value={bodyComposition.goalWeightKg != null ? `${bodyComposition.goalWeightKg} kg` : 'Not available'} />
         </div>
       </Surface>
       <Surface className="p-5" animated>
@@ -1101,8 +1111,8 @@ function RealClientProfileDrawer({
       <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Lifestyle</p>
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <DetailField label="Sleep" value={onboarding?.lifestyle?.sleepHours != null ? `${onboarding.lifestyle.sleepHours} hrs` : 'Complete profile to calculate'} />
-        <DetailField label="Sleep quality" value={formatDisplayValue(onboarding?.lifestyle?.sleepQuality)} />
-        <DetailField label="Stress" value={formatDisplayValue(onboarding?.lifestyle?.stressLevel)} />
+        <DetailField label="Sleep quality" value={formatDisplayValue(lifestyleSleepQuality)} />
+        <DetailField label="Stress" value={formatDisplayValue(lifestyleStressLevel)} />
         <DetailField label="Activity" value={formatDisplayValue(onboarding?.activityLevel)} />
         <DetailField label="Food preference" value={formatDisplayValue(onboarding?.dietPreference)} />
         <DetailField label="Preferred cuisines" value={formatDisplayValue(onboarding?.nutrition?.preferredCuisines)} />
@@ -1123,7 +1133,9 @@ function RealClientProfileDrawer({
                 <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{formatDateLabel(report.reportDate || report.createdAt || report.uploadedAt)}</p>
                 <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{report.title || report.originalFilename || 'Blood Report Uploaded'}</p>
               </div>
-              <StatusChip status={report.status === 'COMPLETED' ? 'stable' : 'medium'}>{report.status || 'Uploaded'}</StatusChip>
+              <StatusChip status={['COMPLETED', 'PUBLISHED'].includes(String(report.processingStatus || report.status || '').toUpperCase()) ? 'stable' : 'medium'}>
+                {report.processingStatus || report.status || 'Uploaded'}
+              </StatusChip>
             </div>
             <p className="mt-3 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
               AI Extracted: {biomarkers.slice(0, 5).map((item) => item.name).join(', ') || 'No validated biomarkers yet'}
@@ -1177,7 +1189,7 @@ function RealClientProfileDrawer({
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <DetailField label="Current goal" value={formatDisplayValue(goalLabel)} />
         <DetailField label="Calories" value={nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : 'No target calculated'} />
-        <DetailField label="Protein" value={nutritionProtocol?.proteinTargetGrams != null ? `${nutritionProtocol.proteinTargetGrams}g` : 'No target calculated'} />
+        <DetailField label="Protein" value={nutritionProtocol?.macroTargets?.proteinGrams != null ? `${nutritionProtocol.macroTargets.proteinGrams}g` : 'No target calculated'} />
         <DetailField label="Hydration" value={nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters}L` : 'No target calculated'} />
       </div>
       <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
@@ -1189,9 +1201,22 @@ function RealClientProfileDrawer({
   const renderActivity = () => (
     <Surface className="p-5" animated>
       <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Activity</p>
-      <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-        Connect wearable device to unlock recovery insights.
-      </div>
+      {wearableSummary?.hasWearableData || wearableSummary?.latestMetrics ? (
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <DetailField label="Steps" value={wearableSummary?.latestMetrics?.steps != null ? `${wearableSummary.latestMetrics.steps}` : 'Not available'} />
+          <DetailField label="Heart rate" value={wearableSummary?.latestMetrics?.restingHeartRate != null ? `${wearableSummary.latestMetrics.restingHeartRate} bpm` : 'Not available'} />
+          <DetailField label="Sleep" value={wearableSummary?.latestMetrics?.sleepHours != null ? `${wearableSummary.latestMetrics.sleepHours} hrs` : 'Not available'} />
+          <DetailField label="Workouts" value={wearableSummary?.latestMetrics?.workouts != null ? `${wearableSummary.latestMetrics.workouts}` : 'Not available'} />
+          <DetailField label="Readiness" value={formatDisplayValue(wearableSummary?.latestMetrics?.readiness)} />
+          <DetailField label="Recovery score" value={wearableSummary?.latestMetrics?.recoveryScore != null ? `${wearableSummary.latestMetrics.recoveryScore}` : 'Not available'} />
+          <DetailField label="Sync source" value={formatDisplayValue(wearableSummary?.source)} />
+          <DetailField label="Last wearable sync" value={formatDateLabel(wearableSummary?.lastSyncedAt || syncMetadata?.lastWearableSyncAt)} />
+        </div>
+      ) : (
+        <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+          No wearable data synced yet. Manual health tracking remains available.
+        </div>
+      )}
     </Surface>
   );
 
@@ -1200,9 +1225,15 @@ function RealClientProfileDrawer({
       <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Timeline</p>
       <div className="mt-4 space-y-3">
         {timeline.length ? timeline.map((event) => (
-          <div key={event.id || `${event.type}-${event.createdAt}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+          <div key={event.id || `${event.type}-${event.timestamp || event.createdAt}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
             <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{event.title || event.type}</p>
-            <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{formatDateLabel(event.createdAt || event.timestamp)}</p>
+            <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{formatDateLabel(event.timestamp || event.createdAt)}</p>
+            {event.detail ? (
+              <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{event.detail}</p>
+            ) : null}
+            {event.source ? (
+              <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{event.source}</p>
+            ) : null}
           </div>
         )) : (
           <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
