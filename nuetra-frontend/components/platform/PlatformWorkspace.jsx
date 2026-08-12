@@ -1889,7 +1889,13 @@ function RealFiteatsyClientDrawer({ isOpen, onClose, client }) {
   const detailClient = profile?.client || {};
   const onboarding = profile?.onboarding || {};
   const healthProfile = profile?.healthProfile || {};
-  const healthMetrics = profile?.healthMetrics || {};
+  const bodyMetrics = profile?.bodyMetrics || {};
+  const nutritionProtocol = profile?.nutritionProtocol || {};
+  const wearableSummary = profile?.wearableSummary || {};
+  const completeness = profile?.completeness || {};
+  const recoveryMetrics = profile?.recoveryMetrics || {};
+  const recommendations = Array.isArray(profile?.recommendations) ? profile.recommendations : [];
+  const timeline = Array.isArray(profile?.timeline) ? profile.timeline : [];
   const biomarkers = Array.isArray(profile?.biomarkers) ? profile.biomarkers : [];
   const profileItems = [
     ['Email', detailClient.email || client.email || 'Not available'],
@@ -1909,9 +1915,17 @@ function RealFiteatsyClientDrawer({ isOpen, onClose, client }) {
     ['Diet', onboarding.dietPreference || client.dietPreference || 'Not available'],
   ];
   const reportsCount = healthProfile.reportsCount ?? client.reportsCount ?? 0;
-  const healthScore = healthMetrics.overallScore ?? healthMetrics.healthScore ?? healthMetrics.score ?? null;
+  const healthScore = recoveryMetrics.overallScore?.scoreValue ?? null;
   const actionLabel = (profile?.healthProfile?.profileCompleted ?? client.profileCompleted) ? 'Review profile' : 'Complete onboarding';
   const detailErrorMessage = getFiteatsyClientsErrorMessage(profileError);
+  const metricCards = [
+    ['BMI', bodyMetrics.bmi, bodyMetrics.bmiCategory || bodyMetrics.unavailableReasons?.bmi || 'Complete height and weight to calculate BMI'],
+    ['BMR', bodyMetrics.bmr, bodyMetrics.bmr ? 'kcal/day' : bodyMetrics.unavailableReasons?.bmr || 'Complete age, gender, height, and weight'],
+    ['TDEE', bodyMetrics.tdee, bodyMetrics.tdee ? 'kcal/day' : bodyMetrics.unavailableReasons?.tdee || 'Complete activity profile to calculate energy requirement'],
+    ['Calories', nutritionProtocol.calorieTarget, nutritionProtocol.calorieTarget ? 'kcal/day target' : nutritionProtocol.unavailableReasons?.calorieTarget || 'TDEE is required'],
+    ['Protein', nutritionProtocol.macroTargets?.proteinGrams, nutritionProtocol.macroTargets ? 'g/day target' : 'Macro target pending'],
+    ['Hydration', nutritionProtocol.hydrationTargetLiters, nutritionProtocol.hydrationTargetLiters ? 'L/day target' : nutritionProtocol.unavailableReasons?.hydrationTargetLiters || 'Weight is required'],
+  ];
 
   return (
     <AnimatePresence>
@@ -2018,9 +2032,9 @@ function RealFiteatsyClientDrawer({ isOpen, onClose, client }) {
                   {[
                     ['Medical reports', reportsCount ? `${reportsCount} report${reportsCount === 1 ? '' : 's'} recorded. Detailed report review loads progressively from Fiteatsy.` : 'Client has not uploaded any health reports yet.'],
                     ['Biomarkers', biomarkers.length ? `${biomarkers.length} validated biomarker${biomarkers.length === 1 ? '' : 's'} available for consultant review.` : 'No validated biomarker timeline is available yet.'],
-                    ['Wearables', 'Connect wearable device to unlock recovery, sleep, activity, and calm insights.'],
-                    ['Recommendations', healthScore ? 'Health score is available. Recommendation intelligence can now be layered without loading the full report ecosystem in the roster.' : 'No report-backed recommendation has been generated for this client yet.'],
-                    ['Nutrition protocol', 'No active nutrition protocol assigned.'],
+                    ['Wearables', wearableSummary.connected ? `${wearableSummary.recordsCount} wearable observation${wearableSummary.recordsCount === 1 ? '' : 's'} synced from ${wearableSummary.dataSources?.join(', ') || 'health data source'}.` : 'Connect wearable device to unlock recovery, sleep, activity, and calm insights.'],
+                    ['Recommendations', recommendations.length ? `${recommendations.length} action prompt${recommendations.length === 1 ? '' : 's'} available from live profile completeness and health-signal gaps.` : 'No report-backed recommendation has been generated for this client yet.'],
+                    ['Nutrition protocol', nutritionProtocol.readinessScore ? `Nutrition readiness ${nutritionProtocol.readinessScore}%. ${nutritionProtocol.missingFields?.length || 0} missing field${nutritionProtocol.missingFields?.length === 1 ? '' : 's'}.` : 'No active nutrition protocol assigned.'],
                     ['Audit note', 'This workspace is showing live Fiteatsy registration and onboarding data only. No mock health values are rendered.'],
                   ].map(([title, message]) => (
                     <Surface key={title} className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4">
@@ -2028,6 +2042,64 @@ function RealFiteatsyClientDrawer({ isOpen, onClose, client }) {
                       <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{message}</p>
                     </Surface>
                   ))}
+                </div>
+
+                <div className="mt-4 grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+                  <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4">
+                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Body and nutrition intelligence</p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {metricCards.map(([label, value, helper]) => (
+                        <div key={label} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+                          <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
+                          <p className="mt-1 text-lg font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{value ?? 'Pending'}</p>
+                          <p className="mt-1 text-xs leading-5 text-[var(--fluent-color-neutral-foreground-2)]">{helper}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </Surface>
+
+                  <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4">
+                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Data completeness</p>
+                    <p className="mt-3 text-3xl font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{completeness.profileCompletionScore ?? 20}%</p>
+                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{completeness.onboardingStatus === 'COMPLETED' ? 'Onboarding complete' : 'Onboarding incomplete'}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(completeness.missingFields || ['height', 'weight', 'goal', 'activityLevel']).slice(0, 8).map((field) => (
+                        <span key={field} className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{field}</span>
+                      ))}
+                    </div>
+                  </Surface>
+                </div>
+
+                <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                  <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4">
+                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultant action prompts</p>
+                    <div className="mt-4 space-y-3">
+                      {recommendations.length ? recommendations.map((item) => (
+                        <div key={`${item.priority}-${item.title}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+                          <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.title}</p>
+                          <p className="mt-1 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{item.detail}</p>
+                          <p className="mt-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.action}</p>
+                        </div>
+                      )) : (
+                        <p className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">No action prompts are available yet.</p>
+                      )}
+                    </div>
+                  </Surface>
+
+                  <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4">
+                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Recent timeline</p>
+                    <div className="mt-4 space-y-3">
+                      {timeline.length ? timeline.slice(0, 6).map((event) => (
+                        <div key={`${event.type}-${event.timestamp}-${event.title}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+                          <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{event.title}</p>
+                          <p className="mt-1 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{event.detail}</p>
+                          <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{formatDateLabel(event.timestamp)} · {event.source}</p>
+                        </div>
+                      )) : (
+                        <p className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">No timeline activity yet beyond registration.</p>
+                      )}
+                    </div>
+                  </Surface>
                 </div>
               </div>
             </div>

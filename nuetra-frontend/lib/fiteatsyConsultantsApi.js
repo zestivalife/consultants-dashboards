@@ -102,5 +102,5 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
     throw error;
   }
 
-  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}`);
+  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/workspace`);
 }
