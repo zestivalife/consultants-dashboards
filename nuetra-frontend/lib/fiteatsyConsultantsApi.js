@@ -133,12 +133,21 @@ export async function listFiteatsyConsultantClients() {
 }
 
 export async function getFiteatsyConsultantClientProfile(clientId) {
-  const body = await requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}`);
+  const body = await requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/workspace`);
 
   return {
     client: body?.client || null,
+    profile: body?.profile || null,
     onboarding: body?.onboarding || null,
     healthProfile: body?.healthProfile || null,
+    bodyMetrics: body?.bodyMetrics || null,
+    nutritionProtocol: body?.nutritionProtocol || null,
+    wearableSummary: body?.wearableSummary || null,
+    reports: Array.isArray(body?.reports) ? body.reports : [],
+    recommendations: Array.isArray(body?.recommendations) ? body.recommendations : [],
+    timeline: Array.isArray(body?.timeline) ? body.timeline : [],
+    completeness: body?.completeness || null,
+    syncMetadata: body?.syncMetadata || null,
     healthMetrics: body?.healthMetrics
       ? {
           bmi: mapHealthMetric(body.healthMetrics.bmi),
