@@ -1,20 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
+  Activity,
   Bell,
   Bot,
   CalendarDays,
   ChevronRight,
   Clock3,
   Command,
+  Dumbbell,
   FileBarChart2,
   Filter,
+  Flame,
+  HeartPulse,
   LayoutGrid,
   ListChecks,
+  Mail,
   MessageSquare,
+  Phone,
+  Ruler,
   Search,
   Settings,
+  ShieldCheck,
   Sparkles,
+  Scale,
   TrendingUp,
   Users,
   Wallet,
@@ -308,18 +317,6 @@ function formatDateLabel(value) {
   });
 }
 
-function formatFreshnessLabel(value) {
-  if (!value) return 'Not synced yet';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'Not synced yet';
-  const minutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60000));
-  if (minutes < 1) return 'Synced just now';
-  if (minutes < 60) return `Synced ${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `Synced ${hours} hr ago`;
-  return `Synced ${Math.round(hours / 24)} day${hours >= 48 ? 's' : ''} ago`;
-}
-
 function buildFiteatsyClientRecords(apiClients) {
   return apiClients.map((client) => ({
     id: client.clientId,
@@ -334,7 +331,7 @@ function buildFiteatsyClientRecords(apiClients) {
     packageName: 'Not assigned',
     packageLabel: 'Not assigned',
     organization: 'Fiteatsy',
-    recoveryStage: client.profileCompleted ? 'Profile ready' : 'Onboarding pending',
+    recoveryStage: client.profileCompleted ? 'Onboarding completed' : 'Registration completed',
     profileCompleted: client.profileCompleted,
     age: client.age,
     gender: client.gender,
@@ -349,8 +346,6 @@ function buildFiteatsyClientRecords(apiClients) {
     registeredAt: client.registeredAt,
     lastActivity: formatDateLabel(client.lastHealthUpdate || client.lastActiveAt || client.registeredAt),
     lastActiveAt: client.lastActiveAt,
-    freshnessLabel: formatFreshnessLabel(client.lastHealthUpdate || client.lastActiveAt || client.registeredAt),
-    dataSourceLabel: client.lastHealthUpdate ? 'Fiteatsy health data' : 'Fiteatsy registration',
     riskLevel: 'stable',
     adherenceScore: null,
     mentorName: 'Not assigned',
@@ -370,14 +365,12 @@ function buildFiteatsyClientRecords(apiClients) {
     stress: 0,
     burnoutRisk: 'stable',
     trendSummary: {
-      title: client.reportsCount
-        ? `${client.reportsCount} report${client.reportsCount === 1 ? '' : 's'} available`
+      title: client.goal
+        ? `${client.goal} • ${client.reportsCount ?? 0} ${client.reportsCount === 1 ? 'report' : 'reports'}`
         : client.profileCompleted
-          ? 'Profile completed'
-          : 'Registration only',
-      explanation: client.reportsCount
-        ? 'Report metadata is available. Detailed biomarker trends load from the client workspace when enabled.'
-        : 'No report-backed health insight is available yet.',
+          ? 'Profile completed • live registration'
+          : 'Registration completed • onboarding pending',
+      explanation: 'Only real registration and onboarding data are shown here until deeper clinical intelligence is synchronized.',
       action: 'No action assigned',
     },
     conditionFocus: {
@@ -397,49 +390,9 @@ function buildFiteatsyClientRecords(apiClients) {
 
 function getFiteatsyClientsErrorMessage(error) {
   if (!error) return null;
-  if (error.status === 401) return 'Your consultant session could not be refreshed. Please sign in again.';
-  if (error.status === 403) return 'Consultant access is required to view Fiteatsy clients.';
-  return 'Unable to load Fiteatsy clients right now.';
-}
-
-function DirectorySkeletonRows() {
-  return (
-    <>
-      {[0, 1, 2, 3].map((item) => (
-        <div key={item} className="grid animate-pulse grid-cols-[1.3fr_0.9fr_1fr_0.8fr_1fr_0.9fr_1.1fr] gap-3 px-4 py-4">
-          <div>
-            <div className="h-4 w-36 rounded-full bg-[var(--fluent-color-neutral-background-3)]" />
-            <div className="mt-2 h-3 w-48 rounded-full bg-[var(--fluent-color-neutral-background-2)]" />
-          </div>
-          {[0, 1, 2, 3, 4, 5].map((cell) => (
-            <div key={cell} className="h-4 rounded-full bg-[var(--fluent-color-neutral-background-2)]" />
-          ))}
-        </div>
-      ))}
-    </>
-  );
-}
-
-function DirectoryStateMessage({ tone = 'neutral', title, message, actionLabel, onAction }) {
-  const toneClass = tone === 'danger'
-    ? 'border-[var(--fluent-color-status-danger-border)] bg-[var(--fluent-color-status-danger-background)] text-[var(--fluent-color-status-danger-foreground)]'
-    : 'border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] text-[var(--fluent-color-neutral-foreground-2)]';
-
-  return (
-    <div className={`m-4 rounded-[18px] border px-4 py-5 ${toneClass}`}>
-      <p className="text-sm font-semibold">{title}</p>
-      <p className="mt-1 text-sm leading-6">{message}</p>
-      {actionLabel && onAction ? (
-        <button
-          type="button"
-          onClick={onAction}
-          className="mt-4 rounded-full bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)]"
-        >
-          {actionLabel}
-        </button>
-      ) : null}
-    </div>
-  );
+  if (error.status === 401) return 'Session expired';
+  if (error.status === 403) return 'Consultant access required';
+  return error.message || 'Unable to load Fiteatsy clients.';
 }
 
 function buildEmptyPlatformState() {
@@ -881,6 +834,494 @@ function Surface({ children, className = '', animated = false }) {
 
 function StatusChip({ status, children }) {
   return <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium capitalize ${toneForStatus(status)}`}>{children}</span>;
+}
+
+function LoadingSkeleton({ className = '' }) {
+  return <div className={`animate-pulse rounded-[14px] bg-[var(--fluent-color-neutral-background-3)] ${className}`} />;
+}
+
+function formatDisplayValue(value, fallback = 'Not available') {
+  if (value == null || value === '') return fallback;
+  if (Array.isArray(value)) return value.length ? value.join(', ') : fallback;
+  return String(value);
+}
+
+function formatMetricNumber(value, suffix = '') {
+  if (value == null || Number.isNaN(Number(value))) return 'Not available';
+  return `${value}${suffix}`;
+}
+
+function formatMetricCardValue(metric, fallback) {
+  if (!metric || metric.status !== 'AVAILABLE') return fallback;
+  return `${metric.value}${metric.unit ? ` ${metric.unit}` : ''}`;
+}
+
+function getHealthMetricStatusLabel(metric, fallback) {
+  if (!metric) return fallback;
+  if (metric.status === 'AVAILABLE') return metric.category || 'Available';
+  return metric.reason || fallback;
+}
+
+function getProfileErrorMessage(error) {
+  if (!error) return null;
+  if (error.status === 401) return 'Session expired';
+  if (error.status === 403) return 'Consultant access required';
+  if (error.status === 404) return 'Client profile not found';
+  return error.message || 'Unable to load client profile.';
+}
+
+function biomarkerTone(status) {
+  const normalized = String(status || '').toUpperCase();
+  if (['LOW', 'HIGH', 'CRITICAL'].includes(normalized)) return 'critical';
+  return 'stable';
+}
+
+function trendLabel(trend) {
+  if (!trend) return 'No trend';
+  if (trend === 'UP') return 'Trending up';
+  if (trend === 'DOWN') return 'Trending down';
+  return 'Stable trend';
+}
+
+function HealthMetricCard({ icon: Icon, title, value, detail }) {
+  return (
+    <Surface className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] p-2.5 text-[var(--fluent-color-brand-foreground-link)]">
+            <Icon size={18} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">{title}</p>
+            <p className="mt-2 text-[24px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">{value}</p>
+          </div>
+        </div>
+      </div>
+      <p className="mt-3 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{detail}</p>
+    </Surface>
+  );
+}
+
+function OverviewStat({ icon: Icon, label, value }) {
+  return (
+    <div className="flex items-start gap-3 rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+      <div className="mt-0.5 rounded-[12px] bg-[var(--fluent-color-neutral-background-1)] p-2 text-[var(--fluent-color-brand-foreground-link)] shadow-[0_1px_4px_rgba(15,23,42,0.08)]">
+        <Icon size={16} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
+        <p className="mt-1 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)] break-words">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function DetailField({ label, value }) {
+  return (
+    <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+      <p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
+      <p className="mt-1 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{value}</p>
+    </div>
+  );
+}
+
+function RealClientProfileDrawer({
+  isOpen,
+  onClose,
+  summaryClient,
+  profile,
+  loading,
+  error,
+}) {
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('Overview');
+  const message = getProfileErrorMessage(error);
+  const client = profile?.client;
+  const onboarding = profile?.onboarding;
+  const healthProfile = profile?.healthProfile;
+  const metrics = profile?.healthMetrics;
+  const bodyMetrics = profile?.bodyMetrics;
+  const nutritionProtocol = profile?.nutritionProtocol;
+  const syncMetadata = profile?.syncMetadata;
+  const biomarkers = profile?.biomarkers || [];
+  const reports = profile?.reports || [];
+  const timeline = profile?.timeline || [];
+  const workspaceTabs = ['Overview', 'Health Profile', 'Lifestyle', 'Reports', 'Biomarkers', 'Nutrition Plan', 'Activity', 'Timeline'];
+  const goalLabel = onboarding?.goal || summaryClient?.program || 'Not assigned';
+  const profileStrength = healthProfile?.completionPercent ?? healthProfile?.profileCompleteness ?? summaryClient?.profileCompletedPercent;
+  const lastSynced = syncMetadata?.lastSyncedAt || healthProfile?.lastHealthUpdate || client?.lastActiveAt || summaryClient?.lastActivityAt;
+  const riskFlags = [
+    biomarkers.some((item) => String(item.name || '').toLowerCase().includes('b12') && ['LOW', 'CRITICAL'].includes(String(item.status || '').toUpperCase())) ? 'Low B12' : null,
+    ['Poor', 'Average'].includes(onboarding?.lifestyle?.sleepQuality) ? 'Poor sleep' : null,
+    ['High', 'Very High'].includes(onboarding?.lifestyle?.stressLevel) ? 'High stress' : null,
+  ].filter(Boolean);
+  const recommendedActions = [
+    nutritionProtocol?.proteinTargetGrams != null ? 'Review protein target with the client' : null,
+    onboarding?.lifestyle?.sleepQuality ? 'Improve sleep routine before advancing intensity' : null,
+    biomarkers.length ? 'Review latest validated report markers' : null,
+  ].filter(Boolean);
+  const metricCards = [
+    {
+      key: 'bmi',
+      icon: Scale,
+      title: 'BMI',
+      value: formatMetricCardValue(metrics?.bmi, 'Not available'),
+      detail: getHealthMetricStatusLabel(metrics?.bmi, 'Height and weight required'),
+    },
+    {
+      key: 'bmr',
+      icon: Flame,
+      title: 'BMR',
+      value: formatMetricCardValue(metrics?.bmr, 'Not available'),
+      detail: getHealthMetricStatusLabel(metrics?.bmr, 'Age, sex, height, and weight required'),
+    },
+    {
+      key: 'tdee',
+      icon: Activity,
+      title: 'TDEE',
+      value: formatMetricCardValue(metrics?.tdee, 'Not available'),
+      detail: getHealthMetricStatusLabel(metrics?.tdee, 'Activity level required'),
+    },
+    {
+      key: 'targetHeartRate',
+      icon: HeartPulse,
+      title: 'Target Heart Rate',
+      value:
+        metrics?.targetHeartRate?.status === 'AVAILABLE'
+          ? metrics.targetHeartRate.category || formatMetricCardValue(metrics.targetHeartRate, 'Not available')
+          : 'Not available',
+      detail: metrics?.targetHeartRate?.status === 'AVAILABLE' ? 'Recommended working range' : getHealthMetricStatusLabel(metrics?.targetHeartRate, 'Age required'),
+    },
+    {
+      key: 'bodyFat',
+      icon: Ruler,
+      title: 'Body Fat',
+      value: formatMetricCardValue(metrics?.bodyFat, 'Measurements required'),
+      detail: metrics?.bodyFat?.status === 'AVAILABLE' ? 'Estimated body fat percentage' : 'Measurements required',
+    },
+    {
+      key: 'oneRepMax',
+      icon: Dumbbell,
+      title: 'One Rep Max',
+      value: formatMetricCardValue(metrics?.oneRepMax, 'Workout data required'),
+      detail: metrics?.oneRepMax?.status === 'AVAILABLE' ? 'Estimated strength ceiling' : 'Workout data required',
+    },
+  ];
+  const snapshotCards = [
+    { icon: Scale, title: 'BMI', value: bodyMetrics?.bmi != null ? `${bodyMetrics.bmi}` : formatMetricCardValue(metrics?.bmi, 'Complete profile'), detail: 'Body status' },
+    { icon: ListChecks, title: 'Goal', value: formatDisplayValue(goalLabel), detail: 'Current programme focus' },
+    { icon: Flame, title: 'Calories', value: nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : formatMetricCardValue(metrics?.tdee, 'Needs profile'), detail: 'Daily target' },
+    { icon: Dumbbell, title: 'Protein', value: nutritionProtocol?.proteinTargetGrams != null ? `${nutritionProtocol.proteinTargetGrams}g` : 'Needs profile', detail: 'Daily target' },
+    { icon: Activity, title: 'Hydration', value: nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters}L` : 'Needs profile', detail: 'Daily target' },
+  ];
+
+  useEffect(() => {
+    if (isOpen) setActiveWorkspaceTab('Overview');
+  }, [isOpen, summaryClient?.id]);
+
+  const renderOverview = () => (
+    <div className="space-y-4">
+      <Surface className="p-5" animated>
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Health Snapshot</p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          {snapshotCards.map((metric) => (
+            <HealthMetricCard key={metric.title} icon={metric.icon} title={metric.title} value={metric.value} detail={metric.detail} />
+          ))}
+        </div>
+      </Surface>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Surface className="p-5" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Risk Flags</p>
+          <div className="mt-4 space-y-2">
+            {riskFlags.length ? riskFlags.map((flag) => (
+              <div key={flag} className="rounded-[16px] bg-[var(--fluent-color-status-warning-background)] px-4 py-3 text-sm font-medium text-[var(--fluent-color-status-warning-foreground)]">
+                {flag}
+              </div>
+            )) : (
+              <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                No active risk flags from synced data yet.
+              </div>
+            )}
+          </div>
+        </Surface>
+        <Surface className="p-5" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Recommended Actions</p>
+          <div className="mt-4 space-y-2">
+            {recommendedActions.length ? recommendedActions.map((action, index) => (
+              <div key={action} className="flex gap-3 rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)]">
+                <span className="font-semibold text-[var(--fluent-color-brand-foreground-link)]">{index + 1}.</span>
+                <span>{action}</span>
+              </div>
+            )) : (
+              <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                No action assigned. Profile and report data will unlock consultant recommendations.
+              </div>
+            )}
+          </div>
+        </Surface>
+      </div>
+    </div>
+  );
+
+  const renderHealthProfile = () => (
+    <div className="space-y-4">
+      <Surface className="p-5" animated>
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Personal Information</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <DetailField label="Age" value={formatDisplayValue(client?.age)} />
+          <DetailField label="Gender" value={formatDisplayValue(client?.gender)} />
+          <DetailField label="Height" value={onboarding?.height != null ? `${onboarding.height} cm` : 'Complete profile to calculate'} />
+          <DetailField label="Weight" value={onboarding?.weight != null ? `${onboarding.weight} kg` : 'Complete profile to calculate'} />
+        </div>
+      </Surface>
+      <Surface className="p-5" animated>
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Body Composition</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <DetailField label="BMI" value={bodyMetrics?.bmi != null ? `${bodyMetrics.bmi}` : 'Complete profile to calculate'} />
+          <DetailField label="Body Fat" value={bodyMetrics?.bodyFatPct != null ? `${bodyMetrics.bodyFatPct}%` : formatMetricCardValue(metrics?.bodyFat, 'Measurements required')} />
+          <DetailField label="Waist" value={onboarding?.bodyComposition?.waistCm != null ? `${onboarding.bodyComposition.waistCm} cm` : 'Not available'} />
+          <DetailField label="Hip" value={onboarding?.bodyComposition?.hipCm != null ? `${onboarding.bodyComposition.hipCm} cm` : 'Not available'} />
+        </div>
+      </Surface>
+      <Surface className="p-5" animated>
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Medical History</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <DetailField label="Diabetes" value={formatDisplayValue(onboarding?.healthHistory?.diabetes)} />
+          <DetailField label="Thyroid" value={formatDisplayValue(onboarding?.healthHistory?.thyroid)} />
+          <DetailField label="PCOS" value={formatDisplayValue(onboarding?.healthHistory?.pcos)} />
+          <DetailField label="Cholesterol" value={formatDisplayValue(onboarding?.healthHistory?.cholesterol)} />
+          <DetailField label="Heart conditions" value={formatDisplayValue(onboarding?.healthHistory?.heartConditions)} />
+          <DetailField label="Medical conditions" value={formatDisplayValue(onboarding?.medicalConditions)} />
+        </div>
+      </Surface>
+    </div>
+  );
+
+  const renderLifestyle = () => (
+    <Surface className="p-5" animated>
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Lifestyle</p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <DetailField label="Sleep" value={onboarding?.lifestyle?.sleepHours != null ? `${onboarding.lifestyle.sleepHours} hrs` : 'Complete profile to calculate'} />
+        <DetailField label="Sleep quality" value={formatDisplayValue(onboarding?.lifestyle?.sleepQuality)} />
+        <DetailField label="Stress" value={formatDisplayValue(onboarding?.lifestyle?.stressLevel)} />
+        <DetailField label="Activity" value={formatDisplayValue(onboarding?.activityLevel)} />
+        <DetailField label="Food preference" value={formatDisplayValue(onboarding?.dietPreference)} />
+        <DetailField label="Preferred cuisines" value={formatDisplayValue(onboarding?.nutrition?.preferredCuisines)} />
+        <DetailField label="Allergies" value={formatDisplayValue(onboarding?.nutrition?.foodAllergies)} />
+        <DetailField label="Dislikes" value={formatDisplayValue(onboarding?.nutrition?.foodDislikes)} />
+      </div>
+    </Surface>
+  );
+
+  const renderReports = () => (
+    <Surface className="p-5" animated>
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Reports Timeline</p>
+      <div className="mt-4 space-y-3">
+        {reports.length ? reports.map((report) => (
+          <div key={report.id || report.reportId} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{formatDateLabel(report.reportDate || report.createdAt || report.uploadedAt)}</p>
+                <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{report.title || report.originalFilename || 'Blood Report Uploaded'}</p>
+              </div>
+              <StatusChip status={report.status === 'COMPLETED' ? 'stable' : 'medium'}>{report.status || 'Uploaded'}</StatusChip>
+            </div>
+            <p className="mt-3 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+              AI Extracted: {biomarkers.slice(0, 5).map((item) => item.name).join(', ') || 'No validated biomarkers yet'}
+            </p>
+          </div>
+        )) : (
+          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+            Client has not uploaded any health reports yet.
+          </div>
+        )}
+      </div>
+    </Surface>
+  );
+
+  const renderBiomarkers = () => (
+    <Surface className="p-5" animated>
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Validated Biomarkers</p>
+      {biomarkers.length ? (
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          {biomarkers.map((biomarker) => (
+            <div key={biomarker.biomarkerId} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{biomarker.name}</p>
+                  <p className="mt-2 text-[24px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">
+                    {`${biomarker.value} ${biomarker.unit}`.trim()}
+                  </p>
+                </div>
+                <StatusChip status={biomarkerTone(biomarker.status)}>{biomarker.status}</StatusChip>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <DetailField label="Reference" value={formatDisplayValue(biomarker.referenceRange)} />
+                <DetailField label="Trend" value={trendLabel(biomarker.trend)} />
+                <DetailField label="Previous value" value={biomarker.previousValue != null ? `${biomarker.previousValue} ${biomarker.unit}`.trim() : 'Not available'} />
+                <DetailField label="Test date" value={formatDateLabel(biomarker.testDate)} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+          No validated biomarkers available yet.
+        </div>
+      )}
+    </Surface>
+  );
+
+  const renderNutrition = () => (
+    <Surface className="p-5" animated>
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Nutrition Plan</p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <DetailField label="Current goal" value={formatDisplayValue(goalLabel)} />
+        <DetailField label="Calories" value={nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : 'No target calculated'} />
+        <DetailField label="Protein" value={nutritionProtocol?.proteinTargetGrams != null ? `${nutritionProtocol.proteinTargetGrams}g` : 'No target calculated'} />
+        <DetailField label="Hydration" value={nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters}L` : 'No target calculated'} />
+      </div>
+      <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+        No active meal plan assigned. The diet-plan workflow will create breakfast, lunch, dinner, snack, supplement, and client-note sections here.
+      </div>
+    </Surface>
+  );
+
+  const renderActivity = () => (
+    <Surface className="p-5" animated>
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Activity</p>
+      <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+        Connect wearable device to unlock recovery insights.
+      </div>
+    </Surface>
+  );
+
+  const renderTimeline = () => (
+    <Surface className="p-5" animated>
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Timeline</p>
+      <div className="mt-4 space-y-3">
+        {timeline.length ? timeline.map((event) => (
+          <div key={event.id || `${event.type}-${event.createdAt}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+            <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{event.title || event.type}</p>
+            <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{formatDateLabel(event.createdAt || event.timestamp)}</p>
+          </div>
+        )) : (
+          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+            No synced client timeline events yet.
+          </div>
+        )}
+      </div>
+    </Surface>
+  );
+
+  const tabContent = {
+    Overview: renderOverview,
+    'Health Profile': renderHealthProfile,
+    Lifestyle: renderLifestyle,
+    Reports: renderReports,
+    Biomarkers: renderBiomarkers,
+    'Nutrition Plan': renderNutrition,
+    Activity: renderActivity,
+    Timeline: renderTimeline,
+  }[activeWorkspaceTab] || renderOverview;
+
+  return (
+    <AnimatePresence>
+      {isOpen ? (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[72] bg-[rgba(15,23,42,0.18)] backdrop-blur-[2px]"
+          onClick={onClose}
+        >
+          <motion.aside
+            initial={{ x: 32, opacity: 0.98 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 24, opacity: 0.98 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+            onClick={(event) => event.stopPropagation()}
+            className="absolute right-0 top-0 h-full w-full max-w-[920px] overflow-hidden bg-[var(--fluent-color-neutral-background-canvas)] shadow-[-18px_0_42px_rgba(15,23,42,0.16)]"
+          >
+            <div className="flex h-full flex-col">
+              <div className="border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[rgba(255,255,255,0.94)] px-5 py-4 backdrop-blur">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client Command Center</p>
+                    <h2 className="mt-2 text-[28px] font-semibold tracking-[-0.03em] text-[var(--fluent-color-neutral-foreground-1)]">
+                      {client?.name || summaryClient?.name || 'Client'}
+                    </h2>
+                    <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                      {goalLabel === 'Not assigned' ? 'Recovery Program not assigned' : `${goalLabel} Recovery Program`}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
+                      <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5">
+                        Profile completeness {profileStrength != null ? `${profileStrength}%` : 'pending'}
+                      </span>
+                      <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5">
+                        Last synced: {formatDateLabel(lastSynced)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">
+                      Generate Diet Plan
+                    </button>
+                    <button className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
+                      Message Client
+                    </button>
+                    <button
+                      onClick={onClose}
+                      className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-2 text-[var(--fluent-color-neutral-foreground-2)] transition hover:bg-[var(--fluent-color-neutral-background-2)]"
+                      aria-label="Close client profile"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+                  {workspaceTabs.map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveWorkspaceTab(tab)}
+                      className={`whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold transition ${
+                        activeWorkspaceTab === tab
+                          ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]'
+                          : 'bg-[var(--fluent-color-neutral-background-2)] text-[var(--fluent-color-neutral-foreground-2)] hover:text-[var(--fluent-color-neutral-foreground-1)]'
+                      }`}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-5 py-5">
+                {loading ? (
+                  <div className="space-y-4">
+                    <LoadingSkeleton className="h-28 w-full" />
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <LoadingSkeleton className="h-36 w-full" />
+                      <LoadingSkeleton className="h-36 w-full" />
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      {Array.from({ length: 6 }).map((_, index) => <LoadingSkeleton key={index} className="h-32 w-full" />)}
+                    </div>
+                    <LoadingSkeleton className="h-56 w-full" />
+                  </div>
+                ) : message ? (
+                  <Surface className="border-[var(--fluent-color-status-danger-foreground)] bg-[var(--fluent-color-status-danger-background)] p-5">
+                    <p className="text-sm font-semibold text-[var(--fluent-color-status-danger-foreground)]">{message}</p>
+                  </Surface>
+                ) : (
+                  tabContent()
+                )}
+              </div>
+            </div>
+          </motion.aside>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
 }
 
 function ProgressTrack({ value, tone = '#1E88E5' }) {
@@ -1715,19 +2156,9 @@ function SmartClientQueues({ queueViews, activeQueue, setActiveQueue, filteredCl
       <Surface className="p-3">
         <div className="divide-y divide-[#EEF2F6]">
           {loading ? (
-            <div className="space-y-2">
-              {[0, 1, 2].map((item) => (
-                <div key={item} className="animate-pulse rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5">
-                  <div className="h-4 w-40 rounded-full bg-[var(--fluent-color-neutral-background-3)]" />
-                  <div className="mt-3 h-3 w-56 rounded-full bg-[var(--fluent-color-neutral-background-3)]" />
-                </div>
-              ))}
-            </div>
+            <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading Fiteatsy clients...</div>
           ) : errorMessage ? (
-            <div className="rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-5 text-sm font-medium text-[var(--fluent-color-status-danger-foreground)]">
-              <p>Unable to load live Fiteatsy clients.</p>
-              <p className="mt-1 font-normal">{errorMessage}</p>
-            </div>
+            <div className="rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-5 text-sm font-medium text-[var(--fluent-color-status-danger-foreground)]">{errorMessage}</div>
           ) : filteredClients.length ? filteredClients.map((client) => (
             <motion.button
               key={client.id}
@@ -1740,13 +2171,13 @@ function SmartClientQueues({ queueViews, activeQueue, setActiveQueue, filteredCl
                 <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.brand} · {client.packageLabel} · {client.brand === 'Nuetra' ? client.organization : client.recoveryStage}</p>
               </div>
               <div><StatusChip status={isRealFiteatsy ? client.planStatus : client.riskLevel}>{isRealFiteatsy ? client.recoveryStage : client.riskLevel}</StatusChip></div>
-              <div className="text-sm text-[var(--fluent-color-neutral-foreground-1)]">{isRealFiteatsy ? 'Awaiting sync' : `${client.adherenceScore}%`}</div>
+              <div className="text-sm text-[var(--fluent-color-neutral-foreground-1)]">{isRealFiteatsy ? 'Not available' : `${client.adherenceScore}%`}</div>
               <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{isRealFiteatsy ? client.lastActivity : client.mentorName}</div>
               <div><StatusChip status={client.planStatus}>{isRealFiteatsy ? 'No action assigned' : formatStatusLabel(client.planStatus)}</StatusChip></div>
             </motion.button>
           )) : (
             <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-              No Fiteatsy clients registered yet. Clients will appear here after users complete Fiteatsy onboarding.
+              No Fiteatsy clients registered yet. New users will appear here automatically after they register in Fiteatsy.
             </div>
           )}
         </div>
@@ -1805,7 +2236,7 @@ function QueueBottomSheet({ isOpen, onClose, queueViews, activeQueue, setActiveQ
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Matching clients</p>
                   <div className="flex flex-wrap gap-2">
-                    {(isRealFiteatsy ? ['Review Profile'] : ['Generate AI Draft', 'Add Note', 'Message Client']).map((action) => (
+                    {['Generate AI Draft', 'Add Note', 'Message Client'].map((action) => (
                       <button key={action} className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-neutral-foreground-1)]">{action}</button>
                     ))}
                   </div>
@@ -1838,268 +2269,9 @@ function QueueBottomSheet({ isOpen, onClose, queueViews, activeQueue, setActiveQ
                     </button>
                   )) : (
                     <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-                      {isRealFiteatsy ? 'No Fiteatsy clients registered yet. New registrations will appear here automatically.' : 'No clients match this queue and filter combination.'}
+                      {isRealFiteatsy ? 'No Fiteatsy clients registered yet. Clients will appear here after users complete Fiteatsy onboarding.' : 'No clients match this queue and filter combination.'}
                     </div>
                   )}
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        </motion.div>
-      ) : null}
-    </AnimatePresence>
-  );
-}
-
-function RealFiteatsyClientDrawer({ isOpen, onClose, client }) {
-  const [profile, setProfile] = useState(null);
-  const [profileLoading, setProfileLoading] = useState(false);
-  const [profileError, setProfileError] = useState(null);
-  const [profileReloadKey, setProfileReloadKey] = useState(0);
-
-  useEffect(() => {
-    if (!isOpen || !client?.clientId) return undefined;
-
-    let cancelled = false;
-    setProfileLoading(true);
-    setProfileError(null);
-
-    getFiteatsyConsultantClientProfile(client.clientId)
-      .then((payload) => {
-        if (cancelled) return;
-        setProfile(payload);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setProfile(null);
-        setProfileError(error);
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setProfileLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [client?.clientId, isOpen, profileReloadKey]);
-
-  if (!client) return null;
-
-  const detailClient = profile?.client || {};
-  const onboarding = profile?.onboarding || {};
-  const healthProfile = profile?.healthProfile || {};
-  const bodyMetrics = profile?.bodyMetrics || {};
-  const nutritionProtocol = profile?.nutritionProtocol || {};
-  const wearableSummary = profile?.wearableSummary || {};
-  const completeness = profile?.completeness || {};
-  const recoveryMetrics = profile?.recoveryMetrics || {};
-  const recommendations = Array.isArray(profile?.recommendations) ? profile.recommendations : [];
-  const timeline = Array.isArray(profile?.timeline) ? profile.timeline : [];
-  const biomarkers = Array.isArray(profile?.biomarkers) ? profile.biomarkers : [];
-  const profileItems = [
-    ['Email', detailClient.email || client.email || 'Not available'],
-    ['Mobile', detailClient.mobile || detailClient.mobileNumberMasked || client.mobile || client.mobileNumberMasked || 'Not available'],
-    ['Status', detailClient.accountStatus || detailClient.status || client.accountStatus || client.status || 'Not available'],
-    ['Registered', formatDateLabel(detailClient.registrationDate || client.registeredAt)],
-    ['Last activity', client.lastActivity],
-    ['Data source', client.dataSourceLabel],
-  ];
-  const onboardingItems = [
-    ['Age', detailClient.age ?? client.age ?? 'Not available'],
-    ['Gender', detailClient.gender || client.gender || 'Not available'],
-    ['Height', onboarding.height || client.height ? `${onboarding.height || client.height} cm` : 'Not available'],
-    ['Weight', onboarding.weight || client.weight ? `${onboarding.weight || client.weight} kg` : 'Not available'],
-    ['Goal', onboarding.goal || client.goal || 'Not available'],
-    ['Activity', onboarding.activityLevel || client.activityLevel || 'Not available'],
-    ['Diet', onboarding.dietPreference || client.dietPreference || 'Not available'],
-  ];
-  const reportsCount = healthProfile.reportsCount ?? client.reportsCount ?? 0;
-  const healthScore = recoveryMetrics.overallScore?.scoreValue ?? null;
-  const actionLabel = (profile?.healthProfile?.profileCompleted ?? client.profileCompleted) ? 'Review profile' : 'Complete onboarding';
-  const detailErrorMessage = getFiteatsyClientsErrorMessage(profileError);
-  const metricCards = [
-    ['BMI', bodyMetrics.bmi, bodyMetrics.bmiCategory || bodyMetrics.unavailableReasons?.bmi || 'Complete height and weight to calculate BMI'],
-    ['BMR', bodyMetrics.bmr, bodyMetrics.bmr ? 'kcal/day' : bodyMetrics.unavailableReasons?.bmr || 'Complete age, gender, height, and weight'],
-    ['TDEE', bodyMetrics.tdee, bodyMetrics.tdee ? 'kcal/day' : bodyMetrics.unavailableReasons?.tdee || 'Complete activity profile to calculate energy requirement'],
-    ['Calories', nutritionProtocol.calorieTarget, nutritionProtocol.calorieTarget ? 'kcal/day target' : nutritionProtocol.unavailableReasons?.calorieTarget || 'TDEE is required'],
-    ['Protein', nutritionProtocol.macroTargets?.proteinGrams, nutritionProtocol.macroTargets ? 'g/day target' : 'Macro target pending'],
-    ['Hydration', nutritionProtocol.hydrationTargetLiters, nutritionProtocol.hydrationTargetLiters ? 'L/day target' : nutritionProtocol.unavailableReasons?.hydrationTargetLiters || 'Weight is required'],
-  ];
-
-  return (
-    <AnimatePresence>
-      {isOpen ? (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.18, ease: 'easeOut' }}
-          className="fixed inset-0 z-50 bg-[rgba(36,36,36,0.10)]"
-          onClick={onClose}
-        >
-          <motion.div
-            initial={{ x: 36, opacity: 0.98 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 28, opacity: 0.98 }}
-            transition={{ duration: 0.24, ease: 'easeOut' }}
-            className="ml-auto h-full w-[80vw] min-w-[320px] max-w-[1080px] border-l border-[var(--fluent-color-neutral-stroke-1)] bg-[#F6F8FB] shadow-[-8px_0_24px_var(--fluent-shadow-ambient)]"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex h-full flex-col">
-              <div className="sticky top-0 z-20 border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[rgba(255,255,255,0.94)] px-5 py-4 backdrop-blur">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-2)]">Fiteatsy client workspace</p>
-                    <h2 className="mt-1 text-2xl font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">{client.name}</h2>
-                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.clientId} • {client.freshnessLabel}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="rounded-full bg-[var(--fluent-color-neutral-background-1)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-neutral-foreground-1)]"
-                  >
-                    Close
-                  </button>
-                </div>
-                <div className="mt-4 grid gap-2 sm:grid-cols-4">
-                  <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Profile</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{healthProfile.profileCompleted ?? client.profileCompleted ? 'Completed' : 'Pending'}</p>
-                  </div>
-                  <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Reports</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{profileLoading ? 'Loading...' : reportsCount}</p>
-                  </div>
-                  <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Health score</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{profileLoading ? 'Loading...' : healthScore ?? 'Not calculated'}</p>
-                  </div>
-                  <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Next action</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{actionLabel}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-                {profileLoading ? (
-                  <div className="mb-4 grid gap-3 xl:grid-cols-3">
-                    {[0, 1, 2].map((item) => (
-                      <div key={item} className="animate-pulse rounded-[20px] bg-[var(--fluent-color-neutral-background-1)] p-4">
-                        <div className="h-4 w-32 rounded-full bg-[var(--fluent-color-neutral-background-3)]" />
-                        <div className="mt-3 h-3 w-52 rounded-full bg-[var(--fluent-color-neutral-background-2)]" />
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                {detailErrorMessage ? (
-                  <DirectoryStateMessage
-                    tone="danger"
-                    title="Unable to load client health context"
-                    message={detailErrorMessage}
-                    actionLabel="Retry"
-                    onAction={() => setProfileReloadKey((value) => value + 1)}
-                  />
-                ) : null}
-                <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-                  <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4">
-                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Profile summary</p>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      {profileItems.map(([label, value]) => (
-                        <div key={label} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
-                          <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
-                          <p className="mt-1 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{value}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </Surface>
-
-                  <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4">
-                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Onboarding context</p>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      {onboardingItems.map(([label, value]) => (
-                        <div key={label} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
-                          <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
-                          <p className="mt-1 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{value}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </Surface>
-                </div>
-
-                <div className="mt-4 grid gap-4 xl:grid-cols-3">
-                  {[
-                    ['Medical reports', reportsCount ? `${reportsCount} report${reportsCount === 1 ? '' : 's'} recorded. Detailed report review loads progressively from Fiteatsy.` : 'Client has not uploaded any health reports yet.'],
-                    ['Biomarkers', biomarkers.length ? `${biomarkers.length} validated biomarker${biomarkers.length === 1 ? '' : 's'} available for consultant review.` : 'No validated biomarker timeline is available yet.'],
-                    ['Wearables', wearableSummary.connected ? `${wearableSummary.recordsCount} wearable observation${wearableSummary.recordsCount === 1 ? '' : 's'} synced from ${wearableSummary.dataSources?.join(', ') || 'health data source'}.` : 'Connect wearable device to unlock recovery, sleep, activity, and calm insights.'],
-                    ['Recommendations', recommendations.length ? `${recommendations.length} action prompt${recommendations.length === 1 ? '' : 's'} available from live profile completeness and health-signal gaps.` : 'No report-backed recommendation has been generated for this client yet.'],
-                    ['Nutrition protocol', nutritionProtocol.readinessScore ? `Nutrition readiness ${nutritionProtocol.readinessScore}%. ${nutritionProtocol.missingFields?.length || 0} missing field${nutritionProtocol.missingFields?.length === 1 ? '' : 's'}.` : 'No active nutrition protocol assigned.'],
-                    ['Audit note', 'This workspace is showing live Fiteatsy registration and onboarding data only. No mock health values are rendered.'],
-                  ].map(([title, message]) => (
-                    <Surface key={title} className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4">
-                      <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{title}</p>
-                      <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{message}</p>
-                    </Surface>
-                  ))}
-                </div>
-
-                <div className="mt-4 grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-                  <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4">
-                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Body and nutrition intelligence</p>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      {metricCards.map(([label, value, helper]) => (
-                        <div key={label} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
-                          <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
-                          <p className="mt-1 text-lg font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{value ?? 'Pending'}</p>
-                          <p className="mt-1 text-xs leading-5 text-[var(--fluent-color-neutral-foreground-2)]">{helper}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </Surface>
-
-                  <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4">
-                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Data completeness</p>
-                    <p className="mt-3 text-3xl font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{completeness.profileCompletionScore ?? 20}%</p>
-                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{completeness.onboardingStatus === 'COMPLETED' ? 'Onboarding complete' : 'Onboarding incomplete'}</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {(completeness.missingFields || ['height', 'weight', 'goal', 'activityLevel']).slice(0, 8).map((field) => (
-                        <span key={field} className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{field}</span>
-                      ))}
-                    </div>
-                  </Surface>
-                </div>
-
-                <div className="mt-4 grid gap-4 xl:grid-cols-2">
-                  <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4">
-                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultant action prompts</p>
-                    <div className="mt-4 space-y-3">
-                      {recommendations.length ? recommendations.map((item) => (
-                        <div key={`${item.priority}-${item.title}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
-                          <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.title}</p>
-                          <p className="mt-1 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{item.detail}</p>
-                          <p className="mt-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.action}</p>
-                        </div>
-                      )) : (
-                        <p className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">No action prompts are available yet.</p>
-                      )}
-                    </div>
-                  </Surface>
-
-                  <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4">
-                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Recent timeline</p>
-                    <div className="mt-4 space-y-3">
-                      {timeline.length ? timeline.slice(0, 6).map((event) => (
-                        <div key={`${event.type}-${event.timestamp}-${event.title}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
-                          <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{event.title}</p>
-                          <p className="mt-1 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{event.detail}</p>
-                          <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{formatDateLabel(event.timestamp)} · {event.source}</p>
-                        </div>
-                      )) : (
-                        <p className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">No timeline activity yet beyond registration.</p>
-                      )}
-                    </div>
-                  </Surface>
                 </div>
               </div>
             </div>
@@ -4057,19 +4229,7 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
   );
 }
 
-function ClientDirectoryPage({
-  queueViews,
-  activeQueue,
-  setActiveQueue,
-  filteredClients,
-  totalCount = 0,
-  onClientOpen,
-  loading = false,
-  error = null,
-  isRealFiteatsy = false,
-  lastSyncedAt = null,
-  onRetry,
-}) {
+function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filteredClients, totalCount = 0, onClientOpen, loading = false, error = null, isRealFiteatsy = false }) {
   const errorMessage = getFiteatsyClientsErrorMessage(error);
 
   return (
@@ -4081,18 +4241,16 @@ function ClientDirectoryPage({
             <h2 className="mt-2 text-[24px] font-semibold tracking-[-0.02em]">Healthcare operating roster</h2>
             <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
               {isRealFiteatsy
-                ? 'Fast roster view for registered Fiteatsy users. Detailed health context loads only after opening a client.'
+                ? `${totalCount} registered Fiteatsy users are available from the live consultant API.`
                 : 'Filter the client population by risk, momentum, inactivity, and intervention stage before opening the workspace.'}
             </p>
-            {isRealFiteatsy ? (
-              <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
-                <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5">Source: Fiteatsy production API</span>
-                <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5">{lastSyncedAt ? formatFreshnessLabel(lastSyncedAt) : 'Sync pending'}</span>
-                <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5">{totalCount} eligible users</span>
-              </div>
-            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
+            {isRealFiteatsy ? (
+              <span className="rounded-full bg-[var(--fluent-color-status-info-background)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-status-info-foreground)]">
+                Total registered users · {totalCount}
+              </span>
+            ) : null}
             {queueViews.slice(0, 5).map((view) => (
               <button
                 key={view.key}
@@ -4120,16 +4278,10 @@ function ClientDirectoryPage({
         </div>
         <div className="divide-y divide-[var(--fluent-color-neutral-stroke-1)]">
           {loading ? (
-            <DirectorySkeletonRows />
+            <div className="px-4 py-8 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading Fiteatsy clients...</div>
           ) : errorMessage ? (
-            <DirectoryStateMessage
-              tone="danger"
-              title="Unable to load client roster"
-              message={errorMessage}
-              actionLabel="Retry"
-              onAction={onRetry}
-            />
-          ) : filteredClients.length ? filteredClients.map((client) => (
+            <div className="px-4 py-8 text-sm font-medium text-[var(--fluent-color-status-danger-foreground)]">{errorMessage}</div>
+          ) : filteredClients.length ? filteredClients.slice(0, 16).map((client) => (
             <button
               key={client.id}
               onClick={() => onClientOpen(client.id)}
@@ -4145,26 +4297,18 @@ function ClientDirectoryPage({
               </div>
               <div className="min-w-0 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.packageLabel}</div>
               <div className="min-w-0">
-                <StatusChip status={isRealFiteatsy ? (client.reportsCount > 0 ? 'medium' : 'pending') : client.recoveryMomentum.status}>
-                  {isRealFiteatsy ? (client.reportsCount > 0 ? `${client.reportsCount} report${client.reportsCount === 1 ? '' : 's'}` : 'No reports') : client.recoveryMomentum.label}
-                </StatusChip>
+                <StatusChip status={isRealFiteatsy ? 'pending' : client.recoveryMomentum.status}>{isRealFiteatsy ? 'Not available' : client.recoveryMomentum.label}</StatusChip>
                 <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{client.trendSummary.title}</p>
               </div>
-              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{isRealFiteatsy ? 'Awaiting sync' : `${client.adherenceScore}%`}</div>
+              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{isRealFiteatsy ? 'Not available' : `${client.adherenceScore}%`}</div>
               <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{formatStatusLabel(client.planStatus)}</div>
-              <div>
-                <p className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.lastActivity}</p>
-                {isRealFiteatsy ? <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{client.dataSourceLabel}</p> : null}
-              </div>
-              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{isRealFiteatsy ? (client.profileCompleted ? 'Review profile' : 'Onboarding pending') : client.conditionFocus.action.split('.')[0]}</div>
+              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.lastActivity}</div>
+              <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{isRealFiteatsy ? 'No action assigned' : client.conditionFocus.action.split('.')[0]}</div>
             </button>
           )) : (
-            <DirectoryStateMessage
-              title="No Fiteatsy clients registered yet"
-              message="New users will appear here automatically after they register in Fiteatsy. No manual database update is required."
-              actionLabel="Refresh roster"
-              onAction={onRetry}
-            />
+            <div className="px-4 py-8 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+              No Fiteatsy clients registered yet. New users will appear here automatically after they register in Fiteatsy.
+            </div>
           )}
         </div>
       </Surface>
@@ -4337,7 +4481,8 @@ function PlatformWorkspace({ forcedRole }) {
   const resolvedRole = forcedRole || user?.role || 'consultant';
   const roleKind = getRoleKind(resolvedRole);
   const isSuperAdmin = superAdminRoles.has(String(resolvedRole).toLowerCase());
-  const usesRealFiteatsyClients = roleKind === 'consultant';
+  const [brandView, setBrandView] = useState('All Brands');
+  const usesRealFiteatsyClients = roleKind === 'consultant' || brandView === 'Fiteatsy';
   const [state, setState] = useState(() => {
     if (usesRealFiteatsyClients) return buildEmptyPlatformState();
 
@@ -4355,7 +4500,6 @@ function PlatformWorkspace({ forcedRole }) {
   });
   const [nav, setNav] = useState(() => (usesRealFiteatsyClients ? 'clients' : 'command-center'));
   const [timeframe, setTimeframe] = useState('Week');
-  const [brandView, setBrandView] = useState('All Brands');
   const [globalSearch, setGlobalSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [activeQueue, setActiveQueue] = useState('needs_review');
@@ -4376,8 +4520,10 @@ function PlatformWorkspace({ forcedRole }) {
   const [fiteatsyClients, setFiteatsyClients] = useState([]);
   const [fiteatsyClientsLoading, setFiteatsyClientsLoading] = useState(false);
   const [fiteatsyClientsError, setFiteatsyClientsError] = useState(null);
-  const [fiteatsyClientsLastSyncedAt, setFiteatsyClientsLastSyncedAt] = useState(null);
-  const [fiteatsyClientsReloadKey, setFiteatsyClientsReloadKey] = useState(0);
+  const [realClientDrawerOpen, setRealClientDrawerOpen] = useState(false);
+  const [realClientProfile, setRealClientProfile] = useState(null);
+  const [realClientProfileLoading, setRealClientProfileLoading] = useState(false);
+  const [realClientProfileError, setRealClientProfileError] = useState(null);
 
   useEffect(() => {
     if (selectedClientId) {
@@ -4445,7 +4591,6 @@ function PlatformWorkspace({ forcedRole }) {
       .then(({ clients: apiClients }) => {
         if (cancelled) return;
         setFiteatsyClients(apiClients);
-        setFiteatsyClientsLastSyncedAt(new Date().toISOString());
       })
       .catch((error) => {
         if (cancelled) return;
@@ -4460,11 +4605,42 @@ function PlatformWorkspace({ forcedRole }) {
     return () => {
       cancelled = true;
     };
-  }, [usesRealFiteatsyClients, fiteatsyClientsReloadKey]);
+  }, [usesRealFiteatsyClients]);
 
-  function retryFiteatsyClients() {
-    setFiteatsyClientsReloadKey((value) => value + 1);
-  }
+  useEffect(() => {
+    const source = usesRealFiteatsyClients ? 'API' : 'MOCK';
+    const activeClients = usesRealFiteatsyClients ? fiteatsyClients : state.employees;
+    console.info('CLIENT DATA SOURCE:', source);
+    console.info('CLIENT COUNT:', activeClients.length);
+    console.info('FIRST CLIENT:', activeClients[0]?.name || 'NONE');
+  }, [fiteatsyClients, state.employees, usesRealFiteatsyClients]);
+
+  useEffect(() => {
+    if (!usesRealFiteatsyClients || !realClientDrawerOpen || !selectedClientId) return undefined;
+
+    let cancelled = false;
+    setRealClientProfileLoading(true);
+    setRealClientProfileError(null);
+
+    getFiteatsyConsultantClientProfile(selectedClientId)
+      .then((payload) => {
+        if (cancelled) return;
+        setRealClientProfile(payload);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setRealClientProfile(null);
+        setRealClientProfileError(error);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setRealClientProfileLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [realClientDrawerOpen, selectedClientId, usesRealFiteatsyClients]);
 
   const mockClients = useMemo(() => buildClientRecords(state), [state]);
   const realFiteatsyClients = useMemo(() => buildFiteatsyClientRecords(fiteatsyClients), [fiteatsyClients]);
@@ -4587,7 +4763,23 @@ function PlatformWorkspace({ forcedRole }) {
     if (usesRealFiteatsyClients) {
       const query = globalSearch.toLowerCase();
       return clients.filter((client) => {
-        const haystack = `${client.name} ${client.organization} ${client.recoveryStage} ${client.packageLabel} ${client.lastActivity}`.toLowerCase();
+        const haystack = [
+          client.name,
+          client.email,
+          client.mobile,
+          client.mobileNumberMasked,
+          client.organization,
+          client.recoveryStage,
+          client.packageLabel,
+          client.lastActivity,
+          client.goal,
+          client.gender,
+          client.accountStatus,
+          ...(client.conditions || []),
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
         return haystack.includes(query);
       });
     }
@@ -4891,6 +5083,12 @@ function PlatformWorkspace({ forcedRole }) {
   }, [memoryItems, priorityQueue, state.recoveryAlerts, usesRealFiteatsyClients]);
 
   function openClient(clientId, targetTab = 'Overview') {
+    if (usesRealFiteatsyClients) {
+      setSelectedClientId(clientId);
+      setRealClientDrawerOpen(true);
+      setSearchOpen(false);
+      return;
+    }
     setSelectedClientId(clientId);
     setClientWorkspaceTab(targetTab);
     setClientDrawerOpen(true);
@@ -5245,13 +5443,11 @@ function PlatformWorkspace({ forcedRole }) {
               activeQueue={activeQueue}
               setActiveQueue={setActiveQueue}
               filteredClients={filteredClients}
+              totalCount={clients.length}
               onClientOpen={openClient}
               loading={fiteatsyClientsLoading}
               error={fiteatsyClientsError}
               isRealFiteatsy={usesRealFiteatsyClients}
-              totalCount={clients.length}
-              lastSyncedAt={fiteatsyClientsLastSyncedAt}
-              onRetry={retryFiteatsyClients}
             />
           ) : null}
 
@@ -5284,6 +5480,18 @@ function PlatformWorkspace({ forcedRole }) {
                 <OrganizationsPage organizationSignals={organizationSignals} />
               ) : nav === 'people' ? (
                 isSuperAdmin ? <SuperAdminPeoplePage /> : <CompactPageHeader title="Restricted" subtitle="Only super admins can manage mentors, consultants, admins, and their authorities." />
+              ) : nav === 'clients' && usesRealFiteatsyClients ? (
+                <ClientDirectoryPage
+                  queueViews={queueViews}
+                  activeQueue={activeQueue}
+                  setActiveQueue={setActiveQueue}
+                  filteredClients={filteredClients}
+                  totalCount={clients.length}
+                  onClientOpen={openClient}
+                  loading={fiteatsyClientsLoading}
+                  error={fiteatsyClientsError}
+                  isRealFiteatsy={usesRealFiteatsyClients}
+                />
               ) : (
                 <>
                   <CompactPageHeader title={adminHeader.title} subtitle={adminHeader.subtitle} />
@@ -5294,6 +5502,17 @@ function PlatformWorkspace({ forcedRole }) {
           ) : null}
         </main>
       </div>
+
+      {usesRealFiteatsyClients ? (
+        <RealClientProfileDrawer
+          isOpen={realClientDrawerOpen}
+          onClose={() => setRealClientDrawerOpen(false)}
+          summaryClient={selectedClient}
+          profile={realClientProfile}
+          loading={realClientProfileLoading}
+          error={realClientProfileError}
+        />
+      ) : null}
 
       {roleKind === 'consultant' ? (
         <>
@@ -5341,13 +5560,6 @@ function PlatformWorkspace({ forcedRole }) {
                 onClientOpen={openClient}
               />
             </>
-          ) : null}
-          {usesRealFiteatsyClients ? (
-            <RealFiteatsyClientDrawer
-              isOpen={clientDrawerOpen}
-              onClose={() => setClientDrawerOpen(false)}
-              client={selectedClient}
-            />
           ) : null}
           <QueueBottomSheet
             isOpen={queueSheetOpen}

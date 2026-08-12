@@ -7,6 +7,36 @@ export function getFiteatsyApiBaseUrl() {
   return configured.replace(/\/+$/, '');
 }
 
+function mapHealthMetric(metric) {
+  if (!metric || typeof metric !== 'object') return null;
+  return {
+    status: metric.status || 'NOT_AVAILABLE',
+    value: metric.value ?? null,
+    unit: metric.unit ?? null,
+    category: metric.category ?? null,
+    reason: metric.reason ?? null,
+    formulaVersion: metric.formulaVersion ?? null,
+    calculatedAt: metric.calculatedAt ?? null,
+    values: metric.values && typeof metric.values === 'object' ? metric.values : {},
+  };
+}
+
+function mapBiomarker(record) {
+  return {
+    biomarkerId: record.biomarkerId,
+    name: record.name || 'Biomarker',
+    value: typeof record.value === 'number' ? record.value : Number(record.value),
+    unit: record.unit || '',
+    status: record.status || 'VALIDATED',
+    referenceRange: record.referenceRange ?? null,
+    confidence: record.confidence ?? null,
+    testDate: record.testDate ?? null,
+    trend: record.trend ?? null,
+    previousValue: record.previousValue ?? null,
+    previousTestDate: record.previousTestDate ?? null,
+  };
+}
+
 function mapClient(record) {
   const onboarding = record.onboarding && typeof record.onboarding === 'object' ? record.onboarding : {};
   const healthProfile = record.healthProfile && typeof record.healthProfile === 'object' ? record.healthProfile : {};
@@ -19,8 +49,6 @@ function mapClient(record) {
     mobileNumberMasked: record.mobileNumberMasked ?? null,
     status: record.status ?? null,
     accountStatus: record.accountStatus ?? null,
-    age: record.age ?? null,
-    gender: record.gender ?? null,
     height: record.height ?? onboarding.height ?? null,
     weight: record.weight ?? onboarding.weight ?? null,
     goal: record.goal ?? onboarding.goal ?? null,
@@ -34,6 +62,8 @@ function mapClient(record) {
     biomarkerStatus: record.biomarkerStatus ?? healthProfile.biomarkerStatus ?? null,
     reportsCount: typeof record.reportsCount === 'number' ? record.reportsCount : Number(healthProfile.reportsCount ?? 0),
     lastHealthUpdate: record.lastHealthUpdate ?? healthProfile.lastHealthUpdate ?? null,
+    age: record.age ?? onboarding.age ?? null,
+    gender: record.gender ?? onboarding.gender ?? null,
     profileCompleted: Boolean(record.profileCompleted ?? healthProfile.profileCompleted),
     registeredAt: record.registeredAt || null,
     lastActiveAt: record.lastActiveAt || null,
@@ -50,30 +80,37 @@ async function readJsonResponse(response) {
   }
 }
 
-function buildAuthHeaders(token) {
-  return {
-    Accept: 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-}
-
-async function requestFiteatsy(path) {
+async function requestFiteatsyJson(path) {
   const token = getToken();
   const url = `${getFiteatsyApiBaseUrl()}${path}`;
-  let response = await fetch(url, {
+  const response = await fetch(url, {
     method: 'GET',
-    headers: buildAuthHeaders(token),
+    headers: {
+      Accept: 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
   });
   let body = await readJsonResponse(response);
 
   if (response.status === 401) {
     const refreshedToken = await refreshAccessToken().catch(() => null);
     if (refreshedToken) {
-      response = await fetch(url, {
+      const retryResponse = await fetch(url, {
         method: 'GET',
-        headers: buildAuthHeaders(refreshedToken),
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${refreshedToken}`,
+        },
       });
-      body = await readJsonResponse(response);
+      body = await readJsonResponse(retryResponse);
+      if (retryResponse.ok) return body;
+
+      const retryError = new Error(
+        body?.message || body?.error || `Fiteatsy request failed (${retryResponse.status})`
+      );
+      retryError.status = retryResponse.status;
+      retryError.data = body;
+      throw retryError;
     }
   }
 
@@ -88,7 +125,7 @@ async function requestFiteatsy(path) {
 }
 
 export async function listFiteatsyConsultantClients() {
-  const body = await requestFiteatsy('/v1/consultants/clients');
+  const body = await requestFiteatsyJson('/v1/consultants/clients');
 
   return {
     clients: Array.isArray(body?.clients) ? body.clients.map(mapClient) : [],
@@ -96,11 +133,31 @@ export async function listFiteatsyConsultantClients() {
 }
 
 export async function getFiteatsyConsultantClientProfile(clientId) {
-  if (!clientId) {
-    const error = new Error('Client ID is required');
-    error.status = 400;
-    throw error;
-  }
+  const body = await requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/workspace`);
 
-  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/workspace`);
+  return {
+    client: body?.client || null,
+    profile: body?.profile || null,
+    onboarding: body?.onboarding || null,
+    healthProfile: body?.healthProfile || null,
+    bodyMetrics: body?.bodyMetrics || null,
+    nutritionProtocol: body?.nutritionProtocol || null,
+    wearableSummary: body?.wearableSummary || null,
+    reports: Array.isArray(body?.reports) ? body.reports : [],
+    recommendations: Array.isArray(body?.recommendations) ? body.recommendations : [],
+    timeline: Array.isArray(body?.timeline) ? body.timeline : [],
+    completeness: body?.completeness || null,
+    syncMetadata: body?.syncMetadata || null,
+    healthMetrics: body?.healthMetrics
+      ? {
+          bmi: mapHealthMetric(body.healthMetrics.bmi),
+          bmr: mapHealthMetric(body.healthMetrics.bmr),
+          tdee: mapHealthMetric(body.healthMetrics.tdee),
+          targetHeartRate: mapHealthMetric(body.healthMetrics.targetHeartRate),
+          bodyFat: mapHealthMetric(body.healthMetrics.bodyFat),
+          oneRepMax: mapHealthMetric(body.healthMetrics.oneRepMax),
+        }
+      : null,
+    biomarkers: Array.isArray(body?.biomarkers) ? body.biomarkers.map(mapBiomarker) : [],
+  };
 }
