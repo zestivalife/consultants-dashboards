@@ -1,4 +1,4 @@
-import { getToken } from './api';
+import { getToken, refreshAccessToken } from './api';
 
 const DEFAULT_FITEATSY_API_URL = 'https://fiteatsy-mobile-production.up.railway.app';
 
@@ -80,23 +80,52 @@ async function readJsonResponse(response) {
   }
 }
 
-export async function listFiteatsyConsultantClients() {
+async function requestFiteatsyJson(path) {
   const token = getToken();
-  const response = await fetch(`${getFiteatsyApiBaseUrl()}/v1/consultants/clients`, {
+  const url = `${getFiteatsyApiBaseUrl()}${path}`;
+  const response = await fetch(url, {
     method: 'GET',
     headers: {
       Accept: 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
-  const body = await readJsonResponse(response);
+  let body = await readJsonResponse(response);
+
+  if (response.status === 401) {
+    const refreshedToken = await refreshAccessToken().catch(() => null);
+    if (refreshedToken) {
+      const retryResponse = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${refreshedToken}`,
+        },
+      });
+      body = await readJsonResponse(retryResponse);
+      if (retryResponse.ok) return body;
+
+      const retryError = new Error(
+        body?.message || body?.error || `Fiteatsy request failed (${retryResponse.status})`
+      );
+      retryError.status = retryResponse.status;
+      retryError.data = body;
+      throw retryError;
+    }
+  }
 
   if (!response.ok) {
-    const error = new Error(body?.message || body?.error || `Fiteatsy clients request failed (${response.status})`);
+    const error = new Error(body?.message || body?.error || `Fiteatsy request failed (${response.status})`);
     error.status = response.status;
     error.data = body;
     throw error;
   }
+
+  return body;
+}
+
+export async function listFiteatsyConsultantClients() {
+  const body = await requestFiteatsyJson('/v1/consultants/clients');
 
   return {
     clients: Array.isArray(body?.clients) ? body.clients.map(mapClient) : [],
@@ -104,22 +133,7 @@ export async function listFiteatsyConsultantClients() {
 }
 
 export async function getFiteatsyConsultantClientProfile(clientId) {
-  const token = getToken();
-  const response = await fetch(`${getFiteatsyApiBaseUrl()}/v1/consultants/clients/${encodeURIComponent(clientId)}`, {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
-  const body = await readJsonResponse(response);
-
-  if (!response.ok) {
-    const error = new Error(body?.message || body?.error || `Fiteatsy client profile request failed (${response.status})`);
-    error.status = response.status;
-    error.data = body;
-    throw error;
-  }
+  const body = await requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}`);
 
   return {
     client: body?.client || null,
