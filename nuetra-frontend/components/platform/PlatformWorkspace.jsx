@@ -933,6 +933,7 @@ function RealClientProfileDrawer({
   loading,
   error,
 }) {
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('Overview');
   const message = getProfileErrorMessage(error);
   const client = profile?.client;
   const onboarding = profile?.onboarding;
@@ -942,6 +943,22 @@ function RealClientProfileDrawer({
   const nutritionProtocol = profile?.nutritionProtocol;
   const syncMetadata = profile?.syncMetadata;
   const biomarkers = profile?.biomarkers || [];
+  const reports = profile?.reports || [];
+  const timeline = profile?.timeline || [];
+  const workspaceTabs = ['Overview', 'Health Profile', 'Lifestyle', 'Reports', 'Biomarkers', 'Nutrition Plan', 'Activity', 'Timeline'];
+  const goalLabel = onboarding?.goal || summaryClient?.program || 'Not assigned';
+  const profileStrength = healthProfile?.completionPercent ?? healthProfile?.profileCompleteness ?? summaryClient?.profileCompletedPercent;
+  const lastSynced = syncMetadata?.lastSyncedAt || healthProfile?.lastHealthUpdate || client?.lastActiveAt || summaryClient?.lastActivityAt;
+  const riskFlags = [
+    biomarkers.some((item) => String(item.name || '').toLowerCase().includes('b12') && ['LOW', 'CRITICAL'].includes(String(item.status || '').toUpperCase())) ? 'Low B12' : null,
+    ['Poor', 'Average'].includes(onboarding?.lifestyle?.sleepQuality) ? 'Poor sleep' : null,
+    ['High', 'Very High'].includes(onboarding?.lifestyle?.stressLevel) ? 'High stress' : null,
+  ].filter(Boolean);
+  const recommendedActions = [
+    nutritionProtocol?.proteinTargetGrams != null ? 'Review protein target with the client' : null,
+    onboarding?.lifestyle?.sleepQuality ? 'Improve sleep routine before advancing intensity' : null,
+    biomarkers.length ? 'Review latest validated report markers' : null,
+  ].filter(Boolean);
   const metricCards = [
     {
       key: 'bmi',
@@ -989,6 +1006,223 @@ function RealClientProfileDrawer({
       detail: metrics?.oneRepMax?.status === 'AVAILABLE' ? 'Estimated strength ceiling' : 'Workout data required',
     },
   ];
+  const snapshotCards = [
+    { icon: Scale, title: 'BMI', value: bodyMetrics?.bmi != null ? `${bodyMetrics.bmi}` : formatMetricCardValue(metrics?.bmi, 'Complete profile'), detail: 'Body status' },
+    { icon: ListChecks, title: 'Goal', value: formatDisplayValue(goalLabel), detail: 'Current programme focus' },
+    { icon: Flame, title: 'Calories', value: nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : formatMetricCardValue(metrics?.tdee, 'Needs profile'), detail: 'Daily target' },
+    { icon: Dumbbell, title: 'Protein', value: nutritionProtocol?.proteinTargetGrams != null ? `${nutritionProtocol.proteinTargetGrams}g` : 'Needs profile', detail: 'Daily target' },
+    { icon: Activity, title: 'Hydration', value: nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters}L` : 'Needs profile', detail: 'Daily target' },
+  ];
+
+  useEffect(() => {
+    if (isOpen) setActiveWorkspaceTab('Overview');
+  }, [isOpen, summaryClient?.id]);
+
+  const renderOverview = () => (
+    <div className="space-y-4">
+      <Surface className="p-5" animated>
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Health Snapshot</p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          {snapshotCards.map((metric) => (
+            <HealthMetricCard key={metric.title} icon={metric.icon} title={metric.title} value={metric.value} detail={metric.detail} />
+          ))}
+        </div>
+      </Surface>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Surface className="p-5" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Risk Flags</p>
+          <div className="mt-4 space-y-2">
+            {riskFlags.length ? riskFlags.map((flag) => (
+              <div key={flag} className="rounded-[16px] bg-[var(--fluent-color-status-warning-background)] px-4 py-3 text-sm font-medium text-[var(--fluent-color-status-warning-foreground)]">
+                {flag}
+              </div>
+            )) : (
+              <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                No active risk flags from synced data yet.
+              </div>
+            )}
+          </div>
+        </Surface>
+        <Surface className="p-5" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Recommended Actions</p>
+          <div className="mt-4 space-y-2">
+            {recommendedActions.length ? recommendedActions.map((action, index) => (
+              <div key={action} className="flex gap-3 rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)]">
+                <span className="font-semibold text-[var(--fluent-color-brand-foreground-link)]">{index + 1}.</span>
+                <span>{action}</span>
+              </div>
+            )) : (
+              <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                No action assigned. Profile and report data will unlock consultant recommendations.
+              </div>
+            )}
+          </div>
+        </Surface>
+      </div>
+    </div>
+  );
+
+  const renderHealthProfile = () => (
+    <div className="space-y-4">
+      <Surface className="p-5" animated>
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Personal Information</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <DetailField label="Age" value={formatDisplayValue(client?.age)} />
+          <DetailField label="Gender" value={formatDisplayValue(client?.gender)} />
+          <DetailField label="Height" value={onboarding?.height != null ? `${onboarding.height} cm` : 'Complete profile to calculate'} />
+          <DetailField label="Weight" value={onboarding?.weight != null ? `${onboarding.weight} kg` : 'Complete profile to calculate'} />
+        </div>
+      </Surface>
+      <Surface className="p-5" animated>
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Body Composition</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <DetailField label="BMI" value={bodyMetrics?.bmi != null ? `${bodyMetrics.bmi}` : 'Complete profile to calculate'} />
+          <DetailField label="Body Fat" value={bodyMetrics?.bodyFatPct != null ? `${bodyMetrics.bodyFatPct}%` : formatMetricCardValue(metrics?.bodyFat, 'Measurements required')} />
+          <DetailField label="Waist" value={onboarding?.bodyComposition?.waistCm != null ? `${onboarding.bodyComposition.waistCm} cm` : 'Not available'} />
+          <DetailField label="Hip" value={onboarding?.bodyComposition?.hipCm != null ? `${onboarding.bodyComposition.hipCm} cm` : 'Not available'} />
+        </div>
+      </Surface>
+      <Surface className="p-5" animated>
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Medical History</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <DetailField label="Diabetes" value={formatDisplayValue(onboarding?.healthHistory?.diabetes)} />
+          <DetailField label="Thyroid" value={formatDisplayValue(onboarding?.healthHistory?.thyroid)} />
+          <DetailField label="PCOS" value={formatDisplayValue(onboarding?.healthHistory?.pcos)} />
+          <DetailField label="Cholesterol" value={formatDisplayValue(onboarding?.healthHistory?.cholesterol)} />
+          <DetailField label="Heart conditions" value={formatDisplayValue(onboarding?.healthHistory?.heartConditions)} />
+          <DetailField label="Medical conditions" value={formatDisplayValue(onboarding?.medicalConditions)} />
+        </div>
+      </Surface>
+    </div>
+  );
+
+  const renderLifestyle = () => (
+    <Surface className="p-5" animated>
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Lifestyle</p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <DetailField label="Sleep" value={onboarding?.lifestyle?.sleepHours != null ? `${onboarding.lifestyle.sleepHours} hrs` : 'Complete profile to calculate'} />
+        <DetailField label="Sleep quality" value={formatDisplayValue(onboarding?.lifestyle?.sleepQuality)} />
+        <DetailField label="Stress" value={formatDisplayValue(onboarding?.lifestyle?.stressLevel)} />
+        <DetailField label="Activity" value={formatDisplayValue(onboarding?.activityLevel)} />
+        <DetailField label="Food preference" value={formatDisplayValue(onboarding?.dietPreference)} />
+        <DetailField label="Preferred cuisines" value={formatDisplayValue(onboarding?.nutrition?.preferredCuisines)} />
+        <DetailField label="Allergies" value={formatDisplayValue(onboarding?.nutrition?.foodAllergies)} />
+        <DetailField label="Dislikes" value={formatDisplayValue(onboarding?.nutrition?.foodDislikes)} />
+      </div>
+    </Surface>
+  );
+
+  const renderReports = () => (
+    <Surface className="p-5" animated>
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Reports Timeline</p>
+      <div className="mt-4 space-y-3">
+        {reports.length ? reports.map((report) => (
+          <div key={report.id || report.reportId} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{formatDateLabel(report.reportDate || report.createdAt || report.uploadedAt)}</p>
+                <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{report.title || report.originalFilename || 'Blood Report Uploaded'}</p>
+              </div>
+              <StatusChip status={report.status === 'COMPLETED' ? 'stable' : 'medium'}>{report.status || 'Uploaded'}</StatusChip>
+            </div>
+            <p className="mt-3 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+              AI Extracted: {biomarkers.slice(0, 5).map((item) => item.name).join(', ') || 'No validated biomarkers yet'}
+            </p>
+          </div>
+        )) : (
+          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+            Client has not uploaded any health reports yet.
+          </div>
+        )}
+      </div>
+    </Surface>
+  );
+
+  const renderBiomarkers = () => (
+    <Surface className="p-5" animated>
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Validated Biomarkers</p>
+      {biomarkers.length ? (
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          {biomarkers.map((biomarker) => (
+            <div key={biomarker.biomarkerId} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{biomarker.name}</p>
+                  <p className="mt-2 text-[24px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">
+                    {`${biomarker.value} ${biomarker.unit}`.trim()}
+                  </p>
+                </div>
+                <StatusChip status={biomarkerTone(biomarker.status)}>{biomarker.status}</StatusChip>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <DetailField label="Reference" value={formatDisplayValue(biomarker.referenceRange)} />
+                <DetailField label="Trend" value={trendLabel(biomarker.trend)} />
+                <DetailField label="Previous value" value={biomarker.previousValue != null ? `${biomarker.previousValue} ${biomarker.unit}`.trim() : 'Not available'} />
+                <DetailField label="Test date" value={formatDateLabel(biomarker.testDate)} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+          No validated biomarkers available yet.
+        </div>
+      )}
+    </Surface>
+  );
+
+  const renderNutrition = () => (
+    <Surface className="p-5" animated>
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Nutrition Plan</p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <DetailField label="Current goal" value={formatDisplayValue(goalLabel)} />
+        <DetailField label="Calories" value={nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : 'No target calculated'} />
+        <DetailField label="Protein" value={nutritionProtocol?.proteinTargetGrams != null ? `${nutritionProtocol.proteinTargetGrams}g` : 'No target calculated'} />
+        <DetailField label="Hydration" value={nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters}L` : 'No target calculated'} />
+      </div>
+      <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+        No active meal plan assigned. The diet-plan workflow will create breakfast, lunch, dinner, snack, supplement, and client-note sections here.
+      </div>
+    </Surface>
+  );
+
+  const renderActivity = () => (
+    <Surface className="p-5" animated>
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Activity</p>
+      <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+        Connect wearable device to unlock recovery insights.
+      </div>
+    </Surface>
+  );
+
+  const renderTimeline = () => (
+    <Surface className="p-5" animated>
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Timeline</p>
+      <div className="mt-4 space-y-3">
+        {timeline.length ? timeline.map((event) => (
+          <div key={event.id || `${event.type}-${event.createdAt}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+            <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{event.title || event.type}</p>
+            <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{formatDateLabel(event.createdAt || event.timestamp)}</p>
+          </div>
+        )) : (
+          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+            No synced client timeline events yet.
+          </div>
+        )}
+      </div>
+    </Surface>
+  );
+
+  const tabContent = {
+    Overview: renderOverview,
+    'Health Profile': renderHealthProfile,
+    Lifestyle: renderLifestyle,
+    Reports: renderReports,
+    Biomarkers: renderBiomarkers,
+    'Nutrition Plan': renderNutrition,
+    Activity: renderActivity,
+    Timeline: renderTimeline,
+  }[activeWorkspaceTab] || renderOverview;
 
   return (
     <AnimatePresence>
@@ -1012,21 +1246,52 @@ function RealClientProfileDrawer({
               <div className="border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[rgba(255,255,255,0.94)] px-5 py-4 backdrop-blur">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client Profile Intelligence</p>
+                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client Command Center</p>
                     <h2 className="mt-2 text-[28px] font-semibold tracking-[-0.03em] text-[var(--fluent-color-neutral-foreground-1)]">
                       {client?.name || summaryClient?.name || 'Client'}
                     </h2>
                     <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-                      Backend-calculated health metrics and validated biomarkers for consultant review.
+                      {goalLabel === 'Not assigned' ? 'Recovery Program not assigned' : `${goalLabel} Recovery Program`}
                     </p>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
+                      <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5">
+                        Profile completeness {profileStrength != null ? `${profileStrength}%` : 'pending'}
+                      </span>
+                      <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5">
+                        Last synced: {formatDateLabel(lastSynced)}
+                      </span>
+                    </div>
                   </div>
-                  <button
-                    onClick={onClose}
-                    className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-2 text-[var(--fluent-color-neutral-foreground-2)] transition hover:bg-[var(--fluent-color-neutral-background-2)]"
-                    aria-label="Close client profile"
-                  >
-                    <X size={18} />
-                  </button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">
+                      Generate Diet Plan
+                    </button>
+                    <button className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
+                      Message Client
+                    </button>
+                    <button
+                      onClick={onClose}
+                      className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-2 text-[var(--fluent-color-neutral-foreground-2)] transition hover:bg-[var(--fluent-color-neutral-background-2)]"
+                      aria-label="Close client profile"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+                  {workspaceTabs.map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveWorkspaceTab(tab)}
+                      className={`whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold transition ${
+                        activeWorkspaceTab === tab
+                          ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]'
+                          : 'bg-[var(--fluent-color-neutral-background-2)] text-[var(--fluent-color-neutral-foreground-2)] hover:text-[var(--fluent-color-neutral-foreground-1)]'
+                      }`}
+                    >
+                      {tab}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -1048,137 +1313,7 @@ function RealClientProfileDrawer({
                     <p className="text-sm font-semibold text-[var(--fluent-color-status-danger-foreground)]">{message}</p>
                   </Surface>
                 ) : (
-                  <div className="space-y-4">
-                    <Surface className="p-5" animated>
-                      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">1. Client Overview</p>
-                      <div className="mt-4 grid gap-3 md:grid-cols-2">
-                        <OverviewStat icon={Mail} label="Email" value={formatDisplayValue(client?.email)} />
-                        <OverviewStat icon={Phone} label="Mobile" value={formatDisplayValue(client?.mobileNumberMasked || client?.mobile)} />
-                        <OverviewStat icon={CalendarDays} label="Registration date" value={formatDateLabel(client?.registrationDate)} />
-                        <OverviewStat icon={ShieldCheck} label="Account status" value={formatDisplayValue(client?.accountStatus)} />
-                      </div>
-                    </Surface>
-
-                    <Surface className="p-5" animated>
-                      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">2. Personal Health Profile</p>
-                      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                        <DetailField label="Age" value={formatDisplayValue(client?.age)} />
-                        <DetailField label="Gender" value={formatDisplayValue(client?.gender)} />
-                        <DetailField label="Height" value={onboarding?.height != null ? `${onboarding.height} cm` : 'Not available'} />
-                        <DetailField label="Weight" value={onboarding?.weight != null ? `${onboarding.weight} kg` : 'Not available'} />
-                        <DetailField label="Goal" value={formatDisplayValue(onboarding?.goal)} />
-                        <DetailField label="Activity level" value={formatDisplayValue(onboarding?.activityLevel)} />
-                        <DetailField label="Diet preference" value={formatDisplayValue(onboarding?.dietPreference)} />
-                        <DetailField label="Medical conditions" value={formatDisplayValue(onboarding?.medicalConditions)} />
-                      </div>
-                    </Surface>
-
-                    <Surface className="p-5" animated>
-                      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-                        <div>
-                          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">3. Lifestyle, Nutrition & Health History</p>
-                          <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-                            Progressive profile fields synchronized from the Fiteatsy mobile app.
-                          </p>
-                        </div>
-                        <div className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">
-                          Last synced: {formatDateLabel(syncMetadata?.lastSyncedAt || healthProfile?.lastHealthUpdate)}
-                        </div>
-                      </div>
-                      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                        <DetailField label="Sleep" value={onboarding?.lifestyle?.sleepHours != null ? `${onboarding.lifestyle.sleepHours} hrs` : 'Complete profile to calculate'} />
-                        <DetailField label="Sleep quality" value={formatDisplayValue(onboarding?.lifestyle?.sleepQuality)} />
-                        <DetailField label="Stress" value={formatDisplayValue(onboarding?.lifestyle?.stressLevel)} />
-                        <DetailField label="Smoking" value={formatDisplayValue(onboarding?.lifestyle?.smoking)} />
-                        <DetailField label="Alcohol" value={formatDisplayValue(onboarding?.lifestyle?.alcohol)} />
-                        <DetailField label="Exercise" value={formatDisplayValue(onboarding?.lifestyle?.exerciseFrequency)} />
-                        <DetailField label="Preferred cuisines" value={formatDisplayValue(onboarding?.nutrition?.preferredCuisines)} />
-                        <DetailField label="Allergies" value={formatDisplayValue(onboarding?.nutrition?.foodAllergies)} />
-                        <DetailField label="Dislikes" value={formatDisplayValue(onboarding?.nutrition?.foodDislikes)} />
-                        <DetailField label="Meals per day" value={formatDisplayValue(onboarding?.nutrition?.mealFrequency)} />
-                        <DetailField label="Water intake" value={onboarding?.nutrition?.waterIntakeLiters != null ? `${onboarding.nutrition.waterIntakeLiters} L` : 'Complete profile to calculate'} />
-                        <DetailField label="PCOS" value={formatDisplayValue(onboarding?.healthHistory?.pcos)} />
-                        <DetailField label="Thyroid" value={formatDisplayValue(onboarding?.healthHistory?.thyroid)} />
-                        <DetailField label="Diabetes" value={formatDisplayValue(onboarding?.healthHistory?.diabetes)} />
-                        <DetailField label="Hypertension" value={formatDisplayValue(onboarding?.healthHistory?.hypertension)} />
-                        <DetailField label="Cholesterol" value={formatDisplayValue(onboarding?.healthHistory?.cholesterol)} />
-                        <DetailField label="Heart conditions" value={formatDisplayValue(onboarding?.healthHistory?.heartConditions)} />
-                        <DetailField label="Previous conditions" value={formatDisplayValue(onboarding?.healthHistory?.previousConditions)} />
-                        <DetailField label="Family history" value={formatDisplayValue(onboarding?.healthHistory?.familyMedicalHistory)} />
-                        <DetailField label="Surgeries" value={formatDisplayValue(onboarding?.healthHistory?.previousSurgeries)} />
-                        <DetailField label="Pregnancy" value={formatDisplayValue(onboarding?.healthHistory?.pregnancy)} />
-                        <DetailField label="Breastfeeding" value={formatDisplayValue(onboarding?.healthHistory?.breastfeeding)} />
-                        <DetailField label="Medicines" value={formatDisplayValue(onboarding?.healthHistory?.medications)} />
-                        <DetailField label="Clinical notes" value={formatDisplayValue(onboarding?.healthHistory?.medicalNotes)} />
-                      </div>
-                    </Surface>
-
-                    <Surface className="p-5" animated>
-                      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-                        <div>
-                          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">4. Body Metrics Dashboard</p>
-                          <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-                            These values come directly from the Fiteatsy backend health intelligence engine.
-                          </p>
-                        </div>
-                        <div className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">
-                          Last health update: {formatDateLabel(healthProfile?.lastHealthUpdate)}
-                        </div>
-                      </div>
-                      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                        {metricCards.map((metric) => (
-                          <HealthMetricCard key={metric.key} icon={metric.icon} title={metric.title} value={metric.value} detail={metric.detail} />
-                        ))}
-                      </div>
-                      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                        <DetailField label="BMI" value={bodyMetrics?.bmi != null ? `${bodyMetrics.bmi}` : formatDisplayValue(bodyMetrics?.unavailableReasons?.bmi, 'Complete profile to calculate')} />
-                        <DetailField label="BMR" value={bodyMetrics?.bmr != null ? `${bodyMetrics.bmr} kcal` : formatDisplayValue(bodyMetrics?.unavailableReasons?.bmr, 'Complete profile to calculate')} />
-                        <DetailField label="TDEE" value={bodyMetrics?.tdee != null ? `${bodyMetrics.tdee} kcal` : formatDisplayValue(bodyMetrics?.unavailableReasons?.tdee, 'Complete profile to calculate')} />
-                        <DetailField label="Hydration target" value={nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters} L/day` : formatDisplayValue(nutritionProtocol?.unavailableReasons?.hydrationTargetLiters, 'Complete profile to calculate')} />
-                      </div>
-                    </Surface>
-
-                    <Surface className="p-5" animated>
-                      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-                        <div>
-                          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">5. Biomarker Health Summary</p>
-                          <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-                            Showing validated biomarkers only. OCR drafts, rejected values, and extraction logs are excluded.
-                          </p>
-                        </div>
-                        <div className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">
-                          Reports count: {formatMetricNumber(healthProfile?.reportsCount, '')}
-                        </div>
-                      </div>
-                      {biomarkers.length ? (
-                        <div className="mt-4 grid gap-4 md:grid-cols-2">
-                          {biomarkers.map((biomarker) => (
-                            <div key={biomarker.biomarkerId} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{biomarker.name}</p>
-                                  <p className="mt-2 text-[24px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">
-                                    {`${biomarker.value} ${biomarker.unit}`.trim()}
-                                  </p>
-                                </div>
-                                <StatusChip status={biomarkerTone(biomarker.status)}>{biomarker.status}</StatusChip>
-                              </div>
-                              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                                <DetailField label="Reference" value={formatDisplayValue(biomarker.referenceRange)} />
-                                <DetailField label="Trend" value={trendLabel(biomarker.trend)} />
-                                <DetailField label="Previous value" value={biomarker.previousValue != null ? `${biomarker.previousValue} ${biomarker.unit}`.trim() : 'Not available'} />
-                                <DetailField label="Test date" value={formatDateLabel(biomarker.testDate)} />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-                          No validated biomarkers available yet.
-                        </div>
-                      )}
-                    </Surface>
-                  </div>
+                  tabContent()
                 )}
               </div>
             </div>
