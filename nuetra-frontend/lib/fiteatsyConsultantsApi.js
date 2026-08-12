@@ -8,13 +8,33 @@ export function getFiteatsyApiBaseUrl() {
 }
 
 function mapClient(record) {
+  const onboarding = record.onboarding && typeof record.onboarding === 'object' ? record.onboarding : {};
+  const healthProfile = record.healthProfile && typeof record.healthProfile === 'object' ? record.healthProfile : {};
   return {
     id: record.clientId,
     clientId: record.clientId,
     name: record.name || 'Unnamed client',
+    email: record.email ?? null,
+    mobile: record.mobile ?? null,
+    mobileNumberMasked: record.mobileNumberMasked ?? null,
+    status: record.status ?? null,
+    accountStatus: record.accountStatus ?? null,
     age: record.age ?? null,
     gender: record.gender ?? null,
-    profileCompleted: Boolean(record.profileCompleted),
+    height: record.height ?? onboarding.height ?? null,
+    weight: record.weight ?? onboarding.weight ?? null,
+    goal: record.goal ?? onboarding.goal ?? null,
+    activityLevel: record.activityLevel ?? onboarding.activityLevel ?? null,
+    dietPreference: record.dietPreference ?? onboarding.dietPreference ?? null,
+    medicalConditions: Array.isArray(record.medicalConditions)
+      ? record.medicalConditions
+      : Array.isArray(onboarding.medicalConditions)
+        ? onboarding.medicalConditions
+        : null,
+    biomarkerStatus: record.biomarkerStatus ?? healthProfile.biomarkerStatus ?? null,
+    reportsCount: typeof record.reportsCount === 'number' ? record.reportsCount : Number(healthProfile.reportsCount ?? 0),
+    lastHealthUpdate: record.lastHealthUpdate ?? healthProfile.lastHealthUpdate ?? null,
+    profileCompleted: Boolean(record.profileCompleted ?? healthProfile.profileCompleted),
     registeredAt: record.registeredAt || null,
     lastActiveAt: record.lastActiveAt || null,
   };
