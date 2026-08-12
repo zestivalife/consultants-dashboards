@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Activity,
@@ -32,7 +32,14 @@ import {
 import withAuth from '../../hocs/withAuth';
 import { useAuth } from '../../context/AuthContext';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
-import { getFiteatsyConsultantClientProfile, listFiteatsyConsultantClients } from '../../lib/fiteatsyConsultantsApi';
+import {
+  approveFiteatsyDietPlan,
+  generateFiteatsyDietPlanDraft,
+  getFiteatsyConsultantClientProfile,
+  listFiteatsyConsultantClients,
+  publishFiteatsyDietPlan,
+  updateFiteatsyDietPlanDraft,
+} from '../../lib/fiteatsyConsultantsApi';
 import { corporateAPI } from '../../lib/api';
 import { ADMIN_ACCESS_POLICY, DELIVERY_ACCESS_POLICY, MENTOR_ACCESS_POLICY, ORGANIZATION_ACCESS_POLICY } from '../../lib/roleRoutes';
 
@@ -932,8 +939,14 @@ function RealClientProfileDrawer({
   profile,
   loading,
   error,
+  onRefresh,
 }) {
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('Overview');
+  const [nutritionActionLoading, setNutritionActionLoading] = useState(false);
+  const [nutritionActionError, setNutritionActionError] = useState(null);
+  const [nutritionActionSuccess, setNutritionActionSuccess] = useState(null);
+  const [nutritionDraftContent, setNutritionDraftContent] = useState(null);
+  const [nutritionReviewNotes, setNutritionReviewNotes] = useState('');
   const message = getProfileErrorMessage(error);
   const client = profile?.client;
   const onboarding = profile?.onboarding;
@@ -941,6 +954,9 @@ function RealClientProfileDrawer({
   const metrics = profile?.healthMetrics;
   const bodyMetrics = profile?.bodyMetrics;
   const nutritionProtocol = profile?.nutritionProtocol;
+  const nutritionSnapshot = profile?.nutritionSnapshot;
+  const nutritionIntelligence = profile?.nutritionIntelligence;
+  const dietPlan = profile?.dietPlan;
   const syncMetadata = profile?.syncMetadata;
   const biomarkers = profile?.biomarkers || [];
   const reports = profile?.reports || [];
@@ -1021,10 +1037,116 @@ function RealClientProfileDrawer({
     { icon: Dumbbell, title: 'Protein', value: nutritionProtocol?.macroTargets?.proteinGrams != null ? `${nutritionProtocol.macroTargets.proteinGrams}g` : 'Needs profile', detail: 'Daily target' },
     { icon: Activity, title: 'Hydration', value: nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters}L` : 'Needs profile', detail: 'Daily target' },
   ];
+  const dietPlanLifecycle = dietPlan?.currentLifecycle || dietPlan?.plan?.planStatus || null;
+  const canEditNutritionDraft = Boolean(dietPlan && ['draft', 'review_ready'].includes(String(dietPlanLifecycle)));
+  const canApproveNutritionPlan = Boolean(dietPlan && dietPlanLifecycle === 'review_ready');
+  const canPublishNutritionPlan = Boolean(dietPlan && dietPlanLifecycle === 'approved');
 
   useEffect(() => {
     if (isOpen) setActiveWorkspaceTab('Overview');
   }, [isOpen, summaryClient?.id]);
+
+  useEffect(() => {
+    if (!dietPlan?.content) {
+      setNutritionDraftContent(null);
+      setNutritionReviewNotes('');
+      return;
+    }
+
+    setNutritionDraftContent(JSON.parse(JSON.stringify(dietPlan.content)));
+    setNutritionReviewNotes(dietPlan.version?.reviewNotes || '');
+  }, [dietPlan?.content, dietPlan?.version?.reviewNotes]);
+
+  const refreshAfterNutritionAction = useCallback(async () => {
+    setNutritionActionError(null);
+    if (!onRefresh) return;
+    await onRefresh();
+  }, [onRefresh]);
+
+  const handleGenerateDraft = useCallback(async () => {
+    if (!summaryClient?.id) return;
+    setNutritionActionLoading(true);
+    setNutritionActionError(null);
+    setNutritionActionSuccess(null);
+    try {
+      await generateFiteatsyDietPlanDraft(summaryClient.id, {});
+      await refreshAfterNutritionAction();
+      setNutritionActionSuccess('Draft generated from the latest client health context.');
+      setActiveWorkspaceTab('Nutrition Plan');
+    } catch (actionError) {
+      setNutritionActionError(actionError?.message || 'Unable to generate nutrition draft.');
+    } finally {
+      setNutritionActionLoading(false);
+    }
+  }, [refreshAfterNutritionAction, summaryClient?.id]);
+
+  const handleNutritionFieldChange = useCallback((path, value) => {
+    setNutritionDraftContent((current) => {
+      if (!current) return current;
+      const next = JSON.parse(JSON.stringify(current));
+      let pointer = next;
+      for (let index = 0; index < path.length - 1; index += 1) {
+        pointer = pointer[path[index]];
+      }
+      pointer[path[path.length - 1]] = value;
+      return next;
+    });
+  }, []);
+
+  const handleSaveNutritionDraft = useCallback(async () => {
+    if (!summaryClient?.id || !dietPlan?.plan?.id || !nutritionDraftContent) return;
+    setNutritionActionLoading(true);
+    setNutritionActionError(null);
+    setNutritionActionSuccess(null);
+    try {
+      await updateFiteatsyDietPlanDraft(summaryClient.id, dietPlan.plan.id, {
+        content: nutritionDraftContent,
+        reviewNotes: nutritionReviewNotes || null,
+      });
+      await refreshAfterNutritionAction();
+      setNutritionActionSuccess('Draft changes saved and moved to review ready.');
+    } catch (actionError) {
+      setNutritionActionError(actionError?.message || 'Unable to save nutrition draft edits.');
+    } finally {
+      setNutritionActionLoading(false);
+    }
+  }, [dietPlan?.plan?.id, nutritionDraftContent, nutritionReviewNotes, refreshAfterNutritionAction, summaryClient?.id]);
+
+  const handleApprovePlan = useCallback(async () => {
+    if (!summaryClient?.id || !dietPlan?.plan?.id) return;
+    setNutritionActionLoading(true);
+    setNutritionActionError(null);
+    setNutritionActionSuccess(null);
+    try {
+      await approveFiteatsyDietPlan(summaryClient.id, dietPlan.plan.id);
+      await refreshAfterNutritionAction();
+      setNutritionActionSuccess('Nutrition plan approved and ready to publish.');
+    } catch (actionError) {
+      setNutritionActionError(actionError?.message || 'Unable to approve nutrition plan.');
+    } finally {
+      setNutritionActionLoading(false);
+    }
+  }, [dietPlan?.plan?.id, refreshAfterNutritionAction, summaryClient?.id]);
+
+  const handlePublishPlan = useCallback(async () => {
+    if (!summaryClient?.id || !dietPlan?.plan?.id) return;
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm('Publish this nutrition plan to the client app now? Only published plans become visible to the client.');
+      if (!confirmed) return;
+    }
+    setNutritionActionLoading(true);
+    setNutritionActionError(null);
+    setNutritionActionSuccess(null);
+    try {
+      await publishFiteatsyDietPlan(summaryClient.id, dietPlan.plan.id);
+      await refreshAfterNutritionAction();
+      setNutritionActionSuccess('Nutrition plan published. The client app can now load the published plan.');
+    } catch (actionError) {
+      setNutritionActionError(actionError?.message || 'Unable to publish nutrition plan.');
+    } finally {
+      setNutritionActionLoading(false);
+    }
+  }, [dietPlan?.plan?.id, refreshAfterNutritionAction, summaryClient?.id]);
 
   const renderOverview = () => (
     <div className="space-y-4">
@@ -1184,18 +1306,251 @@ function RealClientProfileDrawer({
   );
 
   const renderNutrition = () => (
-    <Surface className="p-5" animated>
-      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Nutrition Plan</p>
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <DetailField label="Current goal" value={formatDisplayValue(goalLabel)} />
-        <DetailField label="Calories" value={nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : 'No target calculated'} />
-        <DetailField label="Protein" value={nutritionProtocol?.macroTargets?.proteinGrams != null ? `${nutritionProtocol.macroTargets.proteinGrams}g` : 'No target calculated'} />
-        <DetailField label="Hydration" value={nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters}L` : 'No target calculated'} />
+    <div className="space-y-4">
+      <Surface className="p-5" animated>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Nutrition Intelligence</p>
+            <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+              Consultant-assisted planning using health profile, validated biomarkers, reports, and nutrition targets.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={handleGenerateDraft}
+              disabled={nutritionActionLoading}
+              className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:opacity-60"
+            >
+              {nutritionActionLoading ? 'Working...' : dietPlan ? 'Regenerate Draft' : 'Generate Draft'}
+            </button>
+            <button
+              onClick={handleSaveNutritionDraft}
+              disabled={nutritionActionLoading || !canEditNutritionDraft || !nutritionDraftContent}
+              className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:opacity-50"
+            >
+              Save Draft
+            </button>
+            <button
+              onClick={handleApprovePlan}
+              disabled={nutritionActionLoading || !canApproveNutritionPlan}
+              className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:opacity-50"
+            >
+              Approve
+            </button>
+            <button
+              onClick={handlePublishPlan}
+              disabled={nutritionActionLoading || !canPublishNutritionPlan}
+              className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-status-success-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-status-success-foreground)] disabled:opacity-50"
+            >
+              Publish
+            </button>
+          </div>
+        </div>
+        {nutritionActionError ? (
+          <div className="mt-4 rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-3 text-sm text-[var(--fluent-color-status-danger-foreground)]">
+            {nutritionActionError}
+          </div>
+        ) : null}
+        {nutritionActionSuccess ? (
+          <div className="mt-4 rounded-[16px] bg-[var(--fluent-color-status-success-background)] px-4 py-3 text-sm text-[var(--fluent-color-status-success-foreground)]">
+            {nutritionActionSuccess}
+          </div>
+        ) : null}
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <DetailField label="Current goal" value={formatDisplayValue(goalLabel)} />
+          <DetailField label="Calories" value={nutritionSnapshot?.caloriesTarget != null ? `${nutritionSnapshot.caloriesTarget} kcal` : 'No target calculated'} />
+          <DetailField label="Protein" value={nutritionSnapshot?.proteinTargetGrams != null ? `${nutritionSnapshot.proteinTargetGrams}g` : 'No target calculated'} />
+          <DetailField label="Hydration" value={nutritionSnapshot?.hydrationTargetLiters != null ? `${nutritionSnapshot.hydrationTargetLiters}L` : 'No target calculated'} />
+        </div>
+      </Surface>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Surface className="p-5" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Health Summary</p>
+          <div className="mt-4 space-y-2">
+            <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm">
+              <span className="font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Risk level: </span>
+              <span className="text-[var(--fluent-color-neutral-foreground-2)]">{formatDisplayValue(nutritionIntelligence?.riskLevel)}</span>
+            </div>
+            {(nutritionIntelligence?.observations || []).map((item) => (
+              <div key={item.title} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+                <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.title}</p>
+                <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.detail}</p>
+              </div>
+            ))}
+          </div>
+        </Surface>
+
+        <Surface className="p-5" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultant Actions</p>
+          <div className="mt-4 space-y-2">
+            {(nutritionIntelligence?.consultantActions || []).length ? (
+              nutritionIntelligence.consultantActions.map((item, index) => (
+                <div key={`${item}-${index}`} className="flex gap-3 rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)]">
+                  <span className="font-semibold text-[var(--fluent-color-brand-foreground-link)]">{index + 1}.</span>
+                  <span>{item}</span>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                Generate the draft to lock consultant actions against the client’s current health context.
+              </div>
+            )}
+          </div>
+        </Surface>
       </div>
-      <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-        No active meal plan assigned. The diet-plan workflow will create breakfast, lunch, dinner, snack, supplement, and client-note sections here.
-      </div>
-    </Surface>
+
+      <Surface className="p-5" animated>
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Latest Diet Plan</p>
+        {dietPlan ? (
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <DetailField label="Plan status" value={formatDisplayValue(dietPlan.plan.planStatus)} />
+              <DetailField label="Version" value={dietPlan.currentVersionNumber != null ? `v${dietPlan.currentVersionNumber}` : 'Not available'} />
+              <DetailField label="Template" value={formatDisplayValue(dietPlan.templateVersion)} />
+              <DetailField label="Focus" value={formatDisplayValue(dietPlan.contentSummary?.focusAreas)} />
+            </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Draft review</p>
+                <div className="mt-3 space-y-3">
+                  <label className="block">
+                    <span className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Programme name</span>
+                    <input
+                      value={nutritionDraftContent?.nutritionSnapshot?.programmeName || ''}
+                      onChange={(event) => handleNutritionFieldChange(['nutritionSnapshot', 'programmeName'], event.target.value)}
+                      disabled={!canEditNutritionDraft}
+                      className="fluent-input mt-2 w-full rounded-[16px] px-3 py-3 text-sm outline-none disabled:opacity-60"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Plan focus</span>
+                    <textarea
+                      value={nutritionDraftContent?.nutritionSnapshot?.personalisedPlanFocus || ''}
+                      onChange={(event) => handleNutritionFieldChange(['nutritionSnapshot', 'personalisedPlanFocus'], event.target.value)}
+                      disabled={!canEditNutritionDraft}
+                      rows={3}
+                      className="fluent-input mt-2 w-full rounded-[16px] px-3 py-3 text-sm outline-none disabled:opacity-60"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Review notes</span>
+                    <textarea
+                      value={nutritionReviewNotes}
+                      onChange={(event) => setNutritionReviewNotes(event.target.value)}
+                      disabled={!canEditNutritionDraft}
+                      rows={4}
+                      className="fluent-input mt-2 w-full rounded-[16px] px-3 py-3 text-sm outline-none disabled:opacity-60"
+                      placeholder="Add consultant review notes before approval"
+                    />
+                  </label>
+                </div>
+              </div>
+              <div className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Daily targets</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                  <label className="block">
+                    <span className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">Calories</span>
+                    <input
+                      type="number"
+                      value={nutritionDraftContent?.dailyTargets?.calories ?? ''}
+                      onChange={(event) => handleNutritionFieldChange(['dailyTargets', 'calories'], event.target.value === '' ? null : Number(event.target.value))}
+                      disabled={!canEditNutritionDraft}
+                      className="fluent-input mt-2 w-full rounded-[16px] px-3 py-3 text-sm outline-none disabled:opacity-60"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">Protein</span>
+                    <input
+                      type="number"
+                      value={nutritionDraftContent?.dailyTargets?.protein ?? ''}
+                      onChange={(event) => handleNutritionFieldChange(['dailyTargets', 'protein'], event.target.value === '' ? null : Number(event.target.value))}
+                      disabled={!canEditNutritionDraft}
+                      className="fluent-input mt-2 w-full rounded-[16px] px-3 py-3 text-sm outline-none disabled:opacity-60"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">Hydration</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={nutritionDraftContent?.dailyTargets?.hydration ?? ''}
+                      onChange={(event) => handleNutritionFieldChange(['dailyTargets', 'hydration'], event.target.value === '' ? null : Number(event.target.value))}
+                      disabled={!canEditNutritionDraft}
+                      className="fluent-input mt-2 w-full rounded-[16px] px-3 py-3 text-sm outline-none disabled:opacity-60"
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div className="grid gap-3 lg:grid-cols-2">
+              {Object.entries((nutritionDraftContent || dietPlan.content).mealPlan).map(([key, section]) => (
+                <div key={key} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{formatStatusLabel(key)}</p>
+                      {canEditNutritionDraft ? (
+                        <input
+                          value={section.window}
+                          onChange={(event) => handleNutritionFieldChange(['mealPlan', key, 'window'], event.target.value)}
+                          className="fluent-input mt-2 w-full rounded-[14px] px-3 py-2 text-xs outline-none"
+                        />
+                      ) : (
+                        <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{section.window}</p>
+                      )}
+                    </div>
+                    {canEditNutritionDraft ? (
+                      <input
+                        value={section.focus}
+                        onChange={(event) => handleNutritionFieldChange(['mealPlan', key, 'focus'], event.target.value)}
+                        className="fluent-input w-[180px] rounded-[14px] px-3 py-2 text-xs outline-none"
+                      />
+                    ) : (
+                      <span className="text-xs font-medium text-[var(--fluent-color-brand-foreground-link)]">{section.focus}</span>
+                    )}
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {section.options.slice(0, 2).map((option) => (
+                      <div key={`${key}-${option.slot}`} className="rounded-[14px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2">
+                        {canEditNutritionDraft ? (
+                          <div className="space-y-2">
+                            <input
+                              value={option.meal}
+                              onChange={(event) => handleNutritionFieldChange(['mealPlan', key, 'options', option.slot - 1, 'meal'], event.target.value)}
+                              className="fluent-input w-full rounded-[12px] px-3 py-2 text-sm outline-none"
+                            />
+                            <input
+                              value={option.portion}
+                              onChange={(event) => handleNutritionFieldChange(['mealPlan', key, 'options', option.slot - 1, 'portion'], event.target.value)}
+                              className="fluent-input w-full rounded-[12px] px-3 py-2 text-xs outline-none"
+                            />
+                            <textarea
+                              value={option.prepNote}
+                              onChange={(event) => handleNutritionFieldChange(['mealPlan', key, 'options', option.slot - 1, 'prepNote'], event.target.value)}
+                              rows={2}
+                              className="fluent-input w-full rounded-[12px] px-3 py-2 text-xs outline-none"
+                            />
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{option.meal}</p>
+                            <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{option.portion} • {option.prepNote}</p>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+            No active meal plan assigned yet. Generate a consultant draft to create meal sections, hydration rhythm, substitutions, and clinical notes.
+          </div>
+        )}
+      </Surface>
+    </div>
   );
 
   const renderActivity = () => (
@@ -4650,23 +5005,24 @@ function PlatformWorkspace({ forcedRole }) {
     if (!usesRealFiteatsyClients || !realClientDrawerOpen || !selectedClientId) return undefined;
 
     let cancelled = false;
-    setRealClientProfileLoading(true);
-    setRealClientProfileError(null);
-
-    getFiteatsyConsultantClientProfile(selectedClientId)
-      .then((payload) => {
+    const loadClientWorkspace = async () => {
+      setRealClientProfileLoading(true);
+      setRealClientProfileError(null);
+      try {
+        const payload = await getFiteatsyConsultantClientProfile(selectedClientId);
         if (cancelled) return;
         setRealClientProfile(payload);
-      })
-      .catch((error) => {
+      } catch (error) {
         if (cancelled) return;
         setRealClientProfile(null);
         setRealClientProfileError(error);
-      })
-      .finally(() => {
+      } finally {
         if (cancelled) return;
         setRealClientProfileLoading(false);
-      });
+      }
+    };
+
+    void loadClientWorkspace();
 
     return () => {
       cancelled = true;
@@ -5542,6 +5898,20 @@ function PlatformWorkspace({ forcedRole }) {
           profile={realClientProfile}
           loading={realClientProfileLoading}
           error={realClientProfileError}
+          onRefresh={async () => {
+            if (!selectedClientId) return;
+            setRealClientProfileLoading(true);
+            setRealClientProfileError(null);
+            try {
+              const payload = await getFiteatsyConsultantClientProfile(selectedClientId);
+              setRealClientProfile(payload);
+            } catch (drawerError) {
+              setRealClientProfile(null);
+              setRealClientProfileError(drawerError);
+            } finally {
+              setRealClientProfileLoading(false);
+            }
+          }}
         />
       ) : null}
 
