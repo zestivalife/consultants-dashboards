@@ -938,6 +938,9 @@ function RealClientProfileDrawer({
   const onboarding = profile?.onboarding;
   const healthProfile = profile?.healthProfile;
   const metrics = profile?.healthMetrics;
+  const bodyMetrics = profile?.bodyMetrics;
+  const nutritionProtocol = profile?.nutritionProtocol;
+  const syncMetadata = profile?.syncMetadata;
   const biomarkers = profile?.biomarkers || [];
   const metricCards = [
     {
@@ -1073,7 +1076,47 @@ function RealClientProfileDrawer({
                     <Surface className="p-5" animated>
                       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
                         <div>
-                          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">3. Body Metrics Dashboard</p>
+                          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">3. Lifestyle, Nutrition & Health History</p>
+                          <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                            Progressive profile fields synchronized from the Fiteatsy mobile app.
+                          </p>
+                        </div>
+                        <div className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+                          Last synced: {formatDateLabel(syncMetadata?.lastSyncedAt || healthProfile?.lastHealthUpdate)}
+                        </div>
+                      </div>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        <DetailField label="Sleep" value={onboarding?.lifestyle?.sleepHours != null ? `${onboarding.lifestyle.sleepHours} hrs` : 'Complete profile to calculate'} />
+                        <DetailField label="Sleep quality" value={formatDisplayValue(onboarding?.lifestyle?.sleepQuality)} />
+                        <DetailField label="Stress" value={formatDisplayValue(onboarding?.lifestyle?.stressLevel)} />
+                        <DetailField label="Smoking" value={formatDisplayValue(onboarding?.lifestyle?.smoking)} />
+                        <DetailField label="Alcohol" value={formatDisplayValue(onboarding?.lifestyle?.alcohol)} />
+                        <DetailField label="Exercise" value={formatDisplayValue(onboarding?.lifestyle?.exerciseFrequency)} />
+                        <DetailField label="Preferred cuisines" value={formatDisplayValue(onboarding?.nutrition?.preferredCuisines)} />
+                        <DetailField label="Allergies" value={formatDisplayValue(onboarding?.nutrition?.foodAllergies)} />
+                        <DetailField label="Dislikes" value={formatDisplayValue(onboarding?.nutrition?.foodDislikes)} />
+                        <DetailField label="Meals per day" value={formatDisplayValue(onboarding?.nutrition?.mealFrequency)} />
+                        <DetailField label="Water intake" value={onboarding?.nutrition?.waterIntakeLiters != null ? `${onboarding.nutrition.waterIntakeLiters} L` : 'Complete profile to calculate'} />
+                        <DetailField label="PCOS" value={formatDisplayValue(onboarding?.healthHistory?.pcos)} />
+                        <DetailField label="Thyroid" value={formatDisplayValue(onboarding?.healthHistory?.thyroid)} />
+                        <DetailField label="Diabetes" value={formatDisplayValue(onboarding?.healthHistory?.diabetes)} />
+                        <DetailField label="Hypertension" value={formatDisplayValue(onboarding?.healthHistory?.hypertension)} />
+                        <DetailField label="Cholesterol" value={formatDisplayValue(onboarding?.healthHistory?.cholesterol)} />
+                        <DetailField label="Heart conditions" value={formatDisplayValue(onboarding?.healthHistory?.heartConditions)} />
+                        <DetailField label="Previous conditions" value={formatDisplayValue(onboarding?.healthHistory?.previousConditions)} />
+                        <DetailField label="Family history" value={formatDisplayValue(onboarding?.healthHistory?.familyMedicalHistory)} />
+                        <DetailField label="Surgeries" value={formatDisplayValue(onboarding?.healthHistory?.previousSurgeries)} />
+                        <DetailField label="Pregnancy" value={formatDisplayValue(onboarding?.healthHistory?.pregnancy)} />
+                        <DetailField label="Breastfeeding" value={formatDisplayValue(onboarding?.healthHistory?.breastfeeding)} />
+                        <DetailField label="Medicines" value={formatDisplayValue(onboarding?.healthHistory?.medications)} />
+                        <DetailField label="Clinical notes" value={formatDisplayValue(onboarding?.healthHistory?.medicalNotes)} />
+                      </div>
+                    </Surface>
+
+                    <Surface className="p-5" animated>
+                      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">4. Body Metrics Dashboard</p>
                           <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
                             These values come directly from the Fiteatsy backend health intelligence engine.
                           </p>
@@ -1087,12 +1130,18 @@ function RealClientProfileDrawer({
                           <HealthMetricCard key={metric.key} icon={metric.icon} title={metric.title} value={metric.value} detail={metric.detail} />
                         ))}
                       </div>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        <DetailField label="BMI" value={bodyMetrics?.bmi != null ? `${bodyMetrics.bmi}` : formatDisplayValue(bodyMetrics?.unavailableReasons?.bmi, 'Complete profile to calculate')} />
+                        <DetailField label="BMR" value={bodyMetrics?.bmr != null ? `${bodyMetrics.bmr} kcal` : formatDisplayValue(bodyMetrics?.unavailableReasons?.bmr, 'Complete profile to calculate')} />
+                        <DetailField label="TDEE" value={bodyMetrics?.tdee != null ? `${bodyMetrics.tdee} kcal` : formatDisplayValue(bodyMetrics?.unavailableReasons?.tdee, 'Complete profile to calculate')} />
+                        <DetailField label="Hydration target" value={nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters} L/day` : formatDisplayValue(nutritionProtocol?.unavailableReasons?.hydrationTargetLiters, 'Complete profile to calculate')} />
+                      </div>
                     </Surface>
 
                     <Surface className="p-5" animated>
                       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
                         <div>
-                          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">4. Biomarker Health Summary</p>
+                          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">5. Biomarker Health Summary</p>
                           <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
                             Showing validated biomarkers only. OCR drafts, rejected values, and extraction logs are excluded.
                           </p>
