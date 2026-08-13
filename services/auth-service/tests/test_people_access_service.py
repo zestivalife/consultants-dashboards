@@ -129,10 +129,10 @@ async def test_create_user_generates_temporary_credentials_and_primary_role(sess
     assert detail.email == "consultant@nuetra.in"
     assert detail.role == "consultant"
     assert detail.status == "INVITED"
-    assert detail.must_change_password is False
+    assert detail.must_change_password is True
     assert detail.temporary_credentials.username == "consultant@nuetra.in"
     assert detail.temporary_credentials.temporary_password
-    assert detail.temporary_credentials.must_change_password is False
+    assert detail.temporary_credentials.must_change_password is True
     assert detail.temporary_credentials.expires_at is not None
 
     created_user = await session.scalar(select(User).where(User.email == "consultant@nuetra.in"))
@@ -140,7 +140,7 @@ async def test_create_user_generates_temporary_credentials_and_primary_role(sess
     assert created_user.status == "INVITED"
     assert created_user.is_active is True
     assert created_user.is_verified is True
-    assert created_user.must_change_password is False
+    assert created_user.must_change_password is True
     assert created_user.credential_status == "TEMPORARY"
     assert created_user.temporary_password_created_at is not None
     assert created_user.temporary_password_expires_at is not None
@@ -247,7 +247,7 @@ async def test_create_user_uses_invited_temporary_credential_lifecycle(session: 
     assert created_user.is_active is True
     assert created_user.is_verified is True
     assert created_user.email_verified is True
-    assert created_user.must_change_password is False
+    assert created_user.must_change_password is True
     assert created_user.credential_status == "TEMPORARY"
     assert created_user.temporary_password_expires_at is not None
 

@@ -71,7 +71,7 @@ class UserService:
         is_temporary = command.password is None
         now = datetime.now(timezone.utc)
         status = normalize_status(command.status, STATUS_INVITED if is_temporary else "ACTIVE")
-        must_change_password = command.must_change_password if command.must_change_password is not None else False
+        must_change_password = command.must_change_password if command.must_change_password is not None else is_temporary
         is_verified = command.is_verified if command.is_verified is not None else status != "PENDING_VERIFICATION"
         is_active = command.is_active if command.is_active is not None else status not in INACTIVE_STATUSES
         credential_status = CREDENTIAL_TEMPORARY if is_temporary else CREDENTIAL_PERMANENT

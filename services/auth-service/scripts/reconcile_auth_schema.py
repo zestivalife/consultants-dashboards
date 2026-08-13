@@ -5,6 +5,8 @@ import os
 
 import asyncpg
 
+from app.core.security import hash_password
+
 
 ROLE_SEEDS = [
     ("platform_owner", "Platform owner with full system permissions"),
@@ -91,6 +93,23 @@ SERVICE_ROWS = [
     ("fiteatsy-meal-plan", "FitEatsy Meal Plan", "Nutrition", "consultant", PRODUCT_ROWS[1]["id"]),
     ("fiteatsy-chat", "Coach Chat", "Consultation", "consultant", PRODUCT_ROWS[1]["id"]),
     ("fiteatsy-habit-review", "Habit Review", "AI", "mentor", PRODUCT_ROWS[1]["id"]),
+]
+
+OWNER_USERS = [
+    {
+        "id": "66f4d9d8-6f1f-4d39-a101-5355d5950001",
+        "email": "zestivapriyanshi@gmail.com",
+        "password": "Priyanshi@123",
+        "first_name": "Priyanshi",
+        "last_name": None,
+    },
+    {
+        "id": "66f4d9d8-6f1f-4d39-a101-5355d5950002",
+        "email": "lalitppaunikar26@gmail.com",
+        "password": "Lalit@123",
+        "first_name": "Lalit",
+        "last_name": "Paunikar",
+    },
 ]
 
 
@@ -279,6 +298,103 @@ async def reconcile() -> None:
               )
             """,
         )
+        superuser_role_id = await conn.fetchval(
+            """
+            SELECT id
+            FROM roles
+            WHERE lower(name) = 'superuser'
+            LIMIT 1
+            """
+        )
+        if superuser_role_id is not None:
+            for owner in OWNER_USERS:
+                await conn.execute(
+                    """
+                    INSERT INTO users (
+                        id,
+                        email,
+                        password_hash,
+                        role_id,
+                        is_active,
+                        is_verified,
+                        email_verified,
+                        failed_login_attempts,
+                        lock_until,
+                        first_name,
+                        last_name,
+                        status,
+                        must_change_password,
+                        credential_status,
+                        temporary_password_created_at,
+                        temporary_password_expires_at,
+                        temporary_password_consumed_at,
+                        password_changed_at,
+                        deleted_at,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (
+                        $1::uuid,
+                        $2,
+                        $3,
+                        $4::uuid,
+                        true,
+                        true,
+                        true,
+                        0,
+                        NULL,
+                        $5,
+                        $6,
+                        'ACTIVE',
+                        false,
+                        'PERMANENT',
+                        NULL,
+                        NULL,
+                        NULL,
+                        now(),
+                        NULL,
+                        now(),
+                        now()
+                    )
+                    ON CONFLICT (email) DO UPDATE
+                    SET password_hash = EXCLUDED.password_hash,
+                        role_id = EXCLUDED.role_id,
+                        is_active = true,
+                        is_verified = true,
+                        email_verified = true,
+                        failed_login_attempts = 0,
+                        lock_until = NULL,
+                        first_name = EXCLUDED.first_name,
+                        last_name = EXCLUDED.last_name,
+                        status = 'ACTIVE',
+                        must_change_password = false,
+                        credential_status = 'PERMANENT',
+                        temporary_password_created_at = NULL,
+                        temporary_password_expires_at = NULL,
+                        temporary_password_consumed_at = NULL,
+                        password_changed_at = now(),
+                        deleted_at = NULL,
+                        updated_at = now()
+                    """,
+                    owner["id"],
+                    owner["email"],
+                    hash_password(owner["password"]),
+                    superuser_role_id,
+                    owner["first_name"],
+                    owner["last_name"],
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO user_roles (id, user_id, role_id, assigned_by_user_id, is_primary, created_at)
+                    SELECT gen_random_uuid(), u.id, $2::uuid, u.id, true, COALESCE(u.created_at, now())
+                    FROM users u
+                    WHERE lower(u.email) = lower($1)
+                    ON CONFLICT (user_id, role_id) DO UPDATE
+                    SET is_primary = true
+                    """,
+                    owner["email"],
+                    superuser_role_id,
+                )
         await _execute(
             conn,
             """
