@@ -672,7 +672,7 @@ async def create_user(
             is_verified=True,
             actor_user_id=actor.id,
             audit_event_type="PEOPLE_ACCESS_USER_CREATED",
-            must_change_password=False,
+            must_change_password=True,
         ),
     )
     user = created.user
@@ -733,7 +733,7 @@ async def create_user(
                 "email": user.email,
                 "role": role.name,
                 "status": status,
-                "must_change_password": False,
+                "must_change_password": True,
                 "credential_status": CREDENTIAL_TEMPORARY,
                 "temporary_password_expires_at": (
                     user.temporary_password_expires_at.isoformat()
@@ -767,7 +767,7 @@ async def create_user(
         temporary_credentials=TemporaryCredentialResponse(
             username=user.email,
             temporary_password=created.plain_password,
-            must_change_password=False,
+            must_change_password=True,
             expires_at=user.temporary_password_expires_at,
         ),
     )
