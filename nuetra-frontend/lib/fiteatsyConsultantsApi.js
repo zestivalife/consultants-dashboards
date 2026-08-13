@@ -2,7 +2,20 @@ import { getToken, refreshAccessToken } from './api';
 
 const DEFAULT_FITEATSY_API_URL = 'https://fiteatsy-mobile-production.up.railway.app';
 
+function isLocalhostRuntime() {
+  return typeof window !== 'undefined' && window.location.hostname === 'localhost';
+}
+
 export function getFiteatsyApiBaseUrl() {
+  if (isLocalhostRuntime()) {
+    const configured = process.env.NEXT_PUBLIC_FITEATSY_API_URL || DEFAULT_FITEATSY_API_URL;
+    return configured.replace(/\/+$/, '');
+  }
+
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/api/fiteatsy`;
+  }
+
   const configured = process.env.NEXT_PUBLIC_FITEATSY_API_URL || DEFAULT_FITEATSY_API_URL;
   return configured.replace(/\/+$/, '');
 }
