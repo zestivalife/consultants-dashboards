@@ -610,7 +610,11 @@ async def change_password(
     user.temporary_password_expires_at = None
     user.failed_login_attempts = 0
     user.lock_until = None
-    if temporary_only and current_status in {STATUS_APPROVED, STATUS_PASSWORD_CHANGE_REQUIRED}:
+    if temporary_only and current_status in {
+        STATUS_FIRST_LOGIN,
+        STATUS_APPROVED,
+        STATUS_PASSWORD_CHANGE_REQUIRED,
+    }:
         user.status = STATUS_ACTIVE
     await user_repo.update(user)
     session.add(

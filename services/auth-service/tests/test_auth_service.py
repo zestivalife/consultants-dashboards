@@ -287,6 +287,40 @@ async def test_temporary_password_login_transitions_invited_user_to_first_login(
 
 
 @pytest.mark.asyncio
+async def test_temporary_password_change_promotes_first_login_user_to_active(session: AsyncSession):
+    user = await _create_role_user(
+        session,
+        "consultant",
+        email="first-login.consultant@zestiva.test",
+        status="FIRST_LOGIN",
+        credential_status="TEMPORARY",
+        must_change_password=True,
+        temporary_password_expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+
+    result = await auth_service.change_password(
+        session,
+        user.id,
+        "Correct123!",
+        "Stronger123!",
+        "Stronger123!",
+        temporary_only=True,
+        issue_new_session=True,
+        ip_address="127.0.0.1",
+        user_agent="pytest temporary promotion",
+    )
+
+    assert result.user.status == "ACTIVE"
+    assert result.user.credential_status == "PERMANENT"
+    assert result.user.must_change_password is False
+    assert result.user.next_action.type == "DASHBOARD"
+    assert result.user.next_action.route == ""
+    assert user.status == "ACTIVE"
+    assert user.credential_status == "PERMANENT"
+    assert verify_password("Stronger123!", user.password_hash)
+
+
+@pytest.mark.asyncio
 async def test_expired_temporary_password_login_expires_user(session: AsyncSession):
     user = await _create_role_user(
         session,
