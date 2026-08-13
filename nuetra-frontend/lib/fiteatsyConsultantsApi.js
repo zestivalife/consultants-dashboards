@@ -2,7 +2,20 @@ import { getToken, refreshAccessToken } from './api';
 
 const DEFAULT_FITEATSY_API_URL = 'https://fiteatsy-mobile-production.up.railway.app';
 
+function isLocalhostRuntime() {
+  return typeof window !== 'undefined' && window.location.hostname === 'localhost';
+}
+
 export function getFiteatsyApiBaseUrl() {
+  if (isLocalhostRuntime()) {
+    const configured = process.env.NEXT_PUBLIC_FITEATSY_API_URL || DEFAULT_FITEATSY_API_URL;
+    return configured.replace(/\/+$/, '');
+  }
+
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/api/fiteatsy`;
+  }
+
   const configured = process.env.NEXT_PUBLIC_FITEATSY_API_URL || DEFAULT_FITEATSY_API_URL;
   return configured.replace(/\/+$/, '');
 }
@@ -81,14 +94,21 @@ async function readJsonResponse(response) {
 }
 
 async function requestFiteatsyJson(path) {
+  return requestFiteatsy(path, { method: 'GET' });
+}
+
+async function requestFiteatsy(path, options = {}) {
   const token = getToken();
   const url = `${getFiteatsyApiBaseUrl()}${path}`;
   const response = await fetch(url, {
-    method: 'GET',
+    method: options.method || 'GET',
     headers: {
       Accept: 'application/json',
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
     },
+    ...(options.body ? { body: JSON.stringify(options.body) } : {}),
   });
   let body = await readJsonResponse(response);
 
@@ -96,11 +116,14 @@ async function requestFiteatsyJson(path) {
     const refreshedToken = await refreshAccessToken().catch(() => null);
     if (refreshedToken) {
       const retryResponse = await fetch(url, {
-        method: 'GET',
+        method: options.method || 'GET',
         headers: {
           Accept: 'application/json',
+          ...(options.body ? { 'Content-Type': 'application/json' } : {}),
           Authorization: `Bearer ${refreshedToken}`,
+          ...(options.headers || {}),
         },
+        ...(options.body ? { body: JSON.stringify(options.body) } : {}),
       });
       body = await readJsonResponse(retryResponse);
       if (retryResponse.ok) return body;
@@ -136,18 +159,26 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
   const body = await requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/workspace`);
 
   return {
+    contract: body?.contract || null,
+    access: body?.access || null,
     client: body?.client || null,
     profile: body?.profile || null,
     onboarding: body?.onboarding || null,
     healthProfile: body?.healthProfile || null,
     bodyMetrics: body?.bodyMetrics || null,
     nutritionProtocol: body?.nutritionProtocol || null,
+    nutritionIntelligence: body?.nutritionIntelligence || null,
+    nutritionSnapshot: body?.nutritionSnapshot || null,
+    dietPlan: body?.dietPlan || null,
+    planWorkflow: body?.planWorkflow || null,
     wearableSummary: body?.wearableSummary || null,
     reports: Array.isArray(body?.reports) ? body.reports : [],
     recommendations: Array.isArray(body?.recommendations) ? body.recommendations : [],
     timeline: Array.isArray(body?.timeline) ? body.timeline : [],
     completeness: body?.completeness || null,
     syncMetadata: body?.syncMetadata || null,
+    provenance: body?.provenance || null,
+    sourceMetadata: body?.sourceMetadata || null,
     healthMetrics: body?.healthMetrics
       ? {
           bmi: mapHealthMetric(body.healthMetrics.bmi),
@@ -160,4 +191,38 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
       : null,
     biomarkers: Array.isArray(body?.biomarkers) ? body.biomarkers.map(mapBiomarker) : [],
   };
+}
+
+export async function getFiteatsyConsultantNutritionIntelligence(clientId) {
+  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/nutrition-intelligence`);
+}
+
+export async function getFiteatsyConsultantLatestDietPlan(clientId) {
+  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/latest`);
+}
+
+export async function generateFiteatsyConsultantDietPlanDraft(clientId, payload = {}) {
+  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/draft`, {
+    method: 'POST',
+    body: payload,
+  });
+}
+
+export async function updateFiteatsyConsultantDietPlanDraft(clientId, dietPlanId, payload) {
+  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}`, {
+    method: 'PATCH',
+    body: payload,
+  });
+}
+
+export async function approveFiteatsyConsultantDietPlan(clientId, dietPlanId) {
+  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/approve`, {
+    method: 'POST',
+  });
+}
+
+export async function publishFiteatsyConsultantDietPlan(clientId, dietPlanId) {
+  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/publish`, {
+    method: 'POST',
+  });
 }
