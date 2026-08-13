@@ -80,15 +80,18 @@ async function readJsonResponse(response) {
   }
 }
 
-async function requestFiteatsyJson(path) {
+async function requestFiteatsyJson(path, init = {}) {
   const token = getToken();
   const url = `${getFiteatsyApiBaseUrl()}${path}`;
   const response = await fetch(url, {
-    method: 'GET',
+    method: init.method || 'GET',
     headers: {
       Accept: 'application/json',
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init.headers || {}),
     },
+    body: init.body,
   });
   let body = await readJsonResponse(response);
 
@@ -96,11 +99,14 @@ async function requestFiteatsyJson(path) {
     const refreshedToken = await refreshAccessToken().catch(() => null);
     if (refreshedToken) {
       const retryResponse = await fetch(url, {
-        method: 'GET',
+        method: init.method || 'GET',
         headers: {
           Accept: 'application/json',
+          ...(init.body ? { 'Content-Type': 'application/json' } : {}),
           Authorization: `Bearer ${refreshedToken}`,
+          ...(init.headers || {}),
         },
+        body: init.body,
       });
       body = await readJsonResponse(retryResponse);
       if (retryResponse.ok) return body;
@@ -142,6 +148,10 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
     healthProfile: body?.healthProfile || null,
     bodyMetrics: body?.bodyMetrics || null,
     nutritionProtocol: body?.nutritionProtocol || null,
+    nutritionSnapshot: body?.nutritionSnapshot || null,
+    nutritionIntelligence: body?.nutritionIntelligence || null,
+    dietPlan: body?.dietPlan || null,
+    planWorkflow: body?.planWorkflow || null,
     wearableSummary: body?.wearableSummary || null,
     reports: Array.isArray(body?.reports) ? body.reports : [],
     recommendations: Array.isArray(body?.recommendations) ? body.recommendations : [],
@@ -160,4 +170,30 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
       : null,
     biomarkers: Array.isArray(body?.biomarkers) ? body.biomarkers.map(mapBiomarker) : [],
   };
+}
+
+export async function generateFiteatsyDietPlanDraft(clientId, payload = {}) {
+  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/draft`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateFiteatsyDietPlanDraft(clientId, dietPlanId, payload) {
+  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function approveFiteatsyDietPlan(clientId, dietPlanId) {
+  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/approve`, {
+    method: 'POST',
+  });
+}
+
+export async function publishFiteatsyDietPlan(clientId, dietPlanId) {
+  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/publish`, {
+    method: 'POST',
+  });
 }
