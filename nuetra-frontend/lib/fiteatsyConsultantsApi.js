@@ -80,18 +80,22 @@ async function readJsonResponse(response) {
   }
 }
 
-async function requestFiteatsyJson(path, init = {}) {
+async function requestFiteatsyJson(path) {
+  return requestFiteatsy(path, { method: 'GET' });
+}
+
+async function requestFiteatsy(path, options = {}) {
   const token = getToken();
   const url = `${getFiteatsyApiBaseUrl()}${path}`;
   const response = await fetch(url, {
-    method: init.method || 'GET',
+    method: options.method || 'GET',
     headers: {
       Accept: 'application/json',
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init.headers || {}),
+      ...(options.headers || {}),
     },
-    body: init.body,
+    ...(options.body ? { body: JSON.stringify(options.body) } : {}),
   });
   let body = await readJsonResponse(response);
 
@@ -99,14 +103,14 @@ async function requestFiteatsyJson(path, init = {}) {
     const refreshedToken = await refreshAccessToken().catch(() => null);
     if (refreshedToken) {
       const retryResponse = await fetch(url, {
-        method: init.method || 'GET',
+        method: options.method || 'GET',
         headers: {
           Accept: 'application/json',
-          ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+          ...(options.body ? { 'Content-Type': 'application/json' } : {}),
           Authorization: `Bearer ${refreshedToken}`,
-          ...(init.headers || {}),
+          ...(options.headers || {}),
         },
-        body: init.body,
+        ...(options.body ? { body: JSON.stringify(options.body) } : {}),
       });
       body = await readJsonResponse(retryResponse);
       if (retryResponse.ok) return body;
@@ -142,14 +146,16 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
   const body = await requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/workspace`);
 
   return {
+    contract: body?.contract || null,
+    access: body?.access || null,
     client: body?.client || null,
     profile: body?.profile || null,
     onboarding: body?.onboarding || null,
     healthProfile: body?.healthProfile || null,
     bodyMetrics: body?.bodyMetrics || null,
     nutritionProtocol: body?.nutritionProtocol || null,
-    nutritionSnapshot: body?.nutritionSnapshot || null,
     nutritionIntelligence: body?.nutritionIntelligence || null,
+    nutritionSnapshot: body?.nutritionSnapshot || null,
     dietPlan: body?.dietPlan || null,
     planWorkflow: body?.planWorkflow || null,
     wearableSummary: body?.wearableSummary || null,
@@ -158,6 +164,8 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
     timeline: Array.isArray(body?.timeline) ? body.timeline : [],
     completeness: body?.completeness || null,
     syncMetadata: body?.syncMetadata || null,
+    provenance: body?.provenance || null,
+    sourceMetadata: body?.sourceMetadata || null,
     healthMetrics: body?.healthMetrics
       ? {
           bmi: mapHealthMetric(body.healthMetrics.bmi),
@@ -172,28 +180,36 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
   };
 }
 
-export async function generateFiteatsyDietPlanDraft(clientId, payload = {}) {
-  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/draft`, {
+export async function getFiteatsyConsultantNutritionIntelligence(clientId) {
+  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/nutrition-intelligence`);
+}
+
+export async function getFiteatsyConsultantLatestDietPlan(clientId) {
+  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/latest`);
+}
+
+export async function generateFiteatsyConsultantDietPlanDraft(clientId, payload = {}) {
+  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/draft`, {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: payload,
   });
 }
 
-export async function updateFiteatsyDietPlanDraft(clientId, dietPlanId, payload) {
-  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}`, {
+export async function updateFiteatsyConsultantDietPlanDraft(clientId, dietPlanId, payload) {
+  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}`, {
     method: 'PATCH',
-    body: JSON.stringify(payload),
+    body: payload,
   });
 }
 
-export async function approveFiteatsyDietPlan(clientId, dietPlanId) {
-  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/approve`, {
+export async function approveFiteatsyConsultantDietPlan(clientId, dietPlanId) {
+  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/approve`, {
     method: 'POST',
   });
 }
 
-export async function publishFiteatsyDietPlan(clientId, dietPlanId) {
-  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/publish`, {
+export async function publishFiteatsyConsultantDietPlan(clientId, dietPlanId) {
+  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/publish`, {
     method: 'POST',
   });
 }

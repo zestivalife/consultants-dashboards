@@ -33,12 +33,12 @@ import withAuth from '../../hocs/withAuth';
 import { useAuth } from '../../context/AuthContext';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
 import {
-  approveFiteatsyDietPlan,
-  generateFiteatsyDietPlanDraft,
+  approveFiteatsyConsultantDietPlan,
+  generateFiteatsyConsultantDietPlanDraft,
   getFiteatsyConsultantClientProfile,
   listFiteatsyConsultantClients,
-  publishFiteatsyDietPlan,
-  updateFiteatsyDietPlanDraft,
+  publishFiteatsyConsultantDietPlan,
+  updateFiteatsyConsultantDietPlanDraft,
 } from '../../lib/fiteatsyConsultantsApi';
 import { corporateAPI } from '../../lib/api';
 import { ADMIN_ACCESS_POLICY, DELIVERY_ACCESS_POLICY, MENTOR_ACCESS_POLICY, ORGANIZATION_ACCESS_POLICY } from '../../lib/roleRoutes';
@@ -61,7 +61,6 @@ const roleKinds = {
 };
 
 const consultantNav = [
-  { id: 'command-center', label: 'Command Center', icon: LayoutGrid },
   { id: 'clients', label: 'Clients', icon: Users },
 ];
 
@@ -878,10 +877,82 @@ function getProfileErrorMessage(error) {
   return error.message || 'Unable to load client profile.';
 }
 
+function getNutritionWorkflowErrorMessage(error, fallback) {
+  if (!error) return fallback;
+  if (error.status === 401) return 'Session expired. Sign in again to continue the nutrition workflow.';
+  if (error.status === 403) return 'Your account does not have permission for this nutrition action.';
+  if (error.status === 404) return 'This nutrition record is no longer available.';
+  return error.message || fallback;
+}
+
 function biomarkerTone(status) {
   const normalized = String(status || '').toUpperCase();
   if (['LOW', 'HIGH', 'CRITICAL'].includes(normalized)) return 'critical';
   return 'stable';
+}
+
+function wellnessTone(score) {
+  if (score == null) return 'stable';
+  if (score >= 75) return 'improving';
+  if (score >= 55) return 'medium';
+  return 'critical';
+}
+
+function formatScoreValue(score) {
+  if (score == null || Number.isNaN(Number(score))) return 'Not available';
+  return `${Math.round(Number(score))}`;
+}
+
+function formatLifecycleLabel(value) {
+  if (!value) return 'Not started';
+  return String(value).replace(/_/g, ' ');
+}
+
+async function fetchRealClientWorkspace(clientId) {
+  return getFiteatsyConsultantClientProfile(clientId);
+}
+
+const mealPlanSectionEntries = [
+  ['earlyMorning', 'Early Morning'],
+  ['breakfast', 'Breakfast'],
+  ['midMorningSnack', 'Mid Morning Snack'],
+  ['lunch', 'Lunch'],
+  ['eveningSnack', 'Evening Snack'],
+  ['dinner', 'Dinner'],
+  ['bedtimeNutrition', 'Bedtime Nourishment'],
+];
+
+function lifecycleTone(status) {
+  if (status === 'published' || status === 'approved') return 'improving';
+  if (status === 'review_ready') return 'medium';
+  if (status === 'draft') return 'pending';
+  return 'stable';
+}
+
+function workflowLabelFromLifecycle(status) {
+  if (!status) return 'Not started';
+  const labels = {
+    draft: 'Draft',
+    review_ready: 'Review Ready',
+    approved: 'Approved',
+    published: 'Published',
+    archived: 'Archived',
+  };
+  return labels[status] || formatLifecycleLabel(status);
+}
+
+function buildDietPlanPayload(plan, version) {
+  if (!plan || !version) return null;
+  return {
+    plan,
+    version,
+    templateVersion: plan.templateVersion,
+    currentLifecycle: version.lifecycleStatus,
+    currentVersionNumber: version.versionNumber,
+    sourceSnapshot: version.sourceSnapshot,
+    contentSummary: version.contentSummary,
+    content: version.content,
+  };
 }
 
 function trendLabel(trend) {
@@ -940,14 +1011,14 @@ function RealClientProfileDrawer({
   profile,
   loading,
   error,
-  onRefresh,
+  onProfileRefresh,
 }) {
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('Overview');
+  const [dietPlanState, setDietPlanState] = useState(() => profile?.dietPlan || null);
+  const [dietPlanContentDraft, setDietPlanContentDraft] = useState(() => profile?.dietPlan?.content || null);
   const [nutritionActionLoading, setNutritionActionLoading] = useState(false);
   const [nutritionActionError, setNutritionActionError] = useState(null);
   const [nutritionActionSuccess, setNutritionActionSuccess] = useState(null);
-  const [nutritionDraftContent, setNutritionDraftContent] = useState(null);
-  const [nutritionReviewNotes, setNutritionReviewNotes] = useState('');
   const message = getProfileErrorMessage(error);
   const client = profile?.client;
   const onboarding = profile?.onboarding;
@@ -955,36 +1026,40 @@ function RealClientProfileDrawer({
   const metrics = profile?.healthMetrics;
   const bodyMetrics = profile?.bodyMetrics;
   const nutritionProtocol = profile?.nutritionProtocol;
-  const nutritionSnapshot = profile?.nutritionSnapshot;
   const nutritionIntelligence = profile?.nutritionIntelligence;
-  const dietPlan = profile?.dietPlan;
-  const wearableSummary = profile?.wearableSummary;
+  const nutritionSnapshot = profile?.nutritionSnapshot;
   const syncMetadata = profile?.syncMetadata;
+  const wearableSummary = profile?.wearableSummary;
+  const planWorkflow = profile?.planWorkflow;
+  const backendRecommendations = profile?.recommendations || [];
   const biomarkers = profile?.biomarkers || [];
   const reports = profile?.reports || [];
   const timeline = profile?.timeline || [];
-  const bodyComposition = {
-    waistCm: healthProfile?.waistCm ?? null,
-    hipCm: healthProfile?.hipCm ?? null,
-    neckCm: healthProfile?.neckCm ?? null,
-    goalWeightKg: healthProfile?.goalWeightKg ?? null,
-  };
-  const lifestyleSleepQuality = onboarding?.lifestyle?.sleepQuality || healthProfile?.sleepQualityLabel || null;
-  const lifestyleStressLevel = onboarding?.lifestyle?.stressLevel || healthProfile?.stressLevelLabel || null;
   const workspaceTabs = ['Overview', 'Health Profile', 'Lifestyle', 'Reports', 'Biomarkers', 'Nutrition Plan', 'Activity', 'Timeline'];
   const goalLabel = onboarding?.goal || summaryClient?.program || 'Not assigned';
-  const profileStrength = healthProfile?.completionPercent ?? healthProfile?.profileCompleteness ?? summaryClient?.profileCompletedPercent;
-  const lastSynced = syncMetadata?.lastSyncedAt || healthProfile?.lastHealthUpdate || client?.lastActiveAt || summaryClient?.lastActivityAt;
+  const profileStrength = syncMetadata?.completenessScore ?? healthProfile?.completionPercent ?? healthProfile?.profileCompleteness ?? summaryClient?.profileCompletedPercent;
+  const lastSynced = syncMetadata?.lastSyncedAt || healthProfile?.updatedAtISO || healthProfile?.lastHealthUpdate || client?.lastActiveAt || summaryClient?.lastActivityAt;
+  const bodyComposition = {
+    waistCm: onboarding?.bodyComposition?.waistCm ?? healthProfile?.waistCm ?? null,
+    hipCm: onboarding?.bodyComposition?.hipCm ?? healthProfile?.hipCm ?? null,
+    neckCm: onboarding?.bodyComposition?.neckCm ?? healthProfile?.neckCm ?? null,
+    goalWeightKg: onboarding?.bodyComposition?.goalWeightKg ?? healthProfile?.goalWeightKg ?? null,
+  };
+  const sleepQuality = onboarding?.lifestyle?.sleepQuality ?? healthProfile?.sleepQualityLabel ?? null;
+  const stressLevel = onboarding?.lifestyle?.stressLevel ?? healthProfile?.stressLevelLabel ?? null;
   const riskFlags = [
     biomarkers.some((item) => String(item.name || '').toLowerCase().includes('b12') && ['LOW', 'CRITICAL'].includes(String(item.status || '').toUpperCase())) ? 'Low B12' : null,
-    ['Poor', 'Average'].includes(lifestyleSleepQuality) ? 'Poor sleep' : null,
-    ['High', 'Very High'].includes(lifestyleStressLevel) ? 'High stress' : null,
+    ['Poor', 'Average', 'Fair', 'Worst'].includes(String(sleepQuality || '')) ? 'Sleep quality needs attention' : null,
+    ['High', 'Very High', '4', '5'].includes(String(stressLevel || '')) ? 'High stress load' : null,
+    wearableSummary?.connected === false ? 'Wearable not connected' : null,
   ].filter(Boolean);
-  const recommendedActions = [
-    nutritionProtocol?.macroTargets?.proteinGrams != null ? 'Review protein target with the client' : null,
-    lifestyleSleepQuality ? 'Improve sleep routine before advancing intensity' : null,
-    biomarkers.length ? 'Review latest validated report markers' : null,
-  ].filter(Boolean);
+  const recommendedActions = backendRecommendations.length
+    ? backendRecommendations.map((item) => item.action || item.title).filter(Boolean)
+    : [
+        nutritionProtocol?.macroTargets?.proteinGrams != null ? 'Review protein target with the client' : null,
+        sleepQuality ? 'Improve sleep routine before advancing intensity' : null,
+        biomarkers.length ? 'Review latest validated report markers' : null,
+      ].filter(Boolean);
   const metricCards = [
     {
       key: 'bmi',
@@ -1032,124 +1107,132 @@ function RealClientProfileDrawer({
       detail: metrics?.oneRepMax?.status === 'AVAILABLE' ? 'Estimated strength ceiling' : 'Workout data required',
     },
   ];
-  const proteinTargetGrams = nutritionProtocol?.macroTargets?.proteinGrams ?? nutritionProtocol?.proteinTargetGrams ?? null;
   const snapshotCards = [
     { icon: Scale, title: 'BMI', value: bodyMetrics?.bmi != null ? `${bodyMetrics.bmi}` : formatMetricCardValue(metrics?.bmi, 'Complete profile'), detail: 'Body status' },
     { icon: ListChecks, title: 'Goal', value: formatDisplayValue(goalLabel), detail: 'Current programme focus' },
     { icon: Flame, title: 'Calories', value: nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : formatMetricCardValue(metrics?.tdee, 'Needs profile'), detail: 'Daily target' },
-    { icon: Dumbbell, title: 'Protein', value: proteinTargetGrams != null ? `${proteinTargetGrams}g` : 'Needs profile', detail: 'Daily target' },
+    { icon: Dumbbell, title: 'Protein', value: nutritionProtocol?.macroTargets?.proteinGrams != null ? `${nutritionProtocol.macroTargets.proteinGrams}g` : 'Needs profile', detail: 'Daily target' },
     { icon: Activity, title: 'Hydration', value: nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters}L` : 'Needs profile', detail: 'Daily target' },
   ];
-  const dietPlanLifecycle = dietPlan?.currentLifecycle || dietPlan?.plan?.planStatus || null;
-  const canEditNutritionDraft = Boolean(dietPlan && ['draft', 'review_ready'].includes(String(dietPlanLifecycle)));
-  const canApproveNutritionPlan = Boolean(dietPlan && dietPlanLifecycle === 'review_ready');
-  const canPublishNutritionPlan = Boolean(dietPlan && dietPlanLifecycle === 'approved');
+  const wellnessScoreCards = [
+    { key: 'activePerformance', title: 'Active Performance', value: nutritionIntelligence?.wellnessScores?.activePerformance ?? profile?.recoveryMetrics?.activityScore?.scoreValue ?? null, detail: 'Movement and daily performance readiness' },
+    { key: 'energyBalance', title: 'Energy Balance', value: nutritionIntelligence?.wellnessScores?.energyBalance ?? profile?.recoveryMetrics?.sleepScore?.scoreValue ?? null, detail: 'Sleep and energy regulation quality' },
+    { key: 'bodySupport', title: 'Body Support', value: nutritionIntelligence?.wellnessScores?.bodySupport ?? profile?.recoveryMetrics?.bodySupportScore?.scoreValue ?? null, detail: 'Clinical support from profile and markers' },
+    { key: 'nourishment', title: 'Nourishment', value: nutritionIntelligence?.wellnessScores?.nourishment ?? profile?.recoveryMetrics?.nourishmentScore?.scoreValue ?? null, detail: 'Food quality, hydration, and meal rhythm' },
+    { key: 'recovery', title: 'Recovery', value: nutritionIntelligence?.wellnessScores?.recovery ?? profile?.recoveryMetrics?.recoveryScore?.scoreValue ?? null, detail: 'Recovery habits and restoration capacity' },
+    { key: 'physicalWellnessIndex', title: 'Physical Wellness Index', value: nutritionIntelligence?.wellnessScores?.physicalWellnessIndex ?? profile?.recoveryMetrics?.physicalWellnessIndex?.scoreValue ?? null, detail: 'Overall backend-computed body resilience' },
+    { key: 'stressResilience', title: 'Stress Resilience', value: nutritionIntelligence?.wellnessScores?.stressResilience ?? profile?.recoveryMetrics?.calmScore?.scoreValue ?? null, detail: 'Stress handling from PSS and recovery context' },
+  ];
+
+  useEffect(() => {
+    setDietPlanState(profile?.dietPlan || null);
+    setDietPlanContentDraft(profile?.dietPlan?.content || null);
+    setNutritionActionError(null);
+    setNutritionActionSuccess(null);
+  }, [profile?.dietPlan, profile?.client?.id]);
 
   useEffect(() => {
     if (isOpen) setActiveWorkspaceTab('Overview');
   }, [isOpen, summaryClient?.id]);
 
-  useEffect(() => {
-    if (!dietPlan?.content) {
-      setNutritionDraftContent(null);
-      setNutritionReviewNotes('');
-      return;
-    }
+  const refreshWorkspace = useCallback(async () => {
+    if (typeof onProfileRefresh !== 'function' || !summaryClient?.id) return null;
+    const refreshed = await onProfileRefresh(summaryClient.id);
+    return refreshed;
+  }, [onProfileRefresh, summaryClient?.id]);
 
-    setNutritionDraftContent(JSON.parse(JSON.stringify(dietPlan.content)));
-    setNutritionReviewNotes(dietPlan.version?.reviewNotes || '');
-  }, [dietPlan?.content, dietPlan?.version?.reviewNotes]);
-
-  const refreshAfterNutritionAction = useCallback(async () => {
-    setNutritionActionError(null);
-    if (!onRefresh) return;
-    await onRefresh();
-  }, [onRefresh]);
-
-  const handleGenerateDraft = useCallback(async () => {
-    if (!summaryClient?.id) return;
+  const handleGenerateDietPlan = useCallback(async () => {
+    if (!summaryClient?.id || nutritionActionLoading) return;
     setNutritionActionLoading(true);
     setNutritionActionError(null);
     setNutritionActionSuccess(null);
     try {
-      await generateFiteatsyDietPlanDraft(summaryClient.id, {});
-      await refreshAfterNutritionAction();
-      setNutritionActionSuccess('Draft generated from the latest client health context.');
+      const response = await generateFiteatsyConsultantDietPlanDraft(summaryClient.id, {});
+      const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
+      setDietPlanState(nextDietPlan);
+      setDietPlanContentDraft(nextDietPlan?.content || null);
+      await refreshWorkspace();
       setActiveWorkspaceTab('Nutrition Plan');
+      setNutritionActionSuccess('Diet chart draft generated from the live Fiteatsy intelligence contract.');
     } catch (actionError) {
-      setNutritionActionError(actionError?.message || 'Unable to generate nutrition draft.');
+      setNutritionActionError(getNutritionWorkflowErrorMessage(actionError, 'Unable to generate a diet chart draft right now.'));
     } finally {
       setNutritionActionLoading(false);
     }
-  }, [refreshAfterNutritionAction, summaryClient?.id]);
+  }, [nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
 
-  const handleNutritionFieldChange = useCallback((path, value) => {
-    setNutritionDraftContent((current) => {
+  const handleDietFieldChange = useCallback((path, value) => {
+    setDietPlanContentDraft((current) => {
       if (!current) return current;
-      const next = JSON.parse(JSON.stringify(current));
-      let pointer = next;
+      const next = structuredClone(current);
+      let cursor = next;
       for (let index = 0; index < path.length - 1; index += 1) {
-        pointer = pointer[path[index]];
+        cursor = cursor[path[index]];
       }
-      pointer[path[path.length - 1]] = value;
+      cursor[path[path.length - 1]] = value;
       return next;
     });
   }, []);
 
-  const handleSaveNutritionDraft = useCallback(async () => {
-    if (!summaryClient?.id || !dietPlan?.plan?.id || !nutritionDraftContent) return;
+  const handleSaveDraft = useCallback(async () => {
+    if (!summaryClient?.id || !dietPlanState?.plan?.id || !dietPlanContentDraft || nutritionActionLoading) return;
     setNutritionActionLoading(true);
     setNutritionActionError(null);
     setNutritionActionSuccess(null);
     try {
-      await updateFiteatsyDietPlanDraft(summaryClient.id, dietPlan.plan.id, {
-        content: nutritionDraftContent,
-        reviewNotes: nutritionReviewNotes || null,
+      const response = await updateFiteatsyConsultantDietPlanDraft(summaryClient.id, dietPlanState.plan.id, {
+        content: dietPlanContentDraft,
+        reviewNotes: 'Consultant reviewed and updated diet chart.',
       });
-      await refreshAfterNutritionAction();
-      setNutritionActionSuccess('Draft changes saved and moved to review ready.');
+      const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
+      setDietPlanState(nextDietPlan);
+      setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
+      await refreshWorkspace();
+      setNutritionActionSuccess('Diet chart saved and moved to review ready.');
     } catch (actionError) {
-      setNutritionActionError(actionError?.message || 'Unable to save nutrition draft edits.');
+      setNutritionActionError(getNutritionWorkflowErrorMessage(actionError, 'Unable to save the diet chart changes right now.'));
     } finally {
       setNutritionActionLoading(false);
     }
-  }, [dietPlan?.plan?.id, nutritionDraftContent, nutritionReviewNotes, refreshAfterNutritionAction, summaryClient?.id]);
+  }, [dietPlanContentDraft, dietPlanState?.plan?.id, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
 
   const handleApprovePlan = useCallback(async () => {
-    if (!summaryClient?.id || !dietPlan?.plan?.id) return;
+    if (!summaryClient?.id || !dietPlanState?.plan?.id || nutritionActionLoading) return;
     setNutritionActionLoading(true);
     setNutritionActionError(null);
     setNutritionActionSuccess(null);
     try {
-      await approveFiteatsyDietPlan(summaryClient.id, dietPlan.plan.id);
-      await refreshAfterNutritionAction();
-      setNutritionActionSuccess('Nutrition plan approved and ready to publish.');
+      const response = await approveFiteatsyConsultantDietPlan(summaryClient.id, dietPlanState.plan.id);
+      const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
+      setDietPlanState(nextDietPlan);
+      setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
+      await refreshWorkspace();
+      setNutritionActionSuccess('Diet chart approved. It is ready for publish when you are satisfied.');
     } catch (actionError) {
-      setNutritionActionError(actionError?.message || 'Unable to approve nutrition plan.');
+      setNutritionActionError(getNutritionWorkflowErrorMessage(actionError, 'Unable to approve this diet chart.'));
     } finally {
       setNutritionActionLoading(false);
     }
-  }, [dietPlan?.plan?.id, refreshAfterNutritionAction, summaryClient?.id]);
+  }, [dietPlanContentDraft, dietPlanState?.plan?.id, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
 
   const handlePublishPlan = useCallback(async () => {
-    if (!summaryClient?.id || !dietPlan?.plan?.id) return;
-    if (typeof window !== 'undefined') {
-      const confirmed = window.confirm('Publish this nutrition plan to the client app now? Only published plans become visible to the client.');
-      if (!confirmed) return;
-    }
+    if (!summaryClient?.id || !dietPlanState?.plan?.id || nutritionActionLoading) return;
     setNutritionActionLoading(true);
     setNutritionActionError(null);
     setNutritionActionSuccess(null);
     try {
-      await publishFiteatsyDietPlan(summaryClient.id, dietPlan.plan.id);
-      await refreshAfterNutritionAction();
-      setNutritionActionSuccess('Nutrition plan published. The client app can now load the published plan.');
+      const response = await publishFiteatsyConsultantDietPlan(summaryClient.id, dietPlanState.plan.id);
+      const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
+      setDietPlanState(nextDietPlan);
+      setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
+      await refreshWorkspace();
+      setNutritionActionSuccess('Diet chart published. The client mobile app can now consume the published plan only.');
     } catch (actionError) {
-      setNutritionActionError(actionError?.message || 'Unable to publish nutrition plan.');
+      setNutritionActionError(getNutritionWorkflowErrorMessage(actionError, 'Unable to publish this diet chart.'));
     } finally {
       setNutritionActionLoading(false);
     }
-  }, [dietPlan?.plan?.id, refreshAfterNutritionAction, summaryClient?.id]);
+  }, [dietPlanContentDraft, dietPlanState?.plan?.id, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
 
   const renderOverview = () => (
     <div className="space-y-4">
@@ -1192,6 +1275,83 @@ function RealClientProfileDrawer({
           </div>
         </Surface>
       </div>
+      <Surface className="p-5" animated>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Wellness Intelligence</p>
+            <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+              Backend-owned scores based on profile, reports, biomarkers, wearables, and stress assessment.
+            </p>
+          </div>
+          <div className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
+            Source: {formatDisplayValue(syncMetadata?.dataSource, 'Fiteatsy intelligence')}
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {wellnessScoreCards.map((item) => (
+            <div key={item.key} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{item.title}</p>
+                  <p className="mt-2 text-[30px] font-semibold tracking-[-0.03em] text-[var(--fluent-color-neutral-foreground-1)]">{formatScoreValue(item.value)}</p>
+                </div>
+                <StatusChip status={wellnessTone(item.value)}>{item.value == null ? 'Awaiting data' : 'Live'}</StatusChip>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{item.detail}</p>
+            </div>
+          ))}
+        </div>
+      </Surface>
+      <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+        <Surface className="p-5" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Nutrition Intelligence</p>
+          {nutritionIntelligence ? (
+            <div className="mt-4 space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusChip status={nutritionIntelligence.riskLevel === 'high' ? 'critical' : nutritionIntelligence.riskLevel === 'needs_attention' ? 'medium' : 'improving'}>
+                  {nutritionIntelligence.riskLevel.replace(/_/g, ' ')}
+                </StatusChip>
+                {(nutritionIntelligence.nutritionFocus || []).slice(0, 4).map((item) => (
+                  <span key={item} className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{item}</span>
+                ))}
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {(nutritionIntelligence.observations || []).slice(0, 4).map((item) => (
+                  <div key={item.title} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
+                    <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.title}</p>
+                    <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{item.detail}</p>
+                    <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Sources: {item.sources.join(', ')}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+              Nutrition intelligence is not available yet for this client.
+            </div>
+          )}
+        </Surface>
+        <Surface className="p-5" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Biomarker Snapshot</p>
+          <div className="mt-4 space-y-3">
+            {nutritionIntelligence?.biomarkerSnapshot?.length ? nutritionIntelligence.biomarkerSnapshot.slice(0, 5).map((item) => (
+              <div key={`${item.name}-${item.testDate}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.name}</p>
+                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{`${item.value} ${item.unit}`.trim()} • {formatDisplayValue(item.referenceRange)}</p>
+                  </div>
+                  <StatusChip status={biomarkerTone(item.status)}>{item.status}</StatusChip>
+                </div>
+              </div>
+            )) : (
+              <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                No biomarker snapshot is available yet.
+              </div>
+            )}
+          </div>
+        </Surface>
+      </div>
     </div>
   );
 
@@ -1210,7 +1370,7 @@ function RealClientProfileDrawer({
         <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Body Composition</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <DetailField label="BMI" value={bodyMetrics?.bmi != null ? `${bodyMetrics.bmi}` : 'Complete profile to calculate'} />
-          <DetailField label="Body Fat" value={bodyMetrics?.bodyFatPct != null ? `${bodyMetrics.bodyFatPct}%` : bodyMetrics?.bodyFat != null ? `${bodyMetrics.bodyFat}%` : formatMetricCardValue(metrics?.bodyFat, 'Measurements required')} />
+          <DetailField label="Body Fat" value={bodyMetrics?.bodyFat != null ? `${bodyMetrics.bodyFat}%` : formatMetricCardValue(metrics?.bodyFat, 'Measurements required')} />
           <DetailField label="Waist" value={bodyComposition.waistCm != null ? `${bodyComposition.waistCm} cm` : 'Not available'} />
           <DetailField label="Hip" value={bodyComposition.hipCm != null ? `${bodyComposition.hipCm} cm` : 'Not available'} />
           <DetailField label="Neck" value={bodyComposition.neckCm != null ? `${bodyComposition.neckCm} cm` : 'Not available'} />
@@ -1236,8 +1396,8 @@ function RealClientProfileDrawer({
       <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Lifestyle</p>
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <DetailField label="Sleep" value={onboarding?.lifestyle?.sleepHours != null ? `${onboarding.lifestyle.sleepHours} hrs` : 'Complete profile to calculate'} />
-        <DetailField label="Sleep quality" value={formatDisplayValue(lifestyleSleepQuality)} />
-        <DetailField label="Stress" value={formatDisplayValue(lifestyleStressLevel)} />
+        <DetailField label="Sleep quality" value={formatDisplayValue(sleepQuality)} />
+        <DetailField label="Stress" value={formatDisplayValue(stressLevel)} />
         <DetailField label="Activity" value={formatDisplayValue(onboarding?.activityLevel)} />
         <DetailField label="Food preference" value={formatDisplayValue(onboarding?.dietPreference)} />
         <DetailField label="Preferred cuisines" value={formatDisplayValue(onboarding?.nutrition?.preferredCuisines)} />
@@ -1258,9 +1418,7 @@ function RealClientProfileDrawer({
                 <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{formatDateLabel(report.reportDate || report.createdAt || report.uploadedAt)}</p>
                 <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{report.title || report.originalFilename || 'Blood Report Uploaded'}</p>
               </div>
-              <StatusChip status={['COMPLETED', 'PUBLISHED'].includes(String(report.processingStatus || report.status || '').toUpperCase()) ? 'stable' : 'medium'}>
-                {report.processingStatus || report.status || 'Uploaded'}
-              </StatusChip>
+              <StatusChip status={String(report.processingStatus || report.status || '').toUpperCase() === 'PUBLISHED' ? 'stable' : 'medium'}>{report.processingStatus || report.status || 'Uploaded'}</StatusChip>
             </div>
             <p className="mt-3 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
               AI Extracted: {biomarkers.slice(0, 5).map((item) => item.name).join(', ') || 'No validated biomarkers yet'}
@@ -1311,42 +1469,46 @@ function RealClientProfileDrawer({
   const renderNutrition = () => (
     <div className="space-y-4">
       <Surface className="p-5" animated>
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Nutrition Intelligence</p>
-            <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-              Consultant-assisted planning using health profile, validated biomarkers, reports, and nutrition targets.
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Prepare Personalised Diet Chart</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
+              Build the diet plan from live Fiteatsy health profile, validated biomarkers, wellness intelligence, and nutrition targets. No frontend calculations are used.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={handleGenerateDraft}
+              onClick={handleGenerateDietPlan}
               disabled={nutritionActionLoading}
-              className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:opacity-60"
+              className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {nutritionActionLoading ? 'Working...' : dietPlan ? 'Regenerate Draft' : 'Generate Draft'}
+              {nutritionActionLoading && !dietPlanState ? 'Preparing...' : 'Prepare Diet Chart'}
             </button>
-            <button
-              onClick={handleSaveNutritionDraft}
-              disabled={nutritionActionLoading || !canEditNutritionDraft || !nutritionDraftContent}
-              className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:opacity-50"
-            >
-              Save Draft
-            </button>
-            <button
-              onClick={handleApprovePlan}
-              disabled={nutritionActionLoading || !canApproveNutritionPlan}
-              className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:opacity-50"
-            >
-              Approve
-            </button>
-            <button
-              onClick={handlePublishPlan}
-              disabled={nutritionActionLoading || !canPublishNutritionPlan}
-              className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-status-success-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-status-success-foreground)] disabled:opacity-50"
-            >
-              Publish
-            </button>
+            {dietPlanState?.plan?.id ? (
+              <>
+                <button
+                  onClick={handleSaveDraft}
+                  disabled={nutritionActionLoading || !dietPlanContentDraft}
+                  className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Save Draft
+                </button>
+                <button
+                  onClick={handleApprovePlan}
+                  disabled={nutritionActionLoading || !['draft', 'review_ready'].includes(dietPlanState.currentLifecycle)}
+                  className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Approve
+                </button>
+                <button
+                  onClick={handlePublishPlan}
+                  disabled={nutritionActionLoading || dietPlanState.currentLifecycle !== 'approved'}
+                  className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Publish
+                </button>
+              </>
+            ) : null}
           </div>
         </div>
         {nutritionActionError ? (
@@ -1361,131 +1523,204 @@ function RealClientProfileDrawer({
         ) : null}
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <DetailField label="Current goal" value={formatDisplayValue(goalLabel)} />
-          <DetailField label="Calories" value={nutritionSnapshot?.caloriesTarget != null ? `${nutritionSnapshot.caloriesTarget} kcal` : nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : 'No target calculated'} />
-          <DetailField label="Protein" value={nutritionSnapshot?.proteinTargetGrams != null ? `${nutritionSnapshot.proteinTargetGrams}g` : proteinTargetGrams != null ? `${proteinTargetGrams}g` : 'No target calculated'} />
-          <DetailField label="Hydration" value={nutritionSnapshot?.hydrationTargetLiters != null ? `${nutritionSnapshot.hydrationTargetLiters}L` : nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters}L` : 'No target calculated'} />
+          <DetailField label="Calories" value={nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : 'No target calculated'} />
+          <DetailField label="Protein" value={nutritionProtocol?.macroTargets?.proteinGrams != null ? `${nutritionProtocol.macroTargets.proteinGrams}g` : 'No target calculated'} />
+          <DetailField label="Hydration" value={nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters}L` : 'No target calculated'} />
         </div>
       </Surface>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 xl:grid-cols-[0.96fr_1.04fr]">
         <Surface className="p-5" animated>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Health Summary</p>
-          <div className="mt-4 space-y-2">
-            <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm">
-              <span className="font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Risk level: </span>
-              <span className="text-[var(--fluent-color-neutral-foreground-2)]">{formatDisplayValue(nutritionIntelligence?.riskLevel)}</span>
-            </div>
-            {(nutritionIntelligence?.observations || []).map((item) => (
-              <div key={item.title} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
-                <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.title}</p>
-                <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.detail}</p>
-              </div>
-            ))}
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Generation Inputs</p>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <DetailField label="Age" value={formatDisplayValue(nutritionIntelligence?.clientSummary?.age)} />
+            <DetailField label="Gender" value={formatDisplayValue(nutritionIntelligence?.clientSummary?.gender)} />
+            <DetailField label="Weight" value={nutritionIntelligence?.clientSummary?.weightKg != null ? `${nutritionIntelligence.clientSummary.weightKg} kg` : 'Not available'} />
+            <DetailField label="BMI" value={nutritionIntelligence?.clientSummary?.bmi != null ? `${nutritionIntelligence.clientSummary.bmi}` : 'Not available'} />
+            <DetailField label="Stress" value={formatDisplayValue(nutritionIntelligence?.clientSummary?.stressBand)} />
+            <DetailField label="Water intake" value={nutritionIntelligence?.clientSummary?.waterIntakeLiters != null ? `${nutritionIntelligence.clientSummary.waterIntakeLiters} L` : 'Not available'} />
+            <DetailField label="Activity level" value={formatDisplayValue(nutritionIntelligence?.clientSummary?.activityLevel)} />
+            <DetailField label="Diet preference" value={formatDisplayValue(nutritionIntelligence?.generationInputs?.dietPreference)} />
+          </div>
+          <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
+            <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Lifestyle Summary</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
+              {nutritionIntelligence?.generationInputs?.lifestyleSummary || 'Lifestyle summary is not available yet.'}
+            </p>
           </div>
         </Surface>
 
         <Surface className="p-5" animated>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultant Actions</p>
-          <div className="mt-4 space-y-2">
-            {(nutritionIntelligence?.consultantActions || []).length ? (
-              nutritionIntelligence.consultantActions.map((item, index) => (
-                <div key={`${item}-${index}`} className="flex gap-3 rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)]">
-                  <span className="font-semibold text-[var(--fluent-color-brand-foreground-link)]">{index + 1}.</span>
-                  <span>{item}</span>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-                Generate the draft to lock consultant actions against the client’s current health context.
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultant Guidance</p>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
+              <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Health Observations</p>
+              <div className="mt-3 space-y-2">
+                {(nutritionIntelligence?.observations || []).slice(0, 4).map((item) => (
+                  <div key={item.title} className="rounded-[14px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-3">
+                    <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{item.title}</p>
+                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.detail}</p>
+                  </div>
+                ))}
+                {!nutritionIntelligence?.observations?.length ? (
+                  <div className="rounded-[14px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-3 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                    No observations generated yet.
+                  </div>
+                ) : null}
               </div>
-            )}
+            </div>
+            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
+              <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Consultant Actions</p>
+              <div className="mt-3 space-y-2">
+                {(nutritionIntelligence?.consultantActions || []).slice(0, 5).map((item, index) => (
+                  <div key={`${item}-${index}`} className="rounded-[14px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-3 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                    {item}
+                  </div>
+                ))}
+                {!nutritionIntelligence?.consultantActions?.length ? (
+                  <div className="rounded-[14px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-3 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                    No consultant actions available yet.
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
         </Surface>
       </div>
 
-      <Surface className="p-5" animated>
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Latest Diet Plan</p>
-        {dietPlan ? (
-          <div className="mt-4 space-y-4">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <DetailField label="Plan status" value={formatDisplayValue(dietPlan.plan?.planStatus || dietPlan.currentLifecycle)} />
-              <DetailField label="Version" value={dietPlan.currentVersionNumber != null ? `v${dietPlan.currentVersionNumber}` : 'Not available'} />
-              <DetailField label="Template" value={formatDisplayValue(dietPlan.templateVersion)} />
-              <DetailField label="Focus" value={formatDisplayValue(dietPlan.contentSummary?.focusAreas)} />
-            </div>
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Draft review</p>
-                <div className="mt-3 space-y-3">
-                  <label className="block">
-                    <span className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Programme name</span>
-                    <input
-                      value={nutritionDraftContent?.nutritionSnapshot?.programmeName || ''}
-                      onChange={(event) => handleNutritionFieldChange(['nutritionSnapshot', 'programmeName'], event.target.value)}
-                      disabled={!canEditNutritionDraft}
-                      className="fluent-input mt-2 w-full rounded-[16px] px-3 py-3 text-sm outline-none disabled:opacity-60"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Plan focus</span>
-                    <textarea
-                      value={nutritionDraftContent?.nutritionSnapshot?.personalisedPlanFocus || ''}
-                      onChange={(event) => handleNutritionFieldChange(['nutritionSnapshot', 'personalisedPlanFocus'], event.target.value)}
-                      disabled={!canEditNutritionDraft}
-                      rows={3}
-                      className="fluent-input mt-2 w-full rounded-[16px] px-3 py-3 text-sm outline-none disabled:opacity-60"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Review notes</span>
-                    <textarea
-                      value={nutritionReviewNotes}
-                      onChange={(event) => setNutritionReviewNotes(event.target.value)}
-                      disabled={!canEditNutritionDraft}
-                      rows={4}
-                      className="fluent-input mt-2 w-full rounded-[16px] px-3 py-3 text-sm outline-none disabled:opacity-60"
-                      placeholder="Add consultant review notes before approval"
-                    />
-                  </label>
-                </div>
+      {dietPlanState?.content && dietPlanContentDraft ? (
+        <div className="space-y-4">
+          <Surface className="p-5" animated>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Diet Plan Lifecycle</p>
+                <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                  Version {dietPlanState.currentVersionNumber} • Template {dietPlanState.templateVersion}
+                </p>
               </div>
-              <div className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Daily targets</p>
-                <div className="mt-3 grid gap-3">
-                  <DetailField label="Calories" value={formatDisplayValue(nutritionDraftContent?.dailyTargets?.calories, 'Not available')} />
-                  <DetailField label="Protein" value={formatDisplayValue(nutritionDraftContent?.dailyTargets?.protein, 'Not available')} />
-                  <DetailField label="Hydration" value={formatDisplayValue(nutritionDraftContent?.dailyTargets?.hydration, 'Not available')} />
-                  <DetailField label="Meal rhythm" value={formatDisplayValue(nutritionDraftContent?.hydrationRhythm?.title || nutritionDraftContent?.weeklySuccessGuide?.title, 'Not available')} />
-                </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusChip status={lifecycleTone(dietPlanState.currentLifecycle)}>{workflowLabelFromLifecycle(dietPlanState.currentLifecycle)}</StatusChip>
+                <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
+                  Workflow: {formatDisplayValue(planWorkflow?.stageLabel)}
+                </span>
               </div>
             </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <DetailField label="Prepared by" value={formatDisplayValue(dietPlanContentDraft.nutritionSnapshot?.preparedBy)} />
+              <DetailField label="Programme" value={formatDisplayValue(dietPlanContentDraft.nutritionSnapshot?.programmeName)} />
+              <DetailField label="Calories" value={dietPlanContentDraft.dailyTargets?.calories != null ? `${dietPlanContentDraft.dailyTargets.calories} kcal` : 'Not available'} />
+              <DetailField label="Hydration" value={dietPlanContentDraft.dailyTargets?.hydration != null ? `${dietPlanContentDraft.dailyTargets.hydration} L` : 'Not available'} />
+            </div>
+          </Surface>
+
+          <Surface className="p-5" animated>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Meal Plan Editor</p>
+            <div className="mt-4 space-y-4">
+              {mealPlanSectionEntries.map(([key, label]) => {
+                const section = dietPlanContentDraft.mealPlan?.[key];
+                return (
+                  <div key={key} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                    <div className="grid gap-3 lg:grid-cols-[0.78fr_1.22fr]">
+                      <div className="space-y-3">
+                        <DetailField label={`${label} window`} value={section?.window || 'Not set'} />
+                        <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-3">
+                          <p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Focus</p>
+                          <textarea
+                            value={section?.focus || ''}
+                            onChange={(event) => handleDietFieldChange(['mealPlan', key, 'focus'], event.target.value)}
+                            className="mt-2 min-h-[76px] w-full resize-y rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-3">
+                        {(section?.options || []).map((option, optionIndex) => (
+                          <div key={`${key}-option-${optionIndex}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] p-3">
+                            <div className="grid gap-3 md:grid-cols-2">
+                              <label className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">
+                                Meal
+                                <input
+                                  value={option.meal || ''}
+                                  onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'meal'], event.target.value)}
+                                  className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                                />
+                              </label>
+                              <label className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">
+                                Portion
+                                <input
+                                  value={option.portion || ''}
+                                  onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'portion'], event.target.value)}
+                                  className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                                />
+                              </label>
+                              <label className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">
+                                Calories
+                                <input
+                                  value={option.approxKcal ?? ''}
+                                  onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'approxKcal'], event.target.value === '' ? null : Number(event.target.value))}
+                                  className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                                />
+                              </label>
+                              <label className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">
+                                Protein
+                                <input
+                                  value={option.proteinGrams ?? ''}
+                                  onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'proteinGrams'], event.target.value === '' ? null : Number(event.target.value))}
+                                  className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                                />
+                              </label>
+                            </div>
+                            <label className="mt-3 block text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">
+                              Prep note
+                              <textarea
+                                value={option.prepNote || ''}
+                                onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'prepNote'], event.target.value)}
+                                className="mt-2 min-h-[72px] w-full resize-y rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                              />
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Surface>
+        </div>
+      ) : (
+        <Surface className="p-5" animated>
+          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+            No active meal plan assigned yet. Use “Prepare Diet Chart” to generate a consultant-assisted draft from the live Fiteatsy nutrition intelligence.
           </div>
-        ) : (
-          <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-            No active meal plan assigned yet. Generate a nutrition draft to start the consultant workflow.
-          </div>
-        )}
-      </Surface>
+        </Surface>
+      )}
     </div>
   );
 
   const renderActivity = () => (
     <Surface className="p-5" animated>
       <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Activity</p>
-      {wearableSummary?.hasWearableData || wearableSummary?.latestMetrics ? (
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <DetailField label="Steps" value={wearableSummary?.latestMetrics?.steps != null ? `${wearableSummary.latestMetrics.steps}` : 'Not available'} />
-          <DetailField label="Heart rate" value={wearableSummary?.latestMetrics?.restingHeartRate != null ? `${wearableSummary.latestMetrics.restingHeartRate} bpm` : 'Not available'} />
-          <DetailField label="Sleep" value={wearableSummary?.latestMetrics?.sleepHours != null ? `${wearableSummary.latestMetrics.sleepHours} hrs` : 'Not available'} />
-          <DetailField label="Workouts" value={wearableSummary?.latestMetrics?.workouts != null ? `${wearableSummary.latestMetrics.workouts}` : 'Not available'} />
-          <DetailField label="Readiness" value={formatDisplayValue(wearableSummary?.latestMetrics?.readiness)} />
-          <DetailField label="Recovery score" value={wearableSummary?.latestMetrics?.recoveryScore != null ? `${wearableSummary.latestMetrics.recoveryScore}` : 'Not available'} />
-          <DetailField label="Sync source" value={formatDisplayValue(wearableSummary?.source)} />
-          <DetailField label="Last wearable sync" value={formatDateLabel(wearableSummary?.lastSyncedAt || syncMetadata?.lastWearableSyncAt)} />
+      {wearableSummary?.connected ? (
+        <div className="mt-4 space-y-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <DetailField label="Connected sources" value={formatDisplayValue(wearableSummary?.dataSources)} />
+            <DetailField label="Records synced" value={wearableSummary?.recordsCount != null ? `${wearableSummary.recordsCount}` : 'Not available'} />
+            <DetailField label="Last sync" value={formatDateLabel(wearableSummary?.lastSyncedAt)} />
+            <DetailField label="Latest metric" value={wearableSummary?.latestMetrics?.[0] ? `${wearableSummary.latestMetrics[0].metricType} • ${wearableSummary.latestMetrics[0].latestValue} ${wearableSummary.latestMetrics[0].unit}` : 'Not available'} />
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {(wearableSummary?.latestMetrics || []).slice(0, 6).map((metric) => (
+              <div key={`${metric.metricType}-${metric.measuredAt}`} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{metric.metricType}</p>
+                <p className="mt-2 text-[22px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">{`${metric.latestValue} ${metric.unit}`.trim()}</p>
+                <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{metric.sourceProvider} • {formatDateLabel(metric.measuredAt)}</p>
+              </div>
+            ))}
+          </div>
         </div>
       ) : (
         <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-          No wearable data synced yet. Manual health tracking remains available.
+          No wearable summary is available yet. The client can still continue using manual health profile, reports, and onboarding flows.
         </div>
       )}
     </Surface>
@@ -1496,15 +1731,12 @@ function RealClientProfileDrawer({
       <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Timeline</p>
       <div className="mt-4 space-y-3">
         {timeline.length ? timeline.map((event) => (
-          <div key={event.id || `${event.type}-${event.timestamp || event.createdAt}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+          <div key={event.id || `${event.type}-${event.timestamp || 'unknown'}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
             <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{event.title || event.type}</p>
-            <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{formatDateLabel(event.timestamp || event.createdAt)}</p>
-            {event.detail ? (
-              <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{event.detail}</p>
-            ) : null}
-            {event.source ? (
-              <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{event.source}</p>
-            ) : null}
+            <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{event.detail || 'Client activity synchronized.'}</p>
+            <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+              {formatDateLabel(event.timestamp || event.createdAt)}{event.source ? ` • ${String(event.source).replace(/_/g, ' ')}` : ''}
+            </p>
           </div>
         )) : (
           <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
@@ -1564,13 +1796,13 @@ function RealClientProfileDrawer({
                       </span>
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                     <button
-                      onClick={handleGenerateDraft}
+                      onClick={handleGenerateDietPlan}
                       disabled={nutritionActionLoading}
-                      className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:opacity-60"
+                      className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {nutritionActionLoading ? 'Working...' : dietPlan ? 'Regenerate Draft' : 'Create Nutrition Draft'}
+                      {nutritionActionLoading && !dietPlanState ? 'Preparing...' : 'Generate Diet Plan'}
                     </button>
                     <button className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
                       Message Client
@@ -4787,7 +5019,7 @@ function PlatformWorkspace({ forcedRole }) {
   const resolvedRole = forcedRole || user?.role || 'consultant';
   const roleKind = getRoleKind(resolvedRole);
   const isSuperAdmin = superAdminRoles.has(String(resolvedRole).toLowerCase());
-  const [brandView, setBrandView] = useState(() => (roleKind === 'consultant' ? 'Fiteatsy' : 'All Brands'));
+  const [brandView, setBrandView] = useState('All Brands');
   const usesRealFiteatsyClients = roleKind === 'consultant' || brandView === 'Fiteatsy';
   const [state, setState] = useState(() => {
     if (usesRealFiteatsyClients) return buildEmptyPlatformState();
@@ -4804,7 +5036,7 @@ function PlatformWorkspace({ forcedRole }) {
       }),
     };
   });
-  const [nav, setNav] = useState(() => (roleKind === 'consultant' ? 'command-center' : usesRealFiteatsyClients ? 'clients' : 'command-center'));
+  const [nav, setNav] = useState(() => (usesRealFiteatsyClients ? 'clients' : 'command-center'));
   const [timeframe, setTimeframe] = useState('Week');
   const [globalSearch, setGlobalSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -4928,7 +5160,7 @@ function PlatformWorkspace({ forcedRole }) {
     setRealClientProfileLoading(true);
     setRealClientProfileError(null);
 
-    getFiteatsyConsultantClientProfile(selectedClientId)
+    fetchRealClientWorkspace(selectedClientId)
       .then((payload) => {
         if (cancelled) return;
         setRealClientProfile(payload);
@@ -4947,6 +5179,13 @@ function PlatformWorkspace({ forcedRole }) {
       cancelled = true;
     };
   }, [realClientDrawerOpen, selectedClientId, usesRealFiteatsyClients]);
+
+  const refreshRealClientProfile = useCallback(async (clientId) => {
+    const payload = await fetchRealClientWorkspace(clientId);
+    setRealClientProfile(payload);
+    setRealClientProfileError(null);
+    return payload;
+  }, []);
 
   const mockClients = useMemo(() => buildClientRecords(state), [state]);
   const realFiteatsyClients = useMemo(() => buildFiteatsyClientRecords(fiteatsyClients), [fiteatsyClients]);
@@ -5100,32 +5339,7 @@ function PlatformWorkspace({ forcedRole }) {
   }, [activeQueue, clients, globalSearch, queueViews, usesRealFiteatsyClients]);
 
   const priorityQueue = useMemo(() => {
-    if (usesRealFiteatsyClients) {
-      return clients
-        .map((client) => ({
-          clientId: client.id,
-          name: client.name,
-          title: client.trendSummary.title,
-          why: client.trendSummary.explanation,
-          drivers: client.conditions?.length ? client.conditions.slice(0, 3) : [client.profileCompleted ? 'Profile completed' : 'Onboarding pending', client.reportsCount ? `${client.reportsCount} reports available` : 'No reports yet'],
-          risk: client.profileCompleted ? 'medium' : 'stable',
-          action: client.reportsCount ? 'Review client health context and create nutrition draft.' : 'Open client workspace and complete nutrition planning.',
-          confidence: client.profileCompleted ? 82 : 58,
-          evidence: {
-            reports: client.reportsCount || 0,
-            adherence: client.profileCompleted ? 'Profile synced' : 'Awaiting onboarding completion',
-          },
-          momentum: client.recoveryMomentum,
-          adherenceScore: client.profileCompleted ? 72 : 0,
-          lastActivity: client.lastActivity,
-          owner: 'Assigned consultant',
-          temporalState: client.profileCompleted ? 'ready for review' : 'profile setup pending',
-          primaryIssue: client.goal || client.recoveryStage,
-          score: (client.profileCompleted ? 200 : 120) + (client.reportsCount || 0) * 10,
-        }))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 5);
-    }
+    if (usesRealFiteatsyClients) return [];
 
     return clients
       .map((client) => ({
@@ -5842,20 +6056,7 @@ function PlatformWorkspace({ forcedRole }) {
           profile={realClientProfile}
           loading={realClientProfileLoading}
           error={realClientProfileError}
-          onRefresh={async () => {
-            if (!selectedClientId) return;
-            setRealClientProfileLoading(true);
-            setRealClientProfileError(null);
-            try {
-              const payload = await getFiteatsyConsultantClientProfile(selectedClientId);
-              setRealClientProfile(payload);
-            } catch (refreshError) {
-              setRealClientProfile(null);
-              setRealClientProfileError(refreshError);
-            } finally {
-              setRealClientProfileLoading(false);
-            }
-          }}
+          onProfileRefresh={refreshRealClientProfile}
         />
       ) : null}
 
