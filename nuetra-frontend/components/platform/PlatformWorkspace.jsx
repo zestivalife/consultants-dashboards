@@ -34,6 +34,7 @@ import { useAuth } from '../../context/AuthContext';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
 import {
   approveFiteatsyConsultantDietPlan,
+  downloadFiteatsyConsultantDietPlan,
   generateFiteatsyConsultantDietPlanDraft,
   getFiteatsyConsultantClientProfile,
   listFiteatsyConsultantClients,
@@ -1019,6 +1020,10 @@ function RealClientProfileDrawer({
   const [nutritionActionLoading, setNutritionActionLoading] = useState(false);
   const [nutritionActionError, setNutritionActionError] = useState(null);
   const [nutritionActionSuccess, setNutritionActionSuccess] = useState(null);
+  const [aiDraftModalOpen, setAiDraftModalOpen] = useState(false);
+  const [aiDraftStatus, setAiDraftStatus] = useState('idle');
+  const [aiDraftProgress, setAiDraftProgress] = useState(0);
+  const [aiDraftStageLabel, setAiDraftStageLabel] = useState('Preparing the consultant-ready draft');
   const message = getProfileErrorMessage(error);
   const client = profile?.client;
   const onboarding = profile?.onboarding;
@@ -1146,20 +1151,71 @@ function RealClientProfileDrawer({
     setNutritionActionLoading(true);
     setNutritionActionError(null);
     setNutritionActionSuccess(null);
+    setAiDraftModalOpen(true);
+    setAiDraftStatus('generating');
+    setAiDraftProgress(18);
+    setAiDraftStageLabel('Reading live health profile and biomarkers');
     try {
+      setAiDraftProgress(52);
+      setAiDraftStageLabel('Generating personalised diet chart from nutrition intelligence');
       const response = await generateFiteatsyConsultantDietPlanDraft(summaryClient.id, {});
       const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
       setDietPlanState(nextDietPlan);
       setDietPlanContentDraft(nextDietPlan?.content || null);
       await refreshWorkspace();
       setActiveWorkspaceTab('Nutrition Plan');
+      setAiDraftProgress(100);
+      setAiDraftStatus('complete');
+      setAiDraftStageLabel('Diet chart is ready to edit, download, and share');
       setNutritionActionSuccess('Diet chart draft generated from the live Fiteatsy intelligence contract.');
     } catch (actionError) {
+      setAiDraftStatus('failed');
+      setAiDraftProgress(0);
+      setAiDraftStageLabel('Diet chart generation could not complete');
       setNutritionActionError(getNutritionWorkflowErrorMessage(actionError, 'Unable to generate a diet chart draft right now.'));
     } finally {
       setNutritionActionLoading(false);
     }
   }, [nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
+
+  const handleDownloadDietPlan = useCallback(async () => {
+    if (!summaryClient?.id || !dietPlanState?.plan?.id) return;
+    setNutritionActionLoading(true);
+    setNutritionActionError(null);
+    try {
+      const result = await downloadFiteatsyConsultantDietPlan(summaryClient.id, dietPlanState.plan.id);
+      const url = window.URL.createObjectURL(result.blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = result.filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+      setNutritionActionSuccess('Diet chart downloaded in the approved client-ready template.');
+    } catch (actionError) {
+      setNutritionActionError(getNutritionWorkflowErrorMessage(actionError, 'Unable to download this diet chart right now.'));
+    } finally {
+      setNutritionActionLoading(false);
+    }
+  }, [dietPlanState?.plan?.id, summaryClient?.id]);
+
+  const shareDietPlanViaEmail = useCallback(() => {
+    if (!summaryClient || !dietPlanState?.contentSummary) return;
+    const subject = encodeURIComponent(`${summaryClient.name} - updated Fiteatsy diet chart`);
+    const body = encodeURIComponent(
+      `Hello ${summaryClient.name},\n\nYour personalised Fiteatsy diet chart is ready for review.\n\nCalories: ${dietPlanState.contentSummary.calories ?? 'Pending'} kcal\nProtein: ${dietPlanState.contentSummary.protein ?? 'Pending'} g\nHydration: ${dietPlanState.contentSummary.hydration ?? 'Pending'} L\n\nPlease review the attached/downloaded plan and reach out if you need any changes.\n\nRegards,\nFiteatsy Consultant`
+    );
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  }, [dietPlanState?.contentSummary, summaryClient]);
+
+  const shareDietPlanViaWhatsapp = useCallback(() => {
+    if (!summaryClient || !dietPlanState?.contentSummary) return;
+    const message = encodeURIComponent(
+      `Hello ${summaryClient.name}, your updated Fiteatsy diet chart is ready. Calories: ${dietPlanState.contentSummary.calories ?? 'Pending'} kcal, protein: ${dietPlanState.contentSummary.protein ?? 'Pending'} g, hydration: ${dietPlanState.contentSummary.hydration ?? 'Pending'} L. Please review the latest plan and message us if you need support.`
+    );
+    window.open(`https://wa.me/?text=${message}`, '_blank', 'noopener,noreferrer');
+  }, [dietPlanState?.contentSummary, summaryClient]);
 
   const handleDietFieldChange = useCallback((path, value) => {
     setDietPlanContentDraft((current) => {
@@ -1506,6 +1562,27 @@ function RealClientProfileDrawer({
                   className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Publish
+                </button>
+                <button
+                  onClick={handleDownloadDietPlan}
+                  disabled={nutritionActionLoading}
+                  className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Download
+                </button>
+                <button
+                  onClick={shareDietPlanViaWhatsapp}
+                  disabled={nutritionActionLoading}
+                  className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Share WhatsApp
+                </button>
+                <button
+                  onClick={shareDietPlanViaEmail}
+                  disabled={nutritionActionLoading}
+                  className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Share Email
                 </button>
               </>
             ) : null}
@@ -2986,9 +3063,20 @@ function QueueConsole({ mode, setMode, queueViews, activeQueue, setActiveQueue, 
               </div>
             )}
           </div>
-        </motion.div>
-      )}
-      </AnimatePresence>
+    </motion.div>
+  )}
+</AnimatePresence>
+      <AIDraftProgressModal
+        isOpen={aiDraftModalOpen}
+        onClose={() => setAiDraftModalOpen(false)}
+        status={aiDraftStatus}
+        progress={aiDraftProgress}
+        stageLabel={aiDraftStageLabel}
+        clientName={summaryClient?.name}
+        onDownload={handleDownloadDietPlan}
+        onShareEmail={shareDietPlanViaEmail}
+        onShareWhatsapp={shareDietPlanViaWhatsapp}
+      />
     </div>
   );
 }

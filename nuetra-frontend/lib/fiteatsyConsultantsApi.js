@@ -226,3 +226,31 @@ export async function publishFiteatsyConsultantDietPlan(clientId, dietPlanId) {
     method: 'POST',
   });
 }
+
+export async function downloadFiteatsyConsultantDietPlan(clientId, dietPlanId) {
+  const token = getToken();
+  const url = `${getFiteatsyApiBaseUrl()}/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/download`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+
+  if (!response.ok) {
+    const body = await readJsonResponse(response);
+    const error = new Error(body?.message || body?.error || `Fiteatsy request failed (${response.status})`);
+    error.status = response.status;
+    error.data = body;
+    throw error;
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get('content-disposition') || '';
+  const match = disposition.match(/filename=\"?([^\";]+)\"?/i);
+  return {
+    blob,
+    filename: match?.[1] || 'fiteatsy-diet-plan.docx',
+  };
+}
