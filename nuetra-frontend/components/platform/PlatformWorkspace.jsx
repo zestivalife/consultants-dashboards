@@ -969,8 +969,10 @@ function Surface({ children, className = '', animated = false }) {
   return <div className={classes}>{children}</div>;
 }
 
-const drawerSectionTitleClass = 'text-[22px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]';
+const drawerSectionTitleClass = 'text-[24px] font-semibold leading-8 text-[var(--fluent-color-neutral-foreground-1)]';
 const drawerSectionBodyClass = 'mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]';
+const drawerMetricGridClass = 'mt-4 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]';
+const drawerIntelligenceGridClass = 'mt-4 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]';
 
 function StatusChip({ status, children }) {
   return <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium capitalize ${toneForStatus(status)}`}>{children}</span>;
@@ -1166,15 +1168,15 @@ function trendLabel(trend) {
 
 function HealthMetricCard({ icon: Icon, title, value, detail }) {
   return (
-    <Surface className="h-full p-5">
+    <Surface className="h-full min-w-0 p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] p-2.5 text-[var(--fluent-color-brand-foreground-link)]">
             <Icon size={18} />
           </div>
           <div className="min-w-0">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">{title}</p>
-            <p className="mt-2 max-w-[11ch] break-words text-[clamp(1.7rem,1.7vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.03em] text-[var(--fluent-color-neutral-foreground-1)]">
+            <p className="text-[13px] font-medium leading-5 text-[var(--fluent-color-neutral-foreground-3)]">{title}</p>
+            <p className="mt-2 max-w-full text-[16px] font-semibold leading-6 text-[var(--fluent-color-neutral-foreground-1)] [overflow-wrap:anywhere]">
               {value}
             </p>
           </div>
@@ -1190,11 +1192,11 @@ function WellnessIntelligenceCard({ item }) {
   const fallback = getWellnessAvailabilityCopy(item.key);
 
   return (
-    <div className="h-full rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+    <div className="h-full min-w-0 rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{item.title}</p>
-          <p className="mt-2 max-w-[10ch] break-words text-[clamp(1.8rem,1.8vw,2.8rem)] font-semibold leading-[1.08] tracking-[-0.03em] text-[var(--fluent-color-neutral-foreground-1)]">
+          <p className="text-[13px] font-medium leading-5 text-[var(--fluent-color-neutral-foreground-3)]">{item.title}</p>
+          <p className="mt-2 max-w-full text-[16px] font-semibold leading-6 text-[var(--fluent-color-neutral-foreground-1)] [overflow-wrap:anywhere]">
             {emptyState ? fallback.label : formatScoreValue(item.value)}
           </p>
         </div>
@@ -1216,7 +1218,7 @@ function OverviewStat({ icon: Icon, label, value }) {
         <Icon size={16} />
       </div>
       <div className="min-w-0">
-        <p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
+        <p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
         <p className="mt-1 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)] break-words">{value}</p>
       </div>
     </div>
@@ -1226,7 +1228,7 @@ function OverviewStat({ icon: Icon, label, value }) {
 function DetailField({ label, value }) {
   return (
     <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
-      <p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
+      <p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
       <p className="mt-1 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{value}</p>
     </div>
   );
@@ -1541,7 +1543,7 @@ function RealClientProfileDrawer({
           <div className="min-w-[220px] rounded-[20px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Client health status</p>
+                <p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Client health status</p>
                 <p className="mt-2 text-lg font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{healthStatus.label}</p>
               </div>
               <StatusChip status={healthStatus.tone}>{healthStatus.tone === 'pending' ? 'Baseline' : 'Live'}</StatusChip>
@@ -1549,7 +1551,7 @@ function RealClientProfileDrawer({
             <p className="mt-3 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{healthStatus.detail}</p>
           </div>
         </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
+        <div className={drawerMetricGridClass}>
           {snapshotCards.map((metric) => (
             <HealthMetricCard key={metric.title} icon={metric.icon} title={metric.title} value={metric.value} detail={metric.detail} />
           ))}
@@ -1598,7 +1600,7 @@ function RealClientProfileDrawer({
             Source: {formatDisplayValue(syncMetadata?.dataSource, 'Fiteatsy intelligence')}
           </div>
         </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <div className={drawerIntelligenceGridClass}>
           {wellnessScoreCards.map((item) => (
             <WellnessIntelligenceCard key={item.key} item={item} />
           ))}
@@ -1745,7 +1747,7 @@ function RealClientProfileDrawer({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{biomarker.name}</p>
-                  <p className="mt-2 text-[24px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">
+                  <p className="mt-2 text-[24px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
                     {`${biomarker.value} ${biomarker.unit}`.trim()}
                   </p>
                 </div>
@@ -1943,11 +1945,34 @@ function RealClientProfileDrawer({
                 const section = dietPlanContentDraft.mealPlan?.[key];
                 return (
                   <div key={key} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                    <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{label}</p>
+                        <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+                          Target:{' '}
+                          {section?.target?.calories != null ? `${section.target.calories} kcal` : 'Open'}{' '}
+                          • Protein:{' '}
+                          {section?.target?.proteinGrams != null ? `${section.target.proteinGrams} g` : 'Open'}
+                        </p>
+                      </div>
+                      {section?.recommendationSets?.length ? (
+                        <div className="flex flex-wrap gap-2">
+                          {section.recommendationSets.map((set) => (
+                            <span
+                              key={`${key}-${set.key}`}
+                              className="rounded-full bg-[var(--fluent-color-neutral-background-1)] px-3 py-1 text-[11px] font-medium text-[var(--fluent-color-neutral-foreground-2)]"
+                            >
+                              {set.label}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
                     <div className="grid gap-3 lg:grid-cols-[0.78fr_1.22fr]">
                       <div className="space-y-3">
                         <DetailField label={`${label} window`} value={section?.window || 'Not set'} />
                         <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-3">
-                          <p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Focus</p>
+                          <p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Focus</p>
                           <textarea
                             value={section?.focus || ''}
                             onChange={(event) => handleDietFieldChange(['mealPlan', key, 'focus'], event.target.value)}
@@ -1959,7 +1984,7 @@ function RealClientProfileDrawer({
                         {(section?.options || []).map((option, optionIndex) => (
                           <div key={`${key}-option-${optionIndex}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] p-3">
                             <div className="grid gap-3 md:grid-cols-2">
-                              <label className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">
+                              <label className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">
                                 Meal
                                 <input
                                   value={option.meal || ''}
@@ -1967,7 +1992,7 @@ function RealClientProfileDrawer({
                                   className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
                                 />
                               </label>
-                              <label className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">
+                              <label className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">
                                 Portion
                                 <input
                                   value={option.portion || ''}
@@ -1975,7 +2000,7 @@ function RealClientProfileDrawer({
                                   className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
                                 />
                               </label>
-                              <label className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">
+                              <label className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">
                                 Calories
                                 <input
                                   value={option.approxKcal ?? ''}
@@ -1983,7 +2008,7 @@ function RealClientProfileDrawer({
                                   className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
                                 />
                               </label>
-                              <label className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">
+                              <label className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">
                                 Protein
                                 <input
                                   value={option.proteinGrams ?? ''}
@@ -1992,7 +2017,7 @@ function RealClientProfileDrawer({
                                 />
                               </label>
                             </div>
-                            <label className="mt-3 block text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">
+                            <label className="mt-3 block text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">
                               Prep note
                               <textarea
                                 value={option.prepNote || ''}
@@ -2036,7 +2061,7 @@ function RealClientProfileDrawer({
             {(wearableSummary?.latestMetrics || []).slice(0, 6).map((metric) => (
               <div key={`${metric.metricType}-${metric.measuredAt}`} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
                 <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{metric.metricType}</p>
-                <p className="mt-2 text-[22px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">{`${metric.latestValue} ${metric.unit}`.trim()}</p>
+                <p className="mt-2 text-[22px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{`${metric.latestValue} ${metric.unit}`.trim()}</p>
                 <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{metric.sourceProvider} • {formatDateLabel(metric.measuredAt)}</p>
               </div>
             ))}
@@ -2104,8 +2129,8 @@ function RealClientProfileDrawer({
               <div className="border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[rgba(255,255,255,0.94)] px-5 py-4 backdrop-blur">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client Command Center</p>
-                    <h2 className="mt-2 text-[28px] font-semibold tracking-[-0.03em] text-[var(--fluent-color-neutral-foreground-1)]">
+                    <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Client Command Center</p>
+                    <h2 className="mt-2 text-[28px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
                       {client?.name || summaryClient?.name || 'Client'}
                     </h2>
                     <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
@@ -2228,7 +2253,7 @@ function SparklineBars({ values, color = '#1E88E5' }) {
     <div className="relative">
       {hoveredPoint ? (
         <div className="pointer-events-none absolute -top-11 left-1/2 z-10 -translate-x-1/2 rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[rgba(255,255,255,0.96)] px-2.5 py-1.5 text-center shadow-[0_8px_18px_rgba(15,23,42,0.10)]">
-          <p className="text-[10px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{hoveredPoint[3]}</p>
+          <p className="text-[10px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">{hoveredPoint[3]}</p>
           <p className="mt-0.5 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{hoveredPoint[2]}</p>
         </div>
       ) : null}
@@ -2290,7 +2315,7 @@ function TopAppBar({ roleName, timeframe, setTimeframe, search, setSearch, onSea
     <div className="sticky top-0 z-40 border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[rgba(255,255,255,0.94)] backdrop-blur">
       <div className="mx-auto flex max-w-[1480px] items-center gap-3 px-4 py-3 md:px-6 lg:px-8">
         <div className="min-w-0 shrink-0">
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Nuetra + Fiteatsy</p>
+          <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Nuetra + Fiteatsy</p>
           <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{roleName}</p>
         </div>
         <div
@@ -2398,7 +2423,7 @@ function Sidebar({ items, active, onChange, groups }) {
         <nav className="space-y-4">
           {sections.map((section, index) => (
             <div key={section.label || `section-${index}`}>
-              {section.label ? <p className="px-3 pb-2 text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--fluent-color-neutral-foreground-3)]">{section.label}</p> : null}
+              {section.label ? <p className="px-3 pb-2 text-[11px] font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">{section.label}</p> : null}
               <div className="space-y-1">
                 {section.items.map((item) => {
                   const Icon = item.icon;
@@ -2430,7 +2455,7 @@ function CompactPageHeader({ title, subtitle, actions }) {
   return (
     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
       <div>
-        <h2 className="text-[20px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">{title}</h2>
+        <h2 className="text-[20px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{title}</h2>
         {subtitle ? <p className="mt-0.5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{subtitle}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
@@ -2472,7 +2497,7 @@ function SearchOverlay({ isOpen, onClose, search, setSearch, results, onResultSe
             </div>
             <div className="grid min-h-0 flex-1 gap-0 overflow-hidden md:grid-cols-[0.9fr_1.1fr]">
               <div className="border-r border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-[var(--fluent-color-neutral-foreground-3)]">Quick actions</p>
+                <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Quick actions</p>
                 <div className="mt-3 space-y-2">
                   {[
                     ['Open Workspace', 'client'],
@@ -2500,7 +2525,7 @@ function SearchOverlay({ isOpen, onClose, search, setSearch, results, onResultSe
                 {results.map((group) => (
                   <div key={group.label} className="mb-5 last:mb-0">
                     <div className="mb-2 flex items-center justify-between">
-                      <p className="text-xs font-medium uppercase tracking-[0.16em] text-[var(--fluent-color-neutral-foreground-3)]">{group.label}</p>
+                      <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">{group.label}</p>
                       <span className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">{group.items.length}</span>
                     </div>
                     <div className="space-y-2">
@@ -2656,7 +2681,7 @@ function ConsultantHome({
               <motion.button key={item.label} {...hoverLift} className="rounded-[14px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-3 py-2 text-left">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">{item.label}</p>
+                    <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">{item.label}</p>
                     <p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.value}</p>
                     <p className="mt-1 text-[11px] text-[var(--fluent-color-neutral-foreground-2)]">{item.delta}</p>
                   </div>
@@ -2681,7 +2706,7 @@ function ConsultantHome({
             </div>
             <div className="mt-3 overflow-auto">
               <div className="min-w-[1060px]">
-                <div className="grid grid-cols-[1.5fr_0.7fr_1.1fr_1fr_0.7fr_0.7fr_0.9fr_0.9fr_1.2fr] gap-2 border-b border-[var(--fluent-color-neutral-stroke-1)] px-3 py-2 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">
+                <div className="grid grid-cols-[1.5fr_0.7fr_1.1fr_1fr_0.7fr_0.7fr_0.9fr_0.9fr_1.2fr] gap-2 border-b border-[var(--fluent-color-neutral-stroke-1)] px-3 py-2 text-[11px] font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">
                   <div>Client</div>
                   <div>Risk</div>
                   <div>Drift</div>
@@ -2750,7 +2775,7 @@ function ConsultantHome({
                 </div>
                 <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_1fr]">
                   <div className="rounded-[14px] bg-[var(--fluent-color-neutral-background-1)] p-3">
-                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Likely Drivers</p>
+                    <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Likely Drivers</p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {selectedQueueItem.drivers.map((driver) => (
                         <span key={driver} className="rounded-full bg-[#F6F8FB] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{driver}</span>
@@ -2758,7 +2783,7 @@ function ConsultantHome({
                     </div>
                   </div>
                   <div className="rounded-[14px] bg-[var(--fluent-color-neutral-background-1)] p-3">
-                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Recommended Action</p>
+                    <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Recommended Action</p>
                     <p className="mt-2 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{selectedQueueItem.action}</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {['Open workspace', 'Add note', 'Generate AI draft', 'Mark reviewed', 'Escalate'].map((action) => (
@@ -2849,7 +2874,7 @@ function ConsultantHome({
               <div className={`overflow-auto ${internalTabClass}`}>
                 <table className="w-full border-separate border-spacing-y-2 text-left">
                   <thead>
-                    <tr className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">
+                    <tr className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">
                       <th className="px-3 py-1 font-medium">Client</th>
                       <th className="px-3 py-1 font-medium">Stage</th>
                       <th className="px-3 py-1 font-medium">Progress</th>
@@ -2876,7 +2901,7 @@ function ConsultantHome({
               <div className={`grid gap-4 md:grid-cols-3 ${internalTabClass}`}>
                 {['critical', 'declining', 'medium'].map((level) => (
                   <div key={level}>
-                    <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">{level === 'declining' ? 'High' : formatStatusLabel(level)}</p>
+                    <p className="mb-2 text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">{level === 'declining' ? 'High' : formatStatusLabel(level)}</p>
                     <div className="space-y-2">
                       {alerts.filter((alert) => (level === 'declining' ? alert.trend === 'declining' : alert.trend === level)).slice(0, 4).map((alert) => (
                         <motion.button key={alert.id} onClick={() => onClientOpen(alert.employeeId)} {...hoverLift} className="w-full rounded-[14px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3 text-left">
@@ -2894,7 +2919,7 @@ function ConsultantHome({
               <div className={`overflow-auto ${internalTabClass}`}>
                 <table className="w-full border-separate border-spacing-y-2 text-left">
                   <thead>
-                    <tr className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">
+                    <tr className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">
                       <th className="px-3 py-1 font-medium">Organization</th>
                       <th className="px-3 py-1 font-medium">High Risk Employees</th>
                       <th className="px-3 py-1 font-medium">Burnout Trend</th>
@@ -2925,7 +2950,7 @@ function ConsultantHome({
           <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Intelligence rail</p>
           <div className="mt-3 space-y-4">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Critical Alerts</p>
+              <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Critical Alerts</p>
               <div className="mt-2 space-y-2">
                 {railAlerts.map((alert) => (
                   <motion.button key={alert.id} onClick={() => onClientOpen(alert.employeeId)} {...hoverLift} className="w-full rounded-[14px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3 text-left">
@@ -2937,7 +2962,7 @@ function ConsultantHome({
               </div>
             </div>
             <div>
-              <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Escalations</p>
+              <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Escalations</p>
               <div className="mt-2 space-y-2">
                 {railEscalations.map((item) => (
                   <motion.button key={item.clientId} onClick={() => onClientOpen(item.clientId)} {...hoverLift} className="w-full rounded-[14px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3 text-left">
@@ -2949,7 +2974,7 @@ function ConsultantHome({
               </div>
             </div>
             <div>
-              <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">AI Pattern Detection</p>
+              <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">AI Pattern Detection</p>
               <div className="mt-2 space-y-2">
                 <div className="rounded-[14px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3">
                   <p className="text-xs font-medium text-[var(--fluent-color-neutral-foreground-1)]">Late dinner timing is clustering</p>
@@ -2962,7 +2987,7 @@ function ConsultantHome({
               </div>
             </div>
             <div>
-              <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Low Confidence AI Cases</p>
+              <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Low Confidence AI Cases</p>
               <div className="mt-2 space-y-2">
                 {lowConfidenceCases.map((item) => (
                   <motion.button key={item.clientId} onClick={() => onClientOpen(item.clientId)} {...hoverLift} className="w-full rounded-[14px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3 text-left">
@@ -2974,7 +2999,7 @@ function ConsultantHome({
               </div>
             </div>
             <div>
-              <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Today's Reviews</p>
+              <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Today's Reviews</p>
               <div className="mt-2 space-y-2">
                 {railReviews.map((item) => (
                   <div key={item.employeeName} className="rounded-[14px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3">
@@ -3193,7 +3218,7 @@ function ClientIntelligenceDrawer({
           <div className="sticky top-0 z-20 border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[rgba(255,255,255,0.94)] px-4 py-3 backdrop-blur">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-2)]">Client intelligence</p>
+                <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-2)]">Client intelligence</p>
                 <p className="mt-1 text-lg font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{employee.name}</p>
                 <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{employee.brand} • {employee.packageLabel || employee.packageName} • {employee.packageDuration}</p>
               </div>
@@ -3217,7 +3242,7 @@ function ClientIntelligenceDrawer({
                 ['Confidence', `${employee.confidence}%`],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-[14px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-3">
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
+                  <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
                   <p className="mt-1 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{value}</p>
                 </div>
               ))}
@@ -3299,7 +3324,7 @@ function QueueConsole({ mode, setMode, queueViews, activeQueue, setActiveQueue, 
                   ))}
                 </div>
                 <div className="border-t border-[var(--fluent-color-neutral-stroke-1)] pt-3">
-                  <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Active queue preview</p>
+                  <p className="mb-2 text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Active queue preview</p>
                   <div className="space-y-2">
                     {filteredClients.slice(0, 5).map((client) => (
                       <button key={client.id} onClick={() => onClientOpen(client.id)} className="flex w-full items-center justify-between rounded-[14px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3 text-left">
@@ -3352,8 +3377,8 @@ function AIDraftProgressModal({
           >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">AI Diet Plan Generator</p>
-                <h3 className="mt-2 text-[28px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">
+                <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">AI Diet Plan Generator</p>
+                <h3 className="mt-2 text-[28px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
                   {status === 'complete' ? 'Plan is generated' : 'Generating the diet plan'}
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
@@ -3374,7 +3399,7 @@ function AIDraftProgressModal({
               <div className="flex items-end justify-between gap-4">
                 <div>
                   <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{stageLabel}</p>
-                  <p className="mt-1 text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">
+                  <p className="mt-1 text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">
                     {status === 'complete' ? 'Ready for download and sharing' : 'Adaptive generation in progress'}
                   </p>
                 </div>
@@ -3400,7 +3425,7 @@ function AIDraftProgressModal({
                   ['Output', status === 'complete' ? 'Ready to review, download, and share' : 'Draft assembling in consultant format'],
                 ].map(([label, value]) => (
                   <div key={label} className="rounded-[18px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-4">
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
+                    <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
                     <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{value}</p>
                   </div>
                 ))}
@@ -3502,7 +3527,7 @@ function ClientWorkspace({
       <div className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr_0.9fr]">
         <div className="space-y-4">
           <Surface className="p-4">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client health state</p>
+            <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Client health state</p>
             <div className="mt-4 space-y-3">
               {[
                 ['Readiness', `${employee.readiness}%`],
@@ -3522,7 +3547,7 @@ function ClientWorkspace({
           </Surface>
 
           <Surface className="p-4">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Active issues</p>
+            <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Active issues</p>
             <div className="mt-4 flex flex-wrap gap-2">
               {employee.biomarkers.filter((item) => item.status !== 'stable').map((item) => (
                 <StatusChip key={item.name} status={item.status}>{item.name}</StatusChip>
@@ -3537,7 +3562,7 @@ function ClientWorkspace({
           <Surface className="p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Nutrition Profile</p>
+                <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Nutrition Profile</p>
                 <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Shared health profile summary for consultant-ready diet planning.</p>
               </div>
               <div className="text-right">
@@ -3549,7 +3574,7 @@ function ClientWorkspace({
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
-                <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Missing information</p>
+                <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Missing information</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {nutritionProfile.missing.length ? nutritionProfile.missing.map((item) => (
                     <StatusChip key={item} status="high">{item}</StatusChip>
@@ -3557,7 +3582,7 @@ function ClientWorkspace({
                 </div>
               </div>
               <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
-                <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Latest blood report</p>
+                <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Latest blood report</p>
                 <p className="mt-2 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{nutritionProfile.latestReport?.name || 'No report uploaded'}</p>
                 <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{nutritionProfile.latestReport?.lab || 'Awaiting upload'} • {nutritionProfile.latestReport?.uploadedAt || 'No upload date'}</p>
               </div>
@@ -3569,7 +3594,7 @@ function ClientWorkspace({
                 ['Meal behaviour', nutritionProfile.mealBehaviour],
               ].map(([title, items]) => (
                 <div key={title} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
-                  <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{title}</p>
+                  <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">{title}</p>
                   <div className="mt-3 space-y-2">
                     {items.map(([label, value]) => (
                       <div key={label} className="flex items-center justify-between gap-3 text-sm">
@@ -3584,7 +3609,7 @@ function ClientWorkspace({
           </Surface>
 
           <Surface className="p-4">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">What changed</p>
+            <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">What changed</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {employee.biomarkers.filter((item) => item.status !== 'stable').slice(0, 4).map((item) => (
                 <div key={item.name} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3">
@@ -3601,7 +3626,7 @@ function ClientWorkspace({
 
           <Surface className="p-4">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Intervention plan + AI guidance</p>
+              <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Intervention plan + AI guidance</p>
               <button onClick={onGenerateDraft} className="rounded-full bg-[var(--fluent-color-brand-background)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-brand-foreground)]">Generate adaptation</button>
             </div>
             <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
@@ -3629,7 +3654,7 @@ function ClientWorkspace({
 
         <div className="space-y-4">
           <Surface className="p-4">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Communication + notes + activity</p>
+            <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Communication + notes + activity</p>
             <div className="mt-4 space-y-3">
               {communicationStream.slice(0, 4).map((entry, index) => (
                 <div key={`${entry.id || entry.time}-${index}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3">
@@ -3644,7 +3669,7 @@ function ClientWorkspace({
           </Surface>
 
           <Surface className="p-4">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Nutrition Profile Timeline</p>
+            <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Nutrition Profile Timeline</p>
             <div className="mt-4 space-y-3">
               {nutritionProfile.timeline.map((event) => (
                 <div key={event.id} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3">
@@ -3666,7 +3691,7 @@ function ClientWorkspace({
       <div className="space-y-4">
         {Object.entries(groupedBiomarkers).map(([group, items]) => (
           <Surface key={group} className="p-4">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">{group}</p>
+            <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">{group}</p>
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {items.map((item) => (
                 <div key={item.name} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
@@ -3676,15 +3701,15 @@ function ClientWorkspace({
                   </div>
                   <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
                     <div>
-                      <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Current</p>
+                      <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Current</p>
                       <p className="mt-1 text-[var(--fluent-color-neutral-foreground-2)]">{item.current}</p>
                     </div>
                     <div>
-                      <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Previous</p>
+                      <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Previous</p>
                       <p className="mt-1 text-[var(--fluent-color-neutral-foreground-2)]">{item.previous}</p>
                     </div>
                     <div>
-                      <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Delta</p>
+                      <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Delta</p>
                       <p className="mt-1 text-[var(--fluent-color-neutral-foreground-2)]">{(item.current - item.previous).toFixed(1)}</p>
                     </div>
                   </div>
@@ -3784,15 +3809,15 @@ function ClientWorkspace({
             </div>
             <div className="mt-3 grid grid-cols-3 gap-3">
               <div className="rounded-[14px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3">
-                <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Confidence</p>
+                <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Confidence</p>
                 <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{report.extractionConfidence}%</p>
               </div>
               <div className="rounded-[14px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3">
-                <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">OCR</p>
+                <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">OCR</p>
                 <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{report.ocrState}</p>
               </div>
               <div className="rounded-[14px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3">
-                <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Biomarkers</p>
+                <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Biomarkers</p>
                 <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{report.detectedBiomarkers.length}</p>
               </div>
             </div>
@@ -3806,7 +3831,7 @@ function ClientWorkspace({
     return (
       <div className="grid gap-4 xl:grid-cols-2">
         <Surface className="p-4">
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultant Notes</p>
+          <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Consultant Notes</p>
           <div className="mt-4 space-y-3">
             {internalNotes.slice(0, 6).map((note) => (
               <div key={note.id} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3">
@@ -3820,7 +3845,7 @@ function ClientWorkspace({
           </div>
         </Surface>
         <Surface className="p-4">
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Add Note</p>
+          <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Add Note</p>
           <div className="mt-4 space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <select value={noteType} onChange={(event) => setNoteType(event.target.value)} className="fluent-input rounded-[16px] px-3 py-3 text-sm outline-none">
@@ -3841,7 +3866,7 @@ function ClientWorkspace({
   function renderChatTab() {
     return (
       <Surface className="p-4">
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Communication Stream</p>
+        <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Communication Stream</p>
         <div className="mt-4 space-y-3">
           {communicationStream.map((entry, index) => (
             <div key={`${entry.id || entry.time}-${index}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
@@ -3863,7 +3888,7 @@ function ClientWorkspace({
   function renderTimelineTab() {
     return (
       <Surface className="p-4">
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Intervention Timeline</p>
+        <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Intervention Timeline</p>
         <div className="mt-4 space-y-3">
           {timelineEvents.map((event) => (
             <div key={event.id} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
@@ -3871,7 +3896,7 @@ function ClientWorkspace({
                 <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{event.title}</p>
                 <p className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">{event.time}</p>
               </div>
-              <p className="mt-1 text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{event.kind}</p>
+              <p className="mt-1 text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">{event.kind}</p>
               <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{event.detail}</p>
             </div>
           ))}
@@ -3885,8 +3910,8 @@ function ClientWorkspace({
       <Surface className="p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Adaptive intervention cockpit</p>
-            <h3 className="mt-2 text-[28px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">{employee.name}</h3>
+            <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Adaptive intervention cockpit</p>
+            <h3 className="mt-2 text-[28px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{employee.name}</h3>
             <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
               {employee.brand === 'Nuetra'
                 ? `${employee.organization} · ${employee.department} · ${employee.workSchedule}`
@@ -3903,7 +3928,7 @@ function ClientWorkspace({
         <div className="mt-5 grid gap-3 lg:grid-cols-6">
           {workspaceHeaderStats.map(([label, value]) => (
             <div key={label} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
+              <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
               <p className="mt-2 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{value}</p>
             </div>
           ))}
@@ -4602,11 +4627,11 @@ function FiteatsyAdminHome() {
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm xl:min-w-[220px]">
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Readiness</p>
+                    <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Readiness</p>
                     <p className="mt-1 font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{client.readiness}%</p>
                   </div>
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Adherence</p>
+                    <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Adherence</p>
                     <p className="mt-1 font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{client.adherenceScore}%</p>
                   </div>
                 </div>
@@ -4893,12 +4918,12 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
         <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
           <div className="grid gap-4 xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] xl:items-stretch">
             <div className="flex flex-col justify-between rounded-[24px] bg-[var(--fluent-color-neutral-background-2)] px-5 py-4">
-              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Command Center</p>
+              <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Command Center</p>
               <div className="mt-3">
-                <h2 className="text-[22px] font-semibold tracking-[-0.02em]">Adaptive recovery mission control</h2>
+                <h2 className="text-[22px] font-semibold">Adaptive recovery mission control</h2>
                 <p className="mt-2 max-w-[26ch] text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{briefingMeta}</p>
               </div>
-              <p className="mt-4 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Click a signal to open its working list</p>
+              <p className="mt-4 text-[11px] font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Click a signal to open its working list</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
               {pulseItems.map((item) => (
@@ -4911,7 +4936,7 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
                 >
                   <div>
                     <div className="flex items-start justify-between gap-3">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">{item.label}</p>
+                      <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">{item.label}</p>
                       <StatusChip status={item.status}>{item.delta}</StatusChip>
                     </div>
                     <div className="mt-3 flex items-end justify-between gap-3">
@@ -4939,50 +4964,52 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
             <span className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{priorityQueue.length} active cases</span>
           </div>
 
-          <div className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
             <div className="overflow-hidden rounded-[20px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)]">
-              <div className="grid grid-cols-[minmax(172px,1.35fr)_minmax(108px,0.75fr)_minmax(160px,1.1fr)_minmax(160px,1fr)_minmax(108px,0.8fr)_minmax(136px,0.9fr)] gap-3 border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-inset)] px-4 py-3 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">
-                <span>Client</span>
-                <span>Risk</span>
-                <span>Primary Issue</span>
-                <span>Recovery Snapshot</span>
-                <span>Last Touch</span>
-                <span>Action</span>
-              </div>
-              <div className="divide-y divide-[var(--fluent-color-neutral-stroke-1)]">
-                {compactRows.map((item) => {
-                  const isSelected = item.clientId === selectedClientId;
-                  return (
-                    <button
-                      key={item.clientId}
-                      onClick={() => setSelectedClientId(item.clientId)}
-                      className={`grid w-full grid-cols-[minmax(172px,1.35fr)_minmax(108px,0.75fr)_minmax(160px,1.1fr)_minmax(160px,1fr)_minmax(108px,0.8fr)_minmax(136px,0.9fr)] gap-3 px-4 py-4 text-left transition ${
-                        isSelected
-                          ? 'bg-[rgba(59,130,246,0.08)]'
-                          : 'bg-[var(--fluent-color-neutral-background-1)] hover:bg-[#f7f9fc]'
-                      }`}
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{item.name}</p>
-                        <p className="mt-1 truncate text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.owner}</p>
-                      </div>
-                      <div className="min-w-0">
-                        <StatusChip status={item.risk}>{item.risk}</StatusChip>
-                      </div>
-                      <div className="min-w-0 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{item.primaryIssue}</div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{item.momentum.label}</p>
-                        <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Adherence {item.adherenceScore}% • Confidence {item.confidence}%</p>
-                      </div>
-                      <div className="min-w-0 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{item.lastActivity}</div>
-                      <div className="min-w-0">
-                        <span className="rounded-full bg-[var(--fluent-color-neutral-background-3)] px-3 py-1.5 text-xs font-medium text-[var(--fluent-color-neutral-foreground-1)]">
-                          Open Workspace
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
+              <div className="overflow-x-auto">
+                <div className="grid min-w-[920px] grid-cols-[minmax(172px,1.35fr)_minmax(108px,0.75fr)_minmax(160px,1.1fr)_minmax(160px,1fr)_minmax(108px,0.8fr)_minmax(136px,0.9fr)] gap-3 border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-inset)] px-4 py-3 text-[11px] font-medium text-[var(--fluent-color-neutral-foreground-3)]">
+                  <span>Client</span>
+                  <span>Risk</span>
+                  <span>Primary Issue</span>
+                  <span>Recovery Snapshot</span>
+                  <span>Last Touch</span>
+                  <span>Action</span>
+                </div>
+                <div className="divide-y divide-[var(--fluent-color-neutral-stroke-1)]">
+                  {compactRows.map((item) => {
+                    const isSelected = item.clientId === selectedClientId;
+                    return (
+                      <button
+                        key={item.clientId}
+                        onClick={() => setSelectedClientId(item.clientId)}
+                        className={`grid min-w-[920px] w-full grid-cols-[minmax(172px,1.35fr)_minmax(108px,0.75fr)_minmax(160px,1.1fr)_minmax(160px,1fr)_minmax(108px,0.8fr)_minmax(136px,0.9fr)] gap-3 px-4 py-4 text-left transition ${
+                          isSelected
+                            ? 'bg-[rgba(59,130,246,0.08)]'
+                            : 'bg-[var(--fluent-color-neutral-background-1)] hover:bg-[#f7f9fc]'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{item.name}</p>
+                          <p className="mt-1 truncate text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.owner}</p>
+                        </div>
+                        <div className="min-w-0">
+                          <StatusChip status={item.risk}>{item.risk}</StatusChip>
+                        </div>
+                        <div className="min-w-0 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{item.primaryIssue}</div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{item.momentum.label}</p>
+                          <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Adherence {item.adherenceScore}% • Confidence {item.confidence}%</p>
+                        </div>
+                        <div className="min-w-0 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{item.lastActivity}</div>
+                        <div className="min-w-0">
+                          <span className="rounded-full bg-[var(--fluent-color-neutral-background-3)] px-3 py-1.5 text-xs font-medium text-[var(--fluent-color-neutral-foreground-1)]">
+                            Open Workspace
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
@@ -4999,19 +5026,19 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Why AI flagged this</p>
+                    <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Why AI flagged this</p>
                     <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{selectedItem.drivers.slice(0, 2).join(' • ')}</p>
                   </div>
                   <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Recovery direction</p>
+                    <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Recovery direction</p>
                     <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{selectedItem.momentum.label}</p>
                   </div>
                   <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Suggested intervention</p>
+                    <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Suggested intervention</p>
                     <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{selectedItem.action}</p>
                   </div>
                   <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Temporal state</p>
+                    <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">Temporal state</p>
                     <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Last touched {selectedItem.lastActivity} • {selectedItem.temporalState}</p>
                   </div>
                 </div>
@@ -5038,7 +5065,7 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
 
         <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
           <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Recovery Momentum</p>
+            <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Recovery Momentum</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {workloadItems.map((item) => (
                 <button key={item.label} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-left transition hover:border-[var(--fluent-color-neutral-stroke-2)] hover:bg-[#f7f9fc]">
@@ -5053,7 +5080,7 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
           </Surface>
 
           <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Operational Memory</p>
+            <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Operational Memory</p>
             <div className="mt-4 space-y-3">
               {memoryItems.map((item) => (
                 <div key={item.title} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
@@ -5068,11 +5095,11 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
 
       <div className="space-y-4 xl:sticky xl:top-[150px] xl:self-start">
         <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Live Intelligence Rail</p>
+          <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Live Intelligence Rail</p>
           <div className="mt-4 space-y-4">
             {Object.entries(railGroups).map(([label, items]) => (
               <div key={label}>
-                <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
+                <p className="mb-2 text-[11px] font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">{label}</p>
                 <div className="space-y-2">
                   {items.map((item) => (
                     <div key={`${label}-${item.title}`} className="rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3">
@@ -5103,8 +5130,8 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client Directory</p>
-            <h2 className="mt-2 text-[24px] font-semibold tracking-[-0.02em]">Healthcare operating roster</h2>
+            <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Client Directory</p>
+            <h2 className="mt-2 text-[24px] font-semibold">Healthcare operating roster</h2>
             <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
               {isRealFiteatsy
                 ? `${totalCount} registered Fiteatsy users are available from the live consultant API.`
@@ -5133,7 +5160,7 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
       </Surface>
 
       <Surface className="overflow-hidden border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] text-[var(--fluent-color-neutral-foreground-1)]" animated>
-        <div className="grid grid-cols-[1.3fr_0.9fr_1fr_0.8fr_1fr_0.9fr_1.1fr] gap-3 border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-inset)] px-4 py-3 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">
+        <div className="grid grid-cols-[1.3fr_0.9fr_1fr_0.8fr_1fr_0.9fr_1.1fr] gap-3 border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-inset)] px-4 py-3 text-[11px] font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">
           <span>Client</span>
           <span>Program</span>
           <span>Momentum</span>
@@ -5204,8 +5231,8 @@ function ConsultantOperationalOverview({
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultant command center</p>
-            <h3 className="mt-2 text-[22px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">Today’s operating picture</h3>
+            <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Consultant command center</p>
+            <h3 className="mt-2 text-[22px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Today’s operating picture</h3>
             <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Appointments, reviews, follow-ups, and live client attention signals in one place.</p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -5217,7 +5244,7 @@ function ConsultantOperationalOverview({
           {statCards.map((item) => (
             <div key={item.label} className="rounded-[20px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
               <div className="flex items-start justify-between gap-3">
-                <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">{item.label}</p>
+                <p className="text-[11px] uppercase text-[var(--fluent-color-neutral-foreground-3)]">{item.label}</p>
                 <StatusChip status={item.tone}>{item.tone === 'stable' ? 'Ready' : formatStatusLabel(item.tone)}</StatusChip>
               </div>
               <p className="mt-4 text-[30px] font-semibold leading-none text-[var(--fluent-color-neutral-foreground-1)]">{item.value}</p>
@@ -5230,7 +5257,7 @@ function ConsultantOperationalOverview({
       <div className="grid gap-4">
         <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
           <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Quick actions</p>
+            <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Quick actions</p>
             <span className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">Action without context switching</span>
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -5252,7 +5279,7 @@ function ConsultantOperationalOverview({
 
         <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
           <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Recent activity</p>
+            <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Recent activity</p>
             <button onClick={() => onNavigate('operations')} className="text-sm font-medium text-[var(--fluent-color-brand-foreground-link)]">View full timeline</button>
           </div>
           <div className="mt-4 space-y-3">
@@ -5278,7 +5305,7 @@ function ConsultantOperationalOverview({
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 xl:col-span-2" animated>
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Clients requiring attention</p>
+            <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Clients requiring attention</p>
             <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Live Fiteatsy clients surfaced from profile completion, reports, biomarker status, and recent activity.</p>
           </div>
           <button onClick={() => onNavigate('clients')} className="text-sm font-medium text-[var(--fluent-color-brand-foreground-link)]">Open client directory</button>
@@ -5364,8 +5391,8 @@ function ConsultationManagementPage({
         <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultations</p>
-              <h3 className="mt-2 text-[22px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">Preparation, notes, and follow-through</h3>
+              <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Consultations</p>
+              <h3 className="mt-2 text-[22px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Preparation, notes, and follow-through</h3>
             </div>
             <StatusChip status={appointments.length ? 'pending' : 'stable'}>{appointments.length} open</StatusChip>
           </div>
@@ -5398,7 +5425,7 @@ function ConsultationManagementPage({
         </Surface>
 
         <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Schedule consultation</p>
+          <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Schedule consultation</p>
           <form onSubmit={submitAppointment} className="mt-4 space-y-3">
             <select value={draft.clientId} onChange={(event) => setDraft((current) => ({ ...current, clientId: event.target.value }))} className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none">
               <option value="">Select client</option>
@@ -5429,8 +5456,8 @@ function ConsultationManagementPage({
             <>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultation workspace</p>
-                  <h3 className="mt-2 text-[22px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">{selectedAppointment.clientName}</h3>
+                  <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Consultation workspace</p>
+                  <h3 className="mt-2 text-[22px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{selectedAppointment.clientName}</h3>
                   <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{selectedAppointment.objective || 'Structured consultation capture for this client.'}</p>
                 </div>
                 <div className="flex gap-2">
@@ -5452,12 +5479,12 @@ function ConsultationManagementPage({
                   ['actions', 'Actions'],
                 ].map(([key, label]) => (
                   <label key={key} className="block">
-                    <span className="mb-2 block text-xs font-medium uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{label}</span>
+                    <span className="mb-2 block text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">{label}</span>
                     <textarea value={noteDraft[key]} onChange={(event) => setNoteDraft((current) => ({ ...current, [key]: event.target.value }))} className="min-h-[124px] w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none" />
                   </label>
                 ))}
                 <label className="block lg:col-span-2">
-                  <span className="mb-2 block text-xs font-medium uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Next follow-up</span>
+                  <span className="mb-2 block text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Next follow-up</span>
                   <textarea value={noteDraft.followUpPlan} onChange={(event) => setNoteDraft((current) => ({ ...current, followUpPlan: event.target.value }))} className="min-h-[84px] w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none" />
                 </label>
                 <div className="flex flex-wrap gap-2 lg:col-span-2">
@@ -5493,8 +5520,8 @@ function TasksTimelinePage({ tasks, followUps, recentActivity, onToggleTask, onR
         <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Operational queue</p>
-              <h3 className="mt-2 text-[22px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">Tasks and follow-ups</h3>
+              <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Operational queue</p>
+              <h3 className="mt-2 text-[22px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Tasks and follow-ups</h3>
             </div>
             <StatusChip status={followUps.some((item) => item.status === 'overdue') ? 'critical' : 'stable'}>
               {tasks.length + followUps.length} open items
@@ -5530,7 +5557,7 @@ function TasksTimelinePage({ tasks, followUps, recentActivity, onToggleTask, onR
         </Surface>
 
         <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Create task</p>
+          <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Create task</p>
           <form onSubmit={submitTask} className="mt-4 space-y-3">
             <select value={draft.clientId} onChange={(event) => setDraft((current) => ({ ...current, clientId: event.target.value }))} className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none">
               <option value="">Select client</option>
@@ -5549,7 +5576,7 @@ function TasksTimelinePage({ tasks, followUps, recentActivity, onToggleTask, onR
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Unified client timeline</p>
+            <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Unified client timeline</p>
             <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Consultation activity, manual follow-through, and system milestones together.</p>
           </div>
           <StatusChip status="stable">{recentActivity.length} events</StatusChip>
@@ -5588,8 +5615,8 @@ function GoalsProgressPage({ clients, attentionClients, onOpenClient }) {
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Goals and progress intelligence</p>
-            <h3 className="mt-2 text-[22px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">Baseline, current state, and attention signals</h3>
+            <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Goals and progress intelligence</p>
+            <h3 className="mt-2 text-[22px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Baseline, current state, and attention signals</h3>
           </div>
           <div className="flex flex-wrap gap-2">
             <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">Profiles complete {aggregate.completed}/{aggregate.total}</span>
@@ -5597,15 +5624,15 @@ function GoalsProgressPage({ clients, attentionClients, onOpenClient }) {
           </div>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Registered clients</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{aggregate.total}</p></div>
-          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Goals captured</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{aggregate.activeGoals}</p></div>
-          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Need profile completion</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{aggregate.total - aggregate.completed}</p></div>
-          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Attention signals</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{attentionClients.length}</p></div>
+          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Registered clients</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{aggregate.total}</p></div>
+          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Goals captured</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{aggregate.activeGoals}</p></div>
+          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Need profile completion</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{aggregate.total - aggregate.completed}</p></div>
+          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Attention signals</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{attentionClients.length}</p></div>
         </div>
       </Surface>
       <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
         <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client progress scan</p>
+          <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Client progress scan</p>
           <div className="mt-4 space-y-3">
             {clients.length ? clients.slice(0, 8).map((client) => (
               <button key={client.id} onClick={() => onOpenClient(client.id)} className="grid w-full gap-3 rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-left transition hover:border-[var(--fluent-color-brand-stroke-1)] md:grid-cols-[1fr_0.9fr_0.9fr_0.8fr]">
@@ -5623,7 +5650,7 @@ function GoalsProgressPage({ clients, attentionClients, onOpenClient }) {
           </div>
         </Surface>
         <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Attention signals</p>
+          <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Attention signals</p>
           <div className="mt-4 space-y-3">
             {attentionClients.length ? attentionClients.map((item) => (
               <button key={item.clientId} onClick={() => onOpenClient(item.clientId)} className="w-full rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-left transition hover:border-[var(--fluent-color-brand-stroke-1)]">
@@ -5671,17 +5698,17 @@ function ConsultantPracticePage({
     <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
       <div className="space-y-4">
         <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultant reports</p>
+          <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Consultant reports</p>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Portfolio size</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{clients.length}</p></div>
-            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Profile completion</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{completionRate}%</p></div>
-            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Report coverage</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{reportCoverage}%</p></div>
-            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Open diet workflows</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{clients.filter((client) => client.profileCompleted).length}</p></div>
+            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Portfolio size</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{clients.length}</p></div>
+            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Profile completion</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{completionRate}%</p></div>
+            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Report coverage</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{reportCoverage}%</p></div>
+            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Open diet workflows</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{clients.filter((client) => client.profileCompleted).length}</p></div>
           </div>
         </Surface>
 
         <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Availability</p>
+          <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Availability</p>
           <div className="mt-4 space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <input type="time" value={availabilityDraft.startTime} onChange={(event) => setAvailabilityDraft((current) => ({ ...current, startTime: event.target.value }))} className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none" />
@@ -5707,7 +5734,7 @@ function ConsultantPracticePage({
       </div>
 
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultant profile</p>
+        <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Consultant profile</p>
         <div className="mt-4 space-y-3">
           <input type="text" value={profileDraft.specialisation} onChange={(event) => setProfileDraft((current) => ({ ...current, specialisation: event.target.value }))} placeholder="Specialisation" className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none" />
           <input type="text" value={profileDraft.consultationStyle} onChange={(event) => setProfileDraft((current) => ({ ...current, consultationStyle: event.target.value }))} placeholder="Consultation style" className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none" />
@@ -5731,8 +5758,8 @@ function ProtocolLibraryPage({ clients }) {
   return (
     <div className="space-y-4">
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Protocol Library</p>
-        <h2 className="mt-2 text-[24px] font-semibold tracking-[-0.02em]">Reusable intervention systems</h2>
+        <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Protocol Library</p>
+        <h2 className="mt-2 text-[24px] font-semibold">Reusable intervention systems</h2>
         <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Protocol blocks keep adaptations structured, measurable, and easier to reuse across similar recovery patterns.</p>
       </Surface>
 
@@ -5769,8 +5796,8 @@ function CommunicationHubPage({ clients, threads, onClientOpen }) {
   return (
     <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Communication Hub</p>
-        <h2 className="mt-2 text-[24px] font-semibold tracking-[-0.02em]">Unified communication stream</h2>
+        <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Communication Hub</p>
+        <h2 className="mt-2 text-[24px] font-semibold">Unified communication stream</h2>
         <div className="mt-4 space-y-3">
           {feed.map((item) => (
             <button key={item.id} onClick={() => onClientOpen(item.clientId)} className="w-full rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-left transition hover:border-[var(--fluent-color-neutral-stroke-2)] hover:bg-[#f7f9fc]">
@@ -5788,7 +5815,7 @@ function CommunicationHubPage({ clients, threads, onClientOpen }) {
       </Surface>
 
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Operational Threads</p>
+        <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Operational Threads</p>
         <div className="mt-4 space-y-3">
           {threads.map((thread) => (
             <div key={thread.id} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
@@ -5810,7 +5837,7 @@ function IntelligencePage({ clients, organizationSignals }) {
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Intervention Intelligence</p>
+        <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Intervention Intelligence</p>
         <div className="mt-4 space-y-3">
           {clients.slice(0, 5).map((client) => (
             <div key={client.id} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
@@ -5823,7 +5850,7 @@ function IntelligencePage({ clients, organizationSignals }) {
       </Surface>
 
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Organizational Intelligence</p>
+        <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Organizational Intelligence</p>
         <div className="mt-4 space-y-3">
           {organizationSignals.map((org) => (
             <div key={org.name} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
@@ -5848,13 +5875,13 @@ function OrganizationsPage({ organizationSignals }) {
   return (
     <div className="space-y-4">
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Organizations</p>
-        <h2 className="mt-2 text-[24px] font-semibold tracking-[-0.02em]">Population recovery operations</h2>
+        <p className="text-xs font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">Organizations</p>
+        <h2 className="mt-2 text-[24px] font-semibold">Population recovery operations</h2>
         <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Watch organization-level recovery drift, escalation density, and adherence direction without exposing deep individual clinical detail.</p>
       </Surface>
 
       <Surface className="overflow-hidden border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] text-[var(--fluent-color-neutral-foreground-1)]" animated>
-        <div className="grid grid-cols-[1.2fr_0.8fr_0.9fr_0.9fr_0.9fr] gap-3 border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-inset)] px-4 py-3 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">
+        <div className="grid grid-cols-[1.2fr_0.8fr_0.9fr_0.9fr_0.9fr] gap-3 border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-inset)] px-4 py-3 text-[11px] font-medium uppercase text-[var(--fluent-color-neutral-foreground-3)]">
           <span>Organization</span>
           <span>High Risk</span>
           <span>Burnout</span>
