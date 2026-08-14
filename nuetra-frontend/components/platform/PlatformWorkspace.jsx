@@ -35,6 +35,7 @@ import { useAuth } from '../../context/AuthContext';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
 import {
   approveFiteatsyConsultantDietPlan,
+  downloadFiteatsyConsultantDietPlan,
   generateFiteatsyConsultantDietPlanDraft,
   getFiteatsyConsultantClientProfile,
   getFiteatsyConsultantLatestDietPlan,
@@ -1060,6 +1061,12 @@ const mealPlanSectionEntries = [
   ['bedtimeNutrition', 'Bedtime Nourishment'],
 ];
 
+const MAX_MEAL_OPTIONS_PER_SECTION = 5;
+
+function getMealOptionIdentity(option) {
+  return option?.id || `${option?.meal || ''}::${option?.portion || ''}::${option?.sourceType || ''}`;
+}
+
 function lifecycleTone(status) {
   if (status === 'published' || status === 'approved') return 'improving';
   if (status === 'review_ready') return 'medium';
@@ -1251,6 +1258,9 @@ function RealClientProfileDrawer({
   const [nutritionActionLoading, setNutritionActionLoading] = useState(false);
   const [nutritionActionError, setNutritionActionError] = useState(null);
   const [nutritionActionSuccess, setNutritionActionSuccess] = useState(null);
+  const [nutritionDownloadLoading, setNutritionDownloadLoading] = useState(false);
+  const [dietPlanDirty, setDietPlanDirty] = useState(false);
+  const [mealOptionSearch, setMealOptionSearch] = useState({});
   const message = getProfileErrorMessage(error);
   const client = profile?.client;
   const onboarding = profile?.onboarding;
@@ -1376,6 +1386,9 @@ function RealClientProfileDrawer({
     setNutritionIntelligenceState(profile?.nutritionIntelligence || null);
     setNutritionActionError(null);
     setNutritionActionSuccess(null);
+    setNutritionDownloadLoading(false);
+    setDietPlanDirty(false);
+    setMealOptionSearch({});
   }, [profile?.dietPlan, profile?.nutritionIntelligence, profile?.client?.id]);
 
   useEffect(() => {
@@ -1412,9 +1425,11 @@ function RealClientProfileDrawer({
         const nextDietPlan = buildDietPlanPayload(latestPlan.plan, latestPlan.version);
         setDietPlanState(nextDietPlan);
         setDietPlanContentDraft(nextDietPlan?.content || null);
+        setDietPlanDirty(false);
       } else if (!profile?.dietPlan) {
         setDietPlanState(null);
         setDietPlanContentDraft(null);
+        setDietPlanDirty(false);
       }
 
       if (latestIntelligence?.intelligence) {
@@ -1444,6 +1459,7 @@ function RealClientProfileDrawer({
       const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
       setDietPlanState(nextDietPlan);
       setDietPlanContentDraft(nextDietPlan?.content || null);
+      setDietPlanDirty(false);
       if (response?.intelligence) {
         setNutritionIntelligenceState(response.intelligence);
       }
@@ -1466,9 +1482,88 @@ function RealClientProfileDrawer({
         cursor = cursor[path[index]];
       }
       cursor[path[path.length - 1]] = value;
+      setDietPlanDirty(true);
       return next;
     });
   }, []);
+
+  const updateMealSectionDraft = useCallback((sectionKey, updater) => {
+    setDietPlanContentDraft((current) => {
+      if (!current?.mealPlan?.[sectionKey]) return current;
+      const next = structuredClone(current);
+      next.mealPlan[sectionKey] = updater(next.mealPlan[sectionKey]);
+      setDietPlanDirty(true);
+      return next;
+    });
+  }, []);
+
+  const handleMealOptionSearchChange = useCallback((sectionKey, value) => {
+    setMealOptionSearch((current) => ({
+      ...current,
+      [sectionKey]: value,
+    }));
+  }, []);
+
+  const handleSelectMealOption = useCallback((sectionKey, option) => {
+    updateMealSectionDraft(sectionKey, (section) => {
+      const selected = Array.isArray(section.options) ? [...section.options] : [];
+      const selectedIds = new Set(selected.map(getMealOptionIdentity));
+      if (selectedIds.has(getMealOptionIdentity(option)) || selected.length >= MAX_MEAL_OPTIONS_PER_SECTION) {
+        return section;
+      }
+      return {
+        ...section,
+        options: [...selected, { ...option, slot: selected.length + 1 }],
+      };
+    });
+  }, [updateMealSectionDraft]);
+
+  const handleRemoveMealOption = useCallback((sectionKey, optionIdentity) => {
+    updateMealSectionDraft(sectionKey, (section) => ({
+      ...section,
+      options: (section.options || [])
+        .filter((option) => getMealOptionIdentity(option) !== optionIdentity)
+        .map((option, index) => ({ ...option, slot: index + 1 })),
+    }));
+  }, [updateMealSectionDraft]);
+
+  const handleMoveMealOption = useCallback((sectionKey, optionIndex, direction) => {
+    updateMealSectionDraft(sectionKey, (section) => {
+      const nextOptions = [...(section.options || [])];
+      const targetIndex = direction === 'up' ? optionIndex - 1 : optionIndex + 1;
+      if (targetIndex < 0 || targetIndex >= nextOptions.length) return section;
+      const [moved] = nextOptions.splice(optionIndex, 1);
+      nextOptions.splice(targetIndex, 0, moved);
+      return {
+        ...section,
+        options: nextOptions.map((option, index) => ({ ...option, slot: index + 1 })),
+      };
+    });
+  }, [updateMealSectionDraft]);
+
+  const handleDownloadDietPlan = useCallback(async () => {
+    if (!summaryClient?.id || !dietPlanState?.plan?.id || nutritionDownloadLoading) return;
+    setNutritionDownloadLoading(true);
+    setNutritionActionError(null);
+    try {
+      const { blob, filename } = await downloadFiteatsyConsultantDietPlan(summaryClient.id, dietPlanState.plan.id);
+      const objectUrl = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = filename || 'fiteatsy-diet-plan.docx';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(objectUrl);
+      setNutritionActionSuccess(dietPlanDirty
+        ? 'Downloaded the latest saved diet chart. Save draft if you want the current edits included.'
+        : 'Downloaded the latest saved diet chart.');
+    } catch (actionError) {
+      setNutritionActionError(getNutritionWorkflowErrorMessage(actionError, 'Unable to download the latest saved diet chart.'));
+    } finally {
+      setNutritionDownloadLoading(false);
+    }
+  }, [dietPlanDirty, dietPlanState?.plan?.id, nutritionDownloadLoading, summaryClient?.id]);
 
   const handleSaveDraft = useCallback(async () => {
     if (!summaryClient?.id || !dietPlanState?.plan?.id || !dietPlanContentDraft || nutritionActionLoading) return;
@@ -1483,6 +1578,7 @@ function RealClientProfileDrawer({
       const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
       setDietPlanState(nextDietPlan);
       setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
+      setDietPlanDirty(false);
       await refreshWorkspace();
       setNutritionActionSuccess('Diet chart saved and moved to review ready.');
     } catch (actionError) {
@@ -1502,6 +1598,7 @@ function RealClientProfileDrawer({
       const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
       setDietPlanState(nextDietPlan);
       setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
+      setDietPlanDirty(false);
       await refreshWorkspace();
       setNutritionActionSuccess('Diet chart approved. It is ready for publish when you are satisfied.');
     } catch (actionError) {
@@ -1521,6 +1618,7 @@ function RealClientProfileDrawer({
       const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
       setDietPlanState(nextDietPlan);
       setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
+      setDietPlanDirty(false);
       await refreshWorkspace();
       setNutritionActionSuccess('Diet chart published. The client mobile app can now consume the published plan only.');
     } catch (actionError) {
@@ -1818,6 +1916,13 @@ function RealClientProfileDrawer({
                 >
                   Publish
                 </button>
+                <button
+                  onClick={handleDownloadDietPlan}
+                  disabled={nutritionDownloadLoading}
+                  className="rounded-full border border-[var(--fluent-color-brand-background)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-background)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {nutritionDownloadLoading ? 'Preparing download...' : 'Download Diet Chart'}
+                </button>
               </>
             ) : null}
           </div>
@@ -1851,6 +1956,13 @@ function RealClientProfileDrawer({
           <DetailField label="Calories" value={nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : 'No target calculated'} />
           <DetailField label="Protein" value={nutritionProtocol?.macroTargets?.proteinGrams != null ? `${nutritionProtocol.macroTargets.proteinGrams}g` : 'No target calculated'} />
           <DetailField label="Hydration" value={nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters}L` : 'No target calculated'} />
+        </div>
+        <div className="mt-4 rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+          {dietPlanState?.plan?.id
+            ? (dietPlanDirty
+              ? 'Current edits are local until you save. Download always uses the latest persisted diet chart version.'
+              : 'Download is available because a persisted diet chart version exists for this client.')
+            : 'Download becomes available once a diet chart draft has been generated and saved to the backend.'}
         </div>
       </Surface>
 
@@ -1968,7 +2080,7 @@ function RealClientProfileDrawer({
                         </div>
                       ) : null}
                     </div>
-                    <div className="grid gap-3 lg:grid-cols-[0.78fr_1.22fr]">
+                  <div className="grid gap-3 lg:grid-cols-[0.78fr_1.22fr]">
                       <div className="space-y-3">
                         <DetailField label={`${label} window`} value={section?.window || 'Not set'} />
                         <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-3">
@@ -1981,52 +2093,189 @@ function RealClientProfileDrawer({
                         </div>
                       </div>
                       <div className="space-y-3">
-                        {(section?.options || []).map((option, optionIndex) => (
-                          <div key={`${key}-option-${optionIndex}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] p-3">
-                            <div className="grid gap-3 md:grid-cols-2">
-                              <label className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">
-                                Meal
-                                <input
-                                  value={option.meal || ''}
-                                  onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'meal'], event.target.value)}
-                                  className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
-                                />
-                              </label>
-                              <label className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">
-                                Portion
-                                <input
-                                  value={option.portion || ''}
-                                  onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'portion'], event.target.value)}
-                                  className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
-                                />
-                              </label>
-                              <label className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">
-                                Calories
-                                <input
-                                  value={option.approxKcal ?? ''}
-                                  onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'approxKcal'], event.target.value === '' ? null : Number(event.target.value))}
-                                  className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
-                                />
-                              </label>
-                              <label className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">
-                                Protein
-                                <input
-                                  value={option.proteinGrams ?? ''}
-                                  onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'proteinGrams'], event.target.value === '' ? null : Number(event.target.value))}
-                                  className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
-                                />
-                              </label>
-                            </div>
-                            <label className="mt-3 block text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">
-                              Prep note
-                              <textarea
-                                value={option.prepNote || ''}
-                                onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'prepNote'], event.target.value)}
-                                className="mt-2 min-h-[72px] w-full resize-y rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
-                              />
-                            </label>
+                        <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
+                              Selected options
+                            </p>
+                            <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1 text-[11px] font-medium text-[var(--fluent-color-neutral-foreground-2)]">
+                              {(section?.options || []).length} / {MAX_MEAL_OPTIONS_PER_SECTION} selected
+                            </span>
                           </div>
-                        ))}
+                          <p className="mt-2 text-xs leading-5 text-[var(--fluent-color-neutral-foreground-3)]">
+                            Select up to five meal options for the final client chart. The download only includes these selected rows, in this order.
+                          </p>
+                          <div className="mt-3 space-y-3">
+                            {(section?.options || []).map((option, optionIndex) => (
+                              <div key={`${key}-selected-${getMealOptionIdentity(option)}`} className="rounded-[14px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white p-3">
+                                <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
+                                      Option {optionIndex + 1}
+                                    </p>
+                                    <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+                                      {option.sourceType === 'verified_library' ? 'Verified library match' : 'Draft/custom option'}
+                                      {option.matchClassification ? ` • ${String(option.matchClassification).replace(/_/g, ' ')}` : ''}
+                                    </p>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    <button
+                                      onClick={() => handleMoveMealOption(key, optionIndex, 'up')}
+                                      disabled={optionIndex === 0}
+                                      className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1 text-[11px] font-semibold text-[var(--fluent-color-neutral-foreground-2)] disabled:opacity-40"
+                                    >
+                                      Move up
+                                    </button>
+                                    <button
+                                      onClick={() => handleMoveMealOption(key, optionIndex, 'down')}
+                                      disabled={optionIndex === (section?.options || []).length - 1}
+                                      className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1 text-[11px] font-semibold text-[var(--fluent-color-neutral-foreground-2)] disabled:opacity-40"
+                                    >
+                                      Move down
+                                    </button>
+                                    <button
+                                      onClick={() => handleRemoveMealOption(key, getMealOptionIdentity(option))}
+                                      className="rounded-full border border-[var(--fluent-color-status-danger-foreground)] px-3 py-1 text-[11px] font-semibold text-[var(--fluent-color-status-danger-foreground)]"
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  <label className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">
+                                    Meal
+                                    <input
+                                      value={option.meal || ''}
+                                      onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'meal'], event.target.value)}
+                                      className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                                    />
+                                  </label>
+                                  <label className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">
+                                    Portion
+                                    <input
+                                      value={option.portion || ''}
+                                      onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'portion'], event.target.value)}
+                                      className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                                    />
+                                  </label>
+                                  <label className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">
+                                    Calories
+                                    <input
+                                      value={option.approxKcal ?? ''}
+                                      onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'approxKcal'], event.target.value === '' ? null : Number(event.target.value))}
+                                      className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                                    />
+                                  </label>
+                                  <label className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">
+                                    Protein
+                                    <input
+                                      value={option.proteinGrams ?? ''}
+                                      onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'proteinGrams'], event.target.value === '' ? null : Number(event.target.value))}
+                                      className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                                    />
+                                  </label>
+                                </div>
+                                <label className="mt-3 block text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">
+                                  Prep note
+                                  <textarea
+                                    value={option.prepNote || ''}
+                                    onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'prepNote'], event.target.value)}
+                                    className="mt-2 min-h-[72px] w-full resize-y rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                                  />
+                                </label>
+                              </div>
+                            ))}
+                            {!(section?.options || []).length ? (
+                              <div className="rounded-[14px] border border-dashed border-[var(--fluent-color-neutral-stroke-1)] bg-white px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                                No meal options selected yet. Choose up to five verified options from the library below.
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-3">
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                            <div>
+                              <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
+                                Available verified options
+                              </p>
+                              <p className="mt-1 text-xs leading-5 text-[var(--fluent-color-neutral-foreground-3)]">
+                                Browse library-backed matches with real nutrition totals. If fewer than five are available, the system shows only verified matches.
+                              </p>
+                            </div>
+                            <input
+                              value={mealOptionSearch[key] || ''}
+                              onChange={(event) => handleMealOptionSearchChange(key, event.target.value)}
+                              placeholder={`Search ${label.toLowerCase()} options`}
+                              className="w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none lg:max-w-[240px]"
+                            />
+                          </div>
+                          <div className="mt-3 grid gap-3 xl:grid-cols-2">
+                            {(() => {
+                              const selectedIds = new Set((section?.options || []).map(getMealOptionIdentity));
+                              const query = String(mealOptionSearch[key] || '').trim().toLowerCase();
+                              const filtered = (section?.availableOptions || []).filter((option) => {
+                                if (selectedIds.has(getMealOptionIdentity(option))) return false;
+                                if (!query) return true;
+                                return [
+                                  option.meal,
+                                  option.portion,
+                                  option.prepNote,
+                                  ...(option.cuisineTags || []),
+                                  ...(option.dietaryTags || []),
+                                ].join(' ').toLowerCase().includes(query);
+                              });
+
+                              if (!filtered.length) {
+                                return (
+                                  <div className="rounded-[14px] border border-dashed border-[var(--fluent-color-neutral-stroke-1)] bg-white px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)] xl:col-span-2">
+                                    {(section?.availableOptions || []).length
+                                      ? 'No additional verified options match the current search.'
+                                      : 'No verified meal-library matches are available for this category yet.'}
+                                  </div>
+                                );
+                              }
+
+                              return filtered.map((option) => (
+                                <div key={`${key}-available-${getMealOptionIdentity(option)}`} className="rounded-[14px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white p-3">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{option.meal}</p>
+                                      <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{option.portion}</p>
+                                    </div>
+                                    <button
+                                      onClick={() => handleSelectMealOption(key, option)}
+                                      disabled={(section?.options || []).length >= MAX_MEAL_OPTIONS_PER_SECTION}
+                                      className="rounded-full border border-[var(--fluent-color-brand-background)] px-3 py-1 text-[11px] font-semibold text-[var(--fluent-color-brand-background)] disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                      Add option
+                                    </button>
+                                  </div>
+                                  <p className="mt-3 text-xs leading-5 text-[var(--fluent-color-neutral-foreground-3)]">
+                                    {option.prepNote || option.recommendationReason || 'Verified meal-library option.'}
+                                  </p>
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    {option.approxKcal != null ? (
+                                      <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-2.5 py-1 text-[11px] font-medium text-[var(--fluent-color-neutral-foreground-2)]">
+                                        {option.approxKcal} kcal
+                                      </span>
+                                    ) : null}
+                                    {option.proteinGrams != null ? (
+                                      <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-2.5 py-1 text-[11px] font-medium text-[var(--fluent-color-neutral-foreground-2)]">
+                                        {option.proteinGrams} g protein
+                                      </span>
+                                    ) : null}
+                                    {option.matchClassification ? (
+                                      <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-2.5 py-1 text-[11px] font-medium text-[var(--fluent-color-neutral-foreground-2)]">
+                                        {String(option.matchClassification).replace(/_/g, ' ')}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              ));
+                            })()}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
