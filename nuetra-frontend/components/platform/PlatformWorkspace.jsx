@@ -1580,7 +1580,7 @@ function RealClientProfileDrawer({
       setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
       setDietPlanDirty(false);
       await refreshWorkspace();
-      setNutritionActionSuccess('Diet chart saved and moved to review ready.');
+      setNutritionActionSuccess('Plan saved successfully.');
     } catch (actionError) {
       setNutritionActionError(getNutritionWorkflowErrorMessage(actionError, 'Unable to save the diet chart changes right now.'));
     } finally {
@@ -1900,7 +1900,7 @@ function RealClientProfileDrawer({
                   disabled={nutritionActionLoading || !dietPlanContentDraft}
                   className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Save Draft
+                  Save Plan
                 </button>
                 <button
                   onClick={handleApprovePlan}
