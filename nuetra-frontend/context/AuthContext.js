@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { useRouter } from 'next/router';
 import { findUserByCredentials, sampleUsers } from '../data/mockPlatformData';
 import { getDashboardPathForUser, getPostAuthPathForUser } from '../lib/roleRoutes';
-import { authAPI, clearTokens, getRefreshToken, isRememberedAuthSession, setRefreshToken, setToken } from '../lib/api';
+import { authAPI, clearTokens, getRefreshToken, getToken, isRememberedAuthSession, setRefreshToken, setToken } from '../lib/api';
 
 const SESSION_KEY = 'nuetra_session';
 const BACKEND_AUTH_ENABLED = Boolean(process.env.NEXT_PUBLIC_API_URL);
@@ -11,12 +11,6 @@ const AuthContext = createContext(null);
 
 function getPostLoginPath(user) {
   return getPostAuthPathForUser(user);
-}
-
-function shouldRedirectDuringSessionRestore(pathname, postAuthPath) {
-  if (!pathname || !postAuthPath) return false;
-  if (!pathname.startsWith('/dashboard')) return false;
-  return pathname === '/dashboard' || pathname === '/dashboard/index';
 }
 
 function readStoredSessionRecord() {
@@ -72,7 +66,9 @@ export function AuthProvider({ children }) {
       setUser(storedSession.session.user);
     }
 
-    if (BACKEND_AUTH_ENABLED) {
+    const hasStoredTokens = Boolean(getToken() || getRefreshToken());
+
+    if (BACKEND_AUTH_ENABLED && hasStoredTokens) {
       refreshSession({ rememberMe: storedSession?.rememberMe ?? isRememberedAuthSession() })
         .catch(() => {
           clearStoredSession();
@@ -231,7 +227,7 @@ export function AuthProvider({ children }) {
           setUser(nextUser);
           persistSession(session, rememberMe);
           const postAuthPath = getPostAuthPathForUser(nextUser);
-          if (shouldRedirectDuringSessionRestore(router.pathname, postAuthPath)) {
+          if (postAuthPath && router.pathname !== postAuthPath && router.pathname.startsWith('/dashboard')) {
             router.replace(postAuthPath);
           }
           return true;

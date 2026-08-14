@@ -11,6 +11,7 @@ function MyApp({ Component, pageProps }) {
   return (
     <AuthProvider>
       <Head>
+        <link rel="icon" href="/zestiva-logo.png" type="image/png" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
