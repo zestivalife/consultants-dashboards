@@ -31,6 +31,7 @@ const WORKSPACE_POLICIES = {
   careDelivery: {
     id: 'care-delivery',
     landingPage: '/dashboard/provider',
+    personaMarkers: ['consultant', 'provider', 'dietician', 'senior_consultant'],
     permissionsAny: ['reports.view', 'users.read'],
   },
   memberWorkspace: {
@@ -56,6 +57,17 @@ export const ORGANIZATION_ACCESS_POLICY = {
 export const DELIVERY_ACCESS_POLICY = {
   workspaces: ['platform-operations', 'organization-operations', 'care-supervision', 'care-delivery'],
   permissionsAny: ['reports.view', 'users.read'],
+};
+
+export const CONSULTANT_ACCESS_POLICY = {
+  roles: ['consultant', 'provider', 'dietician', 'senior_consultant'],
+  workspaces: ['care-delivery'],
+  personaMarkers: WORKSPACE_POLICIES.careDelivery.personaMarkers,
+};
+
+export const MEMBER_ACCESS_POLICY = {
+  roles: ['practitioner', 'team_member', 'member', 'employee', 'client', 'corporate_client'],
+  workspaces: ['member-workspace'],
 };
 
 export const MENTOR_ACCESS_POLICY = {
@@ -139,7 +151,14 @@ function fallbackWorkspaceFromAccess(user) {
     return WORKSPACE_POLICIES.careSupervision;
   }
 
-  if (hasProduct || hasAnyPermission(user, WORKSPACE_POLICIES.careDelivery.permissionsAny)) {
+  if (MEMBER_ACCESS_POLICY.roles.includes(roleKey)) {
+    return WORKSPACE_POLICIES.memberWorkspace;
+  }
+
+  if (
+    WORKSPACE_POLICIES.careDelivery.personaMarkers.includes(roleKey)
+    || (hasProduct && WORKSPACE_POLICIES.careDelivery.personaMarkers.includes(roleKey))
+  ) {
     return WORKSPACE_POLICIES.careDelivery;
   }
 
@@ -204,7 +223,7 @@ export function getDashboardPathForRole(role, fallback = '/dashboard/provider') 
     return '/dashboard/corporate-admin';
   }
   if (roleKey.includes('mentor') || roleKey.includes('lead')) return '/dashboard/team-lead';
-  if (roleKey.includes('employee') || roleKey.includes('member') || roleKey.includes('client')) {
+  if (roleKey.includes('employee') || roleKey.includes('member') || roleKey.includes('client') || roleKey.includes('practitioner')) {
     return '/dashboard/team-member';
   }
   return fallback;
