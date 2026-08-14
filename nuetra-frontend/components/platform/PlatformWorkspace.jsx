@@ -969,6 +969,9 @@ function Surface({ children, className = '', animated = false }) {
   return <div className={classes}>{children}</div>;
 }
 
+const drawerSectionTitleClass = 'text-[22px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]';
+const drawerSectionBodyClass = 'mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]';
+
 function StatusChip({ status, children }) {
   return <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium capitalize ${toneForStatus(status)}`}>{children}</span>;
 }
@@ -1163,7 +1166,7 @@ function trendLabel(trend) {
 
 function HealthMetricCard({ icon: Icon, title, value, detail }) {
   return (
-    <Surface className="p-4">
+    <Surface className="h-full p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] p-2.5 text-[var(--fluent-color-brand-foreground-link)]">
@@ -1171,7 +1174,9 @@ function HealthMetricCard({ icon: Icon, title, value, detail }) {
           </div>
           <div className="min-w-0">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">{title}</p>
-            <p className="mt-2 text-[24px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">{value}</p>
+            <p className="mt-2 max-w-[11ch] break-words text-[clamp(1.7rem,1.7vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.03em] text-[var(--fluent-color-neutral-foreground-1)]">
+              {value}
+            </p>
           </div>
         </div>
       </div>
@@ -1185,11 +1190,11 @@ function WellnessIntelligenceCard({ item }) {
   const fallback = getWellnessAvailabilityCopy(item.key);
 
   return (
-    <div className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+    <div className="h-full rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{item.title}</p>
-          <p className="mt-2 text-[30px] font-semibold tracking-[-0.03em] text-[var(--fluent-color-neutral-foreground-1)]">
+          <p className="mt-2 max-w-[10ch] break-words text-[clamp(1.8rem,1.8vw,2.8rem)] font-semibold leading-[1.08] tracking-[-0.03em] text-[var(--fluent-color-neutral-foreground-1)]">
             {emptyState ? fallback.label : formatScoreValue(item.value)}
           </p>
         </div>
@@ -1528,8 +1533,8 @@ function RealClientProfileDrawer({
       <Surface className="p-5" animated>
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-[620px]">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Health Snapshot</p>
-            <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
+            <h3 className={drawerSectionTitleClass}>Health Snapshot</h3>
+            <p className={drawerSectionBodyClass}>
               A consultant-ready view of today&apos;s measurable health state, backend nutrition targets, and the clearest next action.
             </p>
           </div>
@@ -1537,14 +1542,14 @@ function RealClientProfileDrawer({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Client health status</p>
-                <p className="mt-2 text-base font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{healthStatus.label}</p>
+                <p className="mt-2 text-lg font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{healthStatus.label}</p>
               </div>
               <StatusChip status={healthStatus.tone}>{healthStatus.tone === 'pending' ? 'Baseline' : 'Live'}</StatusChip>
             </div>
             <p className="mt-3 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{healthStatus.detail}</p>
           </div>
         </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
           {snapshotCards.map((metric) => (
             <HealthMetricCard key={metric.title} icon={metric.icon} title={metric.title} value={metric.value} detail={metric.detail} />
           ))}
@@ -1552,7 +1557,7 @@ function RealClientProfileDrawer({
       </Surface>
       <div className="grid gap-4 lg:grid-cols-2">
         <Surface className="p-5" animated>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Risk Flags</p>
+          <h3 className={drawerSectionTitleClass}>Risk Flags</h3>
           <div className="mt-4 space-y-2">
             {riskFlags.length ? riskFlags.map((flag) => (
               <div key={flag} className="rounded-[16px] bg-[var(--fluent-color-status-warning-background)] px-4 py-3 text-sm font-medium text-[var(--fluent-color-status-warning-foreground)]">
@@ -1566,7 +1571,7 @@ function RealClientProfileDrawer({
           </div>
         </Surface>
         <Surface className="p-5" animated>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Recommended Actions</p>
+          <h3 className={drawerSectionTitleClass}>Recommended Actions</h3>
           <div className="mt-4 space-y-2">
             {recommendedActions.length ? recommendedActions.map((action, index) => (
               <div key={action} className="flex gap-3 rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)]">
@@ -1584,8 +1589,8 @@ function RealClientProfileDrawer({
       <Surface className="p-5" animated>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Wellness Intelligence</p>
-            <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+            <h3 className={drawerSectionTitleClass}>Wellness Intelligence</h3>
+            <p className={drawerSectionBodyClass}>
               Backend-owned scores based on profile, reports, biomarkers, wearables, and stress assessment.
             </p>
           </div>
@@ -1593,7 +1598,7 @@ function RealClientProfileDrawer({
             Source: {formatDisplayValue(syncMetadata?.dataSource, 'Fiteatsy intelligence')}
           </div>
         </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {wellnessScoreCards.map((item) => (
             <WellnessIntelligenceCard key={item.key} item={item} />
           ))}
@@ -1601,7 +1606,7 @@ function RealClientProfileDrawer({
       </Surface>
       <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
         <Surface className="p-5" animated>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Nutrition Intelligence</p>
+          <h3 className={drawerSectionTitleClass}>Nutrition Intelligence</h3>
           {nutritionIntelligenceState ? (
             <div className="mt-4 space-y-4">
               <div className="flex flex-wrap items-center gap-2">
@@ -1629,7 +1634,7 @@ function RealClientProfileDrawer({
           )}
         </Surface>
         <Surface className="p-5" animated>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Biomarker Snapshot</p>
+          <h3 className={drawerSectionTitleClass}>Biomarker Snapshot</h3>
           <div className="mt-4 space-y-3">
             {nutritionIntelligenceState?.biomarkerSnapshot?.length ? nutritionIntelligenceState.biomarkerSnapshot.slice(0, 5).map((item) => (
               <div key={`${item.name}-${item.testDate}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
@@ -1655,7 +1660,7 @@ function RealClientProfileDrawer({
   const renderHealthProfile = () => (
     <div className="space-y-4">
       <Surface className="p-5" animated>
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Personal Information</p>
+        <h3 className={drawerSectionTitleClass}>Personal Information</h3>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <DetailField label="Age" value={formatDisplayValue(client?.age)} />
           <DetailField label="Gender" value={formatDisplayValue(client?.gender)} />
@@ -1664,7 +1669,7 @@ function RealClientProfileDrawer({
         </div>
       </Surface>
       <Surface className="p-5" animated>
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Body Composition</p>
+        <h3 className={drawerSectionTitleClass}>Body Composition</h3>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <DetailField label="BMI" value={bodyMetrics?.bmi != null ? `${bodyMetrics.bmi}` : 'Complete profile to calculate'} />
           <DetailField label="Body Fat" value={bodyMetrics?.bodyFat != null ? `${bodyMetrics.bodyFat}%` : formatMetricCardValue(metrics?.bodyFat, 'Measurements required')} />
@@ -1675,7 +1680,7 @@ function RealClientProfileDrawer({
         </div>
       </Surface>
       <Surface className="p-5" animated>
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Medical History</p>
+        <h3 className={drawerSectionTitleClass}>Medical History</h3>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <DetailField label="Diabetes" value={formatDisplayValue(onboarding?.healthHistory?.diabetes)} />
           <DetailField label="Thyroid" value={formatDisplayValue(onboarding?.healthHistory?.thyroid)} />
@@ -1690,7 +1695,7 @@ function RealClientProfileDrawer({
 
   const renderLifestyle = () => (
     <Surface className="p-5" animated>
-      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Lifestyle</p>
+      <h3 className={drawerSectionTitleClass}>Lifestyle</h3>
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <DetailField label="Sleep" value={onboarding?.lifestyle?.sleepHours != null ? `${onboarding.lifestyle.sleepHours} hrs` : 'Complete profile to calculate'} />
         <DetailField label="Sleep quality" value={formatDisplayValue(sleepQuality)} />
@@ -1706,7 +1711,7 @@ function RealClientProfileDrawer({
 
   const renderReports = () => (
     <Surface className="p-5" animated>
-      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Reports Timeline</p>
+      <h3 className={drawerSectionTitleClass}>Reports Timeline</h3>
       <div className="mt-4 space-y-3">
         {reports.length ? reports.map((report) => (
           <div key={report.id || report.reportId} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
@@ -1732,7 +1737,7 @@ function RealClientProfileDrawer({
 
   const renderBiomarkers = () => (
     <Surface className="p-5" animated>
-      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Validated Biomarkers</p>
+      <h3 className={drawerSectionTitleClass}>Validated Biomarkers</h3>
       {biomarkers.length ? (
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           {biomarkers.map((biomarker) => (
@@ -1775,8 +1780,8 @@ function RealClientProfileDrawer({
       <Surface className="p-5" animated>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Prepare Personalised Diet Chart</p>
-            <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
+            <h3 className={drawerSectionTitleClass}>Prepare Personalised Diet Chart</h3>
+            <p className={drawerSectionBodyClass}>
               Build the diet plan from live Fiteatsy health profile, validated biomarkers, wellness intelligence, and nutrition targets. No frontend calculations are used.
             </p>
           </div>
@@ -1849,7 +1854,7 @@ function RealClientProfileDrawer({
 
       <div className="grid gap-4 xl:grid-cols-[0.96fr_1.04fr]">
         <Surface className="p-5" animated>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Generation Inputs</p>
+          <h3 className={drawerSectionTitleClass}>Generation Inputs</h3>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <DetailField label="Age" value={formatDisplayValue(nutritionIntelligenceState?.clientSummary?.age)} />
             <DetailField label="Gender" value={formatDisplayValue(nutritionIntelligenceState?.clientSummary?.gender)} />
@@ -1869,7 +1874,7 @@ function RealClientProfileDrawer({
         </Surface>
 
         <Surface className="p-5" animated>
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultant Guidance</p>
+          <h3 className={drawerSectionTitleClass}>Consultant Guidance</h3>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
               <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Health Observations</p>
@@ -1911,8 +1916,8 @@ function RealClientProfileDrawer({
           <Surface className="p-5" animated>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Diet Plan Lifecycle</p>
-                <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                <h3 className={drawerSectionTitleClass}>Diet Plan Lifecycle</h3>
+                <p className={drawerSectionBodyClass}>
                   Version {dietPlanState.currentVersionNumber} • Template {dietPlanState.templateVersion}
                 </p>
               </div>
@@ -1932,7 +1937,7 @@ function RealClientProfileDrawer({
           </Surface>
 
           <Surface className="p-5" animated>
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Meal Plan Editor</p>
+            <h3 className={drawerSectionTitleClass}>Meal Plan Editor</h3>
             <div className="mt-4 space-y-4">
               {mealPlanSectionEntries.map(([key, label]) => {
                 const section = dietPlanContentDraft.mealPlan?.[key];
@@ -2018,7 +2023,7 @@ function RealClientProfileDrawer({
 
   const renderActivity = () => (
     <Surface className="p-5" animated>
-      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Activity</p>
+      <h3 className={drawerSectionTitleClass}>Activity</h3>
       {wearableSummary?.connected ? (
         <div className="mt-4 space-y-4">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -2047,7 +2052,7 @@ function RealClientProfileDrawer({
 
   const renderTimeline = () => (
     <Surface className="p-5" animated>
-      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Timeline</p>
+      <h3 className={drawerSectionTitleClass}>Timeline</h3>
       <div className="mt-4 space-y-3">
         {timeline.length ? timeline.map((event) => (
           <div key={event.id || `${event.type}-${event.timestamp || 'unknown'}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
@@ -4928,7 +4933,7 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
         <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Attention Queue</p>
+              <h3 className={drawerSectionTitleClass}>Attention Queue</h3>
               <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Scan the active intervention queue, select a case, and move into workspace only when ready to act.</p>
             </div>
             <span className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{priorityQueue.length} active cases</span>
@@ -4936,14 +4941,12 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
 
           <div className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
             <div className="overflow-hidden rounded-[20px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)]">
-              <div className="grid grid-cols-[1.2fr_0.9fr_1fr_0.9fr_0.9fr_0.9fr_1fr_0.9fr] gap-3 border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-inset)] px-4 py-3 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">
+              <div className="grid grid-cols-[minmax(172px,1.35fr)_minmax(108px,0.75fr)_minmax(160px,1.1fr)_minmax(160px,1fr)_minmax(108px,0.8fr)_minmax(136px,0.9fr)] gap-3 border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-inset)] px-4 py-3 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">
                 <span>Client</span>
                 <span>Risk</span>
                 <span>Primary Issue</span>
-                <span>Recovery</span>
+                <span>Recovery Snapshot</span>
                 <span>Last Touch</span>
-                <span>Adherence</span>
-                <span>Confidence</span>
                 <span>Action</span>
               </div>
               <div className="divide-y divide-[var(--fluent-color-neutral-stroke-1)]">
@@ -4953,7 +4956,7 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
                     <button
                       key={item.clientId}
                       onClick={() => setSelectedClientId(item.clientId)}
-                      className={`grid w-full grid-cols-[1.2fr_0.9fr_1fr_0.9fr_0.9fr_0.9fr_1fr_0.9fr] gap-3 px-4 py-4 text-left transition ${
+                      className={`grid w-full grid-cols-[minmax(172px,1.35fr)_minmax(108px,0.75fr)_minmax(160px,1.1fr)_minmax(160px,1fr)_minmax(108px,0.8fr)_minmax(136px,0.9fr)] gap-3 px-4 py-4 text-left transition ${
                         isSelected
                           ? 'bg-[rgba(59,130,246,0.08)]'
                           : 'bg-[var(--fluent-color-neutral-background-1)] hover:bg-[#f7f9fc]'
@@ -4966,11 +4969,12 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
                       <div className="min-w-0">
                         <StatusChip status={item.risk}>{item.risk}</StatusChip>
                       </div>
-                      <div className="min-w-0 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.primaryIssue}</div>
-                      <div className="min-w-0 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.momentum.label}</div>
-                      <div className="min-w-0 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.lastActivity}</div>
-                      <div className="min-w-0 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.adherenceScore}%</div>
-                      <div className="min-w-0 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.confidence}%</div>
+                      <div className="min-w-0 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{item.primaryIssue}</div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{item.momentum.label}</p>
+                        <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Adherence {item.adherenceScore}% • Confidence {item.confidence}%</p>
+                      </div>
+                      <div className="min-w-0 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{item.lastActivity}</div>
                       <div className="min-w-0">
                         <span className="rounded-full bg-[var(--fluent-color-neutral-background-3)] px-3 py-1.5 text-xs font-medium text-[var(--fluent-color-neutral-foreground-1)]">
                           Open Workspace
@@ -4986,8 +4990,8 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
               <div className="rounded-[20px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Selected Client Preview</p>
-                    <h3 className="mt-2 text-xl font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{selectedItem.name}</h3>
+                    <h3 className={drawerSectionTitleClass}>Selected Client Preview</h3>
+                    <p className="mt-2 text-xl font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{selectedItem.name}</p>
                     <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{selectedItem.title}</p>
                   </div>
                   <StatusChip status={selectedItem.risk}>{selectedItem.risk}</StatusChip>
