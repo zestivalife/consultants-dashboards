@@ -92,7 +92,7 @@ export default async function handler(req, res) {
     copyResponseHeaders(upstreamResponse, res);
     res.status(upstreamResponse.status);
 
-    const responseBody = await upstreamResponse.text();
+    const responseBody = Buffer.from(await upstreamResponse.arrayBuffer());
     res.send(responseBody);
   } catch (error) {
     console.error('[FITEATSY PROXY ERROR]', error);
