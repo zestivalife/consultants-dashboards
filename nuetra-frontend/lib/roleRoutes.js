@@ -61,7 +61,6 @@ export const DELIVERY_ACCESS_POLICY = {
 
 export const CONSULTANT_ACCESS_POLICY = {
   roles: ['consultant', 'provider', 'dietician', 'senior_consultant'],
-  workspaces: ['care-delivery'],
   personaMarkers: WORKSPACE_POLICIES.careDelivery.personaMarkers,
 };
 
@@ -128,6 +127,10 @@ function hasAllPermissions(user, permissions = []) {
 function getWorkspaceFromProfile(user) {
   const workspace = getAccessProfile(user)?.workspace;
   if (!workspace) return null;
+  const roleKey = getRoleKey(getAccessProfile(user)?.role || user?.role);
+  if (MEMBER_ACCESS_POLICY.roles.includes(roleKey) && workspace.id === WORKSPACE_POLICIES.careDelivery.id) {
+    return WORKSPACE_POLICIES.memberWorkspace;
+  }
   return {
     id: workspace.id,
     label: workspace.label,
