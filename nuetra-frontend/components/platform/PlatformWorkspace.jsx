@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/router';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Activity,
@@ -70,6 +71,13 @@ const consultantNav = [
   { id: 'progress', label: 'Goals & Progress', icon: TrendingUp },
   { id: 'practice', label: 'Reports & Profile', icon: ShieldCheck },
 ];
+
+const consultantNavIds = new Set(consultantNav.map((item) => item.id));
+const consultantDefaultNav = 'command-center';
+
+function resolveConsultantNavCandidate(value) {
+  return consultantNavIds.has(value) ? value : consultantDefaultNav;
+}
 
 const mentorNav = [
   { id: 'command-center', label: 'Command Center', icon: LayoutGrid },
@@ -5869,6 +5877,7 @@ function OrganizationsPage({ organizationSignals }) {
 }
 
 function PlatformWorkspace({ forcedRole }) {
+  const router = useRouter();
   const { user, logout } = useAuth();
   const resolvedRole = forcedRole || user?.role || 'consultant';
   const roleKind = getRoleKind(resolvedRole);
@@ -5891,7 +5900,7 @@ function PlatformWorkspace({ forcedRole }) {
       }),
     };
   });
-  const [nav, setNav] = useState(() => (roleKind === 'consultant' ? 'command-center' : usesRealFiteatsyClients ? 'clients' : 'command-center'));
+  const [nav, setNav] = useState(() => (roleKind === 'consultant' ? consultantDefaultNav : usesRealFiteatsyClients ? 'clients' : 'command-center'));
   const [timeframe, setTimeframe] = useState('Week');
   const [globalSearch, setGlobalSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -5943,6 +5952,58 @@ function PlatformWorkspace({ forcedRole }) {
     const savedClientId = window.localStorage.getItem('nuetra:last-active-client');
     if (savedClientId) setSelectedClientId(savedClientId);
   }, []);
+
+  useEffect(() => {
+    if (roleKind !== 'consultant' || !router.isReady) return;
+    const queryView = Array.isArray(router.query.view) ? router.query.view[0] : router.query.view;
+    const nextNav = resolveConsultantNavCandidate(queryView);
+    setNav((current) => (current === nextNav ? current : nextNav));
+  }, [roleKind, router.isReady, router.query.view]);
+
+  const navigateConsultantWorkspace = useCallback((nextNav) => {
+    const resolvedNav = resolveConsultantNavCandidate(nextNav);
+    if (roleKind !== 'consultant') {
+      setNav(resolvedNav);
+      return;
+    }
+
+    setNav((current) => (current === resolvedNav ? current : resolvedNav));
+
+    if (!router.isReady) return;
+
+    const currentView = Array.isArray(router.query.view) ? router.query.view[0] : router.query.view;
+    if (currentView === resolvedNav) return;
+
+    void router.push(
+      {
+        pathname: router.pathname,
+        query: {
+          ...router.query,
+          view: resolvedNav,
+        },
+      },
+      undefined,
+      { shallow: true }
+    );
+  }, [roleKind, router]);
+
+  useEffect(() => {
+    if (roleKind !== 'consultant' || !router.isReady) return;
+    const queryView = Array.isArray(router.query.view) ? router.query.view[0] : router.query.view;
+    if (queryView) return;
+
+    void router.replace(
+      {
+        pathname: router.pathname,
+        query: {
+          ...router.query,
+          view: consultantDefaultNav,
+        },
+      },
+      undefined,
+      { shallow: true }
+    );
+  }, [roleKind, router]);
 
   useEffect(() => {
     function handleKeydown(event) {
@@ -6597,7 +6658,7 @@ function PlatformWorkspace({ forcedRole }) {
   function openPulseQueue(item) {
     if (!item?.targetQueue) return;
     setActiveQueue(item.targetQueue);
-    setNav('clients');
+    navigateConsultantWorkspace('clients');
     setSearchOpen(false);
   }
 
@@ -7113,7 +7174,7 @@ function PlatformWorkspace({ forcedRole }) {
       <OperationalTopNav
         items={topNavItems}
         active={nav}
-        onChange={setNav}
+        onChange={roleKind === 'consultant' ? navigateConsultantWorkspace : setNav}
         brandView={brandView}
         setBrandView={setBrandView}
         roleKind={roleKind}
@@ -7141,7 +7202,7 @@ function PlatformWorkspace({ forcedRole }) {
                 attentionClients={consultantAttentionClients}
                 recentActivity={consultantRecentActivity}
                 onOpenClient={openClient}
-                onNavigate={setNav}
+                onNavigate={navigateConsultantWorkspace}
               />
             </>
           ) : null}
