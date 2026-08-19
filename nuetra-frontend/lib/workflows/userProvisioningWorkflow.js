@@ -43,15 +43,15 @@ export const USER_PROVISIONING_STEP_DEFINITIONS = {
   },
   create: {
     id: 'create',
-    label: 'Generate Credentials',
-    title: 'Generate temporary credentials',
+    label: 'Provision',
+    title: 'Complete provisioning',
   },
 };
 
 const USER_PROVISIONING_PRODUCT_WORKFLOWS = {
-  pending: ['role', 'contact', 'platform'],
-  nuetra: ['role', 'contact', 'platform', 'organization', 'workspace', 'products', 'review', 'create'],
-  fiteatsy: ['role', 'contact', 'platform', 'products', 'review', 'create'],
+  pending: ['platform', 'role', 'contact'],
+  nuetra: ['platform', 'role', 'contact', 'organization', 'workspace', 'products', 'review', 'create'],
+  fiteatsy: ['platform', 'role', 'contact', 'products', 'review', 'create'],
 };
 
 export function getUserProvisioningProductMode(product, platformKey = '') {
@@ -71,7 +71,7 @@ export function buildUserProvisioningWorkflowSteps({ selectedProduct, selectedPl
 
 export function getUserProvisioningWorkflowState({ steps, activeStep, selectedProduct, selectedPlatformKey }) {
   const productMode = getUserProvisioningProductMode(selectedProduct, selectedPlatformKey);
-  const stepId = getWorkflowStepId(steps, activeStep, 'role');
+  const stepId = getWorkflowStepId(steps, activeStep, 'platform');
   const createStepIndex = getWorkflowStepIndex(steps, 'create');
   const lastStepIndex = getWorkflowLastStepIndex(steps, 'create');
   const scopeStepId = 'products';

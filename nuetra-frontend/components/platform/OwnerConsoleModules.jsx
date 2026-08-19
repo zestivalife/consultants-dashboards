@@ -980,6 +980,7 @@ export function PeopleAccessModule({
     product_ids: [],
     organization_id: '',
     department_id: '',
+    account_purpose: 'PRODUCTION_USER',
   });
   const [csvDraft, setCsvDraft] = useState('');
   const [roleBulkDraft, setRoleBulkDraft] = useState('consultant');
@@ -1017,6 +1018,14 @@ export function PeopleAccessModule({
   const mentors = metadata?.mentors || [];
   const consultants = metadata?.consultants || [];
   const provisioningRoles = useMemo(() => {
+    if (provisioningDraft.platform_key === 'fiteatsy') {
+      return [
+        { id: 'client', value: 'client', label: 'Client' },
+        { id: 'consultant', value: 'consultant', label: 'Consultant' },
+        { id: 'practitioner', value: 'practitioner', label: 'Practitioner' },
+        { id: 'mentor', value: 'mentor', label: 'Mentor / Coach' },
+      ];
+    }
     const allowed = new Set(['practitioner', 'mentor', 'consultant', 'corporate_admin']);
     const fromMetadata = roleOptions
       .map((role) => ({
@@ -1109,6 +1118,8 @@ export function PeopleAccessModule({
     requiresWorkspace: provisioningRequiresWorkspace,
   } = userProvisioningWorkflow;
   const isFiteatsyProvisioning = provisioningProductMode === 'fiteatsy';
+  const canUseFiteatsyQaProvisioning = isFiteatsyProvisioning && ['client', 'consultant'].includes(provisioningDraft.role);
+  const isFiteatsyQaProvisioning = isFiteatsyProvisioning && provisioningDraft.account_purpose === 'QA_TEST';
   const humanizeLabel = (value = '') =>
     value
       .toString()
@@ -1441,8 +1452,19 @@ export function PeopleAccessModule({
       platform_key: platformKey,
       product_id: productId,
       product_ids: productId ? [productId] : [],
+      role: platformKey === 'fiteatsy'
+        ? (['client', 'consultant', 'practitioner', 'mentor'].includes(current.role) ? current.role : 'consultant')
+        : (['practitioner', 'mentor', 'consultant', 'corporate_admin'].includes(current.role) ? current.role : 'practitioner'),
+      account_purpose: platformKey === 'fiteatsy' ? current.account_purpose || 'PRODUCTION_USER' : 'PRODUCTION_USER',
       organization_id: isFiteatsyProduct ? '' : current.organization_id,
       department_id: isFiteatsyProduct ? '' : current.department_id,
+    }));
+  };
+  const selectProvisioningRole = (role) => {
+    setProvisioningDraft((current) => ({
+      ...current,
+      role,
+      account_purpose: role === 'client' || role === 'consultant' ? current.account_purpose : 'PRODUCTION_USER',
     }));
   };
   const resetProvisioningDraft = (role = 'consultant') => {
@@ -1458,6 +1480,7 @@ export function PeopleAccessModule({
       product_ids: [],
       organization_id: '',
       department_id: '',
+      account_purpose: 'PRODUCTION_USER',
     });
     setProvisioningStep(0);
     setLatestProvisioning(null);
@@ -1788,6 +1811,11 @@ export function PeopleAccessModule({
       setProvisioningStep(provisioningScopeStepIndex);
       return;
     }
+    if (isFiteatsyQaProvisioning && !canUseFiteatsyQaProvisioning) {
+      setActionError('QA Test provisioning is available for Fiteatsy Client and Consultant personas only.');
+      setProvisioningStep(provisioningRoleStepIndex);
+      return;
+    }
     if (provisioningRequiresOrganization && !provisioningDraft.organization_id) {
       setActionError('Select an organization before creating the user.');
       setProvisioningStep(provisioningOrganizationStepIndex);
@@ -1800,7 +1828,7 @@ export function PeopleAccessModule({
     }
     setIsSubmitting(true);
     try {
-      const result = await runAction('Create user', onCreateUser, {
+      const provisioningPayload = {
         first_name: provisioningDraft.first_name.trim(),
         last_name: provisioningDraft.last_name.trim(),
         email: provisioningDraft.email.trim(),
@@ -1811,11 +1839,25 @@ export function PeopleAccessModule({
         organization_id: provisioningDraft.organization_id || null,
         department_id: provisioningWorkspaces.length ? provisioningDraft.department_id || null : null,
         status: 'ACTIVE',
-      });
+        account_purpose: provisioningDraft.account_purpose,
+        reason: isFiteatsyQaProvisioning ? 'Owner Console Fiteatsy QA provisioning' : 'Owner Console standard user provisioning',
+      };
+      const result = isFiteatsyQaProvisioning
+        ? await runAction(
+          provisioningDraft.role === 'client' ? 'Provision Fiteatsy QA client' : 'Provision Fiteatsy QA consultant',
+          provisioningDraft.role === 'client' ? onProvisionFiteatsyQaClient : onProvisionFiteatsyQaConsultant,
+          {
+            name: `${provisioningPayload.first_name} ${provisioningPayload.last_name}`.trim(),
+            email: provisioningPayload.email,
+            mobileNumber: (provisioningPayload.phone || '').replace(/\D/g, ''),
+            reason: provisioningPayload.reason,
+          }
+        )
+        : await runAction('Create user', onCreateUser, provisioningPayload);
       if (result === null) return;
       setLatestProvisioning(result);
       setLatestTemporaryCredentials(result?.temporary_credentials || null);
-      setShowProvisioningModal(false);
+      if (!isFiteatsyQaProvisioning) setShowProvisioningModal(false);
     } finally {
       setIsSubmitting(false);
     }
@@ -2346,8 +2388,8 @@ export function PeopleAccessModule({
       {showProvisioningModal ? (
         <WorkflowModal
           eyebrow="User Provisioning"
-          title="Create Practitioner, Mentor, Consultant or Corporate Admin"
-          description="Create the user account, generate temporary credentials, and securely share them with the user."
+          title={isFiteatsyProvisioning ? 'Provision a Fiteatsy user' : 'Create Practitioner, Mentor, Consultant or Corporate Admin'}
+          description={isFiteatsyQaProvisioning ? 'Provision a governed Fiteatsy QA identity through the delegated bridge.' : 'Create the user account through the existing invitation and onboarding flow.'}
           steps={provisioningSteps}
           activeStep={provisioningStep}
           onStepChange={(index) => !latestProvisioning && setProvisioningStep(index)}
@@ -2376,7 +2418,13 @@ export function PeopleAccessModule({
                   </button>
                 ) : null}
                 {!latestProvisioning && provisioningCreateStepIndex >= 0 && provisioningStep === provisioningCreateStepIndex ? (
-                  <ActionButton icon={KeyRound} label="Generate Temporary Credentials" tone="primary" onClick={submitProvisioning} disabled={isSubmitting} />
+                  <ActionButton
+                    icon={KeyRound}
+                    label={isFiteatsyQaProvisioning ? `Provision QA ${provisioningDraft.role === 'client' ? 'Client' : 'Consultant'}` : isFiteatsyProvisioning ? 'Create Fiteatsy User' : 'Generate Temporary Credentials'}
+                    tone="primary"
+                    onClick={submitProvisioning}
+                    disabled={isSubmitting}
+                  />
                 ) : null}
               </div>
             </div>
@@ -2392,7 +2440,7 @@ export function PeopleAccessModule({
                   <button
                     key={role.value}
                     type="button"
-                    onClick={() => setProvisioningDraft((current) => ({ ...current, role: role.value }))}
+                    onClick={() => selectProvisioningRole(role.value)}
                     className={cn(
                       'rounded-2xl border px-4 py-4 text-left transition',
                       provisioningDraft.role === role.value ? 'border-[#237afc] bg-[#f5f9ff] text-[#237afc] shadow-sm' : 'border-gray-100 bg-white text-gray-700'
@@ -2579,6 +2627,22 @@ export function PeopleAccessModule({
                   </div>
                 </div>
 
+                {isFiteatsyProvisioning ? (
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
+                    <label className="z-label text-blue-800" htmlFor="fiteatsy-account-purpose">Account purpose</label>
+                    <select
+                      id="fiteatsy-account-purpose"
+                      value={provisioningDraft.account_purpose}
+                      onChange={(event) => setProvisioningDraft((current) => ({ ...current, account_purpose: event.target.value }))}
+                      className="z-input mt-2 max-w-sm"
+                    >
+                      {canUseFiteatsyQaProvisioning ? <option value="QA_TEST">QA Test</option> : null}
+                      <option value="PRODUCTION_USER">Standard / Real Member</option>
+                    </select>
+                    <p className="mt-2 text-xs font-semibold text-blue-700">Only QA Test uses the delegated QA bridge. Standard members continue through invitation onboarding.</p>
+                  </div>
+                ) : null}
+
                 {!isFiteatsyProvisioning ? (
                   <div className="grid gap-4 lg:grid-cols-2">
                     <div className="rounded-2xl border border-gray-100/80 bg-gray-50/80 p-4">
@@ -2614,7 +2678,7 @@ export function PeopleAccessModule({
           ) : null}
 
           {provisioningStepId === 'review' ? (
-            <WorkflowCard title="Review user" description="Confirm the account details before creating temporary credentials.">
+            <WorkflowCard title="Review user" description={isFiteatsyQaProvisioning ? 'Confirm the QA identity before secure delegated provisioning.' : 'Confirm the account details before continuing.'}>
               <div className="grid gap-3 md:grid-cols-2">
                 {[
                   ['Role', humanizeLabel(provisioningDraft.role)],
@@ -2632,19 +2696,20 @@ export function PeopleAccessModule({
 
           {provisioningStepId === 'create' ? (
             latestProvisioning ? (
-              <WorkflowCard title="User created" description="Copy these credentials now. The temporary password will not be shown again after you close this workflow.">
+              <WorkflowCard
+                title={isFiteatsyQaProvisioning ? `${humanizeLabel(provisioningDraft.role)} provisioned` : 'User created'}
+                description={isFiteatsyQaProvisioning ? 'The governed QA identity was provisioned through the delegated Fiteatsy bridge.' : 'Copy these credentials now. The temporary password will not be shown again after you close this workflow.'}
+              >
                 <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
                   <div className="flex items-start gap-3">
                     <CheckCircle2 className="mt-1 h-6 w-6 text-emerald-500" />
                     <div>
-                      <p className="z-h4 text-gray-900">Temporary credentials are ready</p>
-                      <p className="mt-2 z-body text-gray-700">
-                        Share them through your approved secure channel. The user must change this password before entering the workspace.
-                      </p>
+                      <p className="z-h4 text-gray-900">{isFiteatsyQaProvisioning ? 'QA Test account is ready' : 'Temporary credentials are ready'}</p>
+                      <p className="mt-2 z-body text-gray-700">{isFiteatsyQaProvisioning ? 'Classification: QA_TEST. The client profile and audit record were created by the governed provisioning path.' : 'Share them through your approved secure channel. The user must change this password before entering the workspace.'}</p>
                     </div>
                   </div>
                 </div>
-                <div className="mt-5 grid gap-3 md:grid-cols-2">
+                {!isFiteatsyQaProvisioning ? <div className="mt-5 grid gap-3 md:grid-cols-2">
                   <div className="rounded-2xl border border-gray-100 bg-white p-4">
                     <p className="z-label text-gray-500">Username</p>
                     <p className="mt-2 break-all z-table-content font-semibold text-gray-900">
@@ -2669,7 +2734,7 @@ export function PeopleAccessModule({
                       disabled={!latestTemporaryCredentials?.temporary_password}
                     />
                   </div>
-                </div>
+                </div> : null}
                 <button
                   type="button"
                   onClick={() => resetProvisioningDraft(provisioningDraft.role)}
