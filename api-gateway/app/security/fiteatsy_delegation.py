@@ -43,7 +43,7 @@ def issue_fiteatsy_delegation(
         payload["tenant_id"] = tenant_id
     return jwt.encode(
         payload,
-        settings.fiteatsy_delegation_private_key,
+        settings.fiteatsy_delegation_private_key.replace("\\n", "\n"),
         algorithm="RS256",
         headers={"kid": settings.fiteatsy_delegation_key_id, "typ": "Zestiva-Delegated-Authority"},
     )

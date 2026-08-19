@@ -747,6 +747,9 @@ export function PeopleAccessModule({
   onSelectUser,
   onFilterChange,
   onCreateUser,
+  onProvisionFiteatsyQaClient,
+  onProvisionFiteatsyQaConsultant,
+  onAssignFiteatsyClient,
   onUpdateUser,
   onArchiveUser,
   onRestoreUser,
@@ -779,6 +782,7 @@ export function PeopleAccessModule({
   const [actionError, setActionError] = useState(null);
   const [actionNotice, setActionNotice] = useState(null);
   const [actionMenuId, setActionMenuId] = useState(null);
+  const [qaAssignmentDraft, setQaAssignmentDraft] = useState({ consultantUserId: '', clientUserId: '' });
   const [recentSearches, setRecentSearches] = useState([]);
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [restoreTarget, setRestoreTarget] = useState(null);
@@ -812,6 +816,7 @@ export function PeopleAccessModule({
     product_ids: [],
     organization_id: '',
     department_id: '',
+    account_purpose: 'QA_TEST',
   });
   const [csvDraft, setCsvDraft] = useState('');
   const [roleBulkDraft, setRoleBulkDraft] = useState('consultant');
@@ -849,6 +854,12 @@ export function PeopleAccessModule({
   const mentors = metadata?.mentors || [];
   const consultants = metadata?.consultants || [];
   const provisioningRoles = useMemo(() => {
+    if (provisioningDraft.platform_key === 'fiteatsy') {
+      return [
+        { id: 'client', value: 'client', label: 'QA Client' },
+        { id: 'consultant', value: 'consultant', label: 'QA Consultant' },
+      ];
+    }
     const allowed = new Set(['practitioner', 'mentor', 'consultant', 'corporate_admin']);
     const fromMetadata = roleOptions
       .map((role) => ({
@@ -864,7 +875,7 @@ export function PeopleAccessModule({
       { id: 'consultant', value: 'consultant', label: 'Consultant' },
       { id: 'corporate_admin', value: 'corporate_admin', label: 'Corporate admin' },
     ];
-  }, [roleOptions]);
+  }, [provisioningDraft.platform_key, roleOptions]);
   const provisioningWorkspaces = useMemo(
     () => departmentOptions.filter((department) => !provisioningDraft.organization_id || department.organization_id === provisioningDraft.organization_id),
     [departmentOptions, provisioningDraft.organization_id]
@@ -1161,6 +1172,7 @@ export function PeopleAccessModule({
       role: '',
       organization_id: '',
       department_id: '',
+      account_purpose: 'QA_TEST',
       product_id: '',
       status: '',
       verification: '',
@@ -1620,6 +1632,10 @@ export function PeopleAccessModule({
       setProvisioningStep(provisioningScopeStepIndex);
       return;
     }
+    if (isFiteatsyProvisioning && provisioningDraft.account_purpose !== 'QA_TEST') {
+      setActionError('Fiteatsy bridge provisioning is limited to QA Test accounts.');
+      return;
+    }
     if (provisioningRequiresOrganization && !provisioningDraft.organization_id) {
       setActionError('Select an organization before creating the user.');
       setProvisioningStep(provisioningOrganizationStepIndex);
@@ -1632,7 +1648,7 @@ export function PeopleAccessModule({
     }
     setIsSubmitting(true);
     try {
-      const result = await runAction('Create user', onCreateUser, {
+      const qaPayload = {
         first_name: provisioningDraft.first_name.trim(),
         last_name: provisioningDraft.last_name.trim(),
         email: provisioningDraft.email.trim(),
@@ -1643,11 +1659,41 @@ export function PeopleAccessModule({
         organization_id: provisioningDraft.organization_id || null,
         department_id: provisioningWorkspaces.length ? provisioningDraft.department_id || null : null,
         status: 'ACTIVE',
-      });
+        reason: 'Owner Console Fiteatsy QA provisioning',
+      };
+      const result = isFiteatsyProvisioning
+        ? await runAction(
+          provisioningDraft.role === 'client' ? 'Provision Fiteatsy QA client' : 'Provision Fiteatsy QA consultant',
+          provisioningDraft.role === 'client' ? onProvisionFiteatsyQaClient : onProvisionFiteatsyQaConsultant,
+          {
+            name: `${qaPayload.first_name} ${qaPayload.last_name}`.trim(),
+            email: qaPayload.email,
+            mobileNumber: (qaPayload.phone || '').replace(/\D/g, ''),
+            reason: qaPayload.reason,
+          }
+        )
+        : await runAction('Create user', onCreateUser, qaPayload);
       if (result === null) return;
       setLatestProvisioning(result);
       setLatestTemporaryCredentials(result?.temporary_credentials || null);
       setShowProvisioningModal(false);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const submitQaAssignment = async () => {
+    if (!qaAssignmentDraft.consultantUserId || !qaAssignmentDraft.clientUserId) {
+      setActionError('Select both a QA consultant and QA client.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await runAction('Assign QA client', onAssignFiteatsyClient, {
+        ...qaAssignmentDraft,
+        reason: 'Owner Console Fiteatsy QA assignment',
+      });
+      showNotice('QA client assigned successfully.');
     } finally {
       setIsSubmitting(false);
     }
@@ -1873,6 +1919,24 @@ export function PeopleAccessModule({
           />
         ))}
       </div>
+
+      <Panel title="Fiteatsy QA assignment" subtitle="Assign only QA identities through the delegated operation bridge.">
+        <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
+          <Field label="QA Consultant">
+            <select value={qaAssignmentDraft.consultantUserId} onChange={(event) => setQaAssignmentDraft((current) => ({ ...current, consultantUserId: event.target.value }))} className="z-input">
+              <option value="">Select QA consultant</option>
+              {people.filter((person) => /consultant/i.test(person.role || '') && /fiteatsy/i.test((person.products || []).join(' '))).map((person) => <option key={person.id} value={person.id}>{person.name || person.email}</option>)}
+            </select>
+          </Field>
+          <Field label="QA Client">
+            <select value={qaAssignmentDraft.clientUserId} onChange={(event) => setQaAssignmentDraft((current) => ({ ...current, clientUserId: event.target.value }))} className="z-input">
+              <option value="">Select QA client</option>
+              {people.filter((person) => /^(user|client)$/i.test(person.role || '') && /fiteatsy/i.test((person.products || []).join(' '))).map((person) => <option key={person.id} value={person.id}>{person.name || person.email}</option>)}
+            </select>
+          </Field>
+          <ActionButton icon={Users} label="Assign" tone="primary" onClick={submitQaAssignment} disabled={isSubmitting} />
+        </div>
+      </Panel>
 
       {error ? (
         <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
@@ -2482,6 +2546,21 @@ export function PeopleAccessModule({
                     ) : null}
                   </div>
                 </div>
+                {isFiteatsyProvisioning ? (
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
+                    <label className="z-label text-blue-800" htmlFor="fiteatsy-account-purpose">Account purpose</label>
+                    <select
+                      id="fiteatsy-account-purpose"
+                      value={provisioningDraft.account_purpose}
+                      onChange={(event) => setProvisioningDraft((current) => ({ ...current, account_purpose: event.target.value }))}
+                      className="z-input mt-2 max-w-sm"
+                    >
+                      <option value="QA_TEST">QA Test</option>
+                      <option value="PRODUCTION_USER">Standard / Real Member</option>
+                    </select>
+                    <p className="mt-2 text-xs font-semibold text-blue-700">Only QA Test uses the delegated QA bridge. Standard members continue through invitation onboarding.</p>
+                  </div>
+                ) : null}
 
                 {!isFiteatsyProvisioning ? (
                   <div className="grid gap-4 lg:grid-cols-2">

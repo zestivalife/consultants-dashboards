@@ -408,6 +408,18 @@ export const ownerPeopleAccessAPI = {
     });
   },
 
+  provisionFiteatsyQaClient(payload, idempotencyKey) {
+    return apiRequest('/platform/fiteatsy/qa-clients', { method: 'POST', body: payload, headers: { 'Idempotency-Key': idempotencyKey } });
+  },
+
+  provisionFiteatsyQaConsultant(payload, idempotencyKey) {
+    return apiRequest('/platform/fiteatsy/qa-consultants', { method: 'POST', body: payload, headers: { 'Idempotency-Key': idempotencyKey } });
+  },
+
+  assignFiteatsyClient(payload, idempotencyKey) {
+    return apiRequest('/platform/fiteatsy/client-assignments', { method: 'POST', body: payload, headers: { 'Idempotency-Key': idempotencyKey } });
+  },
+
   updateUser(userId, payload) {
     return apiRequest(`/owner/people-access/users/${userId}`, {
       method: 'PATCH',

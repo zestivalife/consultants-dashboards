@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     assessment_service_url: str = "http://assessment-service:8003"
     scoring_service_url: str = "http://scoring-engine-service:8004"
     nutrition_service_url: str = "http://nutrition-service:8005"
+    fiteatsy_service_url: str = Field(default="http://fiteatsy-backend:4001", validation_alias=AliasChoices("FITEATSY_SERVICE_URL", "fiteatsy_service_url"))
 
     model_config = {"env_file": ".env", "case_sensitive": False}
 
