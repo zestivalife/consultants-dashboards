@@ -38,6 +38,7 @@ import {
   generateFiteatsyConsultantDietPlanDraft,
   getFiteatsyConsultantClientMedications,
   getFiteatsyConsultantClientProfile,
+  getFiteatsyConsultantClientStressSummary,
   getFiteatsyConsultantLatestDietPlan,
   getFiteatsyConsultantNutritionIntelligence,
   listFiteatsyConsultantClients,
@@ -1292,6 +1293,7 @@ function RealClientProfileDrawer({
   error,
   onProfileRefresh,
   onCreateMedicationFollowUp,
+  onCreateFollowUp,
   canManageNutrition = false,
 }) {
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('Overview');
@@ -1299,6 +1301,7 @@ function RealClientProfileDrawer({
   const [dietPlanContentDraft, setDietPlanContentDraft] = useState(() => profile?.dietPlan?.content || null);
   const [nutritionIntelligenceState, setNutritionIntelligenceState] = useState(() => profile?.nutritionIntelligence || null);
   const [medicationState, setMedicationState] = useState(() => profile?.medicationMonitoring || null);
+  const [stressState, setStressState] = useState(() => profile?.stressAssessment || null);
   const [medicationLoading, setMedicationLoading] = useState(false);
   const [medicationError, setMedicationError] = useState(null);
   const [selectedMedicationId, setSelectedMedicationId] = useState(null);
@@ -1321,11 +1324,12 @@ function RealClientProfileDrawer({
   const biomarkers = profile?.biomarkers || [];
   const reports = profile?.reports || [];
   const timeline = profile?.timeline || [];
-  const workspaceTabs = ['Overview', 'Health Profile', 'Lifestyle', 'Reports', 'Biomarkers', 'Medication', ...(canManageNutrition ? ['Nutrition Plan'] : []), 'Activity', 'Timeline'];
+  const workspaceTabs = ['Overview', 'Health Profile', 'Lifestyle', 'Reports', 'Biomarkers', 'Medication', 'Stress', ...(canManageNutrition ? ['Nutrition Plan'] : []), 'Activity', 'Timeline'];
   const groupedWorkspaceTabs = [
     { key: 'Overview', label: 'Overview' },
     { key: 'Health Profile', label: 'Health Intelligence' },
     { key: 'Medication', label: 'Medication' },
+    { key: 'Stress', label: 'Stress / Assessments' },
     ...(canManageNutrition ? [{ key: 'Nutrition Plan', label: 'Nutrition' }] : []),
     { key: 'Reports', label: 'Reports' },
     { key: 'Activity', label: 'Activity' },
@@ -1425,6 +1429,7 @@ function RealClientProfileDrawer({
     { key: 'stressResilience', title: 'Stress Resilience', value: nutritionIntelligence?.wellnessScores?.stressResilience ?? profile?.recoveryMetrics?.calmScore?.scoreValue ?? null, detail: 'Stress handling from PSS and recovery context' },
   ];
   const medicationMonitoring = medicationState || profile?.medicationMonitoring || null;
+  const stressAssessment = stressState || profile?.stressAssessment || null;
   const medicationSummary = medicationMonitoring?.summary || null;
   const activeMedications = Array.isArray(medicationMonitoring?.activeMedications) ? medicationMonitoring.activeMedications : [];
   const todaysMedicationDoses = Array.isArray(medicationMonitoring?.todaysDoses) ? medicationMonitoring.todaysDoses : [];
@@ -1436,11 +1441,19 @@ function RealClientProfileDrawer({
     setDietPlanContentDraft(profile?.dietPlan?.content || null);
     setNutritionIntelligenceState(profile?.nutritionIntelligence || null);
     setMedicationState(profile?.medicationMonitoring || null);
+    setStressState(profile?.stressAssessment || null);
     setSelectedMedicationId(null);
     setMedicationError(null);
     setNutritionActionError(null);
     setNutritionActionSuccess(null);
   }, [profile?.dietPlan, profile?.nutritionIntelligence, profile?.medicationMonitoring, profile?.client?.id]);
+
+  useEffect(() => {
+    if (!isOpen || !summaryClient?.id || profile?.stressAssessment) return;
+    void getFiteatsyConsultantClientStressSummary(summaryClient.id)
+      .then((payload) => setStressState(payload?.assessment || null))
+      .catch(() => setStressState(null));
+  }, [isOpen, profile?.stressAssessment, summaryClient?.id]);
 
   useEffect(() => {
     if (isOpen) setActiveWorkspaceTab('Overview');
@@ -2356,6 +2369,83 @@ function RealClientProfileDrawer({
     </div>
   );
 
+  const renderStress = () => {
+    const latest = stressAssessment?.latest || null;
+    const previous = stressAssessment?.previous || null;
+    const history = Array.isArray(stressAssessment?.history) ? stressAssessment.history : [];
+    const change = stressAssessment?.change;
+    const changeLabel = change == null ? (previous ? 'No change' : 'First assessment') : `${change < 0 ? '↓' : change > 0 ? '↑' : ''} ${Math.abs(change)} pts`.trim();
+
+    return (
+      <div className="space-y-4">
+        <Surface className="p-5" animated>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Perceived Stress</p>
+              <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">Completed PSS-10 results from the client record. This view is non-diagnostic and read-only.</p>
+            </div>
+            {typeof onCreateFollowUp === 'function' ? (
+              <button type="button" onClick={() => onCreateFollowUp(summaryClient?.id, latest ? `Review latest perceived-stress assessment (${latest.rawScore}/${latest.maxScore})` : 'Review perceived-stress assessment')} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">
+                Create follow-up
+              </button>
+            ) : null}
+          </div>
+          {latest ? (
+            <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <DetailField label="Latest" value={`${latest.rawScore} / ${latest.maxScore}`} />
+              <DetailField label="Interpretation" value={latest.interpretationLabel} />
+              <DetailField label="Last assessed" value={formatDateLabel(latest.completedAtISO)} />
+              <DetailField label="Change" value={changeLabel} />
+            </div>
+          ) : (
+            <div className="mt-5 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No completed perceived-stress assessment yet.</div>
+          )}
+        </Surface>
+        <Surface className="p-5" animated>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Trend</p>
+              <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Periodic completed assessments only. No values are interpolated.</p>
+            </div>
+            <TrendingUp size={18} className="text-[var(--fluent-color-brand-foreground-link)]" />
+          </div>
+          {history.length > 1 ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {history.slice().reverse().map((item) => (
+                <div key={item.id} className="rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-2xl font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.rawScore}/{item.maxScore}</span>
+                    <span className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">{formatDateLabel(item.completedAtISO)}</span>
+                  </div>
+                  <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.interpretationLabel}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Insufficient history for a trend. A second completed assessment will appear here when available.</div>
+          )}
+        </Surface>
+        <Surface className="p-5" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Assessment History</p>
+          <div className="mt-4 divide-y divide-[var(--fluent-color-neutral-stroke-1)]">
+            {history.length ? history.map((item) => (
+              <div key={item.id} className="flex flex-col gap-2 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{formatDateLabel(item.completedAtISO)}</p>
+                  <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.interpretationLabel}</p>
+                </div>
+                <div className="text-left sm:text-right">
+                  <p className="text-base font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.rawScore} / {item.maxScore}</p>
+                  <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.instrumentVersion} · {item.scoringVersion}</p>
+                </div>
+              </div>
+            )) : <p className="py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No completed assessment history yet.</p>}
+          </div>
+        </Surface>
+      </div>
+    );
+  };
+
   const renderActivity = () => (
     <Surface className="p-5" animated>
       <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Activity</p>
@@ -2413,6 +2503,7 @@ function RealClientProfileDrawer({
     Reports: renderReports,
     Biomarkers: renderBiomarkers,
     Medication: renderMedication,
+    Stress: renderStress,
     'Nutrition Plan': renderNutrition,
     Activity: renderActivity,
     Timeline: renderTimeline,
@@ -7833,6 +7924,7 @@ function PlatformWorkspace({ forcedRole }) {
           error={realClientProfileError}
           onProfileRefresh={refreshRealClientProfile}
           onCreateMedicationFollowUp={createConsultantFollowUp}
+          onCreateFollowUp={createConsultantFollowUp}
           canManageNutrition={canManageConsultantNutrition}
         />
       ) : null}

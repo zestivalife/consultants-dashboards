@@ -170,6 +170,7 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
     nutritionIntelligence: body?.nutritionIntelligence || null,
     nutritionSnapshot: body?.nutritionSnapshot || null,
     dietPlan: body?.dietPlan || null,
+    stressAssessment: body?.stressAssessment || null,
     planWorkflow: body?.planWorkflow || null,
     wearableSummary: body?.wearableSummary || null,
     reports: Array.isArray(body?.reports) ? body.reports : [],
@@ -191,6 +192,14 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
       : null,
     biomarkers: Array.isArray(body?.biomarkers) ? body.biomarkers.map(mapBiomarker) : [],
   };
+}
+
+export async function getFiteatsyConsultantClientStressSummary(clientId) {
+  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/assessments/PSS10/summary`);
+}
+
+export async function getFiteatsyConsultantClientStressHistory(clientId) {
+  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/assessments/PSS10/history`);
 }
 
 export async function getFiteatsyConsultantClientMedications(clientId) {
