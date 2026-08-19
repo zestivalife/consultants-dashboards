@@ -33,6 +33,7 @@ import withAuth from '../../hocs/withAuth';
 import { useAuth } from '../../context/AuthContext';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
 import {
+  acknowledgeFiteatsyConsultantMedicationException,
   approveFiteatsyConsultantDietPlan,
   generateFiteatsyConsultantDietPlanDraft,
   getFiteatsyConsultantClientMedications,
@@ -40,6 +41,7 @@ import {
   getFiteatsyConsultantLatestDietPlan,
   getFiteatsyConsultantNutritionIntelligence,
   listFiteatsyConsultantClients,
+  listFiteatsyConsultantMedicationExceptions,
   publishFiteatsyConsultantDietPlan,
   updateFiteatsyConsultantDietPlanDraft,
 } from '../../lib/fiteatsyConsultantsApi';
@@ -5190,7 +5192,142 @@ function AdminHome({ billing, revenue, quality, brandView }) {
   return <AdminOverview billing={billing} revenue={revenue} quality={quality} />;
 }
 
-function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadItems, memoryItems, railItems, onClientOpen, onPulseSelect }) {
+function MedicationAttentionSection({
+  feed,
+  loading,
+  error,
+  onRefresh,
+  onClientOpen,
+  onCreateFollowUp,
+  onAcknowledge,
+  acknowledgingId,
+}) {
+  const summary = feed?.summary || {};
+  const exceptions = Array.isArray(feed?.exceptions) ? feed.exceptions : [];
+  const byType = summary.byType || {};
+  const typeItems = Object.entries(byType).filter(([, count]) => Number(count) > 0);
+
+  return (
+    <Surface className="border border-[rgba(245,158,11,0.28)] bg-[linear-gradient(135deg,rgba(245,158,11,0.10),rgba(15,23,42,0.02))] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#B45309]">Medication Attention</p>
+          <h3 className="mt-2 text-[22px] font-semibold tracking-[-0.02em]">Operational medication exceptions</h3>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
+            Deterministic adherence signals from assigned Fiteatsy clients. These are workflow prompts, not diagnostic or prescribing recommendations.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusChip status={exceptions.length ? 'high' : 'stable'}>
+            {summary.activeExceptionCount || 0} active
+          </StatusChip>
+          <StatusChip status={summary.clientsRequiringAttention ? 'medium' : 'stable'}>
+            {summary.clientsRequiringAttention || 0} clients
+          </StatusChip>
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={loading}
+            className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-3 py-1.5 text-xs font-medium text-[var(--fluent-color-neutral-foreground-1)] disabled:opacity-60"
+          >
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+
+      {typeItems.length ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {typeItems.map(([type, count]) => (
+            <span key={type} className="rounded-full bg-[rgba(245,158,11,0.12)] px-3 py-1.5 text-xs font-medium text-[#92400E]">
+              {formatStatusLabel(type)} · {count}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className="mt-4 rounded-[18px] border border-[var(--fluent-color-status-danger-border)] bg-[var(--fluent-color-status-danger-background)] p-4 text-sm text-[var(--fluent-color-status-danger-foreground)]">
+          Unable to load medication attention right now. {error?.message || 'Try refreshing the command center.'}
+        </div>
+      ) : null}
+
+      {loading && !exceptions.length ? (
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <LoadingSkeleton className="h-32" />
+          <LoadingSkeleton className="h-32" />
+        </div>
+      ) : exceptions.length ? (
+        <div className="mt-4 grid gap-3 xl:grid-cols-2">
+          {exceptions.slice(0, 6).map((exception) => (
+            <div key={exception.id} className="rounded-[20px] border border-[rgba(245,158,11,0.22)] bg-[var(--fluent-color-neutral-background-1)] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
+                    {exception.clientName || 'Assigned client'}
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+                    {exception.typeLabel || formatStatusLabel(exception.type)} · {exception.status || 'OPEN'}
+                  </p>
+                </div>
+                <StatusChip status={exception.status === 'ACKNOWLEDGED' ? 'pending' : 'high'}>
+                  {exception.status === 'ACKNOWLEDGED' ? 'Acknowledged' : 'Open'}
+                </StatusChip>
+              </div>
+              <p className="mt-3 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{exception.title}</p>
+              <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{exception.summary}</p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => onClientOpen(exception.clientId)}
+                  className="rounded-full bg-[var(--fluent-color-neutral-background-3)] px-3 py-1.5 text-xs font-medium text-[var(--fluent-color-neutral-foreground-1)]"
+                >
+                  View medication
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onCreateFollowUp(exception.clientId, exception.summary)}
+                  className="rounded-full border border-[rgba(245,158,11,0.32)] bg-[rgba(245,158,11,0.10)] px-3 py-1.5 text-xs font-medium text-[#92400E]"
+                >
+                  Create follow-up
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAcknowledge(exception.id)}
+                  disabled={exception.status === 'ACKNOWLEDGED' || acknowledgingId === exception.id}
+                  className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-3 py-1.5 text-xs font-medium text-[var(--fluent-color-neutral-foreground-1)] disabled:opacity-50"
+                >
+                  {acknowledgingId === exception.id ? 'Saving...' : exception.status === 'ACKNOWLEDGED' ? 'Acknowledged' : 'Acknowledge'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+          No medication exceptions are open for assigned clients right now.
+        </div>
+      )}
+    </Surface>
+  );
+}
+
+function CommandCenterPage({
+  briefingMeta,
+  pulseItems,
+  priorityQueue,
+  workloadItems,
+  memoryItems,
+  railItems,
+  medicationExceptionFeed,
+  medicationExceptionsLoading,
+  medicationExceptionsError,
+  onMedicationExceptionsRefresh,
+  onMedicationExceptionAcknowledge,
+  medicationExceptionAcknowledgingId,
+  onClientOpen,
+  onCreateFollowUp,
+  onPulseSelect,
+}) {
   const [selectedClientId, setSelectedClientId] = useState(priorityQueue[0]?.clientId || null);
 
   useEffect(() => {
@@ -5370,6 +5507,17 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
             ) : null}
           </div>
         </Surface>
+
+        <MedicationAttentionSection
+          feed={medicationExceptionFeed}
+          loading={medicationExceptionsLoading}
+          error={medicationExceptionsError}
+          onRefresh={onMedicationExceptionsRefresh}
+          onClientOpen={onClientOpen}
+          onCreateFollowUp={onCreateFollowUp}
+          onAcknowledge={onMedicationExceptionAcknowledge}
+          acknowledgingId={medicationExceptionAcknowledgingId}
+        />
 
         <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
           <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
@@ -6260,6 +6408,10 @@ function PlatformWorkspace({ forcedRole }) {
   const [fiteatsyClients, setFiteatsyClients] = useState([]);
   const [fiteatsyClientsLoading, setFiteatsyClientsLoading] = useState(false);
   const [fiteatsyClientsError, setFiteatsyClientsError] = useState(null);
+  const [medicationExceptionFeed, setMedicationExceptionFeed] = useState({ summary: null, exceptions: [] });
+  const [medicationExceptionsLoading, setMedicationExceptionsLoading] = useState(false);
+  const [medicationExceptionsError, setMedicationExceptionsError] = useState(null);
+  const [medicationExceptionAcknowledgingId, setMedicationExceptionAcknowledgingId] = useState(null);
   const [realClientDrawerOpen, setRealClientDrawerOpen] = useState(false);
   const [realClientProfile, setRealClientProfile] = useState(null);
   const [realClientProfileLoading, setRealClientProfileLoading] = useState(false);
@@ -6361,6 +6513,53 @@ function PlatformWorkspace({ forcedRole }) {
       cancelled = true;
     };
   }, [usesRealFiteatsyClients]);
+
+  const refreshMedicationExceptionFeed = useCallback(async () => {
+    setMedicationExceptionsLoading(true);
+    setMedicationExceptionsError(null);
+    try {
+      const payload = await listFiteatsyConsultantMedicationExceptions();
+      setMedicationExceptionFeed(payload);
+      return payload;
+    } catch (error) {
+      setMedicationExceptionFeed({ summary: null, exceptions: [] });
+      setMedicationExceptionsError(error);
+      return null;
+    } finally {
+      setMedicationExceptionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!usesRealFiteatsyClients || roleKind !== 'consultant') {
+      setMedicationExceptionFeed({ summary: null, exceptions: [] });
+      setMedicationExceptionsError(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setMedicationExceptionsLoading(true);
+    setMedicationExceptionsError(null);
+
+    listFiteatsyConsultantMedicationExceptions()
+      .then((payload) => {
+        if (cancelled) return;
+        setMedicationExceptionFeed(payload);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setMedicationExceptionFeed({ summary: null, exceptions: [] });
+        setMedicationExceptionsError(error);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setMedicationExceptionsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [roleKind, usesRealFiteatsyClients]);
 
   useEffect(() => {
     const source = usesRealFiteatsyClients ? 'API' : 'MOCK';
@@ -7057,6 +7256,20 @@ function PlatformWorkspace({ forcedRole }) {
     );
   }
 
+  async function acknowledgeMedicationException(exceptionId) {
+    if (!exceptionId) return;
+    setMedicationExceptionAcknowledgingId(exceptionId);
+    setMedicationExceptionsError(null);
+    try {
+      await acknowledgeFiteatsyConsultantMedicationException(exceptionId);
+      await refreshMedicationExceptionFeed();
+    } catch (error) {
+      setMedicationExceptionsError(error);
+    } finally {
+      setMedicationExceptionAcknowledgingId(null);
+    }
+  }
+
   function resolveConsultantFollowUp(followUpId) {
     setConsultantWorkspace((current) => {
       const followUp = current.followUps.find((item) => item.id === followUpId);
@@ -7477,7 +7690,14 @@ function PlatformWorkspace({ forcedRole }) {
                 workloadItems={workloadItems}
                 memoryItems={memoryItems}
                 railItems={railItems}
+                medicationExceptionFeed={medicationExceptionFeed}
+                medicationExceptionsLoading={medicationExceptionsLoading}
+                medicationExceptionsError={medicationExceptionsError}
+                onMedicationExceptionsRefresh={refreshMedicationExceptionFeed}
+                onMedicationExceptionAcknowledge={acknowledgeMedicationException}
+                medicationExceptionAcknowledgingId={medicationExceptionAcknowledgingId}
                 onClientOpen={openClient}
+                onCreateFollowUp={createConsultantFollowUp}
                 onPulseSelect={openPulseQueue}
               />
               <ConsultantOperationalOverview

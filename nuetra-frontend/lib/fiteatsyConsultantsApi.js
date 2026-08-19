@@ -197,6 +197,24 @@ export async function getFiteatsyConsultantClientMedications(clientId) {
   return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/medications`);
 }
 
+export async function listFiteatsyConsultantMedicationExceptions() {
+  const body = await requestFiteatsyJson('/v1/consultants/medication-exceptions');
+  return {
+    summary: body?.summary || null,
+    exceptions: Array.isArray(body?.exceptions) ? body.exceptions : [],
+  };
+}
+
+export async function getFiteatsyConsultantClientMedicationExceptions(clientId) {
+  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/medication-exceptions`);
+}
+
+export async function acknowledgeFiteatsyConsultantMedicationException(exceptionId) {
+  return requestFiteatsy(`/v1/consultants/medication-exceptions/${encodeURIComponent(exceptionId)}/acknowledge`, {
+    method: 'POST',
+  });
+}
+
 export async function getFiteatsyConsultantNutritionIntelligence(clientId) {
   return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/nutrition-intelligence`);
 }
