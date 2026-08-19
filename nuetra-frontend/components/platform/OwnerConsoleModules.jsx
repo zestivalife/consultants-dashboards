@@ -2687,6 +2687,7 @@ export function PeopleAccessModule({
                   ['Mobile', `${provisioningDraft.country_code || ''} ${provisioningDraft.mobile_number || ''}`.trim() || 'Not added'],
                   ['Platform', selectedProvisioningPrimaryProduct?.name || 'Not selected'],
                   ['Products', productOptions.length ? productOptions.filter((item) => provisioningDraft.product_ids.includes(item.id)).map((item) => item.name).join(', ') || 'Not selected' : 'Unable to load products'],
+                  ...(isFiteatsyProvisioning ? [['Account Purpose', provisioningDraft.account_purpose === 'QA_TEST' ? 'QA Test' : 'Standard / Real Member']] : []),
                   ['Organization', isFiteatsyProvisioning ? 'Not required for Fiteatsy' : organizationOptions.find((item) => item.id === provisioningDraft.organization_id)?.name || 'Not selected'],
                   ['Workspace', isFiteatsyProvisioning ? 'Product workspace' : provisioningWorkspaces.find((item) => item.id === provisioningDraft.department_id)?.name || 'Organization default workspace'],
                 ].map(([label, value]) => <ReviewCard key={label} label={label} value={value} />)}
