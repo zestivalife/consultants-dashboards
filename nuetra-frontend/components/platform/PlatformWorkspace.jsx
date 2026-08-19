@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Activity,
@@ -32,7 +32,17 @@ import {
 import withAuth from '../../hocs/withAuth';
 import { useAuth } from '../../context/AuthContext';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
-import { getFiteatsyConsultantClientProfile, listFiteatsyConsultantClients } from '../../lib/fiteatsyConsultantsApi';
+import {
+  approveFiteatsyConsultantDietPlan,
+  generateFiteatsyConsultantDietPlanDraft,
+  getFiteatsyConsultantClientMedications,
+  getFiteatsyConsultantClientProfile,
+  getFiteatsyConsultantLatestDietPlan,
+  getFiteatsyConsultantNutritionIntelligence,
+  listFiteatsyConsultantClients,
+  publishFiteatsyConsultantDietPlan,
+  updateFiteatsyConsultantDietPlanDraft,
+} from '../../lib/fiteatsyConsultantsApi';
 import { corporateAPI } from '../../lib/api';
 import { ADMIN_ACCESS_POLICY, DELIVERY_ACCESS_POLICY, MENTOR_ACCESS_POLICY, ORGANIZATION_ACCESS_POLICY } from '../../lib/roleRoutes';
 
@@ -54,7 +64,12 @@ const roleKinds = {
 };
 
 const consultantNav = [
+  { id: 'command-center', label: 'Command Center', icon: LayoutGrid },
   { id: 'clients', label: 'Clients', icon: Users },
+  { id: 'consultations', label: 'Consultations', icon: CalendarDays },
+  { id: 'operations', label: 'Tasks & Timeline', icon: ListChecks },
+  { id: 'progress', label: 'Goals & Progress', icon: TrendingUp },
+  { id: 'practice', label: 'Reports & Profile', icon: ShieldCheck },
 ];
 
 const mentorNav = [
@@ -146,6 +161,121 @@ const mentorByOrganization = {
   'Northstar Labs': 'Maya Iyer',
   'Aster Pulse': 'Maya Iyer',
 };
+
+const consultantNutritionRoles = new Set(['consultant', 'senior_consultant']);
+const consultantWorkspaceStoragePrefix = 'nuetra:consultant-workspace:';
+const weekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+function createDefaultConsultantWorkspaceState() {
+  return {
+    appointments: [],
+    tasks: [],
+    followUps: [],
+    consultationNotes: {},
+    activityLog: [],
+    profile: {
+      specialisation: '',
+      consultationStyle: '',
+      responseWindow: '',
+      consultationCadence: '',
+    },
+    availability: {
+      workingDays: [],
+      startTime: '',
+      endTime: '',
+      breakBufferMinutes: '',
+      teleconsultEnabled: true,
+    },
+  };
+}
+
+function readConsultantWorkspaceState(storageKey) {
+  if (typeof window === 'undefined' || !storageKey) return createDefaultConsultantWorkspaceState();
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return createDefaultConsultantWorkspaceState();
+    const parsed = JSON.parse(raw);
+    return {
+      ...createDefaultConsultantWorkspaceState(),
+      ...parsed,
+      appointments: Array.isArray(parsed?.appointments) ? parsed.appointments : [],
+      tasks: Array.isArray(parsed?.tasks) ? parsed.tasks : [],
+      followUps: Array.isArray(parsed?.followUps) ? parsed.followUps : [],
+      activityLog: Array.isArray(parsed?.activityLog) ? parsed.activityLog : [],
+      consultationNotes: parsed?.consultationNotes && typeof parsed.consultationNotes === 'object' ? parsed.consultationNotes : {},
+      profile: {
+        ...createDefaultConsultantWorkspaceState().profile,
+        ...(parsed?.profile || {}),
+      },
+      availability: {
+        ...createDefaultConsultantWorkspaceState().availability,
+        ...(parsed?.availability || {}),
+      },
+    };
+  } catch (error) {
+    console.warn('Unable to read consultant workspace state', error);
+    return createDefaultConsultantWorkspaceState();
+  }
+}
+
+function createWorkspaceId(prefix) {
+  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function appendConsultantWorkspaceActivity(state, activity) {
+  return {
+    ...state,
+    activityLog: [
+      {
+        id: activity.id || createWorkspaceId('activity'),
+        createdAt: activity.createdAt || new Date().toISOString(),
+        ...activity,
+      },
+      ...(state.activityLog || []),
+    ].slice(0, 60),
+  };
+}
+
+function getDaysSince(dateValue) {
+  if (!dateValue) return null;
+  const value = new Date(dateValue);
+  if (Number.isNaN(value.getTime())) return null;
+  return Math.floor((Date.now() - value.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function getTodayDateKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function formatTimeLabel(value) {
+  if (!value) return 'Not scheduled';
+  const [hours, minutes] = String(value).split(':');
+  if (hours == null || minutes == null) return value;
+  const numericHour = Number(hours);
+  if (Number.isNaN(numericHour)) return value;
+  const period = numericHour >= 12 ? 'PM' : 'AM';
+  const displayHour = numericHour % 12 || 12;
+  return `${displayHour}:${minutes} ${period}`;
+}
+
+function buildConsultantAttentionItem(client) {
+  const reasons = [];
+  if (!client.profileCompleted) reasons.push('Onboarding needs completion');
+  if ((client.reportsCount || 0) > 0) reasons.push('Reports available for consultant review');
+  if (client.biomarkerStatus && String(client.biomarkerStatus).toLowerCase() !== 'normal') reasons.push(`Biomarker status: ${client.biomarkerStatus}`);
+  if ((getDaysSince(client.lastHealthUpdate || client.lastActiveAt || client.registeredAt) || 0) > 10) reasons.push('Recent health activity is cooling');
+
+  return {
+    clientId: client.id,
+    name: client.name,
+    title: reasons[0] || 'Routine profile review',
+    reason: reasons[1] || client.trendSummary?.title || 'Open the client workspace to continue care planning.',
+    tone: !client.profileCompleted ? 'medium' : reasons.length > 1 ? 'high' : 'stable',
+    lastTouch: client.lastActivity,
+    goal: client.goal || 'Not assigned',
+  };
+}
 
 function getRoleKind(role) {
   return roleKinds[role] || 'consultant';
@@ -846,6 +976,67 @@ function formatDisplayValue(value, fallback = 'Not available') {
   return String(value);
 }
 
+function medicationStatusTone(status) {
+  const normalized = String(status || '').toUpperCase();
+  const tones = {
+    TAKEN: 'bg-[var(--fluent-color-status-success-background)] text-[var(--fluent-color-status-success-foreground)]',
+    DUE: 'bg-[var(--fluent-color-status-warning-background)] text-[var(--fluent-color-status-warning-foreground)]',
+    UPCOMING: 'bg-[var(--fluent-color-neutral-background-3)] text-[var(--fluent-color-neutral-foreground-2)]',
+    SNOOZED: 'bg-[rgba(99,124,239,0.18)] text-[#637CEF]',
+    SKIPPED: 'bg-[var(--fluent-color-neutral-background-3)] text-[var(--fluent-color-neutral-foreground-2)]',
+    MISSED: 'bg-[var(--fluent-color-status-danger-background)] text-[var(--fluent-color-status-danger-foreground)]',
+  };
+  return tones[normalized] || tones.UPCOMING;
+}
+
+function formatMedicationStatus(status) {
+  if (!status) return 'Upcoming';
+  return String(status).toLowerCase().replace(/^\w/, (letter) => letter.toUpperCase());
+}
+
+function formatMedicationAdherencePercent(summary) {
+  if (!summary || !summary.scheduled) return 'Not enough data';
+  return summary.adherencePercent == null ? 'Not enough data' : `${summary.adherencePercent}%`;
+}
+
+function formatMedicationAdherence(summary) {
+  if (!summary || !summary.scheduled) return 'Not enough data';
+  return `${summary.taken || 0} / ${summary.scheduled} taken`;
+}
+
+function formatNextMedicationDose(nextDose) {
+  if (!nextDose) return 'No upcoming dose';
+  return `${nextDose.medicationName || 'Medication'}${nextDose.dosage ? ` ${nextDose.dosage}` : ''} · ${nextDose.scheduledTime || 'Time pending'}`;
+}
+
+function formatMedicationDateTime(value) {
+  if (!value) return 'Not available';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Not available';
+  return date.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function formatMedicationFrequency(frequency) {
+  if (!frequency || typeof frequency !== 'object') return 'Not available';
+  if (frequency.type === 'daily') return 'Daily';
+  if (frequency.type === 'selected_days') return `Selected days${Array.isArray(frequency.daysOfWeek) && frequency.daysOfWeek.length ? ` · ${frequency.daysOfWeek.join(', ')}` : ''}`;
+  if (frequency.type === 'interval_hours') return `Every ${frequency.intervalHours || 'configured'} hours`;
+  if (frequency.type === 'as_needed') return 'As needed';
+  return String(frequency.type || 'Not available').replace(/_/g, ' ');
+}
+
+function formatMedicationDuration(duration) {
+  if (!duration || typeof duration !== 'object') return 'Not available';
+  const start = duration.startDateISO ? formatDateLabel(duration.startDateISO) : 'Start pending';
+  const end = duration.endDateISO ? formatDateLabel(duration.endDateISO) : 'Ongoing';
+  return `${start} - ${end}`;
+}
+
 function formatMetricNumber(value, suffix = '') {
   if (value == null || Number.isNaN(Number(value))) return 'Not available';
   return `${value}${suffix}`;
@@ -870,10 +1061,151 @@ function getProfileErrorMessage(error) {
   return error.message || 'Unable to load client profile.';
 }
 
+function getNutritionWorkflowErrorMessage(error, fallback) {
+  if (!error) return fallback;
+  if (error.status === 401) return 'Session expired. Sign in again to continue the nutrition workflow.';
+  if (error.status === 403) return 'Your account does not have permission for this nutrition action.';
+  if (error.status === 404) return 'This nutrition record is no longer available.';
+  if (String(error.message || '').toLowerCase() === 'failed to fetch') {
+    return 'We could not reach the Fiteatsy backend. Check the production API connection and try again.';
+  }
+  return error.message || fallback;
+}
+
 function biomarkerTone(status) {
   const normalized = String(status || '').toUpperCase();
   if (['LOW', 'HIGH', 'CRITICAL'].includes(normalized)) return 'critical';
   return 'stable';
+}
+
+function wellnessTone(score) {
+  if (score == null) return 'stable';
+  if (score >= 75) return 'improving';
+  if (score >= 55) return 'medium';
+  return 'critical';
+}
+
+function formatScoreValue(score) {
+  if (score == null || Number.isNaN(Number(score))) return 'Not available';
+  return `${Math.round(Number(score))}`;
+}
+
+function formatLifecycleLabel(value) {
+  if (!value) return 'Not started';
+  return String(value).replace(/_/g, ' ');
+}
+
+async function fetchRealClientWorkspace(clientId) {
+  return getFiteatsyConsultantClientProfile(clientId);
+}
+
+const mealPlanSectionEntries = [
+  ['earlyMorning', 'Early Morning'],
+  ['breakfast', 'Breakfast'],
+  ['midMorningSnack', 'Mid Morning Snack'],
+  ['lunch', 'Lunch'],
+  ['eveningSnack', 'Evening Snack'],
+  ['dinner', 'Dinner'],
+  ['bedtimeNutrition', 'Bedtime Nourishment'],
+];
+
+function lifecycleTone(status) {
+  if (status === 'published' || status === 'approved') return 'improving';
+  if (status === 'review_ready') return 'medium';
+  if (status === 'draft') return 'pending';
+  return 'stable';
+}
+
+function workflowLabelFromLifecycle(status) {
+  if (!status) return 'Not started';
+  const labels = {
+    draft: 'Draft',
+    review_ready: 'Review Ready',
+    approved: 'Approved',
+    published: 'Published',
+    archived: 'Archived',
+  };
+  return labels[status] || formatLifecycleLabel(status);
+}
+
+function getWellnessAvailabilityCopy(key) {
+  const copy = {
+    activePerformance: {
+      label: 'Awaiting movement sync',
+      detail: 'Connect wearables or recent activity logs to unlock readiness and movement performance signals.',
+    },
+    energyBalance: {
+      label: 'Awaiting sleep and energy signals',
+      detail: 'Sleep rhythm, fatigue, and check-in history are needed before energy balance can be explained clearly.',
+    },
+    bodySupport: {
+      label: 'Profile and markers required',
+      detail: 'Body support strengthens once profile inputs and validated biomarker context are available together.',
+    },
+    nourishment: {
+      label: 'Meal quality not mapped yet',
+      detail: 'Nutrition logs, hydration rhythm, and plan adherence will unlock nourishment intelligence.',
+    },
+    recovery: {
+      label: 'Recovery baseline in progress',
+      detail: 'Recovery habits need a few days of profile, behavior, or wearable evidence before this score becomes reliable.',
+    },
+    physicalWellnessIndex: {
+      label: 'Body resilience baseline pending',
+      detail: 'Physical wellness becomes available after enough profile depth and supporting health signals are collected.',
+    },
+    stressResilience: {
+      label: 'Stress assessment needed',
+      detail: 'PSS inputs, routine quality, and recovery context are required before stress resilience can be scored.',
+    },
+  };
+  return copy[key] || {
+    label: 'Awaiting data',
+    detail: 'This signal will appear when enough synced health context is available.',
+  };
+}
+
+function deriveClientHealthStatus({ nutritionIntelligence, syncMetadata, wearableSummary, biomarkers }) {
+  if (nutritionIntelligence?.riskLevel === 'high') {
+    return {
+      label: 'Needs clinical attention',
+      tone: 'critical',
+      detail: 'Nutrition intelligence detected higher-risk nutrition or biomarker signals.',
+    };
+  }
+  if (biomarkers.some((item) => ['HIGH', 'LOW', 'CRITICAL'].includes(String(item.status || '').toUpperCase()))) {
+    return {
+      label: 'Review biomarkers',
+      tone: 'medium',
+      detail: 'Validated markers need consultant interpretation before finalizing the plan.',
+    };
+  }
+  if (wearableSummary?.connected === false || !syncMetadata?.lastSyncedAt) {
+    return {
+      label: 'Building baseline',
+      tone: 'pending',
+      detail: 'Profile and manual data are active while connected health signals are still limited.',
+    };
+  }
+  return {
+    label: 'Ready for action',
+    tone: 'improving',
+    detail: 'Profile, targets, and health signals are available for guided next steps.',
+  };
+}
+
+function buildDietPlanPayload(plan, version) {
+  if (!plan || !version) return null;
+  return {
+    plan,
+    version,
+    templateVersion: plan.templateVersion,
+    currentLifecycle: version.lifecycleStatus,
+    currentVersionNumber: version.versionNumber,
+    sourceSnapshot: version.sourceSnapshot,
+    contentSummary: version.contentSummary,
+    content: version.content,
+  };
 }
 
 function trendLabel(trend) {
@@ -899,6 +1231,30 @@ function HealthMetricCard({ icon: Icon, title, value, detail }) {
       </div>
       <p className="mt-3 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{detail}</p>
     </Surface>
+  );
+}
+
+function WellnessIntelligenceCard({ item }) {
+  const emptyState = item.value == null;
+  const fallback = getWellnessAvailabilityCopy(item.key);
+
+  return (
+    <div className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{item.title}</p>
+          <p className="mt-2 text-[30px] font-semibold tracking-[-0.03em] text-[var(--fluent-color-neutral-foreground-1)]">
+            {emptyState ? fallback.label : formatScoreValue(item.value)}
+          </p>
+        </div>
+        <StatusChip status={emptyState ? 'pending' : wellnessTone(item.value)}>
+          {emptyState ? 'Awaiting sync' : 'Live'}
+        </StatusChip>
+      </div>
+      <p className="mt-3 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
+        {emptyState ? fallback.detail : item.detail}
+      </p>
+    </div>
   );
 }
 
@@ -932,8 +1288,21 @@ function RealClientProfileDrawer({
   profile,
   loading,
   error,
+  onProfileRefresh,
+  onCreateMedicationFollowUp,
+  canManageNutrition = false,
 }) {
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('Overview');
+  const [dietPlanState, setDietPlanState] = useState(() => profile?.dietPlan || null);
+  const [dietPlanContentDraft, setDietPlanContentDraft] = useState(() => profile?.dietPlan?.content || null);
+  const [nutritionIntelligenceState, setNutritionIntelligenceState] = useState(() => profile?.nutritionIntelligence || null);
+  const [medicationState, setMedicationState] = useState(() => profile?.medicationMonitoring || null);
+  const [medicationLoading, setMedicationLoading] = useState(false);
+  const [medicationError, setMedicationError] = useState(null);
+  const [selectedMedicationId, setSelectedMedicationId] = useState(null);
+  const [nutritionActionLoading, setNutritionActionLoading] = useState(false);
+  const [nutritionActionError, setNutritionActionError] = useState(null);
+  const [nutritionActionSuccess, setNutritionActionSuccess] = useState(null);
   const message = getProfileErrorMessage(error);
   const client = profile?.client;
   const onboarding = profile?.onboarding;
@@ -941,24 +1310,55 @@ function RealClientProfileDrawer({
   const metrics = profile?.healthMetrics;
   const bodyMetrics = profile?.bodyMetrics;
   const nutritionProtocol = profile?.nutritionProtocol;
+  const nutritionIntelligence = profile?.nutritionIntelligence;
+  const nutritionSnapshot = profile?.nutritionSnapshot;
   const syncMetadata = profile?.syncMetadata;
+  const wearableSummary = profile?.wearableSummary;
+  const planWorkflow = profile?.planWorkflow;
+  const backendRecommendations = profile?.recommendations || [];
   const biomarkers = profile?.biomarkers || [];
   const reports = profile?.reports || [];
   const timeline = profile?.timeline || [];
-  const workspaceTabs = ['Overview', 'Health Profile', 'Lifestyle', 'Reports', 'Biomarkers', 'Nutrition Plan', 'Activity', 'Timeline'];
+  const workspaceTabs = ['Overview', 'Health Profile', 'Lifestyle', 'Reports', 'Biomarkers', 'Medication', ...(canManageNutrition ? ['Nutrition Plan'] : []), 'Activity', 'Timeline'];
+  const groupedWorkspaceTabs = [
+    { key: 'Overview', label: 'Overview' },
+    { key: 'Health Profile', label: 'Health Intelligence' },
+    { key: 'Medication', label: 'Medication' },
+    ...(canManageNutrition ? [{ key: 'Nutrition Plan', label: 'Nutrition' }] : []),
+    { key: 'Reports', label: 'Reports' },
+    { key: 'Activity', label: 'Activity' },
+    { key: 'Timeline', label: 'Timeline' },
+  ];
   const goalLabel = onboarding?.goal || summaryClient?.program || 'Not assigned';
-  const profileStrength = healthProfile?.completionPercent ?? healthProfile?.profileCompleteness ?? summaryClient?.profileCompletedPercent;
-  const lastSynced = syncMetadata?.lastSyncedAt || healthProfile?.lastHealthUpdate || client?.lastActiveAt || summaryClient?.lastActivityAt;
+  const profileStrength = syncMetadata?.completenessScore ?? healthProfile?.completionPercent ?? healthProfile?.profileCompleteness ?? summaryClient?.profileCompletedPercent;
+  const lastSynced = syncMetadata?.lastSyncedAt || healthProfile?.updatedAtISO || healthProfile?.lastHealthUpdate || client?.lastActiveAt || summaryClient?.lastActivityAt;
+  const bodyComposition = {
+    waistCm: onboarding?.bodyComposition?.waistCm ?? healthProfile?.waistCm ?? null,
+    hipCm: onboarding?.bodyComposition?.hipCm ?? healthProfile?.hipCm ?? null,
+    neckCm: onboarding?.bodyComposition?.neckCm ?? healthProfile?.neckCm ?? null,
+    goalWeightKg: onboarding?.bodyComposition?.goalWeightKg ?? healthProfile?.goalWeightKg ?? null,
+  };
+  const sleepQuality = onboarding?.lifestyle?.sleepQuality ?? healthProfile?.sleepQualityLabel ?? null;
+  const stressLevel = onboarding?.lifestyle?.stressLevel ?? healthProfile?.stressLevelLabel ?? null;
+  const healthStatus = deriveClientHealthStatus({
+    nutritionIntelligence,
+    syncMetadata,
+    wearableSummary,
+    biomarkers,
+  });
   const riskFlags = [
     biomarkers.some((item) => String(item.name || '').toLowerCase().includes('b12') && ['LOW', 'CRITICAL'].includes(String(item.status || '').toUpperCase())) ? 'Low B12' : null,
-    ['Poor', 'Average'].includes(onboarding?.lifestyle?.sleepQuality) ? 'Poor sleep' : null,
-    ['High', 'Very High'].includes(onboarding?.lifestyle?.stressLevel) ? 'High stress' : null,
+    ['Poor', 'Average', 'Fair', 'Worst'].includes(String(sleepQuality || '')) ? 'Sleep quality needs attention' : null,
+    ['High', 'Very High', '4', '5'].includes(String(stressLevel || '')) ? 'High stress load' : null,
+    wearableSummary?.connected === false ? 'Wearable not connected' : null,
   ].filter(Boolean);
-  const recommendedActions = [
-    nutritionProtocol?.proteinTargetGrams != null ? 'Review protein target with the client' : null,
-    onboarding?.lifestyle?.sleepQuality ? 'Improve sleep routine before advancing intensity' : null,
-    biomarkers.length ? 'Review latest validated report markers' : null,
-  ].filter(Boolean);
+  const recommendedActions = backendRecommendations.length
+    ? backendRecommendations.map((item) => item.action || item.title).filter(Boolean)
+    : [
+        nutritionProtocol?.macroTargets?.proteinGrams != null ? 'Review protein target with the client' : null,
+        sleepQuality ? 'Improve sleep routine before advancing intensity' : null,
+        biomarkers.length ? 'Review latest validated report markers' : null,
+      ].filter(Boolean);
   const metricCards = [
     {
       key: 'bmi',
@@ -1010,23 +1410,284 @@ function RealClientProfileDrawer({
     { icon: Scale, title: 'BMI', value: bodyMetrics?.bmi != null ? `${bodyMetrics.bmi}` : formatMetricCardValue(metrics?.bmi, 'Complete profile'), detail: 'Body status' },
     { icon: ListChecks, title: 'Goal', value: formatDisplayValue(goalLabel), detail: 'Current programme focus' },
     { icon: Flame, title: 'Calories', value: nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : formatMetricCardValue(metrics?.tdee, 'Needs profile'), detail: 'Daily target' },
-    { icon: Dumbbell, title: 'Protein', value: nutritionProtocol?.proteinTargetGrams != null ? `${nutritionProtocol.proteinTargetGrams}g` : 'Needs profile', detail: 'Daily target' },
+    { icon: Dumbbell, title: 'Protein', value: nutritionProtocol?.macroTargets?.proteinGrams != null ? `${nutritionProtocol.macroTargets.proteinGrams}g` : 'Needs profile', detail: 'Daily target' },
     { icon: Activity, title: 'Hydration', value: nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters}L` : 'Needs profile', detail: 'Daily target' },
   ];
+  const wellnessScoreCards = [
+    { key: 'activePerformance', title: 'Active Performance', value: nutritionIntelligence?.wellnessScores?.activePerformance ?? profile?.recoveryMetrics?.activityScore?.scoreValue ?? null, detail: 'Movement and daily performance readiness' },
+    { key: 'energyBalance', title: 'Energy Balance', value: nutritionIntelligence?.wellnessScores?.energyBalance ?? profile?.recoveryMetrics?.sleepScore?.scoreValue ?? null, detail: 'Sleep and energy regulation quality' },
+    { key: 'bodySupport', title: 'Body Support', value: nutritionIntelligence?.wellnessScores?.bodySupport ?? profile?.recoveryMetrics?.bodySupportScore?.scoreValue ?? null, detail: 'Clinical support from profile and markers' },
+    { key: 'nourishment', title: 'Nourishment', value: nutritionIntelligence?.wellnessScores?.nourishment ?? profile?.recoveryMetrics?.nourishmentScore?.scoreValue ?? null, detail: 'Food quality, hydration, and meal rhythm' },
+    { key: 'recovery', title: 'Recovery', value: nutritionIntelligence?.wellnessScores?.recovery ?? profile?.recoveryMetrics?.recoveryScore?.scoreValue ?? null, detail: 'Recovery habits and restoration capacity' },
+    { key: 'physicalWellnessIndex', title: 'Physical Wellness Index', value: nutritionIntelligence?.wellnessScores?.physicalWellnessIndex ?? profile?.recoveryMetrics?.physicalWellnessIndex?.scoreValue ?? null, detail: 'Overall backend-computed body resilience' },
+    { key: 'stressResilience', title: 'Stress Resilience', value: nutritionIntelligence?.wellnessScores?.stressResilience ?? profile?.recoveryMetrics?.calmScore?.scoreValue ?? null, detail: 'Stress handling from PSS and recovery context' },
+  ];
+  const medicationMonitoring = medicationState || profile?.medicationMonitoring || null;
+  const medicationSummary = medicationMonitoring?.summary || null;
+  const activeMedications = Array.isArray(medicationMonitoring?.activeMedications) ? medicationMonitoring.activeMedications : [];
+  const todaysMedicationDoses = Array.isArray(medicationMonitoring?.todaysDoses) ? medicationMonitoring.todaysDoses : [];
+  const medicationHistory = Array.isArray(medicationMonitoring?.history) ? medicationMonitoring.history : [];
+  const selectedMedication = activeMedications.find((item) => item.id === selectedMedicationId) || activeMedications[0] || null;
+
+  useEffect(() => {
+    setDietPlanState(profile?.dietPlan || null);
+    setDietPlanContentDraft(profile?.dietPlan?.content || null);
+    setNutritionIntelligenceState(profile?.nutritionIntelligence || null);
+    setMedicationState(profile?.medicationMonitoring || null);
+    setSelectedMedicationId(null);
+    setMedicationError(null);
+    setNutritionActionError(null);
+    setNutritionActionSuccess(null);
+  }, [profile?.dietPlan, profile?.nutritionIntelligence, profile?.medicationMonitoring, profile?.client?.id]);
 
   useEffect(() => {
     if (isOpen) setActiveWorkspaceTab('Overview');
   }, [isOpen, summaryClient?.id]);
 
+  useEffect(() => {
+    if (!workspaceTabs.includes(activeWorkspaceTab)) {
+      setActiveWorkspaceTab('Overview');
+    }
+  }, [activeWorkspaceTab, workspaceTabs]);
+
+  const refreshWorkspace = useCallback(async () => {
+    if (typeof onProfileRefresh !== 'function' || !summaryClient?.id) return null;
+    const refreshed = await onProfileRefresh(summaryClient.id);
+    return refreshed;
+  }, [onProfileRefresh, summaryClient?.id]);
+
+  const refreshMedications = useCallback(async () => {
+    if (!summaryClient?.id) return null;
+    setMedicationLoading(true);
+    setMedicationError(null);
+    try {
+      const payload = await getFiteatsyConsultantClientMedications(summaryClient.id);
+      const monitoring = payload?.medicationMonitoring || null;
+      setMedicationState(monitoring);
+      setSelectedMedicationId((current) => current || monitoring?.activeMedications?.[0]?.id || null);
+      return monitoring;
+    } catch (fetchError) {
+      setMedicationError(fetchError);
+      return null;
+    } finally {
+      setMedicationLoading(false);
+    }
+  }, [summaryClient?.id]);
+
+  const syncNutritionSurfaces = useCallback(async () => {
+    if (!summaryClient?.id) return;
+    try {
+      const [latestPlan, latestIntelligence] = await Promise.all([
+        getFiteatsyConsultantLatestDietPlan(summaryClient.id).catch((error) => {
+          if (error?.status === 404) return null;
+          throw error;
+        }),
+        getFiteatsyConsultantNutritionIntelligence(summaryClient.id).catch((error) => {
+          if (error?.status === 404) return null;
+          throw error;
+        }),
+      ]);
+
+      if (latestPlan?.plan && latestPlan?.version) {
+        const nextDietPlan = buildDietPlanPayload(latestPlan.plan, latestPlan.version);
+        setDietPlanState(nextDietPlan);
+        setDietPlanContentDraft(nextDietPlan?.content || null);
+      } else if (!profile?.dietPlan) {
+        setDietPlanState(null);
+        setDietPlanContentDraft(null);
+      }
+
+      if (latestIntelligence?.intelligence) {
+        setNutritionIntelligenceState(latestIntelligence.intelligence);
+      } else if (!profile?.nutritionIntelligence) {
+        setNutritionIntelligenceState(null);
+      }
+    } catch (error) {
+      setNutritionActionError(
+        getNutritionWorkflowErrorMessage(error, 'Unable to load nutrition intelligence.')
+      );
+    }
+  }, [profile?.dietPlan, profile?.nutritionIntelligence, summaryClient?.id]);
+
+  useEffect(() => {
+    if (!isOpen || !summaryClient?.id) return;
+    void syncNutritionSurfaces();
+  }, [isOpen, summaryClient?.id, syncNutritionSurfaces]);
+
+  useEffect(() => {
+    if (!isOpen || !summaryClient?.id) return;
+    void refreshMedications();
+  }, [isOpen, summaryClient?.id, refreshMedications]);
+
+  const handleGenerateDietPlan = useCallback(async () => {
+    if (!summaryClient?.id || nutritionActionLoading) return;
+    setNutritionActionLoading(true);
+    setNutritionActionError(null);
+    setNutritionActionSuccess(null);
+    try {
+      const response = await generateFiteatsyConsultantDietPlanDraft(summaryClient.id, {});
+      const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
+      setDietPlanState(nextDietPlan);
+      setDietPlanContentDraft(nextDietPlan?.content || null);
+      if (response?.intelligence) {
+        setNutritionIntelligenceState(response.intelligence);
+      }
+      await refreshWorkspace();
+      setActiveWorkspaceTab('Nutrition Plan');
+      setNutritionActionSuccess('Diet chart draft generated from the live Fiteatsy intelligence contract.');
+    } catch (actionError) {
+      setNutritionActionError(getNutritionWorkflowErrorMessage(actionError, 'Unable to generate a diet chart draft right now.'));
+    } finally {
+      setNutritionActionLoading(false);
+    }
+  }, [nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
+
+  const handleDietFieldChange = useCallback((path, value) => {
+    setDietPlanContentDraft((current) => {
+      if (!current) return current;
+      const next = structuredClone(current);
+      let cursor = next;
+      for (let index = 0; index < path.length - 1; index += 1) {
+        cursor = cursor[path[index]];
+      }
+      cursor[path[path.length - 1]] = value;
+      return next;
+    });
+  }, []);
+
+  const handleSaveDraft = useCallback(async () => {
+    if (!summaryClient?.id || !dietPlanState?.plan?.id || !dietPlanContentDraft || nutritionActionLoading) return;
+    setNutritionActionLoading(true);
+    setNutritionActionError(null);
+    setNutritionActionSuccess(null);
+    try {
+      const response = await updateFiteatsyConsultantDietPlanDraft(summaryClient.id, dietPlanState.plan.id, {
+        content: dietPlanContentDraft,
+        reviewNotes: 'Consultant reviewed and updated diet chart.',
+      });
+      const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
+      setDietPlanState(nextDietPlan);
+      setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
+      await refreshWorkspace();
+      setNutritionActionSuccess('Diet chart saved and moved to review ready.');
+    } catch (actionError) {
+      setNutritionActionError(getNutritionWorkflowErrorMessage(actionError, 'Unable to save the diet chart changes right now.'));
+    } finally {
+      setNutritionActionLoading(false);
+    }
+  }, [dietPlanContentDraft, dietPlanState?.plan?.id, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
+
+  const handleApprovePlan = useCallback(async () => {
+    if (!summaryClient?.id || !dietPlanState?.plan?.id || nutritionActionLoading) return;
+    setNutritionActionLoading(true);
+    setNutritionActionError(null);
+    setNutritionActionSuccess(null);
+    try {
+      const response = await approveFiteatsyConsultantDietPlan(summaryClient.id, dietPlanState.plan.id);
+      const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
+      setDietPlanState(nextDietPlan);
+      setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
+      await refreshWorkspace();
+      setNutritionActionSuccess('Diet chart approved. It is ready for publish when you are satisfied.');
+    } catch (actionError) {
+      setNutritionActionError(getNutritionWorkflowErrorMessage(actionError, 'Unable to approve this diet chart.'));
+    } finally {
+      setNutritionActionLoading(false);
+    }
+  }, [dietPlanContentDraft, dietPlanState?.plan?.id, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
+
+  const handlePublishPlan = useCallback(async () => {
+    if (!summaryClient?.id || !dietPlanState?.plan?.id || nutritionActionLoading) return;
+    setNutritionActionLoading(true);
+    setNutritionActionError(null);
+    setNutritionActionSuccess(null);
+    try {
+      const response = await publishFiteatsyConsultantDietPlan(summaryClient.id, dietPlanState.plan.id);
+      const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
+      setDietPlanState(nextDietPlan);
+      setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
+      await refreshWorkspace();
+      setNutritionActionSuccess('Diet chart published. The client mobile app can now consume the published plan only.');
+    } catch (actionError) {
+      setNutritionActionError(getNutritionWorkflowErrorMessage(actionError, 'Unable to publish this diet chart.'));
+    } finally {
+      setNutritionActionLoading(false);
+    }
+  }, [dietPlanContentDraft, dietPlanState?.plan?.id, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
+
   const renderOverview = () => (
     <div className="space-y-4">
       <Surface className="p-5" animated>
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Health Snapshot</p>
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="max-w-[620px]">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Health Snapshot</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
+              A consultant-ready view of today&apos;s measurable health state, backend nutrition targets, and the clearest next action.
+            </p>
+          </div>
+          <div className="min-w-[220px] rounded-[20px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Client health status</p>
+                <p className="mt-2 text-base font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{healthStatus.label}</p>
+              </div>
+              <StatusChip status={healthStatus.tone}>{healthStatus.tone === 'pending' ? 'Baseline' : 'Live'}</StatusChip>
+            </div>
+            <p className="mt-3 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{healthStatus.detail}</p>
+          </div>
+        </div>
         <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           {snapshotCards.map((metric) => (
             <HealthMetricCard key={metric.title} icon={metric.icon} title={metric.title} value={metric.value} detail={metric.detail} />
           ))}
         </div>
+      </Surface>
+      <Surface className="p-5" animated>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Medication</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
+              Read-only adherence snapshot from the client&apos;s medication tracker.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setActiveWorkspaceTab('Medication')}
+              className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)]"
+            >
+              View medication
+            </button>
+            {typeof onCreateMedicationFollowUp === 'function' ? (
+              <button
+                onClick={() => onCreateMedicationFollowUp(summaryClient?.id, 'Review medication adherence')}
+                className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)]"
+              >
+                Create follow-up
+              </button>
+            ) : null}
+          </div>
+        </div>
+        {medicationLoading && !medicationMonitoring ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, index) => <LoadingSkeleton key={index} className="h-20 w-full" />)}
+          </div>
+        ) : medicationError ? (
+          <div className="mt-4 rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-4 text-sm text-[var(--fluent-color-status-danger-foreground)]">
+            Unable to load medication monitoring. {medicationError?.status === 403 ? 'This client is not assigned for medication access.' : medicationError?.message || ''}
+          </div>
+        ) : medicationSummary ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <DetailField label="Active medications" value={`${medicationSummary.activeMedicationCount || 0}`} />
+            <DetailField label="Today" value={formatMedicationAdherence(medicationSummary.today, 'takenCount')} />
+            <DetailField label="7-day adherence" value={formatMedicationAdherencePercent(medicationSummary.sevenDay)} />
+            <DetailField label="Missed" value={`${medicationSummary.sevenDay?.missed || medicationSummary.today?.missed || 0}`} />
+            <DetailField label="Next dose" value={formatNextMedicationDose(medicationSummary.nextDose)} />
+          </div>
+        ) : (
+          <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+            No medication data synced for this client yet.
+          </div>
+        )}
       </Surface>
       <div className="grid gap-4 lg:grid-cols-2">
         <Surface className="p-5" animated>
@@ -1059,6 +1720,74 @@ function RealClientProfileDrawer({
           </div>
         </Surface>
       </div>
+      <Surface className="p-5" animated>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Wellness Intelligence</p>
+            <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+              Backend-owned scores based on profile, reports, biomarkers, wearables, and stress assessment.
+            </p>
+          </div>
+          <div className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
+            Source: {formatDisplayValue(syncMetadata?.dataSource, 'Fiteatsy intelligence')}
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {wellnessScoreCards.map((item) => (
+            <WellnessIntelligenceCard key={item.key} item={item} />
+          ))}
+        </div>
+      </Surface>
+      <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+        <Surface className="p-5" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Nutrition Intelligence</p>
+          {nutritionIntelligenceState ? (
+            <div className="mt-4 space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusChip status={nutritionIntelligenceState.riskLevel === 'high' ? 'critical' : nutritionIntelligenceState.riskLevel === 'needs_attention' ? 'medium' : 'improving'}>
+                  {nutritionIntelligenceState.riskLevel.replace(/_/g, ' ')}
+                </StatusChip>
+                {(nutritionIntelligenceState.nutritionFocus || []).slice(0, 4).map((item) => (
+                  <span key={item} className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{item}</span>
+                ))}
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {(nutritionIntelligenceState.observations || []).slice(0, 4).map((item) => (
+                  <div key={item.title} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
+                    <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.title}</p>
+                    <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{item.detail}</p>
+                    <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Sources: {item.sources.join(', ')}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+              Nutrition intelligence is not available yet for this client.
+            </div>
+          )}
+        </Surface>
+        <Surface className="p-5" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Biomarker Snapshot</p>
+          <div className="mt-4 space-y-3">
+            {nutritionIntelligenceState?.biomarkerSnapshot?.length ? nutritionIntelligenceState.biomarkerSnapshot.slice(0, 5).map((item) => (
+              <div key={`${item.name}-${item.testDate}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.name}</p>
+                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{`${item.value} ${item.unit}`.trim()} • {formatDisplayValue(item.referenceRange)}</p>
+                  </div>
+                  <StatusChip status={biomarkerTone(item.status)}>{item.status}</StatusChip>
+                </div>
+              </div>
+            )) : (
+              <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                No biomarker snapshot is available yet.
+              </div>
+            )}
+          </div>
+        </Surface>
+      </div>
     </div>
   );
 
@@ -1077,9 +1806,11 @@ function RealClientProfileDrawer({
         <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Body Composition</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <DetailField label="BMI" value={bodyMetrics?.bmi != null ? `${bodyMetrics.bmi}` : 'Complete profile to calculate'} />
-          <DetailField label="Body Fat" value={bodyMetrics?.bodyFatPct != null ? `${bodyMetrics.bodyFatPct}%` : formatMetricCardValue(metrics?.bodyFat, 'Measurements required')} />
-          <DetailField label="Waist" value={onboarding?.bodyComposition?.waistCm != null ? `${onboarding.bodyComposition.waistCm} cm` : 'Not available'} />
-          <DetailField label="Hip" value={onboarding?.bodyComposition?.hipCm != null ? `${onboarding.bodyComposition.hipCm} cm` : 'Not available'} />
+          <DetailField label="Body Fat" value={bodyMetrics?.bodyFat != null ? `${bodyMetrics.bodyFat}%` : formatMetricCardValue(metrics?.bodyFat, 'Measurements required')} />
+          <DetailField label="Waist" value={bodyComposition.waistCm != null ? `${bodyComposition.waistCm} cm` : 'Not available'} />
+          <DetailField label="Hip" value={bodyComposition.hipCm != null ? `${bodyComposition.hipCm} cm` : 'Not available'} />
+          <DetailField label="Neck" value={bodyComposition.neckCm != null ? `${bodyComposition.neckCm} cm` : 'Not available'} />
+          <DetailField label="Goal weight" value={bodyComposition.goalWeightKg != null ? `${bodyComposition.goalWeightKg} kg` : 'Not available'} />
         </div>
       </Surface>
       <Surface className="p-5" animated>
@@ -1101,8 +1832,8 @@ function RealClientProfileDrawer({
       <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Lifestyle</p>
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <DetailField label="Sleep" value={onboarding?.lifestyle?.sleepHours != null ? `${onboarding.lifestyle.sleepHours} hrs` : 'Complete profile to calculate'} />
-        <DetailField label="Sleep quality" value={formatDisplayValue(onboarding?.lifestyle?.sleepQuality)} />
-        <DetailField label="Stress" value={formatDisplayValue(onboarding?.lifestyle?.stressLevel)} />
+        <DetailField label="Sleep quality" value={formatDisplayValue(sleepQuality)} />
+        <DetailField label="Stress" value={formatDisplayValue(stressLevel)} />
         <DetailField label="Activity" value={formatDisplayValue(onboarding?.activityLevel)} />
         <DetailField label="Food preference" value={formatDisplayValue(onboarding?.dietPreference)} />
         <DetailField label="Preferred cuisines" value={formatDisplayValue(onboarding?.nutrition?.preferredCuisines)} />
@@ -1123,7 +1854,7 @@ function RealClientProfileDrawer({
                 <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{formatDateLabel(report.reportDate || report.createdAt || report.uploadedAt)}</p>
                 <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{report.title || report.originalFilename || 'Blood Report Uploaded'}</p>
               </div>
-              <StatusChip status={report.status === 'COMPLETED' ? 'stable' : 'medium'}>{report.status || 'Uploaded'}</StatusChip>
+              <StatusChip status={String(report.processingStatus || report.status || '').toUpperCase() === 'PUBLISHED' ? 'stable' : 'medium'}>{report.processingStatus || report.status || 'Uploaded'}</StatusChip>
             </div>
             <p className="mt-3 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
               AI Extracted: {biomarkers.slice(0, 5).map((item) => item.name).join(', ') || 'No validated biomarkers yet'}
@@ -1172,26 +1903,483 @@ function RealClientProfileDrawer({
   );
 
   const renderNutrition = () => (
-    <Surface className="p-5" animated>
-      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Nutrition Plan</p>
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <DetailField label="Current goal" value={formatDisplayValue(goalLabel)} />
-        <DetailField label="Calories" value={nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : 'No target calculated'} />
-        <DetailField label="Protein" value={nutritionProtocol?.proteinTargetGrams != null ? `${nutritionProtocol.proteinTargetGrams}g` : 'No target calculated'} />
-        <DetailField label="Hydration" value={nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters}L` : 'No target calculated'} />
+    !canManageNutrition ? (
+      <Surface className="p-5" animated>
+        <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+          Nutrition workflow is restricted to consultant-authorized roles.
+        </div>
+      </Surface>
+    ) : (
+    <div className="space-y-4">
+      <Surface className="p-5" animated>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Prepare Personalised Diet Chart</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
+              Build the diet plan from live Fiteatsy health profile, validated biomarkers, wellness intelligence, and nutrition targets. No frontend calculations are used.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={handleGenerateDietPlan}
+              disabled={nutritionActionLoading}
+              className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {nutritionActionLoading && !dietPlanState ? 'Preparing...' : 'Prepare Diet Chart'}
+            </button>
+            {dietPlanState?.plan?.id ? (
+              <>
+                <button
+                  onClick={handleSaveDraft}
+                  disabled={nutritionActionLoading || !dietPlanContentDraft}
+                  className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Save Draft
+                </button>
+                <button
+                  onClick={handleApprovePlan}
+                  disabled={nutritionActionLoading || !['draft', 'review_ready'].includes(dietPlanState.currentLifecycle)}
+                  className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Approve
+                </button>
+                <button
+                  onClick={handlePublishPlan}
+                  disabled={nutritionActionLoading || dietPlanState.currentLifecycle !== 'approved'}
+                  className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Publish
+                </button>
+              </>
+            ) : null}
+          </div>
+        </div>
+        {nutritionActionError ? (
+          <div className="mt-4 rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-4 text-sm text-[var(--fluent-color-status-danger-foreground)]">
+            <p className="font-semibold">Unable to load nutrition intelligence.</p>
+            <p className="mt-1">{nutritionActionError}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => void syncNutritionSurfaces()}
+                className="rounded-full border border-[var(--fluent-color-status-danger-foreground)] px-3 py-1.5 text-xs font-semibold"
+              >
+                Retry
+              </button>
+              <button
+                className="rounded-full border border-transparent bg-[rgba(255,255,255,0.2)] px-3 py-1.5 text-xs font-semibold"
+              >
+                Contact support
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {nutritionActionSuccess ? (
+          <div className="mt-4 rounded-[16px] bg-[var(--fluent-color-status-success-background)] px-4 py-3 text-sm text-[var(--fluent-color-status-success-foreground)]">
+            {nutritionActionSuccess}
+          </div>
+        ) : null}
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <DetailField label="Current goal" value={formatDisplayValue(goalLabel)} />
+          <DetailField label="Calories" value={nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : 'No target calculated'} />
+          <DetailField label="Protein" value={nutritionProtocol?.macroTargets?.proteinGrams != null ? `${nutritionProtocol.macroTargets.proteinGrams}g` : 'No target calculated'} />
+          <DetailField label="Hydration" value={nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters}L` : 'No target calculated'} />
+        </div>
+      </Surface>
+
+      <div className="grid gap-4 xl:grid-cols-[0.96fr_1.04fr]">
+        <Surface className="p-5" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Generation Inputs</p>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <DetailField label="Age" value={formatDisplayValue(nutritionIntelligenceState?.clientSummary?.age)} />
+            <DetailField label="Gender" value={formatDisplayValue(nutritionIntelligenceState?.clientSummary?.gender)} />
+            <DetailField label="Weight" value={nutritionIntelligenceState?.clientSummary?.weightKg != null ? `${nutritionIntelligenceState.clientSummary.weightKg} kg` : 'Not available'} />
+            <DetailField label="BMI" value={nutritionIntelligenceState?.clientSummary?.bmi != null ? `${nutritionIntelligenceState.clientSummary.bmi}` : 'Not available'} />
+            <DetailField label="Stress" value={formatDisplayValue(nutritionIntelligenceState?.clientSummary?.stressBand)} />
+            <DetailField label="Water intake" value={nutritionIntelligenceState?.clientSummary?.waterIntakeLiters != null ? `${nutritionIntelligenceState.clientSummary.waterIntakeLiters} L` : 'Not available'} />
+            <DetailField label="Activity level" value={formatDisplayValue(nutritionIntelligenceState?.clientSummary?.activityLevel)} />
+            <DetailField label="Diet preference" value={formatDisplayValue(nutritionIntelligenceState?.generationInputs?.dietPreference)} />
+          </div>
+          <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
+            <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Lifestyle Summary</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
+              {nutritionIntelligenceState?.generationInputs?.lifestyleSummary || 'Lifestyle summary is not available yet.'}
+            </p>
+          </div>
+        </Surface>
+
+        <Surface className="p-5" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultant Guidance</p>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
+              <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Health Observations</p>
+              <div className="mt-3 space-y-2">
+                {(nutritionIntelligenceState?.observations || []).slice(0, 4).map((item) => (
+                  <div key={item.title} className="rounded-[14px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-3">
+                    <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{item.title}</p>
+                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.detail}</p>
+                  </div>
+                ))}
+                {!nutritionIntelligenceState?.observations?.length ? (
+                  <div className="rounded-[14px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-3 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                    No observations generated yet.
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
+              <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Consultant Actions</p>
+              <div className="mt-3 space-y-2">
+                {(nutritionIntelligenceState?.consultantActions || []).slice(0, 5).map((item, index) => (
+                  <div key={`${item}-${index}`} className="rounded-[14px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-3 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                    {item}
+                  </div>
+                ))}
+                {!nutritionIntelligenceState?.consultantActions?.length ? (
+                  <div className="rounded-[14px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-3 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                    No consultant actions available yet.
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </Surface>
       </div>
-      <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-        No active meal plan assigned. The diet-plan workflow will create breakfast, lunch, dinner, snack, supplement, and client-note sections here.
+
+      {dietPlanState?.content && dietPlanContentDraft ? (
+        <div className="space-y-4">
+          <Surface className="p-5" animated>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Diet Plan Lifecycle</p>
+                <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                  Version {dietPlanState.currentVersionNumber} • Template {dietPlanState.templateVersion}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusChip status={lifecycleTone(dietPlanState.currentLifecycle)}>{workflowLabelFromLifecycle(dietPlanState.currentLifecycle)}</StatusChip>
+                <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
+                  Workflow: {formatDisplayValue(planWorkflow?.stageLabel)}
+                </span>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <DetailField label="Prepared by" value={formatDisplayValue(dietPlanContentDraft.nutritionSnapshot?.preparedBy)} />
+              <DetailField label="Programme" value={formatDisplayValue(dietPlanContentDraft.nutritionSnapshot?.programmeName)} />
+              <DetailField label="Calories" value={dietPlanContentDraft.dailyTargets?.calories != null ? `${dietPlanContentDraft.dailyTargets.calories} kcal` : 'Not available'} />
+              <DetailField label="Hydration" value={dietPlanContentDraft.dailyTargets?.hydration != null ? `${dietPlanContentDraft.dailyTargets.hydration} L` : 'Not available'} />
+            </div>
+          </Surface>
+
+          <Surface className="p-5" animated>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Meal Plan Editor</p>
+            <div className="mt-4 space-y-4">
+              {mealPlanSectionEntries.map(([key, label]) => {
+                const section = dietPlanContentDraft.mealPlan?.[key];
+                return (
+                  <div key={key} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                    <div className="grid gap-3 lg:grid-cols-[0.78fr_1.22fr]">
+                      <div className="space-y-3">
+                        <DetailField label={`${label} window`} value={section?.window || 'Not set'} />
+                        <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-3">
+                          <p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Focus</p>
+                          <textarea
+                            value={section?.focus || ''}
+                            onChange={(event) => handleDietFieldChange(['mealPlan', key, 'focus'], event.target.value)}
+                            className="mt-2 min-h-[76px] w-full resize-y rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-3">
+                        {(section?.options || []).map((option, optionIndex) => (
+                          <div key={`${key}-option-${optionIndex}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] p-3">
+                            <div className="grid gap-3 md:grid-cols-2">
+                              <label className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">
+                                Meal
+                                <input
+                                  value={option.meal || ''}
+                                  onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'meal'], event.target.value)}
+                                  className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                                />
+                              </label>
+                              <label className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">
+                                Portion
+                                <input
+                                  value={option.portion || ''}
+                                  onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'portion'], event.target.value)}
+                                  className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                                />
+                              </label>
+                              <label className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">
+                                Calories
+                                <input
+                                  value={option.approxKcal ?? ''}
+                                  onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'approxKcal'], event.target.value === '' ? null : Number(event.target.value))}
+                                  className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                                />
+                              </label>
+                              <label className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">
+                                Protein
+                                <input
+                                  value={option.proteinGrams ?? ''}
+                                  onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'proteinGrams'], event.target.value === '' ? null : Number(event.target.value))}
+                                  className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                                />
+                              </label>
+                            </div>
+                            <label className="mt-3 block text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">
+                              Prep note
+                              <textarea
+                                value={option.prepNote || ''}
+                                onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'prepNote'], event.target.value)}
+                                className="mt-2 min-h-[72px] w-full resize-y rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                              />
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Surface>
+        </div>
+      ) : (
+        <Surface className="p-5" animated>
+          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+            No active meal plan assigned yet. Use “Prepare Diet Chart” to generate a consultant-assisted draft from the live Fiteatsy nutrition intelligence.
+          </div>
+        </Surface>
+      )}
+    </div>
+    )
+  );
+
+  const renderMedication = () => (
+    <div className="space-y-4">
+      <Surface className="p-5" animated>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Medication Monitoring</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
+              Read-only medication adherence from the client&apos;s Fiteatsy medication tracker. Consultants can review, but cannot edit medicine data.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => void refreshMedications()}
+              disabled={medicationLoading}
+              className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {medicationLoading ? 'Refreshing...' : 'Refresh'}
+            </button>
+            {typeof onCreateMedicationFollowUp === 'function' ? (
+              <button
+                onClick={() => onCreateMedicationFollowUp(summaryClient?.id, 'Review medication adherence')}
+                className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]"
+              >
+                Create follow-up
+              </button>
+            ) : null}
+          </div>
+        </div>
+        {medicationError ? (
+          <div className="mt-4 rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-4 text-sm text-[var(--fluent-color-status-danger-foreground)]">
+            <p className="font-semibold">Unable to load medication monitoring.</p>
+            <p className="mt-1">
+              {medicationError?.status === 403
+                ? 'Medication monitoring is restricted to assigned consultants.'
+                : medicationError?.message || 'Try again after the backend connection recovers.'}
+            </p>
+          </div>
+        ) : null}
+        {medicationLoading && !medicationMonitoring ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+            {Array.from({ length: 6 }).map((_, index) => <LoadingSkeleton key={index} className="h-20 w-full" />)}
+          </div>
+        ) : medicationSummary ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <DetailField label="Active" value={`${medicationSummary.activeMedicationCount || 0}`} />
+            <DetailField label="Today" value={formatMedicationAdherence(medicationSummary.today)} />
+            <DetailField label="7 days" value={formatMedicationAdherencePercent(medicationSummary.sevenDay)} />
+            <DetailField label="30 days" value={formatMedicationAdherencePercent(medicationSummary.thirtyDay)} />
+            <DetailField label="Missed / skipped" value={`${medicationSummary.sevenDay?.missed || 0} / ${medicationSummary.sevenDay?.skipped || 0}`} />
+            <DetailField label="Next dose" value={formatNextMedicationDose(medicationSummary.nextDose)} />
+          </div>
+        ) : (
+          <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+            No medication data has synced for this client yet.
+          </div>
+        )}
+      </Surface>
+
+      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+        <Surface className="p-5" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Today&apos;s Medication</p>
+          <div className="mt-4 space-y-3">
+            {todaysMedicationDoses.length ? todaysMedicationDoses.map((dose) => (
+              <div key={`${dose.medicationId}-${dose.scheduledFor}`} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{dose.scheduledTime || 'Time pending'} · {dose.medicationName}</p>
+                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                      {[dose.dosage, dose.type, dose.foodRelationLabel].filter(Boolean).join(' · ') || 'Dose details not available'}
+                    </p>
+                    {dose.actionedAt ? (
+                      <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Actioned {formatMedicationDateTime(dose.actionedAt)}</p>
+                    ) : null}
+                    {dose.snoozedUntil ? (
+                      <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Snoozed until {formatMedicationDateTime(dose.snoozedUntil)}</p>
+                    ) : null}
+                    {dose.skipReason ? (
+                      <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Skip reason: {dose.skipReason}</p>
+                    ) : null}
+                  </div>
+                  <span className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-medium ${medicationStatusTone(dose.status)}`}>
+                    {formatMedicationStatus(dose.status)}
+                  </span>
+                </div>
+              </div>
+            )) : (
+              <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                No medication doses are scheduled for today.
+              </div>
+            )}
+          </div>
+        </Surface>
+
+        <Surface className="p-5" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Active Medications</p>
+          <div className="mt-4 space-y-3">
+            {activeMedications.length ? activeMedications.map((medication) => (
+              <button
+                key={medication.id}
+                onClick={() => setSelectedMedicationId(medication.id)}
+                className={`w-full rounded-[18px] border p-4 text-left transition ${
+                  selectedMedication?.id === medication.id
+                    ? 'border-[var(--fluent-color-brand-stroke-1)] bg-[rgba(99,124,239,0.12)]'
+                    : 'border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] hover:border-[var(--fluent-color-neutral-stroke-2)]'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{medication.name}</p>
+                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{[medication.dosage, medication.type].filter(Boolean).join(' · ') || 'Dose details not available'}</p>
+                    <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+                      {formatMedicationFrequency(medication.frequency)} · {(medication.scheduledTimes || []).map((slot) => slot.displayTime).join(', ') || 'No schedule'}
+                    </p>
+                  </div>
+                  <StatusChip status={medication.reminderEnabled ? 'stable' : 'pending'}>
+                    Reminder {medication.reminderEnabled ? 'on' : 'off'}
+                  </StatusChip>
+                </div>
+              </button>
+            )) : (
+              <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                No active medications are synced for this client.
+              </div>
+            )}
+          </div>
+        </Surface>
       </div>
-    </Surface>
+
+      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+        <Surface className="p-5" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Medication Detail</p>
+          {selectedMedication ? (
+            <div className="mt-4 space-y-4">
+              <div>
+                <p className="text-[24px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">{selectedMedication.name}</p>
+                <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{[selectedMedication.dosage, selectedMedication.type].filter(Boolean).join(' · ')}</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <DetailField label="Frequency" value={formatMedicationFrequency(selectedMedication.frequency)} />
+                <DetailField label="Scheduled times" value={(selectedMedication.scheduledTimes || []).map((slot) => slot.displayTime).join(', ') || 'Not available'} />
+                <DetailField label="Food relation" value={(selectedMedication.scheduledTimes || []).map((slot) => slot.mealRelationLabel).filter(Boolean).join(', ') || 'Not available'} />
+                <DetailField label="Duration" value={formatMedicationDuration(selectedMedication.duration)} />
+                <DetailField label="Reminder" value={selectedMedication.reminderEnabled ? 'Enabled' : 'Disabled'} />
+                <DetailField label="7-day adherence" value={formatMedicationAdherencePercent(selectedMedication.recentAdherence)} />
+              </div>
+              <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                Consultant access is read-only. Medication changes must be made by the client in Fiteatsy.
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+              Select an active medication to view read-only details.
+            </div>
+          )}
+        </Surface>
+
+        <Surface className="p-5" animated>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Dose History</p>
+              <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Latest synced dose events across the client&apos;s medication tracker.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <StatusChip status="stable">7D {formatMedicationAdherencePercent(medicationSummary?.sevenDay)}</StatusChip>
+              <StatusChip status="stable">30D {formatMedicationAdherencePercent(medicationSummary?.thirtyDay)}</StatusChip>
+            </div>
+          </div>
+          <div className="mt-4 space-y-3">
+            {medicationHistory.length ? medicationHistory.slice(0, 24).map((event) => (
+              <div key={event.id || `${event.medicationId}-${event.scheduledFor}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{event.scheduledTime || formatMedicationDateTime(event.scheduledFor)} · {event.medicationName}</p>
+                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                      Scheduled {formatMedicationDateTime(event.scheduledFor)}{event.dosage ? ` · ${event.dosage}` : ''}
+                    </p>
+                    {event.actionedAt ? (
+                      <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Actioned {formatMedicationDateTime(event.actionedAt)}</p>
+                    ) : null}
+                    {event.skipReason ? (
+                      <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Skip reason: {event.skipReason}</p>
+                    ) : null}
+                  </div>
+                  <span className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-medium ${medicationStatusTone(event.status)}`}>
+                    {formatMedicationStatus(event.status)}
+                  </span>
+                </div>
+              </div>
+            )) : (
+              <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                No medication dose history has synced yet.
+              </div>
+            )}
+          </div>
+        </Surface>
+      </div>
+    </div>
   );
 
   const renderActivity = () => (
     <Surface className="p-5" animated>
       <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Activity</p>
-      <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-        Connect wearable device to unlock recovery insights.
-      </div>
+      {wearableSummary?.connected ? (
+        <div className="mt-4 space-y-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <DetailField label="Connected sources" value={formatDisplayValue(wearableSummary?.dataSources)} />
+            <DetailField label="Records synced" value={wearableSummary?.recordsCount != null ? `${wearableSummary.recordsCount}` : 'Not available'} />
+            <DetailField label="Last sync" value={formatDateLabel(wearableSummary?.lastSyncedAt)} />
+            <DetailField label="Latest metric" value={wearableSummary?.latestMetrics?.[0] ? `${wearableSummary.latestMetrics[0].metricType} • ${wearableSummary.latestMetrics[0].latestValue} ${wearableSummary.latestMetrics[0].unit}` : 'Not available'} />
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {(wearableSummary?.latestMetrics || []).slice(0, 6).map((metric) => (
+              <div key={`${metric.metricType}-${metric.measuredAt}`} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{metric.metricType}</p>
+                <p className="mt-2 text-[22px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">{`${metric.latestValue} ${metric.unit}`.trim()}</p>
+                <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{metric.sourceProvider} • {formatDateLabel(metric.measuredAt)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+          No wearable summary is available yet. The client can still continue using manual health profile, reports, and onboarding flows.
+        </div>
+      )}
     </Surface>
   );
 
@@ -1200,9 +2388,12 @@ function RealClientProfileDrawer({
       <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Timeline</p>
       <div className="mt-4 space-y-3">
         {timeline.length ? timeline.map((event) => (
-          <div key={event.id || `${event.type}-${event.createdAt}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+          <div key={event.id || `${event.type}-${event.timestamp || 'unknown'}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
             <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{event.title || event.type}</p>
-            <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{formatDateLabel(event.createdAt || event.timestamp)}</p>
+            <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{event.detail || 'Client activity synchronized.'}</p>
+            <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+              {formatDateLabel(event.timestamp || event.createdAt)}{event.source ? ` • ${String(event.source).replace(/_/g, ' ')}` : ''}
+            </p>
           </div>
         )) : (
           <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
@@ -1219,6 +2410,7 @@ function RealClientProfileDrawer({
     Lifestyle: renderLifestyle,
     Reports: renderReports,
     Biomarkers: renderBiomarkers,
+    Medication: renderMedication,
     'Nutrition Plan': renderNutrition,
     Activity: renderActivity,
     Timeline: renderTimeline,
@@ -1255,6 +2447,9 @@ function RealClientProfileDrawer({
                     </p>
                     <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
                       <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5">
+                        Status: {healthStatus.label}
+                      </span>
+                      <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5">
                         Profile completeness {profileStrength != null ? `${profileStrength}%` : 'pending'}
                       </span>
                       <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5">
@@ -1263,9 +2458,15 @@ function RealClientProfileDrawer({
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <button className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">
-                      Generate Diet Plan
-                    </button>
+                    {canManageNutrition ? (
+                      <button
+                        onClick={handleGenerateDietPlan}
+                        disabled={nutritionActionLoading}
+                        className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {nutritionActionLoading && !dietPlanState ? 'Preparing...' : 'Generate Diet Plan'}
+                      </button>
+                    ) : null}
                     <button className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
                       Message Client
                     </button>
@@ -1279,17 +2480,17 @@ function RealClientProfileDrawer({
                   </div>
                 </div>
                 <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-                  {workspaceTabs.map((tab) => (
+                  {groupedWorkspaceTabs.map((tab) => (
                     <button
-                      key={tab}
-                      onClick={() => setActiveWorkspaceTab(tab)}
+                      key={tab.key}
+                      onClick={() => setActiveWorkspaceTab(tab.key)}
                       className={`whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold transition ${
-                        activeWorkspaceTab === tab
+                        activeWorkspaceTab === tab.key
                           ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]'
                           : 'bg-[var(--fluent-color-neutral-background-2)] text-[var(--fluent-color-neutral-foreground-2)] hover:text-[var(--fluent-color-neutral-foreground-1)]'
                       }`}
                     >
-                      {tab}
+                      {tab.label}
                     </button>
                   ))}
                 </div>
@@ -4316,6 +5517,544 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
   );
 }
 
+function ConsultantOperationalOverview({
+  metrics,
+  appointmentsToday,
+  pendingReviews,
+  overdueFollowUps,
+  attentionClients,
+  recentActivity,
+  onOpenClient,
+  onNavigate,
+}) {
+  const statCards = [
+    { label: 'Today’s appointments', value: appointmentsToday.length, detail: appointmentsToday.length ? `${appointmentsToday[0].clientName} next` : 'No sessions scheduled', tone: appointmentsToday.length ? 'pending' : 'stable' },
+    { label: 'Pending plan reviews', value: pendingReviews.length, detail: pendingReviews.length ? 'Drafts are waiting for consultant action' : 'No draft reviews pending', tone: pendingReviews.length ? 'medium' : 'stable' },
+    { label: 'Overdue follow-ups', value: overdueFollowUps.length, detail: overdueFollowUps.length ? 'Needs same-cycle follow-through' : 'No overdue follow-ups', tone: overdueFollowUps.length ? 'critical' : 'stable' },
+    { label: 'Clients requiring attention', value: attentionClients.length, detail: attentionClients.length ? attentionClients[0].title : 'No urgent attention flags', tone: attentionClients.length ? 'high' : 'stable' },
+  ];
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+      <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultant command center</p>
+            <h3 className="mt-2 text-[22px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">Today’s operating picture</h3>
+            <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Appointments, reviews, follow-ups, and live client attention signals in one place.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => onNavigate('consultations')} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-sm font-medium text-[var(--fluent-color-brand-foreground)]">Open consultations</button>
+            <button onClick={() => onNavigate('operations')} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-2 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">View work queue</button>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {statCards.map((item) => (
+            <div key={item.label} className="rounded-[20px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">{item.label}</p>
+                <StatusChip status={item.tone}>{item.tone === 'stable' ? 'Ready' : formatStatusLabel(item.tone)}</StatusChip>
+              </div>
+              <p className="mt-4 text-[30px] font-semibold leading-none text-[var(--fluent-color-neutral-foreground-1)]">{item.value}</p>
+              <p className="mt-3 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{item.detail}</p>
+            </div>
+          ))}
+        </div>
+      </Surface>
+
+      <div className="grid gap-4">
+        <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Quick actions</p>
+            <span className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">Action without context switching</span>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {metrics.map((metric) => (
+              <button
+                key={metric.label}
+                onClick={() => metric.target ? onNavigate(metric.target) : undefined}
+                className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-left transition hover:border-[var(--fluent-color-brand-stroke-1)]"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{metric.label}</p>
+                  <StatusChip status={metric.tone}>{metric.badge}</StatusChip>
+                </div>
+                <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{metric.detail}</p>
+              </button>
+            ))}
+          </div>
+        </Surface>
+
+        <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Recent activity</p>
+            <button onClick={() => onNavigate('operations')} className="text-sm font-medium text-[var(--fluent-color-brand-foreground-link)]">View full timeline</button>
+          </div>
+          <div className="mt-4 space-y-3">
+            {recentActivity.length ? recentActivity.slice(0, 4).map((item) => (
+              <div key={item.id} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{item.title}</p>
+                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.detail}</p>
+                  </div>
+                  <StatusChip status={item.tone || 'stable'}>{formatDateLabel(item.createdAt)}</StatusChip>
+                </div>
+              </div>
+            )) : (
+              <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                No recent workflow activity yet. Your appointment, notes, and follow-up actions will appear here.
+              </div>
+            )}
+          </div>
+        </Surface>
+      </div>
+
+      <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 xl:col-span-2" animated>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Clients requiring attention</p>
+            <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Live Fiteatsy clients surfaced from profile completion, reports, biomarker status, and recent activity.</p>
+          </div>
+          <button onClick={() => onNavigate('clients')} className="text-sm font-medium text-[var(--fluent-color-brand-foreground-link)]">Open client directory</button>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
+          {attentionClients.length ? attentionClients.slice(0, 4).map((client) => (
+            <button key={client.clientId} onClick={() => onOpenClient(client.clientId)} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-left transition hover:border-[var(--fluent-color-brand-stroke-1)]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{client.name}</p>
+                  <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{client.goal}</p>
+                </div>
+                <StatusChip status={client.tone}>{formatStatusLabel(client.tone)}</StatusChip>
+              </div>
+              <p className="mt-3 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{client.title}</p>
+              <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.reason}</p>
+              <p className="mt-3 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Last touch: {client.lastTouch}</p>
+            </button>
+          )) : (
+            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)] xl:col-span-4">
+              No active attention signals yet. The live Fiteatsy client roster is stable right now.
+            </div>
+          )}
+        </div>
+      </Surface>
+    </div>
+  );
+}
+
+function ConsultationManagementPage({
+  appointments,
+  consultationNotes,
+  clients,
+  onCreateAppointment,
+  onSaveNotes,
+  onCompleteAppointment,
+  onCreateFollowUp,
+  onOpenClient,
+}) {
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState(appointments[0]?.id || null);
+  const [draft, setDraft] = useState({ clientId: clients[0]?.id || '', date: getTodayDateKey(), time: '11:00', mode: 'Video', objective: '' });
+  const [noteDraft, setNoteDraft] = useState({ subjective: '', objective: '', assessment: '', actions: '', followUpPlan: '' });
+
+  useEffect(() => {
+    if (!appointments.length) {
+      setSelectedAppointmentId(null);
+      return;
+    }
+    if (!selectedAppointmentId || !appointments.some((item) => item.id === selectedAppointmentId)) {
+      setSelectedAppointmentId(appointments[0].id);
+    }
+  }, [appointments, selectedAppointmentId]);
+
+  const selectedAppointment = appointments.find((item) => item.id === selectedAppointmentId) || appointments[0];
+  const selectedNote = selectedAppointment ? consultationNotes[selectedAppointment.clientId] : null;
+
+  useEffect(() => {
+    setNoteDraft({
+      subjective: selectedNote?.subjective || '',
+      objective: selectedNote?.objective || '',
+      assessment: selectedNote?.assessment || '',
+      actions: selectedNote?.actions || '',
+      followUpPlan: selectedNote?.followUpPlan || '',
+    });
+  }, [selectedNote?.actions, selectedNote?.assessment, selectedNote?.followUpPlan, selectedNote?.objective, selectedNote?.subjective]);
+
+  function submitAppointment(event) {
+    event.preventDefault();
+    if (!draft.clientId || !draft.date || !draft.time) return;
+    onCreateAppointment(draft);
+    setDraft((current) => ({ ...current, objective: '' }));
+  }
+
+  function submitNotes(event) {
+    event.preventDefault();
+    if (!selectedAppointment?.clientId) return;
+    onSaveNotes(selectedAppointment.clientId, noteDraft);
+  }
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[0.78fr_1.22fr]">
+      <div className="space-y-4">
+        <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultations</p>
+              <h3 className="mt-2 text-[22px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">Preparation, notes, and follow-through</h3>
+            </div>
+            <StatusChip status={appointments.length ? 'pending' : 'stable'}>{appointments.length} open</StatusChip>
+          </div>
+          <div className="mt-4 space-y-3">
+            {appointments.length ? appointments.map((appointment) => (
+              <button
+                key={appointment.id}
+                onClick={() => setSelectedAppointmentId(appointment.id)}
+                className={`w-full rounded-[18px] border px-4 py-4 text-left transition ${
+                  appointment.id === selectedAppointmentId
+                    ? 'border-[var(--fluent-color-brand-stroke-1)] bg-[rgba(59,130,246,0.08)]'
+                    : 'border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)]'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{appointment.clientName}</p>
+                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{appointment.objective || 'Consultation objective not set yet.'}</p>
+                  </div>
+                  <StatusChip status={appointment.status}>{appointment.mode}</StatusChip>
+                </div>
+                <p className="mt-3 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{formatDateLabel(appointment.date)} • {formatTimeLabel(appointment.time)}</p>
+              </button>
+            )) : (
+              <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                No consultation appointments are scheduled yet.
+              </div>
+            )}
+          </div>
+        </Surface>
+
+        <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Schedule consultation</p>
+          <form onSubmit={submitAppointment} className="mt-4 space-y-3">
+            <select value={draft.clientId} onChange={(event) => setDraft((current) => ({ ...current, clientId: event.target.value }))} className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none">
+              <option value="">Select client</option>
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>{client.name}</option>
+              ))}
+            </select>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <input type="date" value={draft.date} onChange={(event) => setDraft((current) => ({ ...current, date: event.target.value }))} className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none" />
+              <input type="time" value={draft.time} onChange={(event) => setDraft((current) => ({ ...current, time: event.target.value }))} className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none" />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <select value={draft.mode} onChange={(event) => setDraft((current) => ({ ...current, mode: event.target.value }))} className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none">
+                <option>Video</option>
+                <option>Call</option>
+                <option>In-person</option>
+              </select>
+              <input type="text" value={draft.objective} onChange={(event) => setDraft((current) => ({ ...current, objective: event.target.value }))} placeholder="Objective: report review, plan check-in, follow-up" className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none" />
+            </div>
+            <button type="submit" className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2.5 text-sm font-medium text-[var(--fluent-color-brand-foreground)]">Create appointment</button>
+          </form>
+        </Surface>
+      </div>
+
+      <div className="space-y-4">
+        <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
+          {selectedAppointment ? (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultation workspace</p>
+                  <h3 className="mt-2 text-[22px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">{selectedAppointment.clientName}</h3>
+                  <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{selectedAppointment.objective || 'Structured consultation capture for this client.'}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => onOpenClient(selectedAppointment.clientId)} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-2 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">Open client</button>
+                  <button onClick={() => onCompleteAppointment(selectedAppointment.id)} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-sm font-medium text-[var(--fluent-color-brand-foreground)]">Mark complete</button>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <DetailField label="Date" value={formatDateLabel(selectedAppointment.date)} />
+                <DetailField label="Time" value={formatTimeLabel(selectedAppointment.time)} />
+                <DetailField label="Mode" value={selectedAppointment.mode} />
+                <DetailField label="Status" value={formatStatusLabel(selectedAppointment.status)} />
+              </div>
+              <form onSubmit={submitNotes} className="mt-4 grid gap-3 lg:grid-cols-2">
+                {[
+                  ['subjective', 'Subjective'],
+                  ['objective', 'Objective'],
+                  ['assessment', 'Assessment'],
+                  ['actions', 'Actions'],
+                ].map(([key, label]) => (
+                  <label key={key} className="block">
+                    <span className="mb-2 block text-xs font-medium uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{label}</span>
+                    <textarea value={noteDraft[key]} onChange={(event) => setNoteDraft((current) => ({ ...current, [key]: event.target.value }))} className="min-h-[124px] w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none" />
+                  </label>
+                ))}
+                <label className="block lg:col-span-2">
+                  <span className="mb-2 block text-xs font-medium uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Next follow-up</span>
+                  <textarea value={noteDraft.followUpPlan} onChange={(event) => setNoteDraft((current) => ({ ...current, followUpPlan: event.target.value }))} className="min-h-[84px] w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none" />
+                </label>
+                <div className="flex flex-wrap gap-2 lg:col-span-2">
+                  <button type="submit" className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2.5 text-sm font-medium text-[var(--fluent-color-brand-foreground)]">Save notes</button>
+                  <button type="button" onClick={() => onCreateFollowUp(selectedAppointment.clientId, noteDraft.followUpPlan || 'Follow-up required after consultation.')} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-2.5 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">Create follow-up</button>
+                </div>
+              </form>
+            </>
+          ) : (
+            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+              Select or create a consultation to open the structured workspace.
+            </div>
+          )}
+        </Surface>
+      </div>
+    </div>
+  );
+}
+
+function TasksTimelinePage({ tasks, followUps, recentActivity, onToggleTask, onResolveFollowUp, onCreateTask, clients, onOpenClient }) {
+  const [draft, setDraft] = useState({ clientId: clients[0]?.id || '', title: '', dueDate: getTodayDateKey(), category: 'Follow-up' });
+
+  function submitTask(event) {
+    event.preventDefault();
+    if (!draft.clientId || !draft.title) return;
+    onCreateTask(draft);
+    setDraft((current) => ({ ...current, title: '' }));
+  }
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+      <div className="space-y-4">
+        <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Operational queue</p>
+              <h3 className="mt-2 text-[22px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">Tasks and follow-ups</h3>
+            </div>
+            <StatusChip status={followUps.some((item) => item.status === 'overdue') ? 'critical' : 'stable'}>
+              {tasks.length + followUps.length} open items
+            </StatusChip>
+          </div>
+          <div className="mt-4 space-y-3">
+            {[...tasks, ...followUps].length ? [...tasks, ...followUps].map((item) => (
+              <div key={item.id} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.title || item.reason}</p>
+                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.clientName}</p>
+                  </div>
+                  <StatusChip status={item.status}>{formatStatusLabel(item.status)}</StatusChip>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+                  <span className="rounded-full bg-[var(--fluent-color-neutral-background-1)] px-3 py-1.5">{item.category || 'Follow-up'}</span>
+                  <span className="rounded-full bg-[var(--fluent-color-neutral-background-1)] px-3 py-1.5">Due {formatDateLabel(item.dueDate)}</span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button onClick={() => onOpenClient(item.clientId)} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2 text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">Open client</button>
+                  <button onClick={() => ('reason' in item ? onResolveFollowUp(item.id) : onToggleTask(item.id))} className="rounded-full bg-[var(--fluent-color-brand-background)] px-3 py-2 text-sm font-medium text-[var(--fluent-color-brand-foreground)]">
+                    {'reason' in item ? 'Resolve follow-up' : item.status === 'done' ? 'Reopen task' : 'Mark done'}
+                  </button>
+                </div>
+              </div>
+            )) : (
+              <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
+                No consultant tasks or follow-ups are open right now.
+              </div>
+            )}
+          </div>
+        </Surface>
+
+        <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Create task</p>
+          <form onSubmit={submitTask} className="mt-4 space-y-3">
+            <select value={draft.clientId} onChange={(event) => setDraft((current) => ({ ...current, clientId: event.target.value }))} className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none">
+              <option value="">Select client</option>
+              {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
+            </select>
+            <input type="text" value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Task title" className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none" />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <input type="date" value={draft.dueDate} onChange={(event) => setDraft((current) => ({ ...current, dueDate: event.target.value }))} className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none" />
+              <input type="text" value={draft.category} onChange={(event) => setDraft((current) => ({ ...current, category: event.target.value }))} placeholder="Category" className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none" />
+            </div>
+            <button type="submit" className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2.5 text-sm font-medium text-[var(--fluent-color-brand-foreground)]">Add task</button>
+          </form>
+        </Surface>
+      </div>
+
+      <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Unified client timeline</p>
+            <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Consultation activity, manual follow-through, and system milestones together.</p>
+          </div>
+          <StatusChip status="stable">{recentActivity.length} events</StatusChip>
+        </div>
+        <div className="mt-4 space-y-3">
+          {recentActivity.length ? recentActivity.map((item) => (
+            <div key={item.id} className="rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.title}</p>
+                  <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.detail}</p>
+                  {item.clientName ? <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.clientName}</p> : null}
+                </div>
+                <StatusChip status={item.tone || 'stable'}>{formatDateLabel(item.createdAt)}</StatusChip>
+              </div>
+            </div>
+          )) : (
+            <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No timeline events yet.</div>
+          )}
+        </div>
+      </Surface>
+    </div>
+  );
+}
+
+function GoalsProgressPage({ clients, attentionClients, onOpenClient }) {
+  const aggregate = {
+    total: clients.length,
+    completed: clients.filter((client) => client.profileCompleted).length,
+    reports: clients.reduce((sum, client) => sum + (client.reportsCount || 0), 0),
+    activeGoals: clients.filter((client) => client.goal).length,
+  };
+
+  return (
+    <div className="space-y-4">
+      <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Goals and progress intelligence</p>
+            <h3 className="mt-2 text-[22px] font-semibold tracking-[-0.02em] text-[var(--fluent-color-neutral-foreground-1)]">Baseline, current state, and attention signals</h3>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">Profiles complete {aggregate.completed}/{aggregate.total}</span>
+            <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">Reports {aggregate.reports}</span>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Registered clients</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{aggregate.total}</p></div>
+          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Goals captured</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{aggregate.activeGoals}</p></div>
+          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Need profile completion</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{aggregate.total - aggregate.completed}</p></div>
+          <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Attention signals</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{attentionClients.length}</p></div>
+        </div>
+      </Surface>
+      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+        <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client progress scan</p>
+          <div className="mt-4 space-y-3">
+            {clients.length ? clients.slice(0, 8).map((client) => (
+              <button key={client.id} onClick={() => onOpenClient(client.id)} className="grid w-full gap-3 rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-left transition hover:border-[var(--fluent-color-brand-stroke-1)] md:grid-cols-[1fr_0.9fr_0.9fr_0.8fr]">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{client.name}</p>
+                  <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{client.goal || 'Goal not captured yet'}</p>
+                </div>
+                <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">Baseline: {client.profileCompleted ? 'Profile complete' : 'Registration only'}</div>
+                <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">Current: {client.reportsCount ? `${client.reportsCount} report${client.reportsCount === 1 ? '' : 's'}` : 'No reports yet'}</div>
+                <div><StatusChip status={client.profileCompleted ? 'improving' : 'medium'}>{client.profileCompleted ? 'Profile ready' : 'Needs profile'}</StatusChip></div>
+              </button>
+            )) : (
+              <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No client progress data available yet.</div>
+            )}
+          </div>
+        </Surface>
+        <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Attention signals</p>
+          <div className="mt-4 space-y-3">
+            {attentionClients.length ? attentionClients.map((item) => (
+              <button key={item.clientId} onClick={() => onOpenClient(item.clientId)} className="w-full rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-left transition hover:border-[var(--fluent-color-brand-stroke-1)]">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.name}</p>
+                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.title}</p>
+                  </div>
+                  <StatusChip status={item.tone}>{formatStatusLabel(item.tone)}</StatusChip>
+                </div>
+                <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.reason}</p>
+              </button>
+            )) : (
+              <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No active attention signals right now.</div>
+            )}
+          </div>
+        </Surface>
+      </div>
+    </div>
+  );
+}
+
+function ConsultantPracticePage({
+  clients,
+  consultantProfile,
+  consultantAvailability,
+  onProfileSave,
+  onAvailabilitySave,
+}) {
+  const [profileDraft, setProfileDraft] = useState(consultantProfile);
+  const [availabilityDraft, setAvailabilityDraft] = useState(consultantAvailability);
+
+  useEffect(() => {
+    setProfileDraft(consultantProfile);
+  }, [consultantProfile]);
+
+  useEffect(() => {
+    setAvailabilityDraft(consultantAvailability);
+  }, [consultantAvailability]);
+
+  const completionRate = clients.length ? Math.round((clients.filter((client) => client.profileCompleted).length / clients.length) * 100) : 0;
+  const reportCoverage = clients.length ? Math.round((clients.filter((client) => (client.reportsCount || 0) > 0).length / clients.length) * 100) : 0;
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="space-y-4">
+        <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultant reports</p>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Portfolio size</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{clients.length}</p></div>
+            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Profile completion</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{completionRate}%</p></div>
+            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Report coverage</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{reportCoverage}%</p></div>
+            <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-4"><p className="text-xs uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Open diet workflows</p><p className="mt-3 text-[30px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{clients.filter((client) => client.profileCompleted).length}</p></div>
+          </div>
+        </Surface>
+
+        <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Availability</p>
+          <div className="mt-4 space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <input type="time" value={availabilityDraft.startTime} onChange={(event) => setAvailabilityDraft((current) => ({ ...current, startTime: event.target.value }))} className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none" />
+              <input type="time" value={availabilityDraft.endTime} onChange={(event) => setAvailabilityDraft((current) => ({ ...current, endTime: event.target.value }))} className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none" />
+            </div>
+            <input type="text" value={availabilityDraft.breakBufferMinutes} onChange={(event) => setAvailabilityDraft((current) => ({ ...current, breakBufferMinutes: event.target.value }))} placeholder="Break buffer (minutes)" className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none" />
+            <div className="flex flex-wrap gap-2">
+              {weekdayLabels.map((day) => {
+                const selected = availabilityDraft.workingDays.includes(day);
+                return (
+                  <button key={day} type="button" onClick={() => setAvailabilityDraft((current) => ({
+                    ...current,
+                    workingDays: selected ? current.workingDays.filter((item) => item !== day) : [...current.workingDays, day],
+                  }))} className={`rounded-full px-3 py-2 text-sm font-medium ${selected ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'bg-[var(--fluent-color-neutral-background-2)] text-[var(--fluent-color-neutral-foreground-2)]'}`}>
+                    {day}
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={() => onAvailabilitySave(availabilityDraft)} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2.5 text-sm font-medium text-[var(--fluent-color-brand-foreground)]">Save availability</button>
+          </div>
+        </Surface>
+      </div>
+
+      <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4" animated>
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Consultant profile</p>
+        <div className="mt-4 space-y-3">
+          <input type="text" value={profileDraft.specialisation} onChange={(event) => setProfileDraft((current) => ({ ...current, specialisation: event.target.value }))} placeholder="Specialisation" className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none" />
+          <input type="text" value={profileDraft.consultationStyle} onChange={(event) => setProfileDraft((current) => ({ ...current, consultationStyle: event.target.value }))} placeholder="Consultation style" className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none" />
+          <input type="text" value={profileDraft.responseWindow} onChange={(event) => setProfileDraft((current) => ({ ...current, responseWindow: event.target.value }))} placeholder="Response window" className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none" />
+          <input type="text" value={profileDraft.consultationCadence} onChange={(event) => setProfileDraft((current) => ({ ...current, consultationCadence: event.target.value }))} placeholder="Typical follow-up cadence" className="w-full rounded-[16px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm outline-none" />
+          <button onClick={() => onProfileSave(profileDraft)} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2.5 text-sm font-medium text-[var(--fluent-color-brand-foreground)]">Save profile</button>
+        </div>
+      </Surface>
+    </div>
+  );
+}
+
 function ProtocolLibraryPage({ clients }) {
   const protocols = [
     { title: 'PCOS Stabilization', useCases: 'Cycle irregularity, insulin resistance, inflammatory cravings', outcomes: 'Stabilize energy, reduce symptom volatility, protect adherence' },
@@ -4481,6 +6220,7 @@ function PlatformWorkspace({ forcedRole }) {
   const resolvedRole = forcedRole || user?.role || 'consultant';
   const roleKind = getRoleKind(resolvedRole);
   const isSuperAdmin = superAdminRoles.has(String(resolvedRole).toLowerCase());
+  const canManageConsultantNutrition = roleKind === 'consultant' && consultantNutritionRoles.has(String(resolvedRole).toLowerCase());
   const [brandView, setBrandView] = useState('All Brands');
   const usesRealFiteatsyClients = roleKind === 'consultant' || brandView === 'Fiteatsy';
   const [state, setState] = useState(() => {
@@ -4498,7 +6238,7 @@ function PlatformWorkspace({ forcedRole }) {
       }),
     };
   });
-  const [nav, setNav] = useState(() => (usesRealFiteatsyClients ? 'clients' : 'command-center'));
+  const [nav, setNav] = useState(() => (roleKind === 'consultant' ? 'command-center' : usesRealFiteatsyClients ? 'clients' : 'command-center'));
   const [timeframe, setTimeframe] = useState('Week');
   const [globalSearch, setGlobalSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -4524,6 +6264,21 @@ function PlatformWorkspace({ forcedRole }) {
   const [realClientProfile, setRealClientProfile] = useState(null);
   const [realClientProfileLoading, setRealClientProfileLoading] = useState(false);
   const [realClientProfileError, setRealClientProfileError] = useState(null);
+  const consultantWorkspaceStorageKey = useMemo(
+    () => `${consultantWorkspaceStoragePrefix}${user?.id || user?.email || resolvedRole || 'consultant'}`,
+    [resolvedRole, user?.email, user?.id]
+  );
+  const [consultantWorkspace, setConsultantWorkspace] = useState(() => createDefaultConsultantWorkspaceState());
+
+  useEffect(() => {
+    if (roleKind !== 'consultant') return;
+    setConsultantWorkspace(readConsultantWorkspaceState(consultantWorkspaceStorageKey));
+  }, [consultantWorkspaceStorageKey, roleKind]);
+
+  useEffect(() => {
+    if (roleKind !== 'consultant' || typeof window === 'undefined') return;
+    window.localStorage.setItem(consultantWorkspaceStorageKey, JSON.stringify(consultantWorkspace));
+  }, [consultantWorkspace, consultantWorkspaceStorageKey, roleKind]);
 
   useEffect(() => {
     if (selectedClientId) {
@@ -4622,7 +6377,7 @@ function PlatformWorkspace({ forcedRole }) {
     setRealClientProfileLoading(true);
     setRealClientProfileError(null);
 
-    getFiteatsyConsultantClientProfile(selectedClientId)
+    fetchRealClientWorkspace(selectedClientId)
       .then((payload) => {
         if (cancelled) return;
         setRealClientProfile(payload);
@@ -4641,6 +6396,13 @@ function PlatformWorkspace({ forcedRole }) {
       cancelled = true;
     };
   }, [realClientDrawerOpen, selectedClientId, usesRealFiteatsyClients]);
+
+  const refreshRealClientProfile = useCallback(async (clientId) => {
+    const payload = await fetchRealClientWorkspace(clientId);
+    setRealClientProfile(payload);
+    setRealClientProfileError(null);
+    return payload;
+  }, []);
 
   const mockClients = useMemo(() => buildClientRecords(state), [state]);
   const realFiteatsyClients = useMemo(() => buildFiteatsyClientRecords(fiteatsyClients), [fiteatsyClients]);
@@ -4662,14 +6424,66 @@ function PlatformWorkspace({ forcedRole }) {
         subtitle: 'Population-level recovery visibility and consultant performance.'
       };
 
+  const consultantAttentionClients = useMemo(
+    () => (usesRealFiteatsyClients ? clients.map(buildConsultantAttentionItem).filter((item) => item.tone !== 'stable').slice(0, 8) : []),
+    [clients, usesRealFiteatsyClients]
+  );
+
+  const consultantAppointmentsToday = useMemo(
+    () => consultantWorkspace.appointments.filter((item) => item.date === getTodayDateKey() && item.status !== 'completed'),
+    [consultantWorkspace.appointments]
+  );
+
+  const consultantPendingReviews = useMemo(
+    () => consultantWorkspace.tasks.filter((item) => item.category === 'Plan review' && item.status !== 'done'),
+    [consultantWorkspace.tasks]
+  );
+
+  const consultantOverdueFollowUps = useMemo(
+    () => consultantWorkspace.followUps.filter((item) => item.status === 'overdue' || ((getDaysSince(item.dueDate) || 0) > 0 && item.status !== 'completed')),
+    [consultantWorkspace.followUps]
+  );
+
+  const consultantRecentActivity = useMemo(() => {
+    const liveClientEvents = clients.slice(0, 6).map((client) => ({
+      id: `client-${client.id}`,
+      title: `${client.name} updated`,
+      detail: client.trendSummary?.title || 'Client activity synchronized from Fiteatsy.',
+      createdAt: client.lastHealthUpdate || client.lastActiveAt || client.registeredAt,
+      clientName: client.name,
+      tone: client.profileCompleted ? 'improving' : 'medium',
+    }));
+
+    return [...(consultantWorkspace.activityLog || []), ...liveClientEvents]
+      .filter((item) => item?.createdAt)
+      .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
+      .slice(0, 12);
+  }, [clients, consultantWorkspace.activityLog]);
+
+  const consultantQuickActions = useMemo(() => ([
+    { label: 'Prepare consultations', detail: consultantAppointmentsToday.length ? `${consultantAppointmentsToday.length} session${consultantAppointmentsToday.length === 1 ? '' : 's'} scheduled today.` : 'Create your first follow-up slot for today.', badge: 'Consult', tone: consultantAppointmentsToday.length ? 'pending' : 'stable', target: 'consultations' },
+    { label: 'Review client queue', detail: consultantAttentionClients.length ? `${consultantAttentionClients.length} live clients need attention.` : 'Client roster is currently stable.', badge: 'Clients', tone: consultantAttentionClients.length ? 'high' : 'stable', target: 'clients' },
+    { label: 'Resolve follow-ups', detail: consultantOverdueFollowUps.length ? `${consultantOverdueFollowUps.length} overdue follow-up${consultantOverdueFollowUps.length === 1 ? '' : 's'} need action.` : 'No overdue follow-ups at the moment.', badge: 'Ops', tone: consultantOverdueFollowUps.length ? 'critical' : 'stable', target: 'operations' },
+    { label: 'Update practice profile', detail: consultantWorkspace.profile.specialisation ? 'Your consultant profile is already configured.' : 'Add specialisation and availability before the next client round.', badge: 'Profile', tone: consultantWorkspace.profile.specialisation ? 'improving' : 'medium', target: 'practice' },
+  ]), [consultantAppointmentsToday.length, consultantAttentionClients.length, consultantOverdueFollowUps.length, consultantWorkspace.profile.specialisation]);
+
+  const consultantProgressClients = useMemo(
+    () => (usesRealFiteatsyClients ? clients.filter((client) => client.profileCompleted || client.reportsCount || client.goal) : []),
+    [clients, usesRealFiteatsyClients]
+  );
+
+  const consultantAvailability = consultantWorkspace.availability;
+  const consultantProfile = consultantWorkspace.profile;
+
   const queueViews = useMemo(() => {
     if (usesRealFiteatsyClients) {
+      const pendingReviewClientIds = new Set(consultantPendingReviews.map((item) => item.clientId));
       return [
-        { key: 'needs_review', title: 'Needs Review', subtitle: 'Awaiting backend review intelligence', tone: 'stable', count: 0, filter: () => false },
-        { key: 'ai_draft_ready', title: 'AI Draft Ready', subtitle: 'Awaiting backend AI draft pipeline', tone: 'stable', count: 0, filter: () => false },
-        { key: 'critical_biomarker_drift', title: 'Critical Biomarker Drift', subtitle: 'Awaiting biomarker timeline synchronization', tone: 'stable', count: 0, filter: () => false },
-        { key: 'adherence_declining', title: 'Adherence Declining', subtitle: 'Awaiting adherence synchronization', tone: 'stable', count: 0, filter: () => false },
-        { key: 'burnout_escalation', title: 'Burnout Escalation', subtitle: 'Awaiting intelligence synchronization', tone: 'stable', count: 0, filter: () => false },
+        { key: 'needs_review', title: 'Needs Review', subtitle: 'Profile or report review is needed before the next intervention.', tone: 'medium', filter: (client) => !client.profileCompleted || (client.reportsCount || 0) > 0 },
+        { key: 'ai_draft_ready', title: 'AI Draft Ready', subtitle: 'Consultant-created review tasks are waiting in the queue.', tone: 'pending', filter: (client) => pendingReviewClientIds.has(client.id) },
+        { key: 'critical_biomarker_drift', title: 'Critical Biomarker Drift', subtitle: 'Biomarker status indicates a clinical review is needed.', tone: 'critical', filter: (client) => client.biomarkerStatus && !['normal', 'stable', 'not_available'].includes(String(client.biomarkerStatus).toLowerCase()) },
+        { key: 'adherence_declining', title: 'Adherence Declining', subtitle: 'Recent health activity is cooling and follow-up may be needed.', tone: 'high', filter: (client) => (getDaysSince(client.lastHealthUpdate || client.lastActiveAt || client.registeredAt) || 0) > 14 },
+        { key: 'burnout_escalation', title: 'Burnout Escalation', subtitle: 'Compound profile incompleteness and pending report review need intervention.', tone: 'high', filter: (client) => !client.profileCompleted && (client.reportsCount || 0) > 0 },
       ];
     }
 
@@ -4750,7 +6564,7 @@ function PlatformWorkspace({ forcedRole }) {
       ...definition,
       count: clients.filter(definition.filter).length,
     }));
-  }, [clients, usesRealFiteatsyClients]);
+  }, [clients, consultantPendingReviews, usesRealFiteatsyClients]);
 
   useEffect(() => {
     if (!usesRealFiteatsyClients) return;
@@ -4761,8 +6575,10 @@ function PlatformWorkspace({ forcedRole }) {
 
   const filteredClients = useMemo(() => {
     if (usesRealFiteatsyClients) {
+      const activeView = queueViews.find((view) => view.key === activeQueue);
       const query = globalSearch.toLowerCase();
       return clients.filter((client) => {
+        const matchesQueue = activeView ? activeView.filter(client) : true;
         const haystack = [
           client.name,
           client.email,
@@ -4780,7 +6596,7 @@ function PlatformWorkspace({ forcedRole }) {
           .filter(Boolean)
           .join(' ')
           .toLowerCase();
-        return haystack.includes(query);
+        return matchesQueue && haystack.includes(query);
       });
     }
 
@@ -4794,7 +6610,28 @@ function PlatformWorkspace({ forcedRole }) {
   }, [activeQueue, clients, globalSearch, queueViews, usesRealFiteatsyClients]);
 
   const priorityQueue = useMemo(() => {
-    if (usesRealFiteatsyClients) return [];
+    if (usesRealFiteatsyClients) {
+      return consultantAttentionClients.map((client, index) => ({
+        clientId: client.clientId,
+        name: client.name,
+        title: client.title,
+        why: client.reason,
+        drivers: [client.title, client.reason].filter(Boolean),
+        risk: client.tone,
+        action: client.reason,
+        confidence: client.tone === 'high' ? 84 : client.tone === 'medium' ? 72 : 60,
+        evidence: {
+          reports: clients.find((item) => item.id === client.clientId)?.reportsCount || 0,
+          adherence: clients.find((item) => item.id === client.clientId)?.profileCompleted ? 'Profile complete' : 'Onboarding pending',
+        },
+        momentum: { label: index === 0 ? 'Needs action' : 'Review recommended' },
+        adherenceScore: clients.find((item) => item.id === client.clientId)?.profileCompleted ? 78 : 46,
+        lastActivity: client.lastTouch,
+        owner: roleName,
+        score: 100 - index * 8,
+        temporalState: 'follow-up pending',
+      }));
+    }
 
     return clients
       .map((client) => ({
@@ -4821,15 +6658,15 @@ function PlatformWorkspace({ forcedRole }) {
       }))
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
-  }, [clients, usesRealFiteatsyClients]);
+  }, [clients, consultantAttentionClients, roleName, usesRealFiteatsyClients]);
 
   const dailySummary = useMemo(() => {
     if (usesRealFiteatsyClients) {
       return [
         `${clients.length} registered Fiteatsy clients`,
-        'Programs not yet assigned',
-        'Adherence not yet available',
-        'Biomarker drift not yet available',
+        `${consultantAttentionClients.length} clients need consultant attention`,
+        `${consultantAppointmentsToday.length} consultations scheduled today`,
+        `${consultantOverdueFollowUps.length} overdue follow-ups need closure`,
       ];
     }
 
@@ -4843,7 +6680,7 @@ function PlatformWorkspace({ forcedRole }) {
       `Adherence improving across ${improvingAdherence} employees`,
       `${awaitingApproval} plans awaiting approval`,
     ];
-  }, [clients, state.plans, usesRealFiteatsyClients]);
+  }, [clients, consultantAppointmentsToday.length, consultantAttentionClients.length, consultantOverdueFollowUps.length, state.plans, usesRealFiteatsyClients]);
 
   const healthMovement = useMemo(() => ({
     period: timeframe,
@@ -5008,11 +6845,11 @@ function PlatformWorkspace({ forcedRole }) {
   const pulseItems = useMemo(() => {
     if (usesRealFiteatsyClients) {
       return [
-        { label: 'Needs Review', value: 0, delta: 'Pending M2', status: 'stable', spark: [0, 0, 0, 0, 0, 0, 0], color: '#637CEF', targetQueue: 'needs_review' },
-        { label: 'AI Draft Ready', value: 0, delta: 'Pending M2', status: 'stable', spark: [0, 0, 0, 0, 0, 0, 0], color: '#1E88E5', targetQueue: 'ai_draft_ready' },
-        { label: 'Critical Biomarker Drift', value: 0, delta: 'Pending M2', status: 'stable', spark: [0, 0, 0, 0, 0, 0, 0], color: '#D13438', targetQueue: 'critical_biomarker_drift' },
-        { label: 'Adherence Declining', value: 0, delta: 'Pending M2', status: 'stable', spark: [0, 0, 0, 0, 0, 0, 0], color: '#FFB900', targetQueue: 'adherence_declining' },
-        { label: 'Burnout Escalation', value: 0, delta: 'Pending M2', status: 'stable', spark: [0, 0, 0, 0, 0, 0, 0], color: '#FF8C00', targetQueue: 'burnout_escalation' },
+        { label: 'Needs Review', value: queueViews.find((view) => view.key === 'needs_review')?.count || 0, delta: 'Live roster', status: 'medium', spark: [1, 2, 2, 3, 3, 4, queueViews.find((view) => view.key === 'needs_review')?.count || 0], color: '#637CEF', targetQueue: 'needs_review' },
+        { label: 'AI Draft Ready', value: queueViews.find((view) => view.key === 'ai_draft_ready')?.count || 0, delta: 'Consultant queue', status: 'pending', spark: [0, 0, 1, 1, 1, 2, queueViews.find((view) => view.key === 'ai_draft_ready')?.count || 0], color: '#1E88E5', targetQueue: 'ai_draft_ready' },
+        { label: 'Critical Biomarker Drift', value: queueViews.find((view) => view.key === 'critical_biomarker_drift')?.count || 0, delta: 'Live biomarker state', status: 'critical', spark: [0, 1, 1, 1, 2, 2, queueViews.find((view) => view.key === 'critical_biomarker_drift')?.count || 0], color: '#D13438', targetQueue: 'critical_biomarker_drift' },
+        { label: 'Adherence Declining', value: queueViews.find((view) => view.key === 'adherence_declining')?.count || 0, delta: 'Activity aging', status: 'high', spark: [0, 0, 1, 1, 1, 1, queueViews.find((view) => view.key === 'adherence_declining')?.count || 0], color: '#FFB900', targetQueue: 'adherence_declining' },
+        { label: 'Burnout Escalation', value: queueViews.find((view) => view.key === 'burnout_escalation')?.count || 0, delta: 'Compounding profile gaps', status: 'high', spark: [0, 0, 0, 1, 1, 1, queueViews.find((view) => view.key === 'burnout_escalation')?.count || 0], color: '#FF8C00', targetQueue: 'burnout_escalation' },
       ];
     }
     return [
@@ -5027,10 +6864,10 @@ function PlatformWorkspace({ forcedRole }) {
   const workloadItems = useMemo(() => (
     usesRealFiteatsyClients
       ? [
-          { label: 'Pending reviews', value: 0, detail: 'Review intelligence has not been connected yet.', status: 'stable' },
-          { label: 'Unresolved escalations', value: 0, detail: 'Escalation intelligence has not been connected yet.', status: 'stable' },
-          { label: 'Overdue follow-ups', value: 0, detail: 'Follow-up intelligence has not been connected yet.', status: 'stable' },
-          { label: 'Active critical cases', value: 0, detail: 'Clinical risk intelligence has not been connected yet.', status: 'stable' },
+          { label: 'Pending reviews', value: consultantPendingReviews.length, detail: consultantPendingReviews.length ? 'Consultant-created plan review tasks are waiting in the queue.' : 'No consultant-created plan reviews are waiting right now.', status: consultantPendingReviews.length ? 'pending' : 'stable' },
+          { label: 'Unresolved escalations', value: consultantAttentionClients.length, detail: consultantAttentionClients.length ? 'Live Fiteatsy clients need consultant judgement before the next care step.' : 'No unresolved live escalations at the moment.', status: consultantAttentionClients.length ? 'high' : 'stable' },
+          { label: 'Overdue follow-ups', value: consultantOverdueFollowUps.length, detail: consultantOverdueFollowUps.length ? 'Follow-up commitments are overdue and need closure.' : 'No overdue follow-ups in the consultant queue.', status: consultantOverdueFollowUps.length ? 'critical' : 'stable' },
+          { label: 'Today’s appointments', value: consultantAppointmentsToday.length, detail: consultantAppointmentsToday.length ? 'Scheduled sessions are ready for preparation and note capture.' : 'No consultations are scheduled for today yet.', status: consultantAppointmentsToday.length ? 'medium' : 'stable' },
         ]
       : [
           { label: 'Pending reviews', value: reviewPipeline.length, detail: 'Drafts and report interpretations waiting for consultant judgment.', status: 'pending' },
@@ -5038,28 +6875,29 @@ function PlatformWorkspace({ forcedRole }) {
           { label: 'Overdue follow-ups', value: clients.filter((client) => client.adherenceScore < 60).length, detail: 'Low adherence cases at risk of slipping further without intervention.', status: 'high' },
           { label: 'Active critical cases', value: priorityQueue.filter((item) => item.risk === 'critical').length, detail: 'Biomarker drift or recovery decline needs same-cycle action.', status: 'critical' },
         ]
-  ), [clients, priorityQueue, reviewPipeline.length, usesRealFiteatsyClients]);
+  ), [clients, consultantAppointmentsToday.length, consultantAttentionClients.length, consultantOverdueFollowUps.length, consultantPendingReviews.length, priorityQueue, reviewPipeline.length, usesRealFiteatsyClients]);
 
   const memoryItems = useMemo(() => (
     usesRealFiteatsyClients
       ? [
           { title: 'Client roster', detail: `${clients.length} Fiteatsy clients are available from the live consultant API.` },
-          { title: 'Programs', detail: 'Program assignment will appear after the backend care-plan contract is connected.' },
-          { title: 'Insights', detail: 'Health insights stay hidden until real clinical and adherence data are available.' },
+          { title: 'Consultation memory', detail: consultantWorkspace.activityLog.length ? `${consultantWorkspace.activityLog.length} consultant workflow events are retained in local operational memory.` : 'Consultation notes, follow-ups, and tasks will accumulate here as you work.' },
+          { title: 'Care readiness', detail: consultantAttentionClients.length ? `${consultantAttentionClients.length} clients need a targeted review before the next nutrition move.` : 'No critical consultant attention signals are active right now.' },
         ]
       : [
           { title: 'Emerging pattern', detail: `Late dinner timing is emerging across ${clusters[0]?.count || 0} worsening HbA1c cases.` },
           { title: 'Behavioral learning', detail: 'Hydration-first recovery improved adherence by 18% in similar corporate stress profiles.' },
           { title: 'Fiteatsy learning', detail: 'Hormonal recovery clients respond better when breakfast complexity is reduced before supplement intensification.' },
         ]
-  ), [clients.length, clusters, usesRealFiteatsyClients]);
+  ), [clients.length, clusters, consultantAttentionClients.length, consultantWorkspace.activityLog.length, usesRealFiteatsyClients]);
 
   const railItems = useMemo(() => {
     if (usesRealFiteatsyClients) {
-      return memoryItems.map((item) => ({
-        ...item,
-        status: 'stable',
-        badge: 'Live API',
+      return consultantRecentActivity.slice(0, 5).map((item) => ({
+        title: item.title,
+        detail: item.detail,
+        status: item.tone || 'stable',
+        badge: item.clientName || 'Live API',
       }));
     }
     const alertItems = state.recoveryAlerts.slice(0, 2).map((alert) => ({
@@ -5080,7 +6918,7 @@ function PlatformWorkspace({ forcedRole }) {
       badge: 'Pattern',
     }));
     return [...alertItems, ...escalationItems, ...memory];
-  }, [memoryItems, priorityQueue, state.recoveryAlerts, usesRealFiteatsyClients]);
+  }, [consultantRecentActivity, memoryItems, priorityQueue, state.recoveryAlerts, usesRealFiteatsyClients]);
 
   function openClient(clientId, targetTab = 'Overview') {
     if (usesRealFiteatsyClients) {
@@ -5108,6 +6946,212 @@ function PlatformWorkspace({ forcedRole }) {
     setActiveQueue(item.targetQueue);
     setNav('clients');
     setSearchOpen(false);
+  }
+
+  function createConsultantAppointment(draft) {
+    const client = clients.find((item) => item.id === draft.clientId);
+    if (!client) return;
+    setConsultantWorkspace((current) =>
+      appendConsultantWorkspaceActivity(
+        {
+          ...current,
+          appointments: [
+            {
+              id: createWorkspaceId('appt'),
+              clientId: client.id,
+              clientName: client.name,
+              date: draft.date,
+              time: draft.time,
+              mode: draft.mode,
+              objective: draft.objective,
+              status: 'scheduled',
+              createdAt: new Date().toISOString(),
+            },
+            ...current.appointments,
+          ],
+        },
+        {
+          title: `Consultation scheduled for ${client.name}`,
+          detail: `${draft.mode} consultation on ${formatDateLabel(draft.date)} at ${formatTimeLabel(draft.time)}.`,
+          clientId: client.id,
+          clientName: client.name,
+          tone: 'pending',
+        }
+      )
+    );
+  }
+
+  function saveConsultationNotes(clientId, draft) {
+    const client = clients.find((item) => item.id === clientId);
+    setConsultantWorkspace((current) =>
+      appendConsultantWorkspaceActivity(
+        {
+          ...current,
+          consultationNotes: {
+            ...current.consultationNotes,
+            [clientId]: {
+              ...draft,
+              updatedAt: new Date().toISOString(),
+            },
+          },
+        },
+        {
+          title: `Consultation notes saved for ${client?.name || 'client'}`,
+          detail: 'Structured consultation notes are ready for follow-up planning.',
+          clientId,
+          clientName: client?.name,
+          tone: 'improving',
+        }
+      )
+    );
+  }
+
+  function completeConsultationAppointment(appointmentId) {
+    setConsultantWorkspace((current) => {
+      const appointment = current.appointments.find((item) => item.id === appointmentId);
+      return appendConsultantWorkspaceActivity(
+        {
+          ...current,
+          appointments: current.appointments.map((item) => (item.id === appointmentId ? { ...item, status: 'completed', completedAt: new Date().toISOString() } : item)),
+        },
+        {
+          title: `${appointment?.clientName || 'Consultation'} completed`,
+          detail: 'Consultation marked complete and ready for next follow-up.',
+          clientId: appointment?.clientId,
+          clientName: appointment?.clientName,
+          tone: 'improving',
+        }
+      );
+    });
+  }
+
+  function createConsultantFollowUp(clientId, reason) {
+    const client = clients.find((item) => item.id === clientId);
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + 3);
+    setConsultantWorkspace((current) =>
+      appendConsultantWorkspaceActivity(
+        {
+          ...current,
+          followUps: [
+            {
+              id: createWorkspaceId('followup'),
+              clientId,
+              clientName: client?.name || 'Client',
+              reason,
+              dueDate: dueDate.toISOString(),
+              status: 'scheduled',
+              createdAt: new Date().toISOString(),
+            },
+            ...current.followUps,
+          ],
+        },
+        {
+          title: `Follow-up created for ${client?.name || 'client'}`,
+          detail: reason || 'Follow-up scheduled from consultant workspace.',
+          clientId,
+          clientName: client?.name,
+          tone: 'pending',
+        }
+      )
+    );
+  }
+
+  function resolveConsultantFollowUp(followUpId) {
+    setConsultantWorkspace((current) => {
+      const followUp = current.followUps.find((item) => item.id === followUpId);
+      return appendConsultantWorkspaceActivity(
+        {
+          ...current,
+          followUps: current.followUps.map((item) => (item.id === followUpId ? { ...item, status: 'completed', completedAt: new Date().toISOString() } : item)),
+        },
+        {
+          title: `Follow-up closed for ${followUp?.clientName || 'client'}`,
+          detail: followUp?.reason || 'Follow-up marked complete.',
+          clientId: followUp?.clientId,
+          clientName: followUp?.clientName,
+          tone: 'improving',
+        }
+      );
+    });
+  }
+
+  function createConsultantTask(draft) {
+    const client = clients.find((item) => item.id === draft.clientId);
+    if (!client) return;
+    setConsultantWorkspace((current) =>
+      appendConsultantWorkspaceActivity(
+        {
+          ...current,
+          tasks: [
+            {
+              id: createWorkspaceId('task'),
+              clientId: client.id,
+              clientName: client.name,
+              title: draft.title,
+              dueDate: draft.dueDate,
+              category: draft.category,
+              status: 'open',
+              createdAt: new Date().toISOString(),
+            },
+            ...current.tasks,
+          ],
+        },
+        {
+          title: `Task created for ${client.name}`,
+          detail: draft.title,
+          clientId: client.id,
+          clientName: client.name,
+          tone: 'pending',
+        }
+      )
+    );
+  }
+
+  function toggleConsultantTask(taskId) {
+    setConsultantWorkspace((current) => {
+      const task = current.tasks.find((item) => item.id === taskId);
+      const nextStatus = task?.status === 'done' ? 'open' : 'done';
+      return appendConsultantWorkspaceActivity(
+        {
+          ...current,
+          tasks: current.tasks.map((item) => (item.id === taskId ? { ...item, status: nextStatus, updatedAt: new Date().toISOString() } : item)),
+        },
+        {
+          title: `${task?.title || 'Task'} ${nextStatus === 'done' ? 'completed' : 'reopened'}`,
+          detail: task?.clientName || 'Consultant task updated.',
+          clientId: task?.clientId,
+          clientName: task?.clientName,
+          tone: nextStatus === 'done' ? 'improving' : 'pending',
+        }
+      );
+    });
+  }
+
+  function saveConsultantProfile(profile) {
+    setConsultantWorkspace((current) =>
+      appendConsultantWorkspaceActivity(
+        { ...current, profile },
+        {
+          title: 'Consultant profile updated',
+          detail: 'Specialisation and consultation style were saved.',
+          tone: 'improving',
+        }
+      )
+    );
+  }
+
+  function saveConsultantAvailability(availability) {
+    setConsultantWorkspace((current) =>
+      appendConsultantWorkspaceActivity(
+        { ...current, availability },
+        {
+          title: 'Consultant availability updated',
+          detail: 'Working hours and response windows were saved.',
+          tone: 'improving',
+        }
+      )
+    );
   }
 
   function openGenerateDraftModal() {
@@ -5425,16 +7469,28 @@ function PlatformWorkspace({ forcedRole }) {
       <div className="mx-auto max-w-[1480px] px-4 py-5 md:px-6 lg:px-8">
         <main className="min-w-0 space-y-4">
           {roleKind === 'consultant' && nav === 'command-center' ? (
-            <CommandCenterPage
-              briefingMeta={briefingMeta}
-              pulseItems={pulseItems}
-              priorityQueue={priorityQueue}
-              workloadItems={workloadItems}
-              memoryItems={memoryItems}
-              railItems={railItems}
-              onClientOpen={openClient}
-              onPulseSelect={openPulseQueue}
-            />
+            <>
+              <CommandCenterPage
+                briefingMeta={briefingMeta}
+                pulseItems={pulseItems}
+                priorityQueue={priorityQueue}
+                workloadItems={workloadItems}
+                memoryItems={memoryItems}
+                railItems={railItems}
+                onClientOpen={openClient}
+                onPulseSelect={openPulseQueue}
+              />
+              <ConsultantOperationalOverview
+                metrics={consultantQuickActions}
+                appointmentsToday={consultantAppointmentsToday}
+                pendingReviews={consultantPendingReviews}
+                overdueFollowUps={consultantOverdueFollowUps}
+                attentionClients={consultantAttentionClients}
+                recentActivity={consultantRecentActivity}
+                onOpenClient={openClient}
+                onNavigate={setNav}
+              />
+            </>
           ) : null}
 
           {roleKind === 'consultant' && nav === 'clients' ? (
@@ -5448,6 +7504,50 @@ function PlatformWorkspace({ forcedRole }) {
               loading={fiteatsyClientsLoading}
               error={fiteatsyClientsError}
               isRealFiteatsy={usesRealFiteatsyClients}
+            />
+          ) : null}
+
+          {roleKind === 'consultant' && nav === 'consultations' ? (
+            <ConsultationManagementPage
+              appointments={consultantWorkspace.appointments}
+              consultationNotes={consultantWorkspace.consultationNotes}
+              clients={clients}
+              onCreateAppointment={createConsultantAppointment}
+              onSaveNotes={saveConsultationNotes}
+              onCompleteAppointment={completeConsultationAppointment}
+              onCreateFollowUp={createConsultantFollowUp}
+              onOpenClient={openClient}
+            />
+          ) : null}
+
+          {roleKind === 'consultant' && nav === 'operations' ? (
+            <TasksTimelinePage
+              tasks={consultantWorkspace.tasks}
+              followUps={consultantWorkspace.followUps}
+              recentActivity={consultantRecentActivity}
+              onToggleTask={toggleConsultantTask}
+              onResolveFollowUp={resolveConsultantFollowUp}
+              onCreateTask={createConsultantTask}
+              clients={clients}
+              onOpenClient={openClient}
+            />
+          ) : null}
+
+          {roleKind === 'consultant' && nav === 'progress' ? (
+            <GoalsProgressPage
+              clients={consultantProgressClients}
+              attentionClients={consultantAttentionClients}
+              onOpenClient={openClient}
+            />
+          ) : null}
+
+          {roleKind === 'consultant' && nav === 'practice' ? (
+            <ConsultantPracticePage
+              clients={clients}
+              consultantProfile={consultantProfile}
+              consultantAvailability={consultantAvailability}
+              onProfileSave={saveConsultantProfile}
+              onAvailabilitySave={saveConsultantAvailability}
             />
           ) : null}
 
@@ -5511,6 +7611,9 @@ function PlatformWorkspace({ forcedRole }) {
           profile={realClientProfile}
           loading={realClientProfileLoading}
           error={realClientProfileError}
+          onProfileRefresh={refreshRealClientProfile}
+          onCreateMedicationFollowUp={createConsultantFollowUp}
+          canManageNutrition={canManageConsultantNutrition}
         />
       ) : null}
 

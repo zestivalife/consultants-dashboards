@@ -193,6 +193,10 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
   };
 }
 
+export async function getFiteatsyConsultantClientMedications(clientId) {
+  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/medications`);
+}
+
 export async function getFiteatsyConsultantNutritionIntelligence(clientId) {
   return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/nutrition-intelligence`);
 }
