@@ -1041,7 +1041,7 @@ export function PeopleAccessModule({
       { id: 'consultant', value: 'consultant', label: 'Consultant' },
       { id: 'corporate_admin', value: 'corporate_admin', label: 'Corporate admin' },
     ];
-  }, [roleOptions]);
+  }, [provisioningDraft.platform_key, roleOptions]);
   const provisioningWorkspaces = useMemo(
     () => departmentOptions.filter((department) => !provisioningDraft.organization_id || department.organization_id === provisioningDraft.organization_id),
     [departmentOptions, provisioningDraft.organization_id]
