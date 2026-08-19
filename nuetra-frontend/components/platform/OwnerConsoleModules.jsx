@@ -1018,7 +1018,7 @@ export function PeopleAccessModule({
   const mentors = metadata?.mentors || [];
   const consultants = metadata?.consultants || [];
   const provisioningRoles = useMemo(() => {
-    if (provisioningDraft.platform_key === 'fiteatsy') {
+    if (/fiteatsy/i.test(provisioningDraft.platform_key || '')) {
       return [
         { id: 'client', value: 'client', label: 'Client' },
         { id: 'consultant', value: 'consultant', label: 'Consultant' },
