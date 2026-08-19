@@ -16,6 +16,7 @@ from app.middleware.jwt import JWTMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.cors import add_cors_middleware
 from app.routers.proxy import router as proxy_router, close_http_client
+from app.routers.fiteatsy_bridge import router as fiteatsy_bridge_router
 from app.version import get_runtime_version
 
 logger = structlog.get_logger(__name__)
@@ -328,6 +329,7 @@ def create_app() -> FastAPI:
         }
 
     app.include_router(proxy_router)
+    app.include_router(fiteatsy_bridge_router)
 
     return app
 

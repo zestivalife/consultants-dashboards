@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ownerPeopleAccessAPI } from '../lib/api';
 
+function newIdempotencyKey() {
+  return globalThis.crypto?.randomUUID?.() || `owner-fiteatsy-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 const DEFAULT_FILTERS = {
   search: '',
   role: '',
@@ -222,6 +226,24 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     return created;
   }, [loadSelectedUser, onSelectUser, refresh]);
 
+  const onProvisionFiteatsyQaClient = useCallback(async (payload) => {
+    const result = await ownerPeopleAccessAPI.provisionFiteatsyQaClient(payload, newIdempotencyKey());
+    await refresh();
+    return result;
+  }, [refresh]);
+
+  const onProvisionFiteatsyQaConsultant = useCallback(async (payload) => {
+    const result = await ownerPeopleAccessAPI.provisionFiteatsyQaConsultant(payload, newIdempotencyKey());
+    await refresh();
+    return result;
+  }, [refresh]);
+
+  const onAssignFiteatsyClient = useCallback(async (payload) => {
+    const result = await ownerPeopleAccessAPI.assignFiteatsyClient(payload, newIdempotencyKey());
+    await refresh();
+    return result;
+  }, [refresh]);
+
   const onUpdateUser = useCallback(async (userId, payload) => {
     const updated = await ownerPeopleAccessAPI.updateUser(userId, payload);
     await refresh();
@@ -369,6 +391,9 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     onFilterChange,
     onSelectUser,
     onCreateUser,
+    onProvisionFiteatsyQaClient,
+    onProvisionFiteatsyQaConsultant,
+    onAssignFiteatsyClient,
     onUpdateUser,
     onArchiveUser,
     onRestoreUser,

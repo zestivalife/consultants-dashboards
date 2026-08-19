@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
 
+    fiteatsy_delegation_private_key: str = Field(default="", validation_alias=AliasChoices("FITEATSY_DELEGATION_PRIVATE_KEY", "fiteatsy_delegation_private_key"))
+    fiteatsy_delegation_key_id: str = Field(default="", validation_alias=AliasChoices("FITEATSY_DELEGATION_KEY_ID", "fiteatsy_delegation_key_id"))
+    fiteatsy_delegation_issuer: str = Field(default="zestiva-platform", validation_alias=AliasChoices("FITEATSY_DELEGATION_ISSUER", "fiteatsy_delegation_issuer"))
+    fiteatsy_delegation_audience: str = Field(default="fiteatsy-backend", validation_alias=AliasChoices("FITEATSY_DELEGATION_AUDIENCE", "fiteatsy_delegation_audience"))
+    fiteatsy_delegation_ttl_seconds: int = Field(default=180, validation_alias=AliasChoices("FITEATSY_DELEGATION_TTL_SECONDS", "fiteatsy_delegation_ttl_seconds"))
+
     redis_url: str = Field(
         default="redis://redis:6379/1",
         validation_alias=AliasChoices("REDIS_URL", "redis_url"),
@@ -59,6 +65,8 @@ class Settings(BaseSettings):
     def validate_production_settings(self) -> "Settings":
         if self.app_env.lower() == "production" and self.jwt_secret_key == "change-me-in-production":
             raise ValueError("JWT_SECRET_KEY must be set in production")
+        if not 30 <= self.fiteatsy_delegation_ttl_seconds <= 900:
+            raise ValueError("FITEATSY_DELEGATION_TTL_SECONDS must be between 30 and 900")
         return self
 
     @field_validator("cors_origins", mode="before")
