@@ -1612,9 +1612,6 @@ export function PeopleAccessModule({
         assigned_mentor_id: form.assigned_mentor_id || null,
         assigned_consultant_id: form.assigned_consultant_id || null,
         primary_product_id: form.primary_product_id || null,
-        product_ids: form.product_ids,
-        package_ids: form.package_ids,
-        service_ids: form.service_ids,
         status: form.status,
         permissions: form.permissions,
         tags: form.tags.filter(Boolean),
@@ -1855,6 +1852,22 @@ export function PeopleAccessModule({
         )
         : await runAction('Create user', onCreateUser, provisioningPayload);
       if (result === null) return;
+      if (isFiteatsyQaProvisioning && result?.user?.id && provisioningDraft.product_ids.length) {
+        const productResult = await runAction(
+          'Assign Fiteatsy product access',
+          onAssignProducts,
+          result.user.id,
+          provisioningDraft.product_ids.map((productId) => ({
+            product_id: productId,
+            organization_id: null,
+            role_id: null,
+            status: 'ACTIVE',
+            is_primary: productId === (provisioningDraft.product_id || provisioningDraft.product_ids[0]),
+            permissions: [],
+          }))
+        );
+        if (productResult === null) return;
+      }
       setLatestProvisioning(result);
       setLatestTemporaryCredentials(result?.temporary_credentials || null);
       if (!isFiteatsyQaProvisioning) setShowProvisioningModal(false);
@@ -3056,7 +3069,7 @@ export function PeopleAccessModule({
                   <ActionButton icon={XCircle} label="Suspend" onClick={() => applyBulkAction('suspend', { user_ids: [safeSelectedUser.id] })} />
                   <ActionButton icon={KeyRound} label="Reset password" onClick={resetSelectedUserPassword} disabled={isSubmitting} />
                   <ActionButton icon={KeyRound} label="Force logout" onClick={() => runAction('Force logout', onForceLogout, safeSelectedUser.id)} />
-                  <ActionButton icon={Save} label="Sync assignments" onClick={syncProductAssignments} disabled={isSubmitting} />
+                  <ActionButton icon={Save} label="Save Product Access" onClick={syncProductAssignments} disabled={isSubmitting} />
                   {safeSelectedUser.status === 'ARCHIVED' || safeSelectedUser.archived_at ? (
                     <ActionButton icon={RotateCcw} label="Restore user" onClick={() => requestRestoreUser(safeSelectedUser)} disabled={isSubmitting} />
                   ) : (
