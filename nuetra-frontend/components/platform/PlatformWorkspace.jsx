@@ -64,6 +64,7 @@ const roleKinds = {
   admin: 'admin',
   superuser: 'admin',
   platform_owner: 'admin',
+  care_operations: 'admin',
   mentor: 'mentor',
   team_lead: 'mentor',
   organization_admin: 'admin',
@@ -106,6 +107,7 @@ const intelligenceRangeOptions = [
 ];
 const clientWorkspaceTabs = ['Overview', 'Biomarkers', 'Behaviors', 'Diet Plan', 'Reports', 'Notes', 'Chat', 'Timeline'];
 const superAdminRoles = new Set(['superuser', 'platform_owner']);
+const assignmentManagerRoles = new Set(['admin', 'super_admin', 'platform_owner', 'care_operations']);
 const managedRoleOptions = [
   { value: 'mentor', label: 'Mentor', audience: 'mentor' },
   { value: 'consultant', label: 'Consultant', audience: 'consultant' },
@@ -5678,7 +5680,7 @@ function CommandCenterPage({
   );
 }
 
-function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filteredClients, totalCount = 0, onClientOpen, loading = false, error = null, isRealFiteatsy = false, isAdminDirectory = false }) {
+function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filteredClients, totalCount = 0, onClientOpen, loading = false, error = null, isRealFiteatsy = false, isAdminDirectory = false, canManageAssignments = false, onAssignClient }) {
   const errorMessage = getFiteatsyClientsErrorMessage(error);
   const [assignmentFilter, setAssignmentFilter] = useState('all');
   const visibleClients = isAdminDirectory && assignmentFilter !== 'all'
@@ -5697,8 +5699,18 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
                 ? (isAdminDirectory ? `${totalCount} registered Fiteatsy clients. Assignment and subscription are tracked independently.` : `${totalCount} clients assigned to your consultant workspace.`)
                 : 'Filter the client population by risk, momentum, inactivity, and intervention stage before opening the workspace.'}
             </p>
+            {isRealFiteatsy && !isAdminDirectory && !canManageAssignments ? (
+              <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-3)]">
+                Client assignment is managed by authorised operations. Assigned clients will appear here automatically.
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
+            {isRealFiteatsy && canManageAssignments && typeof onAssignClient === 'function' ? (
+              <button type="button" onClick={onAssignClient} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">
+                Assign Client
+              </button>
+            ) : null}
             {isRealFiteatsy ? (
               <span className="rounded-full bg-[var(--fluent-color-status-info-background)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-status-info-foreground)]">
                 {isAdminDirectory ? 'Registered clients' : 'Assigned clients'} · {totalCount}
@@ -5767,7 +5779,12 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
             </button>
           )) : (
             <div className="px-4 py-8 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-              {isAdminDirectory ? 'No registered Fiteatsy clients found.' : 'No clients are assigned to you yet.'}
+              <p>{isAdminDirectory ? 'No registered Fiteatsy clients found.' : 'No clients are assigned to you yet.'}</p>
+              {isRealFiteatsy && canManageAssignments && typeof onAssignClient === 'function' ? (
+                <button type="button" onClick={onAssignClient} className="mt-4 rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">
+                  Assign Client
+                </button>
+              ) : null}
             </div>
           )}
         </div>
@@ -6543,6 +6560,7 @@ function PlatformWorkspace({ forcedRole }) {
   const resolvedRole = forcedRole || user?.role || 'consultant';
   const roleKind = getRoleKind(resolvedRole);
   const isSuperAdmin = superAdminRoles.has(String(resolvedRole).toLowerCase());
+  const canManageProfessionalAssignments = assignmentManagerRoles.has(String(resolvedRole).toLowerCase());
   const canManageConsultantNutrition = roleKind === 'consultant' && consultantNutritionRoles.has(String(resolvedRole).toLowerCase());
   const [brandView, setBrandView] = useState('All Brands');
   const usesRealFiteatsyClients = roleKind === 'consultant' || brandView === 'Fiteatsy';
@@ -7900,6 +7918,8 @@ function PlatformWorkspace({ forcedRole }) {
               error={fiteatsyClientsError}
               isRealFiteatsy={usesRealFiteatsyClients}
               isAdminDirectory={false}
+              canManageAssignments={canManageProfessionalAssignments}
+              onAssignClient={canManageProfessionalAssignments ? () => setNav('assignments') : undefined}
             />
           ) : null}
 
@@ -7979,7 +7999,7 @@ function PlatformWorkspace({ forcedRole }) {
               ) : nav === 'people' ? (
                 isSuperAdmin ? <SuperAdminPeoplePage /> : <CompactPageHeader title="Restricted" subtitle="Only super admins can manage mentors, consultants, admins, and their authorities." />
               ) : nav === 'clients' && usesRealFiteatsyClients ? (
-                <ClientDirectoryPage queueViews={queueViews} activeQueue={activeQueue} setActiveQueue={setActiveQueue} filteredClients={filteredClients} totalCount={clients.length} onClientOpen={openClient} loading={fiteatsyClientsLoading} error={fiteatsyClientsError} isRealFiteatsy={usesRealFiteatsyClients} />
+                <ClientDirectoryPage queueViews={queueViews} activeQueue={activeQueue} setActiveQueue={setActiveQueue} filteredClients={filteredClients} totalCount={clients.length} onClientOpen={openClient} loading={fiteatsyClientsLoading} error={fiteatsyClientsError} isRealFiteatsy={usesRealFiteatsyClients} canManageAssignments={canManageProfessionalAssignments} onAssignClient={() => setNav('assignments')} />
               ) : (
                 <>
                   <CompactPageHeader title={adminHeader.title} subtitle={adminHeader.subtitle} />
