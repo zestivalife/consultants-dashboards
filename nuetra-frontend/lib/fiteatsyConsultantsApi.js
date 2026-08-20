@@ -155,21 +155,6 @@ export async function listFiteatsyConsultantClients() {
   };
 }
 
-export async function listFiteatsyAdminClients() {
-  const body = await requestFiteatsyJson('/v1/admin/fiteatsy-clients');
-  return {
-    clients: Array.isArray(body?.clients) ? body.clients.map((client) => ({
-      ...client,
-      clientId: client.clientId,
-      mobile: null,
-      status: client.accountStatus,
-      profileCompleted: false,
-      reportsCount: 0,
-    })) : [],
-    counts: body?.counts || null,
-  };
-}
-
 export async function getFiteatsyConsultantClientProfile(clientId) {
   const body = await requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/workspace`);
 
@@ -184,6 +169,7 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
     nutritionProtocol: body?.nutritionProtocol || null,
     nutritionIntelligence: body?.nutritionIntelligence || null,
     nutritionSnapshot: body?.nutritionSnapshot || null,
+    foodPreferences: body?.foodPreferences || null,
     dietPlan: body?.dietPlan || null,
     stressAssessment: body?.stressAssessment || null,
     planWorkflow: body?.planWorkflow || null,

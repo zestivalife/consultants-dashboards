@@ -42,7 +42,6 @@ import {
   getFiteatsyConsultantLatestDietPlan,
   getFiteatsyConsultantNutritionIntelligence,
   listFiteatsyConsultantClients,
-  listFiteatsyAdminClients,
   listFiteatsyConsultantMedicationExceptions,
   publishFiteatsyConsultantDietPlan,
   updateFiteatsyConsultantDietPlanDraft,
@@ -6476,7 +6475,7 @@ function PlatformWorkspace({ forcedRole }) {
   const isSuperAdmin = superAdminRoles.has(String(resolvedRole).toLowerCase());
   const canManageConsultantNutrition = roleKind === 'consultant' && consultantNutritionRoles.has(String(resolvedRole).toLowerCase());
   const [brandView, setBrandView] = useState('All Brands');
-  const usesRealFiteatsyClients = roleKind === 'consultant' || roleKind === 'admin' || brandView === 'Fiteatsy';
+  const usesRealFiteatsyClients = roleKind === 'consultant' || brandView === 'Fiteatsy';
   const [state, setState] = useState(() => {
     if (usesRealFiteatsyClients) return buildEmptyPlatformState();
 
@@ -6600,8 +6599,7 @@ function PlatformWorkspace({ forcedRole }) {
     setFiteatsyClientsLoading(true);
     setFiteatsyClientsError(null);
 
-    const loadClients = roleKind === 'admin' ? listFiteatsyAdminClients() : listFiteatsyConsultantClients();
-    loadClients
+    listFiteatsyConsultantClients()
       .then(({ clients: apiClients }) => {
         if (cancelled) return;
         setFiteatsyClients(apiClients);
@@ -7909,18 +7907,7 @@ function PlatformWorkspace({ forcedRole }) {
               ) : nav === 'people' ? (
                 isSuperAdmin ? <SuperAdminPeoplePage /> : <CompactPageHeader title="Restricted" subtitle="Only super admins can manage mentors, consultants, admins, and their authorities." />
               ) : nav === 'clients' && usesRealFiteatsyClients ? (
-                <ClientDirectoryPage
-                  queueViews={queueViews}
-                  activeQueue={activeQueue}
-                  setActiveQueue={setActiveQueue}
-                  filteredClients={filteredClients}
-                  totalCount={clients.length}
-                  onClientOpen={openClient}
-                  loading={fiteatsyClientsLoading}
-                  error={fiteatsyClientsError}
-                  isRealFiteatsy={usesRealFiteatsyClients}
-                  isAdminDirectory
-                />
+                <ClientDirectoryPage queueViews={queueViews} activeQueue={activeQueue} setActiveQueue={setActiveQueue} filteredClients={filteredClients} totalCount={clients.length} onClientOpen={openClient} loading={fiteatsyClientsLoading} error={fiteatsyClientsError} isRealFiteatsy={usesRealFiteatsyClients} />
               ) : (
                 <>
                   <CompactPageHeader title={adminHeader.title} subtitle={adminHeader.subtitle} />
