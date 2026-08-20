@@ -2087,6 +2087,11 @@ function RealClientProfileDrawer({
                 <p className={drawerSectionBodyClass}>
                   Version {dietPlanState.currentVersionNumber} • Template {dietPlanState.templateVersion}
                 </p>
+                {dietPlanState.plan?.reviewComment ? (
+                  <p className="mt-2 text-sm text-[var(--fluent-color-status-warning-foreground)]">
+                    Senior Consultant feedback: {dietPlanState.plan.reviewComment}
+                  </p>
+                ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <StatusChip status={lifecycleTone(dietPlanState.currentLifecycle)}>{workflowLabelFromLifecycle(dietPlanState.currentLifecycle)}</StatusChip>
@@ -5774,6 +5779,15 @@ function DietPlanReviewQueuePage() {
     }
   };
 
+  const publish = async (review) => {
+    try {
+      await publishFiteatsyConsultantDietPlan(review.clientUserId, review.dietPlanId);
+      await refresh();
+    } catch (nextError) {
+      setError(nextError.message || 'Unable to publish this diet plan.');
+    }
+  };
+
   return (
     <div className="space-y-4">
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-5" animated>
@@ -5794,11 +5808,31 @@ function DietPlanReviewQueuePage() {
                   </div>
                   <StatusChip status={review.planStatus === 'changes_requested' ? 'high' : 'pending'}>{review.planStatus === 'changes_requested' ? 'Changes Requested' : 'Pending Review'}</StatusChip>
                 </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <DetailField label="Submitted" value={review.submittedAtISO ? new Date(review.submittedAtISO).toLocaleString() : 'Not available'} />
+                  <DetailField label="Calories" value={review.version?.contentSummary?.calories != null ? `${review.version.contentSummary.calories} kcal` : 'Not available'} />
+                  <DetailField label="Protein" value={review.version?.contentSummary?.protein != null ? `${review.version.contentSummary.protein} g` : 'Not available'} />
+                </div>
+                <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                  <p className="text-sm font-semibold">Submitted meal options</p>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    {Object.entries(review.version?.content?.mealPlan || {}).map(([mealKey, meal]) => (
+                      <div key={mealKey} className="rounded-[12px] bg-[var(--fluent-color-neutral-background-1)] p-3">
+                        <p className="text-xs font-semibold uppercase tracking-[0.08em]">{mealKey.replace(/[A-Z]/g, (letter) => ` ${letter}`).trim()}</p>
+                        <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm">
+                          {(meal?.options || []).map((option) => <li key={option.id || `${mealKey}-${option.meal}-${option.portion}`}>{option.meal} · {option.portion}</li>)}
+                        </ol>
+                      </div>
+                    ))}
+                  </div>
+                </div>
                 {review.reviewComment ? <p className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">Previous comment: {review.reviewComment}</p> : null}
+                {review.reviewHistory?.length ? <div className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">History: {review.reviewHistory.map((event) => event.eventType.replace(/_/g, ' ')).join(' -> ')}</div> : null}
                 <textarea value={comments[review.dietPlanId] || ''} onChange={(event) => setComments((current) => ({ ...current, [review.dietPlanId]: event.target.value }))} placeholder="Required only when requesting changes" className="min-h-[84px] w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm" />
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={() => void requestChanges(review)} className="rounded-full border border-[var(--fluent-color-status-danger-border)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-status-danger-foreground)]">Request Changes</button>
                   <button type="button" onClick={() => void approve(review)} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">Approve</button>
+                  <button type="button" onClick={() => void publish(review)} disabled={review.planStatus !== 'approved'} className="rounded-full border border-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-background)] disabled:cursor-not-allowed disabled:opacity-40">Publish</button>
                 </div>
               </div>
             ))}
