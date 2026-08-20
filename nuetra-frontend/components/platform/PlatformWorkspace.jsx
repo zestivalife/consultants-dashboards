@@ -86,10 +86,12 @@ const consultantNav = [
 ];
 
 const consultantNavIds = new Set(consultantNav.map((item) => item.id));
+const seniorConsultantNavIds = new Set([...consultantNavIds, 'diet-plan-reviews']);
 const consultantDefaultNav = 'command-center';
 
-function resolveConsultantNavCandidate(value) {
-  return consultantNavIds.has(value) ? value : consultantDefaultNav;
+function resolveConsultantNavCandidate(value, allowSeniorReview = false) {
+  const allowedIds = allowSeniorReview ? seniorConsultantNavIds : consultantNavIds;
+  return allowedIds.has(value) ? value : consultantDefaultNav;
 }
 
 const seniorConsultantNav = [
@@ -6623,12 +6625,12 @@ function PlatformWorkspace({ forcedRole }) {
   useEffect(() => {
     if (roleKind !== 'consultant' || !router.isReady) return;
     const queryView = Array.isArray(router.query.view) ? router.query.view[0] : router.query.view;
-    const nextNav = resolveConsultantNavCandidate(queryView);
+    const nextNav = resolveConsultantNavCandidate(queryView, isSeniorConsultant);
     setNav((current) => (current === nextNav ? current : nextNav));
-  }, [roleKind, router.isReady, router.query.view]);
+  }, [isSeniorConsultant, roleKind, router.isReady, router.query.view]);
 
   const navigateConsultantWorkspace = useCallback((nextNav) => {
-    const resolvedNav = resolveConsultantNavCandidate(nextNav);
+    const resolvedNav = resolveConsultantNavCandidate(nextNav, isSeniorConsultant);
     if (roleKind !== 'consultant') {
       setNav(resolvedNav);
       return;
@@ -6652,7 +6654,7 @@ function PlatformWorkspace({ forcedRole }) {
       undefined,
       { shallow: true }
     );
-  }, [roleKind, router]);
+  }, [isSeniorConsultant, roleKind, router]);
 
   useEffect(() => {
     if (roleKind !== 'consultant' || !router.isReady) return;
