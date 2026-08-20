@@ -155,6 +155,30 @@ export async function listFiteatsyConsultantClients() {
   };
 }
 
+export async function searchFiteatsyAssignmentClients(query = '', offset = 0) {
+  const body = await requestFiteatsyJson(`/v1/professional-assignments/clients/search?q=${encodeURIComponent(query)}&limit=25&offset=${offset}`);
+  return Array.isArray(body?.clients) ? body.clients : [];
+}
+
+export async function listFiteatsyAssignmentProfessionals(type) {
+  const suffix = type ? `?type=${encodeURIComponent(type)}` : '';
+  const body = await requestFiteatsyJson(`/v1/professional-assignments/professionals${suffix}`);
+  return Array.isArray(body?.professionals) ? body.professionals : [];
+}
+
+export async function listFiteatsyProfessionalAssignments() {
+  const body = await requestFiteatsyJson('/v1/professional-assignments');
+  return Array.isArray(body?.assignments) ? body.assignments : [];
+}
+
+export async function createFiteatsyProfessionalAssignment(payload) {
+  return requestFiteatsy('/v1/professional-assignments', { method: 'POST', body: payload });
+}
+
+export async function revokeFiteatsyProfessionalAssignment(assignmentId, reason) {
+  return requestFiteatsy(`/v1/professional-assignments/${encodeURIComponent(assignmentId)}`, { method: 'DELETE', body: { reason } });
+}
+
 export async function getFiteatsyConsultantClientProfile(clientId) {
   const body = await requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/workspace`);
 
