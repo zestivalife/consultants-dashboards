@@ -6,6 +6,7 @@ import {
   Bell,
   Bot,
   CalendarDays,
+  ClipboardCheck,
   ChevronRight,
   Clock3,
   Command,
@@ -37,6 +38,8 @@ import {
   approveFiteatsyConsultantDietPlan,
   downloadFiteatsyConsultantDietPlan,
   generateFiteatsyConsultantDietPlanDraft,
+  listFiteatsyDietPlanReviews,
+  getFiteatsyConsultantClientMedications,
   getFiteatsyConsultantClientProfile,
   getFiteatsyConsultantLatestDietPlan,
   getFiteatsyConsultantNutritionIntelligence,
@@ -47,6 +50,8 @@ import {
   createFiteatsyProfessionalAssignment,
   revokeFiteatsyProfessionalAssignment,
   publishFiteatsyConsultantDietPlan,
+  requestFiteatsyConsultantDietPlanChanges,
+  submitFiteatsyConsultantDietPlanForReview,
   updateFiteatsyConsultantDietPlanDraft,
 } from '../../lib/fiteatsyConsultantsApi';
 import { corporateAPI } from '../../lib/api';
@@ -85,6 +90,11 @@ const consultantDefaultNav = 'command-center';
 function resolveConsultantNavCandidate(value) {
   return consultantNavIds.has(value) ? value : consultantDefaultNav;
 }
+
+const seniorConsultantNav = [
+  ...consultantNav,
+  { id: 'diet-plan-reviews', label: 'Diet Plan Reviews', icon: ClipboardCheck },
+];
 
 const mentorNav = [
   { id: 'command-center', label: 'Command Center', icon: LayoutGrid },
@@ -1077,7 +1087,8 @@ function getMealOptionIdentity(option) {
 
 function lifecycleTone(status) {
   if (status === 'published' || status === 'approved') return 'improving';
-  if (status === 'review_ready') return 'medium';
+  if (status === 'submitted_for_review') return 'medium';
+  if (status === 'changes_requested') return 'high';
   if (status === 'draft') return 'pending';
   return 'stable';
 }
@@ -1086,7 +1097,8 @@ function workflowLabelFromLifecycle(status) {
   if (!status) return 'Not started';
   const labels = {
     draft: 'Draft',
-    review_ready: 'Review Ready',
+    submitted_for_review: 'Awaiting Senior Consultant Review',
+    changes_requested: 'Changes Requested',
     approved: 'Approved',
     published: 'Published',
     archived: 'Archived',
@@ -1258,6 +1270,7 @@ function RealClientProfileDrawer({
   error,
   onProfileRefresh,
   canManageNutrition = false,
+  canReviewDietPlans = false,
 }) {
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('Overview');
   const [dietPlanState, setDietPlanState] = useState(() => profile?.dietPlan || null);
@@ -1588,9 +1601,28 @@ function RealClientProfileDrawer({
       setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
       setDietPlanDirty(false);
       await refreshWorkspace();
-      setNutritionActionSuccess('Plan saved successfully.');
+      setNutritionActionSuccess('Diet chart draft saved. Submit it when it is ready for review.');
     } catch (actionError) {
       setNutritionActionError(getNutritionWorkflowErrorMessage(actionError, 'Unable to save the diet chart changes right now.'));
+    } finally {
+      setNutritionActionLoading(false);
+    }
+  }, [dietPlanContentDraft, dietPlanState?.plan?.id, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
+
+  const handleSubmitForReview = useCallback(async () => {
+    if (!summaryClient?.id || !dietPlanState?.plan?.id || nutritionActionLoading) return;
+    setNutritionActionLoading(true);
+    setNutritionActionError(null);
+    setNutritionActionSuccess(null);
+    try {
+      const response = await submitFiteatsyConsultantDietPlanForReview(summaryClient.id, dietPlanState.plan.id);
+      const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
+      setDietPlanState(nextDietPlan);
+      setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
+      await refreshWorkspace();
+      setNutritionActionSuccess('Diet chart submitted for Senior Consultant review.');
+    } catch (actionError) {
+      setNutritionActionError(getNutritionWorkflowErrorMessage(actionError, 'Unable to submit this diet chart for review.'));
     } finally {
       setNutritionActionLoading(false);
     }
@@ -1910,20 +1942,32 @@ function RealClientProfileDrawer({
                 >
                   Save Plan
                 </button>
-                <button
-                  onClick={handleApprovePlan}
-                  disabled={nutritionActionLoading || !['draft', 'review_ready'].includes(dietPlanState.currentLifecycle)}
-                  className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Approve
-                </button>
-                <button
-                  onClick={handlePublishPlan}
-                  disabled={nutritionActionLoading || dietPlanState.currentLifecycle !== 'approved'}
-                  className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Publish
-                </button>
+                {!canReviewDietPlans ? (
+                  <button
+                    onClick={handleSubmitForReview}
+                    disabled={nutritionActionLoading || !['draft', 'changes_requested'].includes(dietPlanState.currentLifecycle)}
+                    className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Submit for Review
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={handleApprovePlan}
+                      disabled={nutritionActionLoading || dietPlanState.currentLifecycle !== 'submitted_for_review'}
+                      className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      onClick={handlePublishPlan}
+                      disabled={nutritionActionLoading || dietPlanState.currentLifecycle !== 'approved'}
+                      className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Publish
+                    </button>
+                  </>
+                )}
                 <button
                   onClick={handleDownloadDietPlan}
                   disabled={nutritionDownloadLoading}
@@ -5545,6 +5589,85 @@ function ProfessionalAssignmentPage() {
   );
 }
 
+function DietPlanReviewQueuePage() {
+  const [reviews, setReviews] = useState([]);
+  const [comments, setComments] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setReviews(await listFiteatsyDietPlanReviews());
+    } catch (nextError) {
+      setError(nextError.message || 'Unable to load diet plan reviews.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const approve = async (review) => {
+    try {
+      await approveFiteatsyConsultantDietPlan(review.clientUserId, review.dietPlanId);
+      await refresh();
+    } catch (nextError) {
+      setError(nextError.message || 'Unable to approve this diet plan.');
+    }
+  };
+
+  const requestChanges = async (review) => {
+    const comment = String(comments[review.dietPlanId] || '').trim();
+    if (!comment) {
+      setError('A review comment is required when requesting changes.');
+      return;
+    }
+    try {
+      await requestFiteatsyConsultantDietPlanChanges(review.clientUserId, review.dietPlanId, comment);
+      setComments((current) => ({ ...current, [review.dietPlanId]: '' }));
+      await refresh();
+    } catch (nextError) {
+      setError(nextError.message || 'Unable to request changes.');
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-5" animated>
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Diet Plan Reviews</p>
+        <h2 className="mt-2 text-[24px] font-semibold">Senior Consultant review queue</h2>
+        <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Review submitted Consultant plans, request focused corrections, or approve the submitted version.</p>
+      </Surface>
+      {error ? <p className="rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-3 text-sm text-[var(--fluent-color-status-danger-foreground)]">{error}</p> : null}
+      <Surface className="overflow-hidden border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)]" animated>
+        {loading ? <p className="p-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading review queue...</p> : reviews.length ? (
+          <div className="divide-y divide-[var(--fluent-color-neutral-stroke-1)]">
+            {reviews.map((review) => (
+              <div key={review.dietPlanId} className="space-y-3 p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{review.clientName}</p>
+                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Consultant: {review.consultantName || 'Assigned Consultant'} · Version {review.version?.versionNumber || '—'}</p>
+                  </div>
+                  <StatusChip status={review.planStatus === 'changes_requested' ? 'high' : 'pending'}>{review.planStatus === 'changes_requested' ? 'Changes Requested' : 'Pending Review'}</StatusChip>
+                </div>
+                {review.reviewComment ? <p className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">Previous comment: {review.reviewComment}</p> : null}
+                <textarea value={comments[review.dietPlanId] || ''} onChange={(event) => setComments((current) => ({ ...current, [review.dietPlanId]: event.target.value }))} placeholder="Required only when requesting changes" className="min-h-[84px] w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm" />
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => void requestChanges(review)} className="rounded-full border border-[var(--fluent-color-status-danger-border)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-status-danger-foreground)]">Request Changes</button>
+                  <button type="button" onClick={() => void approve(review)} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">Approve</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : <p className="p-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No diet plans are waiting for review.</p>}
+      </Surface>
+    </div>
+  );
+}
+
 function ConsultantOperationalOverview({
   metrics,
   appointmentsToday,
@@ -6248,6 +6371,7 @@ function PlatformWorkspace({ forcedRole }) {
   const { user, logout } = useAuth();
   const resolvedRole = forcedRole || user?.role || 'consultant';
   const roleKind = getRoleKind(resolvedRole);
+  const isSeniorConsultant = String(resolvedRole).toLowerCase() === 'senior_consultant';
   const isSuperAdmin = superAdminRoles.has(String(resolvedRole).toLowerCase());
   const canManageProfessionalAssignments = assignmentManagerRoles.has(String(resolvedRole).toLowerCase());
   const canManageConsultantNutrition = roleKind === 'consultant' && consultantNutritionRoles.has(String(resolvedRole).toLowerCase());
@@ -6495,7 +6619,7 @@ function PlatformWorkspace({ forcedRole }) {
   const selectedClient = useMemo(() => allClients.find((client) => client.id === selectedClientId) || allClients[0], [allClients, selectedClientId]);
   const selectedPlan = useMemo(() => state.plans.find((plan) => plan.employeeId === selectedClient?.id), [selectedClient, state.plans]);
   const roleName = getRoleDisplayName(resolvedRole);
-  const topNavItems = roleKind === 'consultant' ? consultantNav : roleKind === 'mentor' ? mentorNav : (isSuperAdmin ? adminNav : adminNav.filter((item) => item.id !== 'people'));
+  const topNavItems = roleKind === 'consultant' ? (isSeniorConsultant ? seniorConsultantNav : consultantNav) : roleKind === 'mentor' ? mentorNav : (isSuperAdmin ? adminNav : adminNav.filter((item) => item.id !== 'people'));
   const adminHeader = brandView === 'Fiteatsy'
     ? {
         title: 'User Intelligence',
@@ -7575,6 +7699,10 @@ function PlatformWorkspace({ forcedRole }) {
             </>
           ) : null}
 
+          {isSeniorConsultant && nav === 'diet-plan-reviews' ? (
+            <DietPlanReviewQueuePage />
+          ) : null}
+
           {roleKind === 'consultant' && nav === 'clients' ? (
             <ClientDirectoryPage
               queueViews={queueViews}
@@ -7701,6 +7829,7 @@ function PlatformWorkspace({ forcedRole }) {
           error={realClientProfileError}
           onProfileRefresh={refreshRealClientProfile}
           canManageNutrition={canManageConsultantNutrition}
+          canReviewDietPlans={isSeniorConsultant}
         />
       ) : null}
 
