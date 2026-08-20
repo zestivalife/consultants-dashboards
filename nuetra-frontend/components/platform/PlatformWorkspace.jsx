@@ -42,6 +42,7 @@ import {
   getFiteatsyConsultantLatestDietPlan,
   getFiteatsyConsultantNutritionIntelligence,
   listFiteatsyConsultantClients,
+  listFiteatsyAdminClients,
   listFiteatsyConsultantMedicationExceptions,
   publishFiteatsyConsultantDietPlan,
   updateFiteatsyConsultantDietPlanDraft,
@@ -459,6 +460,9 @@ function buildFiteatsyClientRecords(apiClients) {
     email: client.email,
     mobile: client.mobile,
     mobileNumberMasked: client.mobileNumberMasked,
+    assignmentStatus: client.assignmentStatus || null,
+    consultantName: client.consultantName || null,
+    subscriptionStatus: client.subscriptionStatus || 'none',
     status: client.status,
     accountStatus: client.accountStatus,
     packageName: 'Not assigned',
@@ -1159,7 +1163,7 @@ function getWellnessAvailabilityCopy(key) {
     },
     stressResilience: {
       label: 'Stress assessment needed',
-      detail: 'PSS inputs, routine quality, and recovery context are required before stress resilience can be scored.',
+      detail: 'Stress Test inputs, routine quality, and recovery context are required before stress resilience can be scored.',
     },
   };
   return copy[key] || {
@@ -1426,7 +1430,7 @@ function RealClientProfileDrawer({
     { key: 'nourishment', title: 'Nourishment', value: nutritionIntelligence?.wellnessScores?.nourishment ?? profile?.recoveryMetrics?.nourishmentScore?.scoreValue ?? null, detail: 'Food quality, hydration, and meal rhythm' },
     { key: 'recovery', title: 'Recovery', value: nutritionIntelligence?.wellnessScores?.recovery ?? profile?.recoveryMetrics?.recoveryScore?.scoreValue ?? null, detail: 'Recovery habits and restoration capacity' },
     { key: 'physicalWellnessIndex', title: 'Physical Wellness Index', value: nutritionIntelligence?.wellnessScores?.physicalWellnessIndex ?? profile?.recoveryMetrics?.physicalWellnessIndex?.scoreValue ?? null, detail: 'Overall backend-computed body resilience' },
-    { key: 'stressResilience', title: 'Stress Resilience', value: nutritionIntelligence?.wellnessScores?.stressResilience ?? profile?.recoveryMetrics?.calmScore?.scoreValue ?? null, detail: 'Stress handling from PSS and recovery context' },
+    { key: 'stressResilience', title: 'Stress Resilience', value: nutritionIntelligence?.wellnessScores?.stressResilience ?? profile?.recoveryMetrics?.calmScore?.scoreValue ?? null, detail: 'Stress handling from Stress Test and recovery context' },
   ];
   const medicationMonitoring = medicationState || profile?.medicationMonitoring || null;
   const stressAssessment = stressState || profile?.stressAssessment || null;
@@ -2382,7 +2386,7 @@ function RealClientProfileDrawer({
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Perceived Stress</p>
-              <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">Completed PSS-10 results from the client record. This view is non-diagnostic and read-only.</p>
+              <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">Completed Stress Test results from the client record. This view is non-diagnostic and read-only.</p>
             </div>
             {typeof onCreateFollowUp === 'function' ? (
               <button type="button" onClick={() => onCreateFollowUp(summaryClient?.id, latest ? `Review latest perceived-stress assessment (${latest.rawScore}/${latest.maxScore})` : 'Review perceived-stress assessment')} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">
@@ -5669,27 +5673,38 @@ function CommandCenterPage({
   );
 }
 
-function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filteredClients, totalCount = 0, onClientOpen, loading = false, error = null, isRealFiteatsy = false }) {
+function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filteredClients, totalCount = 0, onClientOpen, loading = false, error = null, isRealFiteatsy = false, isAdminDirectory = false }) {
   const errorMessage = getFiteatsyClientsErrorMessage(error);
+  const [assignmentFilter, setAssignmentFilter] = useState('all');
+  const visibleClients = isAdminDirectory && assignmentFilter !== 'all'
+    ? filteredClients.filter((client) => client.assignmentStatus === assignmentFilter)
+    : filteredClients;
 
   return (
     <div className="space-y-4">
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client Directory</p>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">{isAdminDirectory ? 'Registered Client Directory' : 'My Clients'}</p>
             <h2 className="mt-2 text-[24px] font-semibold tracking-[-0.02em]">Healthcare operating roster</h2>
             <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
               {isRealFiteatsy
-                ? `${totalCount} registered Fiteatsy users are available from the live consultant API.`
+                ? (isAdminDirectory ? `${totalCount} registered Fiteatsy clients. Assignment and subscription are tracked independently.` : `${totalCount} clients assigned to your consultant workspace.`)
                 : 'Filter the client population by risk, momentum, inactivity, and intervention stage before opening the workspace.'}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {isRealFiteatsy ? (
               <span className="rounded-full bg-[var(--fluent-color-status-info-background)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-status-info-foreground)]">
-                Total registered users · {totalCount}
+                {isAdminDirectory ? 'Registered clients' : 'Assigned clients'} · {totalCount}
               </span>
+            ) : null}
+            {isAdminDirectory ? (
+              <select value={assignmentFilter} onChange={(event) => setAssignmentFilter(event.target.value)} className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-neutral-foreground-2)] outline-none">
+                <option value="all">All clients</option>
+                <option value="assigned">Assigned</option>
+                <option value="unassigned">Unassigned</option>
+              </select>
             ) : null}
             {queueViews.slice(0, 5).map((view) => (
               <button
@@ -5721,7 +5736,7 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
             <div className="px-4 py-8 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading Fiteatsy clients...</div>
           ) : errorMessage ? (
             <div className="px-4 py-8 text-sm font-medium text-[var(--fluent-color-status-danger-foreground)]">{errorMessage}</div>
-          ) : filteredClients.length ? filteredClients.slice(0, 16).map((client) => (
+          ) : visibleClients.length ? visibleClients.slice(0, 16).map((client) => (
             <button
               key={client.id}
               onClick={() => onClientOpen(client.id)}
@@ -5747,7 +5762,7 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
             </button>
           )) : (
             <div className="px-4 py-8 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-              No Fiteatsy clients registered yet. New users will appear here automatically after they register in Fiteatsy.
+              {isAdminDirectory ? 'No registered Fiteatsy clients found.' : 'No clients are assigned to you yet.'}
             </div>
           )}
         </div>
@@ -6461,7 +6476,7 @@ function PlatformWorkspace({ forcedRole }) {
   const isSuperAdmin = superAdminRoles.has(String(resolvedRole).toLowerCase());
   const canManageConsultantNutrition = roleKind === 'consultant' && consultantNutritionRoles.has(String(resolvedRole).toLowerCase());
   const [brandView, setBrandView] = useState('All Brands');
-  const usesRealFiteatsyClients = roleKind === 'consultant' || brandView === 'Fiteatsy';
+  const usesRealFiteatsyClients = roleKind === 'consultant' || roleKind === 'admin' || brandView === 'Fiteatsy';
   const [state, setState] = useState(() => {
     if (usesRealFiteatsyClients) return buildEmptyPlatformState();
 
@@ -6585,7 +6600,8 @@ function PlatformWorkspace({ forcedRole }) {
     setFiteatsyClientsLoading(true);
     setFiteatsyClientsError(null);
 
-    listFiteatsyConsultantClients()
+    const loadClients = roleKind === 'admin' ? listFiteatsyAdminClients() : listFiteatsyConsultantClients();
+    loadClients
       .then(({ clients: apiClients }) => {
         if (cancelled) return;
         setFiteatsyClients(apiClients);
@@ -7815,6 +7831,7 @@ function PlatformWorkspace({ forcedRole }) {
               loading={fiteatsyClientsLoading}
               error={fiteatsyClientsError}
               isRealFiteatsy={usesRealFiteatsyClients}
+              isAdminDirectory={false}
             />
           ) : null}
 
@@ -7902,6 +7919,7 @@ function PlatformWorkspace({ forcedRole }) {
                   loading={fiteatsyClientsLoading}
                   error={fiteatsyClientsError}
                   isRealFiteatsy={usesRealFiteatsyClients}
+                  isAdminDirectory
                 />
               ) : (
                 <>
