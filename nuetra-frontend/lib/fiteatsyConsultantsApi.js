@@ -277,6 +277,24 @@ export async function approveFiteatsyConsultantDietPlan(clientId, dietPlanId) {
   });
 }
 
+export async function submitFiteatsyConsultantDietPlanForReview(clientId, dietPlanId) {
+  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/submit-review`, {
+    method: 'POST',
+  });
+}
+
+export async function requestFiteatsyConsultantDietPlanChanges(clientId, dietPlanId, comment) {
+  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/request-changes`, {
+    method: 'POST',
+    body: { comment },
+  });
+}
+
+export async function listFiteatsyDietPlanReviews() {
+  const body = await requestFiteatsyJson('/v1/consultants/diet-plan-reviews');
+  return Array.isArray(body?.reviews) ? body.reviews : [];
+}
+
 export async function publishFiteatsyConsultantDietPlan(clientId, dietPlanId) {
   return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/publish`, {
     method: 'POST',
