@@ -5590,7 +5590,19 @@ function ProfessionalAssignmentPage() {
   );
 }
 
-function SeniorConsultantClientAllocationPage({ currentUserId }) {
+const GENERIC_PROFESSIONAL_NAMES = new Set(['consultant dashboard user', 'consultant']);
+
+function getProfessionalDisplayName(professional) {
+  const displayName = String(professional?.displayName || '').trim();
+  const name = String(professional?.name || '').trim();
+  const firstLast = [professional?.firstName, professional?.lastName].filter(Boolean).join(' ').trim();
+  if (displayName && !GENERIC_PROFESSIONAL_NAMES.has(displayName.toLowerCase())) return displayName;
+  if (name && !GENERIC_PROFESSIONAL_NAMES.has(name.toLowerCase())) return name;
+  if (firstLast) return firstLast;
+  return professional?.email || 'Consultant';
+}
+
+function SeniorConsultantClientAllocationPage({ currentUserId, currentUserName = 'Senior Consultant' }) {
   const [view, setView] = useState('all');
   const [query, setQuery] = useState('');
   const [clients, setClients] = useState([]);
@@ -5598,6 +5610,7 @@ function SeniorConsultantClientAllocationPage({ currentUserId }) {
   const [counts, setCounts] = useState({ all: 0, unassigned: 0, mine: 0, assigned: 0 });
   const [selectedClient, setSelectedClient] = useState(null);
   const [professionalUserId, setProfessionalUserId] = useState('');
+  const [assignmentMode, setAssignmentMode] = useState('me');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -5619,6 +5632,8 @@ function SeniorConsultantClientAllocationPage({ currentUserId }) {
         assigned: allClients.filter((client) => client.assignmentStatus === 'ASSIGNED').length,
       });
       setProfessionals(nextProfessionals.filter((professional) => professional.role !== 'senior_consultant'));
+      setSelectedClient((current) => current ? allClients.find((client) => client.userId === current.userId) || current : current);
+      return { nextClients, allClients };
     } catch (nextError) {
       setError(nextError.message || 'Unable to load the Client Pool.');
     } finally {
@@ -5632,10 +5647,10 @@ function SeniorConsultantClientAllocationPage({ currentUserId }) {
     if (!selectedClient?.userId || !professionalUserId) return;
     try {
       setError('');
-      await createFiteatsyProfessionalAssignment({ clientUserId: selectedClient.userId, professionalUserId, professionalType: 'CONSULTANT', relationshipType: 'CLIENT_CARE', reason: 'Senior Consultant client allocation' });
-      setMessage('Client assignment updated.');
-      setSelectedClient(null);
+      await createFiteatsyProfessionalAssignment({ clientUserId: selectedClient.userId, professionalUserId, professionalType: 'CONSULTANT', relationshipType: 'CLIENT_CARE', reason: selectedClient.assignmentStatus === 'ASSIGNED' ? 'Senior Consultant reassigned client' : 'Senior Consultant client allocation' });
+      setMessage('Client assigned successfully.');
       setProfessionalUserId('');
+      setAssignmentMode('me');
       await refresh();
     } catch (nextError) { setError(nextError.message || 'Unable to update the assignment.'); }
   };
@@ -5650,49 +5665,62 @@ function SeniorConsultantClientAllocationPage({ currentUserId }) {
     } catch (nextError) { setError(nextError.message || 'Unable to end the assignment.'); }
   };
 
+  const selectedProfessional = professionals.find((professional) => professional.userId === professionalUserId);
+  const selectedTargetName = assignmentMode === 'me' ? currentUserName : getProfessionalDisplayName(selectedProfessional);
+
   return (
     <div className="space-y-4">
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-5" animated>
         <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Senior Consultant</p>
-        <h2 className="mt-2 text-[24px] font-semibold">Client allocation</h2>
-        <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Allocate registered Fiteatsy Clients without requiring Food Preferences or a subscription.</p>
+        <h2 className="mt-2 text-[24px] font-semibold">Clients</h2>
+        <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Registered Fiteatsy clients available for allocation.</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          {[['all', 'All Clients'], ['mine', 'Assigned to Me'], ['assigned', 'Assigned to Consultants'], ['unassigned', 'Unassigned']].map(([value, label]) => (
-            <button key={value} type="button" onClick={() => setView(value)} className={`rounded-full px-4 py-2 text-xs font-semibold ${view === value ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'bg-[var(--fluent-color-neutral-background-2)] text-[var(--fluent-color-neutral-foreground-2)]'}`}>{label} · {counts[value]}</button>
+          {[['all', 'All'], ['unassigned', 'Unassigned'], ['mine', 'Assigned to Me'], ['assigned', 'Assigned to Consultants']].map(([value, label]) => (
+            <button key={value} type="button" onClick={() => setView(value)} aria-pressed={view === value} className={`rounded-full px-4 py-2 text-xs font-semibold ${view === value ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'bg-[var(--fluent-color-neutral-background-2)] text-[var(--fluent-color-neutral-foreground-2)]'}`}>{label} · {counts[value]}</button>
           ))}
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && refresh()} placeholder="Search registered Clients" className="min-w-[260px] flex-1 rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm" />
+          <input aria-label="Search Clients" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && refresh()} placeholder="Search Clients" className="min-w-[260px] flex-1 rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm" />
           <button type="button" onClick={() => void refresh()} className="rounded-[12px] bg-[var(--fluent-color-brand-background)] px-4 py-2 text-sm font-semibold text-[var(--fluent-color-brand-foreground)]">Search</button>
         </div>
       </Surface>
       {error ? <p className="rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-3 text-sm text-[var(--fluent-color-status-danger-foreground)]">{error}</p> : null}
       {message ? <p className="rounded-[16px] bg-[var(--fluent-color-status-success-background)] px-4 py-3 text-sm text-[var(--fluent-color-status-success-foreground)]">{message}</p> : null}
-      <Surface className="overflow-hidden border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)]" animated>
-        {loading ? <p className="p-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading Client Pool...</p> : clients.length ? (
-          <div className="divide-y divide-[var(--fluent-color-neutral-stroke-1)]">
-            {clients.map((client) => (
-              <div key={client.userId} className="flex flex-wrap items-center justify-between gap-4 p-4">
-                <div className="min-w-[220px] flex-1">
-                  <p className="text-sm font-semibold">{client.name}</p>
-                  <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Registered {client.registrationDateISO ? new Date(client.registrationDateISO).toLocaleDateString() : '—'} · Food Preferences: {client.foodPreferenceStatus === 'AVAILABLE' ? 'Available' : 'Not provided'} · Subscription: {client.subscriptionStatus === 'NONE' ? 'None' : client.subscriptionStatus}</p>
-                </div>
-                <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.assignedProfessional ? `Assigned to ${client.assignedProfessional.name}` : 'Unassigned'}</div>
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => { setSelectedClient(client); setProfessionalUserId(client.assignedToMe ? currentUserId : ''); }} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">{client.assignmentStatus === 'ASSIGNED' ? 'Reassign' : 'Assign'}</button>
-                  {client.assignmentStatus === 'ASSIGNED' ? <button type="button" onClick={() => void endAssignment(client)} className="rounded-full border border-[var(--fluent-color-status-danger-border)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-status-danger-foreground)]">End Assignment</button> : null}
-                </div>
-              </div>
-            ))}
+      <div className="grid items-start gap-4 xl:grid-cols-[1.38fr_1fr]">
+        <Surface className="overflow-hidden border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)]" animated>
+          <div className="border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-inset)] px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client Pool</p>
+            <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Select a client to manage allocation.</p>
           </div>
-        ) : <p className="p-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No registered Clients match this view.</p>}
-      </Surface>
-      {selectedClient ? (
-        <Surface className="border border-[var(--fluent-color-brand-background)] bg-[var(--fluent-color-neutral-background-1)] p-5" animated>
-          <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Assign Client</p><h3 className="mt-1 text-lg font-semibold">{selectedClient.name}</h3></div><button type="button" onClick={() => setSelectedClient(null)} className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-2 text-xs font-semibold">Cancel</button></div>
-          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end"><label className="text-sm font-medium">Assign to me or Consultant<select value={professionalUserId} onChange={(event) => setProfessionalUserId(event.target.value)} className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm"><option value="">Select assignment target</option><option value={currentUserId}>Assign to Me</option>{professionals.map((professional) => <option key={professional.userId} value={professional.userId}>{professional.name}</option>)}</select></label><button type="button" disabled={!professionalUserId} onClick={() => void assign()} className="rounded-[12px] bg-[var(--fluent-color-brand-background)] px-4 py-2 text-sm font-semibold text-[var(--fluent-color-brand-foreground)] disabled:opacity-40">Confirm Assignment</button></div>
+          {loading ? <p className="p-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading Client Pool...</p> : clients.length ? (
+            <div className="divide-y divide-[var(--fluent-color-neutral-stroke-1)]">
+              {clients.map((client) => {
+                const isSelected = selectedClient?.userId === client.userId;
+                const currentAssignment = client.assignedProfessional ? `Assigned to ${getProfessionalDisplayName(client.assignedProfessional)}` : 'Unassigned';
+                return (
+                  <button key={client.userId} type="button" onClick={() => { setSelectedClient(client); setAssignmentMode('me'); setProfessionalUserId(client.assignedToMe ? currentUserId : ''); setMessage(''); }} aria-pressed={isSelected} className={`w-full p-4 text-left transition ${isSelected ? 'bg-[rgba(59,130,246,0.08)] ring-1 ring-inset ring-[var(--fluent-color-brand-stroke-1)]' : 'hover:bg-[var(--fluent-color-neutral-background-2)]'}`}>
+                    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{client.name}</p><p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Registered {client.registrationDateISO ? new Date(client.registrationDateISO).toLocaleDateString() : '—'} · {currentAssignment}</p></div><span className="shrink-0 text-xs font-semibold text-[var(--fluent-color-brand-background)]">{client.assignmentStatus === 'ASSIGNED' ? 'Assigned' : 'Select'}</span></div>
+                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]"><span>Food Preferences: {client.foodPreferenceStatus === 'AVAILABLE' ? 'Available' : 'Not provided'}</span><span>Subscription: {client.subscriptionStatus === 'NONE' ? 'No active plan' : client.subscriptionStatus}</span></div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : <p className="p-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No registered Clients match this view.</p>}
         </Surface>
-      ) : null}
+        <div className="space-y-4 xl:sticky xl:top-[150px]">
+          <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-5" animated>
+            {!selectedClient ? <><p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client Allocation</p><h3 className="mt-2 text-lg font-semibold">Select a client</h3><p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Choose a client from the list to assign them to yourself or another Consultant.</p></> : <>
+              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client Allocation</p><div className="mt-2 flex items-start justify-between gap-3"><div><h3 className="text-lg font-semibold">{selectedClient.name}</h3><p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{selectedClient.assignedProfessional ? `Current Assignment: ${getProfessionalDisplayName(selectedClient.assignedProfessional)}` : 'Current Assignment: Unassigned'}</p></div><button type="button" onClick={() => setSelectedClient(null)} className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-2 text-xs font-semibold">Close</button></div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2"><div className="rounded-[12px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3 text-xs">Food Preferences<br /><strong>{selectedClient.foodPreferenceStatus === 'AVAILABLE' ? 'Available' : 'Not provided'}</strong></div><div className="rounded-[12px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3 text-xs">Subscription<br /><strong>{selectedClient.subscriptionStatus === 'NONE' ? 'None' : selectedClient.subscriptionStatus}</strong></div></div>
+              <p className="mt-5 text-sm font-semibold">{selectedClient.assignmentStatus === 'ASSIGNED' ? 'Reassign Client' : 'Assign Client'}</p>
+              <div className="mt-3 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Assignment target"><button type="button" role="radio" aria-checked={assignmentMode === 'me'} onClick={() => { setAssignmentMode('me'); setProfessionalUserId(currentUserId); }} className={`rounded-[12px] border px-3 py-3 text-left text-sm ${assignmentMode === 'me' ? 'border-[var(--fluent-color-brand-stroke-1)] bg-[rgba(59,130,246,0.08)]' : 'border-[var(--fluent-color-neutral-stroke-1)]'}`}>Assign to Me<br /><span className="text-xs text-[var(--fluent-color-neutral-foreground-2)]">{currentUserName}</span></button><button type="button" role="radio" aria-checked={assignmentMode === 'consultant'} onClick={() => { setAssignmentMode('consultant'); setProfessionalUserId(''); }} className={`rounded-[12px] border px-3 py-3 text-left text-sm ${assignmentMode === 'consultant' ? 'border-[var(--fluent-color-brand-stroke-1)] bg-[rgba(59,130,246,0.08)]' : 'border-[var(--fluent-color-neutral-stroke-1)]'}`}>Assign to Consultant<br /><span className="text-xs text-[var(--fluent-color-neutral-foreground-2)]">Choose an active Consultant</span></button></div>
+              {assignmentMode === 'consultant' ? <label className="mt-3 block text-sm font-medium">Consultant<select aria-label="Select Consultant" value={professionalUserId} onChange={(event) => setProfessionalUserId(event.target.value)} className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm"><option value="">Search/select Consultant</option>{professionals.map((professional) => <option key={professional.userId} value={professional.userId}>{getProfessionalDisplayName(professional)}{professional.email ? ` · ${professional.email}` : ''}</option>)}</select></label> : null}
+              <div className="mt-4 rounded-[12px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3 text-sm">Assign <strong>{selectedClient.name}</strong> to <strong>{selectedTargetName}</strong>.</div>
+              <div className="mt-4 flex flex-wrap gap-2"><button type="button" disabled={!professionalUserId} onClick={() => void assign()} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2.5 text-sm font-semibold text-[var(--fluent-color-brand-foreground)] disabled:opacity-40">{selectedClient.assignmentStatus === 'ASSIGNED' ? 'Confirm Reassignment' : 'Confirm Assignment'}</button>{selectedClient.assignmentStatus === 'ASSIGNED' ? <button type="button" onClick={() => void endAssignment(selectedClient)} className="rounded-full border border-[var(--fluent-color-status-danger-border)] px-4 py-2.5 text-sm font-semibold text-[var(--fluent-color-status-danger-foreground)]">End Assignment</button> : null}</div>
+            </>}
+          </Surface>
+        </div>
+      </div>
     </div>
   );
 }
@@ -7812,7 +7840,7 @@ function PlatformWorkspace({ forcedRole }) {
           ) : null}
 
           {isSeniorConsultant && nav === 'clients' ? (
-            <SeniorConsultantClientAllocationPage currentUserId={user?.id || user?.accountId || ''} />
+            <SeniorConsultantClientAllocationPage currentUserId={user?.id || user?.accountId || ''} currentUserName={user?.name || user?.displayName || user?.email || 'Senior Consultant'} />
           ) : roleKind === 'consultant' && nav === 'clients' ? (
             <ClientDirectoryPage
               queueViews={queueViews}
