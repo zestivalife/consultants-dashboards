@@ -5756,9 +5756,25 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
               </button>
             ) : null}
             {isRealFiteatsy ? (
-              <span className="rounded-full bg-[var(--fluent-color-status-info-background)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-status-info-foreground)]">
-                {isAdminDirectory ? 'Registered clients' : 'Assigned clients'} · {totalCount}
-              </span>
+              isAdminDirectory ? (
+                <span className="rounded-full bg-[var(--fluent-color-status-info-background)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-status-info-foreground)]">
+                  Registered clients · {totalCount}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setActiveQueue('assigned')}
+                  aria-label={`Show all assigned clients (${totalCount})`}
+                  aria-pressed={activeQueue === 'assigned'}
+                  className={`rounded-full px-3 py-2 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--fluent-color-brand-stroke-1)] focus-visible:ring-offset-2 ${
+                    activeQueue === 'assigned'
+                      ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]'
+                      : 'bg-[var(--fluent-color-status-info-background)] text-[var(--fluent-color-status-info-foreground)] hover:bg-[var(--fluent-color-neutral-background-2)]'
+                  }`}
+                >
+                  Assigned clients · {totalCount}
+                </button>
+              )
             ) : null}
             {isAdminDirectory ? (
               <select value={assignmentFilter} onChange={(event) => setAssignmentFilter(event.target.value)} className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-neutral-foreground-2)] outline-none">
@@ -5767,7 +5783,7 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
                 <option value="unassigned">Unassigned</option>
               </select>
             ) : null}
-            {queueViews.slice(0, 5).map((view) => (
+            {queueViews.slice(0, isRealFiteatsy ? 6 : 5).map((view) => (
               <button
                 key={view.key}
                 onClick={() => setActiveQueue(view.key)}
@@ -5797,7 +5813,7 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
             <div className="px-4 py-8 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading Fiteatsy clients...</div>
           ) : errorMessage ? (
             <div className="px-4 py-8 text-sm font-medium text-[var(--fluent-color-status-danger-foreground)]">{errorMessage}</div>
-          ) : visibleClients.length ? visibleClients.slice(0, 16).map((client) => (
+          ) : visibleClients.length ? visibleClients.map((client) => (
             <button
               key={client.id}
               onClick={() => onClientOpen(client.id)}
@@ -6814,7 +6830,7 @@ function PlatformWorkspace({ forcedRole }) {
   const [timeframe, setTimeframe] = useState('Week');
   const [globalSearch, setGlobalSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
-  const [activeQueue, setActiveQueue] = useState('needs_review');
+  const [activeQueue, setActiveQueue] = useState('assigned');
   const [selectedClientId, setSelectedClientId] = useState('emp-1');
   const [clientWorkspaceTab, setClientWorkspaceTab] = useState('Overview');
   const [clientDrawerOpen, setClientDrawerOpen] = useState(false);
@@ -7102,6 +7118,7 @@ function PlatformWorkspace({ forcedRole }) {
     if (usesRealFiteatsyClients) {
       const pendingReviewClientIds = new Set(consultantPendingReviews.map((item) => item.clientId));
       return [
+        { key: 'assigned', title: 'Assigned clients', subtitle: 'All clients assigned to the authenticated Consultant.', tone: 'stable', filter: () => true },
         { key: 'needs_review', title: 'Needs Review', subtitle: 'Profile or report review is needed before the next intervention.', tone: 'medium', filter: (client) => !client.profileCompleted || (client.reportsCount || 0) > 0 },
         { key: 'ai_draft_ready', title: 'AI Draft Ready', subtitle: 'Consultant-created review tasks are waiting in the queue.', tone: 'pending', filter: (client) => pendingReviewClientIds.has(client.id) },
         { key: 'critical_biomarker_drift', title: 'Critical Biomarker Drift', subtitle: 'Biomarker status indicates a clinical review is needed.', tone: 'critical', filter: (client) => client.biomarkerStatus && !['normal', 'stable', 'not_available'].includes(String(client.biomarkerStatus).toLowerCase()) },
@@ -7190,10 +7207,8 @@ function PlatformWorkspace({ forcedRole }) {
   }, [clients, consultantPendingReviews, usesRealFiteatsyClients]);
 
   useEffect(() => {
-    if (!usesRealFiteatsyClients) return;
-    if (!queueViews.some((view) => view.key === activeQueue)) {
-      setActiveQueue('needs_review');
-    }
+    if (queueViews.some((view) => view.key === activeQueue)) return;
+    setActiveQueue(usesRealFiteatsyClients ? 'assigned' : 'needs_review');
   }, [activeQueue, queueViews, usesRealFiteatsyClients]);
 
   const filteredClients = useMemo(() => {
