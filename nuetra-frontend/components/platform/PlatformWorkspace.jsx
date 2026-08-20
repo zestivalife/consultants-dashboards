@@ -62,6 +62,7 @@ const roleKinds = {
   admin: 'admin',
   superuser: 'admin',
   platform_owner: 'admin',
+  care_operations: 'admin',
   mentor: 'mentor',
   team_lead: 'mentor',
   organization_admin: 'admin',
@@ -111,6 +112,7 @@ const intelligenceRangeOptions = [
 ];
 const clientWorkspaceTabs = ['Overview', 'Biomarkers', 'Behaviors', 'Diet Plan', 'Reports', 'Notes', 'Chat', 'Timeline'];
 const superAdminRoles = new Set(['superuser', 'platform_owner']);
+const assignmentManagerRoles = new Set(['admin', 'super_admin', 'platform_owner', 'care_operations']);
 const managedRoleOptions = [
   { value: 'mentor', label: 'Mentor', audience: 'mentor' },
   { value: 'consultant', label: 'Consultant', audience: 'consultant' },
@@ -5377,7 +5379,7 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
   );
 }
 
-function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filteredClients, totalCount = 0, onClientOpen, loading = false, error = null, isRealFiteatsy = false }) {
+function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filteredClients, totalCount = 0, onClientOpen, loading = false, error = null, isRealFiteatsy = false, canManageAssignments = false, onAssignClient }) {
   const errorMessage = getFiteatsyClientsErrorMessage(error);
 
   return (
@@ -5385,18 +5387,28 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-4 text-[var(--fluent-color-neutral-foreground-1)]" animated>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">Client Directory</p>
+            <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">{isRealFiteatsy ? 'My Clients' : 'Client Directory'}</p>
             <h2 className="mt-2 text-[24px] font-semibold">Healthcare operating roster</h2>
             <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
               {isRealFiteatsy
-                ? `${totalCount} registered Fiteatsy users are available from the live consultant API.`
+                ? `${totalCount} clients assigned to your consultant workspace.`
                 : 'Filter the client population by risk, momentum, inactivity, and intervention stage before opening the workspace.'}
             </p>
+            {isRealFiteatsy && !canManageAssignments ? (
+              <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-3)]">
+                Client assignment is managed by authorised operations. Assigned clients will appear here automatically.
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
+            {isRealFiteatsy && canManageAssignments && typeof onAssignClient === 'function' ? (
+              <button type="button" onClick={onAssignClient} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">
+                Assign Client
+              </button>
+            ) : null}
             {isRealFiteatsy ? (
               <span className="rounded-full bg-[var(--fluent-color-status-info-background)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-status-info-foreground)]">
-                Total registered users · {totalCount}
+                Assigned clients · {totalCount}
               </span>
             ) : null}
             {queueViews.slice(0, 5).map((view) => (
@@ -5455,7 +5467,12 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
             </button>
           )) : (
             <div className="px-4 py-8 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-              No Fiteatsy clients registered yet. New users will appear here automatically after they register in Fiteatsy.
+              <p>{isRealFiteatsy ? 'No clients are assigned to you yet.' : 'No Fiteatsy clients registered yet.'}</p>
+              {isRealFiteatsy && canManageAssignments && typeof onAssignClient === 'function' ? (
+                <button type="button" onClick={onAssignClient} className="mt-4 rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">
+                  Assign Client
+                </button>
+              ) : null}
             </div>
           )}
         </div>
@@ -6232,6 +6249,7 @@ function PlatformWorkspace({ forcedRole }) {
   const resolvedRole = forcedRole || user?.role || 'consultant';
   const roleKind = getRoleKind(resolvedRole);
   const isSuperAdmin = superAdminRoles.has(String(resolvedRole).toLowerCase());
+  const canManageProfessionalAssignments = assignmentManagerRoles.has(String(resolvedRole).toLowerCase());
   const canManageConsultantNutrition = roleKind === 'consultant' && consultantNutritionRoles.has(String(resolvedRole).toLowerCase());
   const [brandView, setBrandView] = useState('All Brands');
   const usesRealFiteatsyClients = roleKind === 'consultant' || brandView === 'Fiteatsy';
@@ -7568,6 +7586,8 @@ function PlatformWorkspace({ forcedRole }) {
               loading={fiteatsyClientsLoading}
               error={fiteatsyClientsError}
               isRealFiteatsy={usesRealFiteatsyClients}
+              canManageAssignments={canManageProfessionalAssignments}
+              onAssignClient={canManageProfessionalAssignments ? () => setNav('assignments') : undefined}
             />
           ) : null}
 
@@ -7657,6 +7677,8 @@ function PlatformWorkspace({ forcedRole }) {
                   loading={fiteatsyClientsLoading}
                   error={fiteatsyClientsError}
                   isRealFiteatsy={usesRealFiteatsyClients}
+                  canManageAssignments={canManageProfessionalAssignments}
+                  onAssignClient={() => setNav('assignments')}
                 />
               ) : (
                 <>
