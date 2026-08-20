@@ -5759,7 +5759,7 @@ function DietPlanReviewQueuePage() {
 
   const approve = async (review) => {
     try {
-      await approveFiteatsyConsultantDietPlan(review.clientUserId, review.dietPlanId);
+      await approveFiteatsyConsultantDietPlan(review.clientId || review.clientUserId, review.dietPlanId);
       await refresh();
     } catch (nextError) {
       setError(nextError.message || 'Unable to approve this diet plan.');
@@ -5773,7 +5773,7 @@ function DietPlanReviewQueuePage() {
       return;
     }
     try {
-      await requestFiteatsyConsultantDietPlanChanges(review.clientUserId, review.dietPlanId, comment);
+      await requestFiteatsyConsultantDietPlanChanges(review.clientId || review.clientUserId, review.dietPlanId, comment);
       setComments((current) => ({ ...current, [review.dietPlanId]: '' }));
       await refresh();
     } catch (nextError) {
@@ -5783,7 +5783,7 @@ function DietPlanReviewQueuePage() {
 
   const publish = async (review) => {
     try {
-      await publishFiteatsyConsultantDietPlan(review.clientUserId, review.dietPlanId);
+      await publishFiteatsyConsultantDietPlan(review.clientId || review.clientUserId, review.dietPlanId);
       await refresh();
     } catch (nextError) {
       setError(nextError.message || 'Unable to publish this diet plan.');
@@ -5822,7 +5822,7 @@ function DietPlanReviewQueuePage() {
                       <div key={mealKey} className="rounded-[12px] bg-[var(--fluent-color-neutral-background-1)] p-3">
                         <p className="text-xs font-semibold uppercase tracking-[0.08em]">{mealKey.replace(/[A-Z]/g, (letter) => ` ${letter}`).trim()}</p>
                         <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm">
-                          {(meal?.options || []).map((option) => <li key={option.id || `${mealKey}-${option.meal}-${option.portion}`}>{option.meal} · {option.portion}</li>)}
+                          {(meal?.options || []).map((option) => <li key={option.id || `${mealKey}-${option.meal}-${option.portion}`}>{option.meal} · {option.portion}{option.approxKcal != null || option.proteinGrams != null ? ` · ${option.approxKcal ?? '—'} kcal · ${option.proteinGrams ?? '—'} g protein` : ''}</li>)}
                         </ol>
                       </div>
                     ))}
