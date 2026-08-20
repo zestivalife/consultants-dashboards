@@ -44,6 +44,7 @@ import {
   getFiteatsyConsultantLatestDietPlan,
   getFiteatsyConsultantNutritionIntelligence,
   listFiteatsyConsultantClients,
+  listFiteatsyClientAllocationPool,
   searchFiteatsyAssignmentClients,
   listFiteatsyAssignmentProfessionals,
   listFiteatsyProfessionalAssignments,
@@ -5589,6 +5590,105 @@ function ProfessionalAssignmentPage() {
   );
 }
 
+function SeniorConsultantClientAllocationPage({ currentUserId }) {
+  const [view, setView] = useState('all');
+  const [query, setQuery] = useState('');
+  const [clients, setClients] = useState([]);
+  const [professionals, setProfessionals] = useState([]);
+  const [selectedClient, setSelectedClient] = useState(null);
+  const [professionalUserId, setProfessionalUserId] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const [nextClients, nextProfessionals] = await Promise.all([
+        listFiteatsyClientAllocationPool({ query, assignment: view }),
+        listFiteatsyAssignmentProfessionals('CONSULTANT'),
+      ]);
+      setClients(nextClients);
+      setProfessionals(nextProfessionals.filter((professional) => professional.role !== 'senior_consultant'));
+    } catch (nextError) {
+      setError(nextError.message || 'Unable to load the Client Pool.');
+    } finally {
+      setLoading(false);
+    }
+  }, [query, view]);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const assign = async () => {
+    if (!selectedClient?.userId || !professionalUserId) return;
+    try {
+      setError('');
+      await createFiteatsyProfessionalAssignment({ clientUserId: selectedClient.userId, professionalUserId, professionalType: 'CONSULTANT', relationshipType: 'CLIENT_CARE', reason: 'Senior Consultant client allocation' });
+      setMessage('Client assignment updated.');
+      setSelectedClient(null);
+      setProfessionalUserId('');
+      await refresh();
+    } catch (nextError) { setError(nextError.message || 'Unable to update the assignment.'); }
+  };
+
+  const endAssignment = async (client) => {
+    if (!client?.assignmentId) return;
+    try {
+      setError('');
+      await revokeFiteatsyProfessionalAssignment(client.assignmentId, 'Senior Consultant returned client to pool');
+      setMessage('Client returned to the Client Pool.');
+      await refresh();
+    } catch (nextError) { setError(nextError.message || 'Unable to end the assignment.'); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-5" animated>
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Senior Consultant</p>
+        <h2 className="mt-2 text-[24px] font-semibold">Client allocation</h2>
+        <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Allocate registered Fiteatsy Clients without requiring Food Preferences or a subscription.</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {[['all', 'Client Pool'], ['mine', 'My Clients'], ['assigned', 'All Assigned'], ['unassigned', 'Unassigned']].map(([value, label]) => (
+            <button key={value} type="button" onClick={() => setView(value)} className={`rounded-full px-4 py-2 text-xs font-semibold ${view === value ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'bg-[var(--fluent-color-neutral-background-2)] text-[var(--fluent-color-neutral-foreground-2)]'}`}>{label}</button>
+          ))}
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && refresh()} placeholder="Search registered Clients" className="min-w-[260px] flex-1 rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm" />
+          <button type="button" onClick={() => void refresh()} className="rounded-[12px] bg-[var(--fluent-color-brand-background)] px-4 py-2 text-sm font-semibold text-[var(--fluent-color-brand-foreground)]">Search</button>
+        </div>
+      </Surface>
+      {error ? <p className="rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-3 text-sm text-[var(--fluent-color-status-danger-foreground)]">{error}</p> : null}
+      {message ? <p className="rounded-[16px] bg-[var(--fluent-color-status-success-background)] px-4 py-3 text-sm text-[var(--fluent-color-status-success-foreground)]">{message}</p> : null}
+      <Surface className="overflow-hidden border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)]" animated>
+        {loading ? <p className="p-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading Client Pool...</p> : clients.length ? (
+          <div className="divide-y divide-[var(--fluent-color-neutral-stroke-1)]">
+            {clients.map((client) => (
+              <div key={client.userId} className="flex flex-wrap items-center justify-between gap-4 p-4">
+                <div className="min-w-[220px] flex-1">
+                  <p className="text-sm font-semibold">{client.name}</p>
+                  <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Registered {client.registrationDateISO ? new Date(client.registrationDateISO).toLocaleDateString() : '—'} · Food Preferences: {client.foodPreferenceStatus === 'AVAILABLE' ? 'Available' : 'Not provided'} · Subscription: {client.subscriptionStatus === 'NONE' ? 'None' : client.subscriptionStatus}</p>
+                </div>
+                <div className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">{client.assignedProfessional ? `Assigned to ${client.assignedProfessional.name}` : 'Unassigned'}</div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => { setSelectedClient(client); setProfessionalUserId(client.assignedToMe ? currentUserId : ''); }} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">{client.assignmentStatus === 'ASSIGNED' ? 'Reassign' : 'Assign'}</button>
+                  {client.assignmentStatus === 'ASSIGNED' ? <button type="button" onClick={() => void endAssignment(client)} className="rounded-full border border-[var(--fluent-color-status-danger-border)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-status-danger-foreground)]">End Assignment</button> : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : <p className="p-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No registered Clients match this view.</p>}
+      </Surface>
+      {selectedClient ? (
+        <Surface className="border border-[var(--fluent-color-brand-background)] bg-[var(--fluent-color-neutral-background-1)] p-5" animated>
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Assign Client</p><h3 className="mt-1 text-lg font-semibold">{selectedClient.name}</h3></div><button type="button" onClick={() => setSelectedClient(null)} className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-2 text-xs font-semibold">Cancel</button></div>
+          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end"><label className="text-sm font-medium">Assign to me or Consultant<select value={professionalUserId} onChange={(event) => setProfessionalUserId(event.target.value)} className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm"><option value="">Select assignment target</option><option value={currentUserId}>Assign to Me</option>{professionals.map((professional) => <option key={professional.userId} value={professional.userId}>{professional.name}</option>)}</select></label><button type="button" disabled={!professionalUserId} onClick={() => void assign()} className="rounded-[12px] bg-[var(--fluent-color-brand-background)] px-4 py-2 text-sm font-semibold text-[var(--fluent-color-brand-foreground)] disabled:opacity-40">Confirm Assignment</button></div>
+        </Surface>
+      ) : null}
+    </div>
+  );
+}
+
 function DietPlanReviewQueuePage() {
   const [reviews, setReviews] = useState([]);
   const [comments, setComments] = useState({});
@@ -7703,7 +7803,9 @@ function PlatformWorkspace({ forcedRole }) {
             <DietPlanReviewQueuePage />
           ) : null}
 
-          {roleKind === 'consultant' && nav === 'clients' ? (
+          {isSeniorConsultant && nav === 'clients' ? (
+            <SeniorConsultantClientAllocationPage currentUserId={user?.id || user?.accountId || ''} />
+          ) : roleKind === 'consultant' && nav === 'clients' ? (
             <ClientDirectoryPage
               queueViews={queueViews}
               activeQueue={activeQueue}
