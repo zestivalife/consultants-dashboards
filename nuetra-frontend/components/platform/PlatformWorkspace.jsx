@@ -43,6 +43,11 @@ import {
   getFiteatsyConsultantNutritionIntelligence,
   listFiteatsyConsultantClients,
   listFiteatsyConsultantMedicationExceptions,
+  searchFiteatsyAssignmentClients,
+  listFiteatsyAssignmentProfessionals,
+  listFiteatsyProfessionalAssignments,
+  createFiteatsyProfessionalAssignment,
+  revokeFiteatsyProfessionalAssignment,
   publishFiteatsyConsultantDietPlan,
   updateFiteatsyConsultantDietPlanDraft,
 } from '../../lib/fiteatsyConsultantsApi';
@@ -85,6 +90,7 @@ const mentorNav = [
 const adminNav = [
   { id: 'command-center', label: 'Command Center', icon: LayoutGrid },
   { id: 'clients', label: 'Clients', icon: Users },
+  { id: 'assignments', label: 'Client Assignments', icon: Users },
   { id: 'intelligence', label: 'Intelligence', icon: TrendingUp },
   { id: 'organizations', label: 'Organizations', icon: FileBarChart2 },
   { id: 'people', label: 'People', icon: ListChecks },
@@ -5770,6 +5776,70 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
   );
 }
 
+function ProfessionalAssignmentPage() {
+  const [query, setQuery] = useState('');
+  const [clients, setClients] = useState([]);
+  const [professionals, setProfessionals] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [clientUserId, setClientUserId] = useState('');
+  const [professionalUserId, setProfessionalUserId] = useState('');
+  const [professionalType, setProfessionalType] = useState('CONSULTANT');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const refresh = useCallback(async () => {
+    const [nextProfessionals, nextAssignments] = await Promise.all([
+      listFiteatsyAssignmentProfessionals(professionalType),
+      listFiteatsyProfessionalAssignments(),
+    ]);
+    setProfessionals(nextProfessionals);
+    setAssignments(nextAssignments);
+  }, [professionalType]);
+
+  useEffect(() => { refresh().catch((nextError) => setError(nextError.message)); }, [refresh]);
+
+  const search = async () => {
+    try { setError(''); setClients(await searchFiteatsyAssignmentClients(query)); }
+    catch (nextError) { setError(nextError.message); }
+  };
+
+  const assign = async () => {
+    if (!clientUserId || !professionalUserId) return;
+    try {
+      setError('');
+      await createFiteatsyProfessionalAssignment({ clientUserId, professionalUserId, professionalType, relationshipType: professionalType === 'MENTOR' ? 'MENTORSHIP' : 'CLIENT_CARE', reason: 'Operational client assignment' });
+      setMessage('Assignment created');
+      await refresh();
+    } catch (nextError) { setError(nextError.message); }
+  };
+
+  const revoke = async (assignmentId) => {
+    try { await revokeFiteatsyProfessionalAssignment(assignmentId, 'Operational assignment change'); setMessage('Assignment revoked'); await refresh(); }
+    catch (nextError) { setError(nextError.message); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-5">
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client Assignments</p>
+        <h2 className="mt-2 text-[24px] font-semibold">Assign a Fiteatsy client</h2>
+        <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Operations-only relationship management. Food Preferences and subscription do not affect eligibility.</p>
+        <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_180px_1fr_auto]">
+          <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && search()} placeholder="Search registered clients" className="rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm" />
+          <select value={professionalType} onChange={(event) => { setProfessionalType(event.target.value); setProfessionalUserId(''); }} className="rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm"><option value="CONSULTANT">Consultant</option><option value="PRACTITIONER">Practitioner</option><option value="MENTOR">Mentor</option></select>
+          <select value={professionalUserId} onChange={(event) => setProfessionalUserId(event.target.value)} className="rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm"><option value="">Select professional</option>{professionals.map((professional) => <option key={professional.userId} value={professional.userId}>{professional.name}</option>)}</select>
+          <button type="button" onClick={search} className="rounded-[12px] bg-[var(--fluent-color-brand-background)] px-4 py-2 text-sm font-semibold text-[var(--fluent-color-brand-foreground)]">Search</button>
+        </div>
+        {error ? <p className="mt-3 text-sm text-[var(--fluent-color-status-danger-foreground)]">{error}</p> : null}
+        {message ? <p className="mt-3 text-sm text-[var(--fluent-color-status-success-foreground)]">{message}</p> : null}
+        <div className="mt-4 space-y-2">{clients.map((client) => <div key={client.userId} className="flex items-center justify-between gap-3 rounded-[12px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3"><div><p className="text-sm font-medium">{client.name}</p><p className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">{client.clientId} · {client.assignmentStatus}</p></div><button type="button" onClick={() => { setClientUserId(client.userId); }} className="rounded-[10px] bg-[var(--fluent-color-neutral-background-3)] px-3 py-2 text-xs font-semibold">Select</button></div>)}</div>
+        <button type="button" disabled={!clientUserId || !professionalUserId} onClick={assign} className="mt-4 rounded-[12px] bg-[var(--fluent-color-brand-background)] px-4 py-2 text-sm font-semibold text-[var(--fluent-color-brand-foreground)] disabled:opacity-40">Assign selected client</button>
+      </Surface>
+      <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-5"><h3 className="text-lg font-semibold">Active and historical assignments</h3><div className="mt-3 space-y-2">{assignments.map((assignment) => <div key={assignment.id} className="flex items-center justify-between gap-3 rounded-[12px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-3"><div><p className="text-sm font-medium">{assignment.client_name} · {assignment.professional_name}</p><p className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">{assignment.professional_type} · {assignment.status}</p></div>{assignment.status === 'active' ? <button type="button" onClick={() => revoke(assignment.id)} className="rounded-[10px] bg-[var(--fluent-color-status-danger-background)] px-3 py-2 text-xs font-semibold">Revoke</button> : null}</div>)}</div></Surface>
+    </div>
+  );
+}
+
 function ConsultantOperationalOverview({
   metrics,
   appointmentsToday,
@@ -7902,7 +7972,9 @@ function PlatformWorkspace({ forcedRole }) {
 
           {roleKind === 'admin' ? (
             <>
-              {nav === 'organizations' ? (
+              {nav === 'assignments' ? (
+                <ProfessionalAssignmentPage />
+              ) : nav === 'organizations' ? (
                 <OrganizationsPage organizationSignals={organizationSignals} />
               ) : nav === 'people' ? (
                 isSuperAdmin ? <SuperAdminPeoplePage /> : <CompactPageHeader title="Restricted" subtitle="Only super admins can manage mentors, consultants, admins, and their authorities." />
