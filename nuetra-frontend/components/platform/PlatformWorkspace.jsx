@@ -5573,7 +5573,7 @@ function ProfessionalAssignmentPage() {
       <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-5">
         <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client Assignments</p>
         <h2 className="mt-2 text-[24px] font-semibold">Assign a Fiteatsy client</h2>
-        <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Operations-only relationship management. Food Preferences and subscription do not affect eligibility.</p>
+        <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Assign registered Fiteatsy clients to yourself or to an active Consultant. Food Preferences and subscription do not affect eligibility.</p>
         <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_180px_1fr_auto]">
           <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && search()} placeholder="Search registered clients" className="rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm" />
           <select value={professionalType} onChange={(event) => { setProfessionalType(event.target.value); setProfessionalUserId(''); }} className="rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm"><option value="CONSULTANT">Consultant</option><option value="PRACTITIONER">Practitioner</option><option value="MENTOR">Mentor</option></select>
@@ -5595,6 +5595,7 @@ function SeniorConsultantClientAllocationPage({ currentUserId }) {
   const [query, setQuery] = useState('');
   const [clients, setClients] = useState([]);
   const [professionals, setProfessionals] = useState([]);
+  const [counts, setCounts] = useState({ all: 0, unassigned: 0, mine: 0, assigned: 0 });
   const [selectedClient, setSelectedClient] = useState(null);
   const [professionalUserId, setProfessionalUserId] = useState('');
   const [message, setMessage] = useState('');
@@ -5605,11 +5606,18 @@ function SeniorConsultantClientAllocationPage({ currentUserId }) {
     setLoading(true);
     setError('');
     try {
-      const [nextClients, nextProfessionals] = await Promise.all([
+      const [nextClients, allClients, nextProfessionals] = await Promise.all([
         listFiteatsyClientAllocationPool({ query, assignment: view }),
+        listFiteatsyClientAllocationPool({ query, assignment: 'all' }),
         listFiteatsyAssignmentProfessionals('CONSULTANT'),
       ]);
       setClients(nextClients);
+      setCounts({
+        all: allClients.length,
+        unassigned: allClients.filter((client) => client.assignmentStatus === 'UNASSIGNED').length,
+        mine: allClients.filter((client) => client.assignedToMe).length,
+        assigned: allClients.filter((client) => client.assignmentStatus === 'ASSIGNED').length,
+      });
       setProfessionals(nextProfessionals.filter((professional) => professional.role !== 'senior_consultant'));
     } catch (nextError) {
       setError(nextError.message || 'Unable to load the Client Pool.');
@@ -5649,8 +5657,8 @@ function SeniorConsultantClientAllocationPage({ currentUserId }) {
         <h2 className="mt-2 text-[24px] font-semibold">Client allocation</h2>
         <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Allocate registered Fiteatsy Clients without requiring Food Preferences or a subscription.</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          {[['all', 'Client Pool'], ['mine', 'My Clients'], ['assigned', 'All Assigned'], ['unassigned', 'Unassigned']].map(([value, label]) => (
-            <button key={value} type="button" onClick={() => setView(value)} className={`rounded-full px-4 py-2 text-xs font-semibold ${view === value ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'bg-[var(--fluent-color-neutral-background-2)] text-[var(--fluent-color-neutral-foreground-2)]'}`}>{label}</button>
+          {[['all', 'All Clients'], ['mine', 'Assigned to Me'], ['assigned', 'Assigned to Consultants'], ['unassigned', 'Unassigned']].map(([value, label]) => (
+            <button key={value} type="button" onClick={() => setView(value)} className={`rounded-full px-4 py-2 text-xs font-semibold ${view === value ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'bg-[var(--fluent-color-neutral-background-2)] text-[var(--fluent-color-neutral-foreground-2)]'}`}>{label} · {counts[value]}</button>
           ))}
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
