@@ -160,6 +160,11 @@ export async function searchFiteatsyAssignmentClients(query = '', offset = 0) {
   return Array.isArray(body?.clients) ? body.clients : [];
 }
 
+export async function listFiteatsyClientAllocationPool({ query = '', assignment = 'all', offset = 0 } = {}) {
+  const body = await requestFiteatsyJson(`/v1/professional-assignments/clients/pool?q=${encodeURIComponent(query)}&assignment=${encodeURIComponent(assignment)}&limit=50&offset=${offset}`);
+  return Array.isArray(body?.clients) ? body.clients : [];
+}
+
 export async function listFiteatsyAssignmentProfessionals(type) {
   const suffix = type ? `?type=${encodeURIComponent(type)}` : '';
   const body = await requestFiteatsyJson(`/v1/professional-assignments/professionals${suffix}`);
