@@ -5599,7 +5599,7 @@ function getProfessionalDisplayName(professional) {
   if (displayName && !GENERIC_PROFESSIONAL_NAMES.has(displayName.toLowerCase())) return displayName;
   if (name && !GENERIC_PROFESSIONAL_NAMES.has(name.toLowerCase())) return name;
   if (firstLast) return firstLast;
-  return professional?.email || 'Consultant';
+  return professional?.email || `Consultant ${String(professional?.userId || '').slice(0, 8)}`;
 }
 
 function SeniorConsultantClientAllocationPage({ currentUserId, currentUserName = 'Senior Consultant' }) {
