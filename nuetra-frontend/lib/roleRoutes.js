@@ -41,6 +41,15 @@ const WORKSPACE_POLICIES = {
   },
 };
 
+const PROFESSIONAL_ROLE_KEYS = new Set(['consultant', 'provider', 'dietician', 'dietitian', 'senior_consultant', 'practitioner', 'mentor', 'team_lead']);
+const PROFESSIONAL_ROUTE_MAP = {
+  senior_consultant: '/dashboard/senior-consultant', consultant: '/dashboard/consultant',
+  provider: '/dashboard/provider', dietician: '/dashboard/provider', dietitian: '/dashboard/provider',
+  practitioner: '/dashboard/provider', mentor: '/dashboard/mentor', team_lead: '/dashboard/team-lead',
+  corporate_admin: '/dashboard/corporate-admin', corporate_client: '/dashboard/corporate-admin', organization_admin: '/dashboard/corporate-admin',
+  admin: '/dashboard/admin', superuser: '/dashboard/owner', super_admin: '/dashboard/owner', platform_owner: '/dashboard/owner',
+};
+
 export const OWNER_ACCESS_POLICY = {
   workspaces: ['platform-operations'],
   permissionsAny: WORKSPACE_POLICIES.platformOperations.permissionsAny,
@@ -99,6 +108,21 @@ function getAccessProfile(user) {
   return user?.access_profile || user?.accessProfile || null;
 }
 
+function getProductRole(user) {
+  const profile = getAccessProfile(user);
+  const candidates = [user?.fiteatsy_role, user?.fiteatsyRole, user?.product_role, user?.productRole, user?.professional_role, user?.professionalRole, user?.persona, profile?.fiteatsy_role, profile?.fiteatsyRole, profile?.product_role, profile?.productRole, profile?.professional_role, profile?.professionalRole, profile?.persona, profile?.role, profile?.active_product?.role, profile?.activeProduct?.role];
+  const directRole = candidates.map(getRoleKey).find((role) => PROFESSIONAL_ROLE_KEYS.has(role));
+  if (directRole) return directRole;
+  const memberships = [...(Array.isArray(user?.memberships) ? user.memberships : []), ...(Array.isArray(user?.roles) ? user.roles : []), ...(Array.isArray(profile?.memberships) ? profile.memberships : []), ...(Array.isArray(profile?.roles) ? profile.roles : [])];
+  const productMembership = memberships.find((membership) => ['fiteatsy', 'fiteatsy_mobile'].includes(getRoleKey(membership?.product || membership?.product_key || membership?.productKey || membership?.platform)));
+  const membershipRole = getRoleKey(productMembership?.role || productMembership?.persona || productMembership?.professional_role);
+  return PROFESSIONAL_ROLE_KEYS.has(membershipRole) ? membershipRole : null;
+}
+
+export function getEffectiveWorkspaceRole(user) {
+  return getProductRole(user) || getRoleKey(user?.role) || getRoleKey(getAccessProfile(user)?.role);
+}
+
 function unique(values) {
   return Array.from(new Set(values.filter(Boolean)));
 }
@@ -139,8 +163,10 @@ function getWorkspaceFromProfile(user) {
 }
 
 function fallbackWorkspaceFromAccess(user) {
-  const roleKey = getRoleKey(getAccessProfile(user)?.role || user?.role);
+  const roleKey = getEffectiveWorkspaceRole(user);
   const hasProduct = Boolean(getAccessProfile(user)?.active_product || getAccessProfile(user)?.activeProduct);
+
+  if (PROFESSIONAL_ROLE_KEYS.has(roleKey)) return roleKey === 'mentor' || roleKey === 'team_lead' ? WORKSPACE_POLICIES.careSupervision : WORKSPACE_POLICIES.careDelivery;
 
   if (hasAnyPermission(user, WORKSPACE_POLICIES.platformOperations.permissionsAny)) {
     return WORKSPACE_POLICIES.platformOperations;
@@ -169,11 +195,14 @@ function fallbackWorkspaceFromAccess(user) {
 }
 
 export function resolveUserWorkspace(user) {
+  if (PROFESSIONAL_ROLE_KEYS.has(getEffectiveWorkspaceRole(user))) return fallbackWorkspaceFromAccess(user);
   return getWorkspaceFromProfile(user) || fallbackWorkspaceFromAccess(user);
 }
 
 export function getDashboardPathForUser(user, fallback = '/dashboard/team-member') {
   if (!user) return fallback;
+  const effectiveRole = getEffectiveWorkspaceRole(user);
+  if (PROFESSIONAL_ROUTE_MAP[effectiveRole]) return PROFESSIONAL_ROUTE_MAP[effectiveRole];
   return resolveUserWorkspace(user)?.landingPage || fallback;
 }
 
@@ -252,6 +281,8 @@ export function isAccessAllowed(user, policy = {}) {
     return true;
   }
 
+  if (normalized.workspaceRoles?.length) return normalized.workspaceRoles.map(getRoleKey).includes(getEffectiveWorkspaceRole(user));
+
   if (normalized.permissionsAll?.length && !hasAllPermissions(user, normalized.permissionsAll)) {
     return false;
   }
@@ -265,7 +296,7 @@ export function isAccessAllowed(user, policy = {}) {
     return true;
   }
 
-  const roleKey = getRoleKey(getAccessProfile(user)?.role || user?.role);
+  const roleKey = getEffectiveWorkspaceRole(user);
   if (normalized.personaMarkers?.length && normalized.personaMarkers.includes(roleKey)) {
     return true;
   }

@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -17,6 +18,12 @@ from app.db.models.user import User
 from app.services import auth_service
 
 RATE_LIMIT_PATCH = "app.services.auth_service.check_rate_limit"
+
+
+def test_product_professional_role_precedes_organization_permissions():
+    workspace = auth_service._resolve_workspace(role="organization_admin", permissions=["users.create", "users.edit", "reports.view", "users.read"], active_product=SimpleNamespace(role="senior_consultant"))
+    assert workspace.id == "care-delivery"
+    assert workspace.landing_page == "/dashboard/senior-consultant"
 
 
 def _always_allow_rate():

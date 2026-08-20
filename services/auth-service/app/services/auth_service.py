@@ -75,6 +75,7 @@ ORGANIZATION_OPERATIONS_PERMISSIONS = {
 }
 CARE_SUPERVISION_MARKERS = {"mentor", "team_lead"}
 CARE_DELIVERY_PERMISSIONS = {"reports.view", "users.read"}
+PROFESSIONAL_ROLE_KEYS = {"consultant", "provider", "dietician", "dietitian", "senior_consultant", "practitioner"}
 
 
 # ── helpers ───────────────────────────────────────────
@@ -114,20 +115,20 @@ def _resolve_workspace(
             required_permissions=sorted(permission_set & PLATFORM_OPERATIONS_PERMISSIONS),
         )
 
+    product_role_key = _normalize_key(getattr(active_product, "role", None)) if active_product is not None else ""
+    effective_professional_role = product_role_key if product_role_key in PROFESSIONAL_ROLE_KEYS | CARE_SUPERVISION_MARKERS else role_key
+    if effective_professional_role in CARE_SUPERVISION_MARKERS:
+        return AccessWorkspace(id="care-supervision", label="Care Supervision", landing_page="/dashboard/team-lead", required_permissions=sorted(permission_set & CARE_DELIVERY_PERMISSIONS))
+    if effective_professional_role in PROFESSIONAL_ROLE_KEYS:
+        landing_page = "/dashboard/senior-consultant" if effective_professional_role == "senior_consultant" else "/dashboard/provider"
+        return AccessWorkspace(id="care-delivery", label="Care Delivery", landing_page=landing_page, required_permissions=sorted(permission_set & CARE_DELIVERY_PERMISSIONS))
+
     if permission_set & ORGANIZATION_OPERATIONS_PERMISSIONS:
         return AccessWorkspace(
             id="organization-operations",
             label="Organization Operations",
             landing_page="/dashboard/corporate-admin",
             required_permissions=sorted(permission_set & ORGANIZATION_OPERATIONS_PERMISSIONS),
-        )
-
-    if role_key in CARE_SUPERVISION_MARKERS:
-        return AccessWorkspace(
-            id="care-supervision",
-            label="Care Supervision",
-            landing_page="/dashboard/team-lead",
-            required_permissions=sorted(permission_set & CARE_DELIVERY_PERMISSIONS),
         )
 
     if active_product is not None or permission_set & CARE_DELIVERY_PERMISSIONS:
