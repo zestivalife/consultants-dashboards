@@ -1274,6 +1274,7 @@ function RealClientProfileDrawer({
   onProfileRefresh,
   canManageNutrition = false,
   canReviewDietPlans = false,
+  canPublishDietPlans = false,
 }) {
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('Overview');
   const [dietPlanState, setDietPlanState] = useState(() => profile?.dietPlan || null);
@@ -1652,12 +1653,28 @@ function RealClientProfileDrawer({
   }, [dietPlanContentDraft, dietPlanState?.plan?.id, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
 
   const handlePublishPlan = useCallback(async () => {
-    if (!summaryClient?.id || !dietPlanState?.plan?.id || nutritionActionLoading) return;
+    if (
+      !summaryClient?.id ||
+      !dietPlanState?.plan?.id ||
+      !dietPlanState?.version?.id ||
+      dietPlanState.currentLifecycle !== 'approved' ||
+      nutritionActionLoading
+    ) return;
+    const versionLabel = `Version ${dietPlanState.currentVersionNumber}`;
+    const clientName = summaryClient.name || profile?.client?.name || 'this client';
+    const confirmed = window.confirm(
+      `Publish diet plan to client?\n\nThe approved ${versionLabel} will become ${clientName}'s active nutrition plan in Fiteatsy.`,
+    );
+    if (!confirmed) return;
     setNutritionActionLoading(true);
     setNutritionActionError(null);
     setNutritionActionSuccess(null);
     try {
-      const response = await publishFiteatsyConsultantDietPlan(summaryClient.id, dietPlanState.plan.id);
+      const response = await publishFiteatsyConsultantDietPlan(
+        summaryClient.id,
+        dietPlanState.plan.id,
+        dietPlanState.version.id,
+      );
       const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
       setDietPlanState(nextDietPlan);
       setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
@@ -1669,7 +1686,7 @@ function RealClientProfileDrawer({
     } finally {
       setNutritionActionLoading(false);
     }
-  }, [dietPlanContentDraft, dietPlanState?.plan?.id, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
+  }, [dietPlanContentDraft, dietPlanState, nutritionActionLoading, profile?.client?.name, refreshWorkspace, summaryClient]);
 
   const renderOverview = () => (
     <div className="space-y-4">
@@ -1954,23 +1971,30 @@ function RealClientProfileDrawer({
                     Submit for Review
                   </button>
                 ) : (
-                  <>
-                    <button
-                      onClick={handleApprovePlan}
-                      disabled={nutritionActionLoading || dietPlanState.currentLifecycle !== 'submitted_for_review'}
-                      className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Approve
-                    </button>
-                    <button
-                      onClick={handlePublishPlan}
-                      disabled={nutritionActionLoading || dietPlanState.currentLifecycle !== 'approved'}
-                      className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Publish
-                    </button>
-                  </>
+                  <button
+                    onClick={handleApprovePlan}
+                    disabled={nutritionActionLoading || dietPlanState.currentLifecycle !== 'submitted_for_review'}
+                    className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Approve
+                  </button>
                 )}
+                {canPublishDietPlans && dietPlanState.currentLifecycle === 'approved' ? (
+                  <button
+                    onClick={handlePublishPlan}
+                    disabled={nutritionActionLoading}
+                    className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {dietPlanState.plan.latestPublishedVersionId ? 'Publish Update' : 'Publish to Client'}
+                  </button>
+                ) : canPublishDietPlans && dietPlanState.currentLifecycle === 'published' ? (
+                  <button
+                    disabled
+                    className="cursor-not-allowed rounded-full bg-[var(--fluent-color-status-success-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-status-success-foreground)]"
+                  >
+                    Published
+                  </button>
+                ) : null}
                 <button
                   onClick={handleDownloadDietPlan}
                   disabled={nutritionDownloadLoading}
@@ -8025,6 +8049,7 @@ function PlatformWorkspace({ forcedRole }) {
           onProfileRefresh={refreshRealClientProfile}
           canManageNutrition={canManageConsultantNutrition}
           canReviewDietPlans={isSeniorConsultant}
+          canPublishDietPlans={roleKind === 'consultant'}
         />
       ) : null}
 
