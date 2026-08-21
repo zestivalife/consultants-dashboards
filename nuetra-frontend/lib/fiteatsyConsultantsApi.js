@@ -185,7 +185,11 @@ export async function revokeFiteatsyProfessionalAssignment(assignmentId, reason)
 }
 
 export async function getFiteatsyConsultantClientProfile(clientId) {
-  const body = await requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/workspace`);
+  const encodedClientId = encodeURIComponent(clientId);
+  const [body, nutritionBody] = await Promise.all([
+    requestFiteatsyJson(`/v1/consultants/clients/${encodedClientId}/workspace`),
+    requestFiteatsyJson(`/v1/consultants/clients/${encodedClientId}/nutrition-intelligence`),
+  ]);
 
   return {
     contract: body?.contract || null,
@@ -196,8 +200,9 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
     healthProfile: body?.healthProfile || null,
     bodyMetrics: body?.bodyMetrics || null,
     nutritionProtocol: body?.nutritionProtocol || null,
-    nutritionIntelligence: body?.nutritionIntelligence || null,
     nutritionSnapshot: body?.nutritionSnapshot || null,
+    nutritionIntelligence: nutritionBody?.intelligence || body?.nutritionIntelligence || null,
+    nutritionMonitoring: nutritionBody?.nutritionMonitoring || null,
     dietPlan: body?.dietPlan || null,
     planWorkflow: body?.planWorkflow || null,
     wearableSummary: body?.wearableSummary || null,

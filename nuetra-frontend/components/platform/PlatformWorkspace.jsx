@@ -1295,6 +1295,9 @@ function RealClientProfileDrawer({
   const nutritionProtocol = profile?.nutritionProtocol;
   const nutritionIntelligence = profile?.nutritionIntelligence;
   const nutritionSnapshot = profile?.nutritionSnapshot;
+  const nutritionMonitoring = profile?.nutritionMonitoring;
+  const dailyNutritionMonitoring = nutritionMonitoring?.daily;
+  const weeklyNutritionMonitoring = nutritionMonitoring?.pattern;
   const syncMetadata = profile?.syncMetadata;
   const wearableSummary = profile?.wearableSummary;
   const planWorkflow = profile?.planWorkflow;
@@ -2044,6 +2047,48 @@ function RealClientProfileDrawer({
             : 'Download becomes available once a diet chart draft has been generated and saved to the backend.'}
         </div>
       </Surface>
+
+      {dailyNutritionMonitoring ? (
+        <Surface className="p-5" animated>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Nutrition Monitoring</p>
+              <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Live actuals from the client&apos;s published Diet Plan and persisted Nutrition events.</p>
+            </div>
+            <StatusChip status={dailyNutritionMonitoring.adherence?.percent >= 50 ? 'improving' : 'medium'}>
+              {dailyNutritionMonitoring.adherence?.label || 'No meals logged yet'}
+            </StatusChip>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <DetailField label="Today's Nutrition" value={`${dailyNutritionMonitoring.dailyNutrition?.consumedCalories ?? 0} / ${dailyNutritionMonitoring.dailyNutrition?.targetCalories ?? '—'} kcal`} />
+            <DetailField label="Protein" value={`${dailyNutritionMonitoring.dailyNutrition?.consumedProtein ?? 0} / ${dailyNutritionMonitoring.dailyNutrition?.targetProtein ?? '—'} g`} />
+            <DetailField label="Water" value={`${dailyNutritionMonitoring.dailyNutrition?.hydrationConsumedMl ?? 0} / ${dailyNutritionMonitoring.dailyNutrition?.hydrationTargetMl ?? '—'} ml`} />
+            <DetailField label="Meals followed" value={`${dailyNutritionMonitoring.mealSummary?.followedMeals ?? 0} / ${dailyNutritionMonitoring.mealSummary?.totalMealHeads ?? 0}`} />
+            <DetailField label="Out-of-plan" value={dailyNutritionMonitoring.mealSummary?.outOfPlanMeals ?? 0} />
+            <DetailField label="Skipped" value={dailyNutritionMonitoring.mealSummary?.skippedMeals ?? 0} />
+            <DetailField label="Pending" value={dailyNutritionMonitoring.mealSummary?.pendingMeals ?? 0} />
+            <DetailField label="Latest event" value={formatDateLabel(dailyNutritionMonitoring.dailyNutrition?.latestEventTimestamp)} />
+          </div>
+          {weeklyNutritionMonitoring ? (
+            <div className="mt-4 rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">7-day pattern</p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <DetailField label="Adherence" value={weeklyNutritionMonitoring.planAdherencePercent == null ? 'Not available' : `${weeklyNutritionMonitoring.planAdherencePercent}%`} />
+                <DetailField label="Out-of-plan" value={weeklyNutritionMonitoring.outOfPlanMeals ?? 0} />
+                <DetailField label="Skipped" value={weeklyNutritionMonitoring.skippedMeals ?? 0} />
+                <DetailField label="Water target days" value={weeklyNutritionMonitoring.waterTargetDays == null ? 'Not available' : `${weeklyNutritionMonitoring.waterTargetDays} / ${weeklyNutritionMonitoring.periodDays}`} />
+              </div>
+              {[...(weeklyNutritionMonitoring.whatWorked || []), ...(weeklyNutritionMonitoring.harderThisWeek || []), ...(weeklyNutritionMonitoring.nextFocus || [])].length ? (
+                <div className="mt-3 space-y-2">
+                  {[...(weeklyNutritionMonitoring.whatWorked || []), ...(weeklyNutritionMonitoring.harderThisWeek || []), ...(weeklyNutritionMonitoring.nextFocus || [])].map((item) => (
+                    <p key={item} className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">• {item}</p>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </Surface>
+      ) : null}
 
       <div className="grid gap-4 xl:grid-cols-[0.96fr_1.04fr]">
         <Surface className="p-5" animated>
