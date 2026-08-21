@@ -300,8 +300,9 @@ export async function listFiteatsyDietPlanReviews() {
   return Array.isArray(body?.reviews) ? body.reviews : [];
 }
 
-export async function publishFiteatsyConsultantDietPlan(clientId, dietPlanId) {
+export async function publishFiteatsyConsultantDietPlan(clientId, dietPlanId, approvedVersionId) {
   return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/publish`, {
     method: 'POST',
+    body: { approvedVersionId },
   });
 }
