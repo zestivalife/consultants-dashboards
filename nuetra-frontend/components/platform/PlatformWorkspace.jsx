@@ -1521,6 +1521,12 @@ function RealClientProfileDrawer({
     return refreshed;
   }, [onProfileRefresh, summaryClient?.id]);
 
+  useEffect(() => {
+    if (!isOpen || activeWorkspaceTab !== 'Nutrition' || !summaryClient?.id) return undefined;
+    const intervalId = window.setInterval(() => { void refreshWorkspace(); }, 15000);
+    return () => window.clearInterval(intervalId);
+  }, [activeWorkspaceTab, isOpen, refreshWorkspace, summaryClient?.id]);
+
   const syncNutritionSurfaces = useCallback(async () => {
     if (!summaryClient?.id) return;
     try {
@@ -2171,11 +2177,13 @@ function RealClientProfileDrawer({
             {nutritionActionSuccess}
           </div>
         ) : null}
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <DetailField label="Current goal" value={formatDisplayValue(goalLabel)} />
-          <DetailField label="Calories" value={nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : 'No target calculated'} />
-          <DetailField label="Protein" value={nutritionProtocol?.macroTargets?.proteinGrams != null ? `${nutritionProtocol.macroTargets.proteinGrams}g` : 'No target calculated'} />
-          <DetailField label="Hydration" value={nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters}L` : 'No target calculated'} />
+          <DetailField label="Calories target" value={dailyNutritionMonitoring?.dailyNutrition?.targetCalories != null ? `${dailyNutritionMonitoring.dailyNutrition.targetCalories} kcal` : 'Not calculated'} />
+          <DetailField label="Protein target" value={dailyNutritionMonitoring?.dailyNutrition?.targetProtein != null ? `${dailyNutritionMonitoring.dailyNutrition.targetProtein} g` : 'Not calculated'} />
+          <DetailField label="Hydration target" value={dailyNutritionMonitoring?.dailyNutrition?.hydrationTargetMl != null ? `${dailyNutritionMonitoring.dailyNutrition.hydrationTargetMl / 1000} L/day` : 'Not calculated'} />
+          <DetailField label="Water today" value={`${(dailyNutritionMonitoring?.dailyNutrition?.hydrationConsumedMl ?? 0) / 1000} L`} />
+          <DetailField label="Water remaining" value={dailyNutritionMonitoring?.dailyNutrition?.hydrationTargetMl != null ? `${Math.max(dailyNutritionMonitoring.dailyNutrition.hydrationTargetMl - (dailyNutritionMonitoring.dailyNutrition.hydrationConsumedMl ?? 0), 0) / 1000} L` : 'Not calculated'} />
         </div>
         <div className="mt-4 rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
           {dietPlanState?.plan?.id
@@ -2200,7 +2208,9 @@ function RealClientProfileDrawer({
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <DetailField label="Today's Nutrition" value={`${dailyNutritionMonitoring.dailyNutrition?.consumedCalories ?? 0} / ${dailyNutritionMonitoring.dailyNutrition?.targetCalories ?? '—'} kcal`} />
             <DetailField label="Protein" value={`${dailyNutritionMonitoring.dailyNutrition?.consumedProtein ?? 0} / ${dailyNutritionMonitoring.dailyNutrition?.targetProtein ?? '—'} g`} />
-            <DetailField label="Water" value={`${dailyNutritionMonitoring.dailyNutrition?.hydrationConsumedMl ?? 0} / ${dailyNutritionMonitoring.dailyNutrition?.hydrationTargetMl ?? '—'} ml`} />
+            <DetailField label="Hydration target" value={dailyNutritionMonitoring.dailyNutrition?.hydrationTargetMl != null ? `${dailyNutritionMonitoring.dailyNutrition.hydrationTargetMl / 1000} L/day` : 'Not calculated'} />
+            <DetailField label="Water consumed today" value={`${(dailyNutritionMonitoring.dailyNutrition?.hydrationConsumedMl ?? 0) / 1000} L`} />
+            <DetailField label="Water remaining today" value={dailyNutritionMonitoring.dailyNutrition?.hydrationTargetMl != null ? `${Math.max(dailyNutritionMonitoring.dailyNutrition.hydrationTargetMl - (dailyNutritionMonitoring.dailyNutrition.hydrationConsumedMl ?? 0), 0) / 1000} L` : 'Not calculated'} />
             <DetailField label="Meals followed" value={`${dailyNutritionMonitoring.mealSummary?.followedMeals ?? 0} / ${dailyNutritionMonitoring.mealSummary?.totalMealHeads ?? 0}`} />
             <DetailField label="Out-of-plan" value={dailyNutritionMonitoring.mealSummary?.outOfPlanMeals ?? 0} />
             <DetailField label="Skipped" value={dailyNutritionMonitoring.mealSummary?.skippedMeals ?? 0} />
@@ -2328,10 +2338,9 @@ function RealClientProfileDrawer({
                       <div>
                         <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{label}</p>
                         <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
-                          Target:{' '}
-                          {section?.target?.calories != null ? `${section.target.calories} kcal` : 'Open'}{' '}
-                          • Protein:{' '}
-                          {section?.target?.proteinGrams != null ? `${section.target.proteinGrams} g` : 'Open'}
+                          {section?.target?.calories != null || section?.target?.proteinGrams != null
+                            ? `Approx target: ${section?.target?.calories != null ? `${section.target.calories} kcal` : 'calories not set'} • ${section?.target?.proteinGrams != null ? `${section.target.proteinGrams} g protein` : 'protein not set'}`
+                            : 'Meal target: Not explicitly set'}
                         </p>
                       </div>
                       {section?.recommendationSets?.length ? (
@@ -2347,19 +2356,21 @@ function RealClientProfileDrawer({
                         </div>
                       ) : null}
                     </div>
-                  <div className="grid gap-3 lg:grid-cols-[0.78fr_1.22fr]">
-                      <div className="space-y-3">
+                  <div className="space-y-3">
+                      <div className="grid gap-3 lg:grid-cols-[0.34fr_0.66fr]">
                         <DetailField label={`${label} window`} value={section?.window || 'Not set'} />
                         <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-3">
                           <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">Focus</p>
                           <textarea
+                            rows={2}
                             value={section?.focus || ''}
                             onChange={(event) => handleDietFieldChange(['mealPlan', key, 'focus'], event.target.value)}
-                            className="mt-2 min-h-[76px] w-full resize-y rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
+                            onInput={(event) => { event.currentTarget.style.height = 'auto'; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }}
+                            className="mt-2 min-h-[60px] w-full resize-none overflow-hidden rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
                           />
                         </div>
                       </div>
-                      <div className="space-y-3">
+                      <div className="grid items-start gap-3 xl:grid-cols-2">
                         <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] px-4 py-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
@@ -2374,16 +2385,18 @@ function RealClientProfileDrawer({
                           </p>
                           <div className="mt-3 space-y-3">
                             {(section?.options || []).map((option, optionIndex) => (
-                              <div key={`${key}-selected-${getMealOptionIdentity(option)}`} className="rounded-[14px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white p-3">
-                                <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                                  <div>
-                                    <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
-                                      Option {optionIndex + 1}
-                                    </p>
-                                    <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
-                                      {option.sourceType === 'verified_library' ? 'Verified library match' : 'Draft/custom option'}
-                                      {option.matchClassification ? ` • ${String(option.matchClassification).replace(/_/g, ' ')}` : ''}
-                                    </p>
+                              <div key={`${key}-selected-${getMealOptionIdentity(option)}`} className="rounded-[14px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2.5">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <div className="flex min-w-0 items-start gap-3">
+                                    <input type="checkbox" checked readOnly aria-label={`${option.meal} selected`} className="mt-1 h-4 w-4 accent-[var(--fluent-color-brand-background)]" />
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{option.meal || `Option ${optionIndex + 1}`}</p>
+                                      <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+                                        {option.portion || 'Serving not set'}
+                                        {option.approxKcal != null ? ` • ${option.approxKcal} kcal` : ''}
+                                        {option.proteinGrams != null ? ` • ${option.proteinGrams} g protein` : ''}
+                                      </p>
+                                    </div>
                                   </div>
                                   <div className="flex flex-wrap gap-2">
                                     <button
@@ -2391,14 +2404,14 @@ function RealClientProfileDrawer({
                                       disabled={optionIndex === 0}
                                       className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1 text-[11px] font-semibold text-[var(--fluent-color-neutral-foreground-2)] disabled:opacity-40"
                                     >
-                                      Move up
+                                      Up
                                     </button>
                                     <button
                                       onClick={() => handleMoveMealOption(key, optionIndex, 'down')}
                                       disabled={optionIndex === (section?.options || []).length - 1}
                                       className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1 text-[11px] font-semibold text-[var(--fluent-color-neutral-foreground-2)] disabled:opacity-40"
                                     >
-                                      Move down
+                                      Down
                                     </button>
                                     <button
                                       onClick={() => handleRemoveMealOption(key, getMealOptionIdentity(option))}
@@ -2408,48 +2421,6 @@ function RealClientProfileDrawer({
                                     </button>
                                   </div>
                                 </div>
-                                <div className="grid gap-3 md:grid-cols-2">
-                                  <label className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">
-                                    Meal
-                                    <input
-                                      value={option.meal || ''}
-                                      onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'meal'], event.target.value)}
-                                      className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
-                                    />
-                                  </label>
-                                  <label className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">
-                                    Portion
-                                    <input
-                                      value={option.portion || ''}
-                                      onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'portion'], event.target.value)}
-                                      className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
-                                    />
-                                  </label>
-                                  <label className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">
-                                    Calories
-                                    <input
-                                      value={option.approxKcal ?? ''}
-                                      onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'approxKcal'], event.target.value === '' ? null : Number(event.target.value))}
-                                      className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
-                                    />
-                                  </label>
-                                  <label className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">
-                                    Protein
-                                    <input
-                                      value={option.proteinGrams ?? ''}
-                                      onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'proteinGrams'], event.target.value === '' ? null : Number(event.target.value))}
-                                      className="mt-2 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
-                                    />
-                                  </label>
-                                </div>
-                                <label className="mt-3 block text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">
-                                  Prep note
-                                  <textarea
-                                    value={option.prepNote || ''}
-                                    onChange={(event) => handleDietFieldChange(['mealPlan', key, 'options', optionIndex, 'prepNote'], event.target.value)}
-                                    className="mt-2 min-h-[72px] w-full resize-y rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm text-[var(--fluent-color-neutral-foreground-1)] outline-none"
-                                  />
-                                </label>
                               </div>
                             ))}
                             {!(section?.options || []).length ? (
