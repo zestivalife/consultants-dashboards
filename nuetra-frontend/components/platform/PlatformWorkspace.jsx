@@ -478,6 +478,25 @@ function formatDateLabel(value) {
   });
 }
 
+function formatClientPhoneIdentity(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return 'Phone not available';
+  return digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits;
+}
+
+function formatCompactSyncTimestamp(value) {
+  if (!value) return 'Not synced';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Not synced';
+  return date.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
 function buildFiteatsyClientRecords(apiClients) {
   return apiClients.map((client) => ({
     id: client.clientId,
@@ -1387,6 +1406,7 @@ function RealClientProfileDrawer({
   const [mealSettingsOpen, setMealSettingsOpen] = useState({});
   const [mealOptionDetailsOpen, setMealOptionDetailsOpen] = useState({});
   const [mealSelectionMessage, setMealSelectionMessage] = useState({});
+  const [clientHeaderCollapsed, setClientHeaderCollapsed] = useState(false);
   const message = getProfileErrorMessage(error);
   const client = profile?.client;
   const onboarding = profile?.onboarding;
@@ -1418,6 +1438,11 @@ function RealClientProfileDrawer({
   const goalLabel = onboarding?.goal || summaryClient?.program || 'Not assigned';
   const profileStrength = syncMetadata?.completenessScore ?? healthProfile?.completionPercent ?? healthProfile?.profileCompleteness ?? summaryClient?.profileCompletedPercent;
   const lastSynced = syncMetadata?.lastSyncedAt || healthProfile?.updatedAtISO || healthProfile?.lastHealthUpdate || client?.lastActiveAt || summaryClient?.lastActivityAt;
+  const clientPhoneIdentity = formatClientPhoneIdentity(client?.mobile || client?.phone || summaryClient?.mobile || summaryClient?.mobileNumberMasked);
+  const publishedPlanVersionNumber = dailyNutritionMonitoring?.version?.versionNumber ?? null;
+  const editablePlanVersionNumber = dietPlanState?.currentLifecycle === 'published' ? null : dietPlanState?.currentVersionNumber ?? null;
+  const syncState = String(syncMetadata?.status || syncMetadata?.syncStatus || 'synced').toLowerCase();
+  const syncStateLabel = syncState.includes('fail') ? 'Sync failed' : syncState.includes('syncing') ? 'Syncing' : syncState.includes('stale') ? 'Stale' : 'Synced';
   const bodyComposition = {
     waistCm: onboarding?.bodyComposition?.waistCm ?? healthProfile?.waistCm ?? null,
     hipCm: onboarding?.bodyComposition?.hipCm ?? healthProfile?.hipCm ?? null,
@@ -1546,6 +1571,7 @@ function RealClientProfileDrawer({
 
   useEffect(() => {
     if (isOpen) setActiveWorkspaceTab('Overview');
+    if (isOpen) setClientHeaderCollapsed(false);
   }, [isOpen, summaryClient?.id]);
 
   useEffect(() => {
@@ -2609,51 +2635,34 @@ function RealClientProfileDrawer({
             className="absolute right-0 top-0 h-full w-full overflow-hidden bg-[var(--fluent-color-neutral-background-canvas)] shadow-[-18px_0_42px_rgba(15,23,42,0.16)] md:w-[80vw] md:max-w-[1440px]"
           >
             <div className="flex h-full flex-col">
-              <div className="border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[rgba(255,255,255,0.94)] px-5 py-4 backdrop-blur">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-3)]">Client Command Center</p>
-                    <h2 className="mt-2 text-[28px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
-                      {client?.name || summaryClient?.name || 'Client'}
-                    </h2>
-                    <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-                      {goalLabel === 'Not assigned' ? 'Recovery Program not assigned' : `${goalLabel} Recovery Program`}
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
-                      <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5">
-                        Status: {healthStatus.label}
-                      </span>
-                      <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5">
-                        Profile completeness {profileStrength != null ? `${profileStrength}%` : 'pending'}
-                      </span>
-                      <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5">
-                        Last synced: {formatDateLabel(lastSynced)}
-                      </span>
+              <div className={`relative z-30 border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[rgba(255,255,255,0.96)] px-5 backdrop-blur transition-all ${clientHeaderCollapsed ? 'py-2' : 'py-3'}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    {!clientHeaderCollapsed ? <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Client Command Center</p> : null}
+                    <div className={`flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 ${clientHeaderCollapsed ? '' : 'mt-1'}`}>
+                      <h2 className={`${clientHeaderCollapsed ? 'text-base' : 'text-[24px]'} font-semibold leading-tight text-[var(--fluent-color-neutral-foreground-1)]`}>{client?.name || summaryClient?.name || 'Client'}</h2>
+                      {clientHeaderCollapsed && publishedPlanVersionNumber != null ? <span className="text-xs font-semibold text-[var(--fluent-color-status-success-foreground)]">· Active v{publishedPlanVersionNumber}</span> : null}
+                      {clientHeaderCollapsed && editablePlanVersionNumber != null ? <span className="text-xs font-semibold text-[var(--fluent-color-neutral-foreground-2)]">· Draft v{editablePlanVersionNumber}</span> : null}
                     </div>
+                    {!clientHeaderCollapsed ? <>
+                      <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{clientPhoneIdentity} · {goalLabel === 'Not assigned' ? 'Recovery Program not assigned' : `${goalLabel} Recovery Program`}</p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
+                        <span>{healthStatus.label}</span><span aria-hidden="true">·</span>
+                        <button type="button" onClick={() => setActiveWorkspaceTab('Health Profile')} className="rounded-sm font-medium text-[var(--fluent-color-brand-foreground-link)] focus-visible:outline focus-visible:outline-2">Profile {profileStrength != null ? `${profileStrength}%` : 'pending'}</button><span aria-hidden="true">·</span>
+                        <span className={`inline-flex items-center gap-1 ${syncStateLabel === 'Sync failed' ? 'font-semibold text-[var(--fluent-color-status-danger-foreground)]' : syncStateLabel === 'Stale' ? 'font-semibold text-[var(--fluent-color-status-warning-foreground)]' : ''}`}><Clock3 size={12} />{syncStateLabel} {formatCompactSyncTimestamp(lastSynced)}</span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold">
+                        {publishedPlanVersionNumber != null ? <span className="rounded-full bg-[var(--fluent-color-status-success-background)] px-2.5 py-1 text-[var(--fluent-color-status-success-foreground)]">Active plan v{publishedPlanVersionNumber}</span> : <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-2.5 py-1 text-[var(--fluent-color-neutral-foreground-2)]">No active plan</span>}
+                        {editablePlanVersionNumber != null ? <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-2.5 py-1 text-[var(--fluent-color-neutral-foreground-2)]">{workflowLabelFromLifecycle(dietPlanState?.currentLifecycle)} v{editablePlanVersionNumber}</span> : null}
+                      </div>
+                    </> : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    {canManageNutrition ? (
-                      <button
-                        onClick={handleGenerateDietPlan}
-                        disabled={nutritionActionLoading}
-                        className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {nutritionActionLoading && !dietPlanState ? 'Preparing...' : 'Generate Diet Plan'}
-                      </button>
-                    ) : null}
-                    <button className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)]">
-                      Message Client
-                    </button>
-                    <button
-                      onClick={onClose}
-                      className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-2 text-[var(--fluent-color-neutral-foreground-2)] transition hover:bg-[var(--fluent-color-neutral-background-2)]"
-                      aria-label="Close client profile"
-                    >
-                      <X size={18} />
-                    </button>
+                    <button className="min-h-10 rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{clientHeaderCollapsed ? 'Message' : 'Message Client'}</button>
+                    <button onClick={onClose} className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] text-[var(--fluent-color-neutral-foreground-2)] transition hover:bg-[var(--fluent-color-neutral-background-2)]" aria-label="Close client profile"><X size={18} /></button>
                   </div>
                 </div>
-                <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+                <div className={`${clientHeaderCollapsed ? 'mt-1.5' : 'mt-2.5'} flex gap-2 overflow-x-auto pb-0.5`}>
                   {groupedWorkspaceTabs.map((tab) => (
                     <button
                       key={tab.key}
@@ -2670,7 +2679,7 @@ function RealClientProfileDrawer({
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-5 py-5">
+              <div onScroll={(event) => setClientHeaderCollapsed(event.currentTarget.scrollTop > 72)} className="flex-1 overflow-y-auto px-5 py-5">
                 {loading ? (
                   <div className="space-y-4">
                     <LoadingSkeleton className="h-28 w-full" />
