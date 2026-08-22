@@ -2638,20 +2638,18 @@ function RealClientProfileDrawer({
               <div className={`relative z-30 border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[rgba(255,255,255,0.96)] px-5 backdrop-blur transition-all ${clientHeaderCollapsed ? 'py-2' : 'py-3'}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    {!clientHeaderCollapsed ? <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Client Command Center</p> : null}
-                    <div className={`flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 ${clientHeaderCollapsed ? '' : 'mt-1'}`}>
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                       <h2 className={`${clientHeaderCollapsed ? 'text-base' : 'text-[24px]'} font-semibold leading-tight text-[var(--fluent-color-neutral-foreground-1)]`}>{client?.name || summaryClient?.name || 'Client'}</h2>
+                      {!clientHeaderCollapsed ? <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Client Command Center</span> : null}
                       {clientHeaderCollapsed && publishedPlanVersionNumber != null ? <span className="text-xs font-semibold text-[var(--fluent-color-status-success-foreground)]">· Active v{publishedPlanVersionNumber}</span> : null}
                       {clientHeaderCollapsed && editablePlanVersionNumber != null ? <span className="text-xs font-semibold text-[var(--fluent-color-neutral-foreground-2)]">· Draft v{editablePlanVersionNumber}</span> : null}
                     </div>
                     {!clientHeaderCollapsed ? <>
-                      <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{clientPhoneIdentity} · {goalLabel === 'Not assigned' ? 'Recovery Program not assigned' : `${goalLabel} Recovery Program`}</p>
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
+                        <span className="text-sm font-medium">{clientPhoneIdentity} · {goalLabel === 'Not assigned' ? 'Recovery Program not assigned' : `${goalLabel} Recovery Program`}</span><span aria-hidden="true">·</span>
                         <span>{healthStatus.label}</span><span aria-hidden="true">·</span>
                         <button type="button" onClick={() => setActiveWorkspaceTab('Health Profile')} className="rounded-sm font-medium text-[var(--fluent-color-brand-foreground-link)] focus-visible:outline focus-visible:outline-2">Profile {profileStrength != null ? `${profileStrength}%` : 'pending'}</button><span aria-hidden="true">·</span>
                         <span className={`inline-flex items-center gap-1 ${syncStateLabel === 'Sync failed' ? 'font-semibold text-[var(--fluent-color-status-danger-foreground)]' : syncStateLabel === 'Stale' ? 'font-semibold text-[var(--fluent-color-status-warning-foreground)]' : ''}`}><Clock3 size={12} />{syncStateLabel} {formatCompactSyncTimestamp(lastSynced)}</span>
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold">
                         {publishedPlanVersionNumber != null ? <span className="rounded-full bg-[var(--fluent-color-status-success-background)] px-2.5 py-1 text-[var(--fluent-color-status-success-foreground)]">Active plan v{publishedPlanVersionNumber}</span> : <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-2.5 py-1 text-[var(--fluent-color-neutral-foreground-2)]">No active plan</span>}
                         {editablePlanVersionNumber != null ? <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-2.5 py-1 text-[var(--fluent-color-neutral-foreground-2)]">{workflowLabelFromLifecycle(dietPlanState?.currentLifecycle)} v{editablePlanVersionNumber}</span> : null}
                       </div>
