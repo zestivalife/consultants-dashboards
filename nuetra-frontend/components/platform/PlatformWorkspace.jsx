@@ -1077,11 +1077,11 @@ async function fetchRealClientWorkspace(clientId) {
 const mealPlanSectionEntries = [
   ['earlyMorning', 'Early Morning'],
   ['breakfast', 'Breakfast'],
-  ['midMorningSnack', 'Mid Morning Snack'],
+  ['midMorningSnack', 'Mid-Morning'],
   ['lunch', 'Lunch'],
   ['eveningSnack', 'Evening Snack'],
   ['dinner', 'Dinner'],
-  ['bedtimeNutrition', 'Bedtime Nourishment'],
+  ['bedtimeNutrition', 'Bedtime'],
 ];
 
 const MAX_MEAL_OPTIONS_PER_SECTION = 5;
@@ -1221,6 +1221,8 @@ function OptionalGuidanceProgress({ guidance }) {
 function OptionalGuidanceEditor({ guidance, readOnly, onItemsChange, onSearch }) {
   const [searches, setSearches] = useState({});
   const [candidates, setCandidates] = useState({});
+  const [activeEatingOut, setActiveEatingOut] = useState('northIndian');
+  const [activeCraving, setActiveCraving] = useState('sweet');
   if (!guidance) {
     return <div className="space-y-3"><OptionalGuidanceProgress guidance={null} /><div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Generate Optional Guidance to create the initial verified candidate package. You can save this draft while it is incomplete.</div></div>;
   }
@@ -1231,17 +1233,31 @@ function OptionalGuidanceEditor({ guidance, readOnly, onItemsChange, onSearch })
       <DetailField label="Generated at" value={formatDateLabel(guidance.generatedAtISO)} />
       <DetailField label="Clinical review" value={guidance.reviewedAtISO ? `Reviewed ${formatDateLabel(guidance.reviewedAtISO)}` : 'Pending Senior Consultant'} />
     </div>
-    {optionalGuidanceSections(guidance).map(([label, path, items]) => <div key={label} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
-      <div className="flex items-center justify-between gap-3"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{label}</p><span className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">{items.filter((item) => item.enabled).length} enabled</span></div>
+    <div className="grid gap-3 lg:grid-cols-2">
+      <div className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+        <p className="text-sm font-semibold">Eating Out</p>
+        <div className="mt-3 flex flex-wrap gap-2">{Object.keys(guidance.eatingOut || {}).map((key) => <button key={key} type="button" onClick={() => setActiveEatingOut(key)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${activeEatingOut === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'border border-[var(--fluent-color-neutral-stroke-1)]'}`}>{key.replace(/([A-Z])/g, ' $1')}</button>)}</div>
+      </div>
+      <div className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+        <p className="text-sm font-semibold">Cravings</p>
+        <div className="mt-3 flex flex-wrap gap-2">{Object.keys(guidance.cravings || {}).map((key) => <button key={key} type="button" onClick={() => setActiveCraving(key)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${activeCraving === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'border border-[var(--fluent-color-neutral-stroke-1)]'}`}>{key}</button>)}</div>
+      </div>
+    </div>
+    {optionalGuidanceSections(guidance).filter(([, path]) => path.length === 2 || (path[1] === 'eatingOut' ? path[2] === activeEatingOut : path[2] === activeCraving)).map(([label, path, items]) => {
+      const requirement = OPTIONAL_GUIDANCE_MINIMUMS.find(([, minimumPath]) => minimumPath.join('.') === path.slice(1).join('.'))?.[2] || 0;
+      const enabledCount = items.filter((item) => item.enabled).length;
+      return <div key={label} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{label}</p><span className={`text-xs font-semibold ${enabledCount >= requirement ? 'text-[var(--fluent-color-status-success-foreground)]' : 'text-[var(--fluent-color-neutral-foreground-3)]'}`}>{enabledCount} / {requirement} required {enabledCount >= requirement ? '✓' : ''}</span></div>
+      {!readOnly ? <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => onItemsChange(path, (list) => list.forEach((item) => { item.enabled = true; }))} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1.5 text-xs font-semibold">Select all eligible</button><button type="button" onClick={() => onItemsChange(path, (list) => list.forEach((item) => { item.enabled = false; }))} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1.5 text-xs font-semibold">Clear selection</button></div> : null}
       {!readOnly ? <div className="mt-3 flex gap-2"><input value={searches[label] || ''} onChange={(event) => setSearches((current) => ({ ...current, [label]: event.target.value }))} placeholder="Search verified catalogue" className="min-w-0 flex-1 rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2 text-sm" /><button onClick={async () => { const next = await onSearch(path, searches[label] || ''); setCandidates((current) => ({ ...current, [label]: next })); }} className="rounded-[12px] bg-[var(--fluent-color-brand-background)] px-3 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">Search</button></div> : null}
       {!readOnly && candidates[label]?.length ? <div className="mt-2 space-y-2">{candidates[label].slice(0, 6).map((candidate) => <div key={candidate.id} className="flex items-center justify-between gap-3 rounded-[12px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2"><div><p className="text-xs font-semibold">{candidate.name}</p><p className="text-[11px] text-[var(--fluent-color-neutral-foreground-3)]">{candidate.servingLabel} · {candidate.nutrition.calories} kcal</p></div><button onClick={() => onItemsChange(path, (list) => { if (!list.some((item) => item.id === candidate.id)) list.push({ ...candidate, displayOrder: list.length + 1 }); })} className="rounded-full border border-[var(--fluent-color-brand-stroke-1)] px-3 py-1 text-xs font-semibold">Add</button></div>)}</div> : null}
-      <div className="mt-3 space-y-3">{items.map((item, index) => <div key={item.id} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-1)] p-3">
-        <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.name}</p><p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.planMembership ? 'Prescribed plan option' : 'Optional reviewed guidance'} · {item.source}</p></div><StatusChip status={item.clinicallyReviewed ? 'stable' : 'pending'}>{item.clinicallyReviewed ? 'Reviewed' : 'Review pending'}</StatusChip></div>
+      <div className="mt-3 grid gap-3 xl:grid-cols-2">{items.map((item, index) => <div key={item.id} className={`rounded-[16px] border p-3 ${item.enabled ? 'border-[var(--fluent-color-brand-stroke-1)] bg-[var(--fluent-color-neutral-background-1)]' : 'border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-inset)] opacity-75'}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3"><label className="flex min-w-0 cursor-pointer items-start gap-3"><input type="checkbox" checked={Boolean(item.enabled)} disabled={readOnly} onChange={() => onItemsChange(path, (list) => { list[index].enabled = !list[index].enabled; })} className="mt-1 h-4 w-4 rounded border-[var(--fluent-color-neutral-stroke-1)] accent-[var(--fluent-color-brand-background)]" /><span className="min-w-0"><span className="block text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.name}</span><span className="mt-1 block text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.planMembership ? 'Prescribed plan option' : 'Optional reviewed guidance'} · Verified catalogue</span></span></label><StatusChip status={item.clinicallyReviewed ? 'stable' : 'pending'}>{item.clinicallyReviewed ? 'Reviewed' : 'Review pending'}</StatusChip></div>
         <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-6"><DetailField label="Serving" value={item.servingLabel} /><DetailField label="Calories" value={`${item.nutrition.calories} kcal`} /><DetailField label="Protein" value={`${item.nutrition.protein} g`} /><DetailField label="Carbs" value={`${item.nutrition.carbs} g`} /><DetailField label="Fat" value={`${item.nutrition.fat} g`} /><DetailField label="Fibre" value={`${item.nutrition.fibre} g`} /></div>
         <p className="mt-3 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.reason}</p>
-        {!readOnly ? <div className="mt-3 flex flex-wrap gap-2"><button onClick={() => onItemsChange(path, (list) => { list[index].enabled = !list[index].enabled; })} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1.5 text-xs font-semibold">{item.enabled ? 'Disable' : 'Enable'}</button><button disabled={index === 0} onClick={() => onItemsChange(path, (list) => { [list[index - 1], list[index]] = [list[index], list[index - 1]]; list.forEach((entry, order) => { entry.displayOrder = order + 1; }); })} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1.5 text-xs font-semibold disabled:opacity-40">Move up</button><button onClick={() => onItemsChange(path, (list) => { list.splice(index, 1); list.forEach((entry, order) => { entry.displayOrder = order + 1; }); })} className="rounded-full border border-[var(--fluent-color-status-danger-foreground)] px-3 py-1.5 text-xs font-semibold text-[var(--fluent-color-status-danger-foreground)]">Remove</button></div> : null}
+        {!readOnly ? <div className="mt-3 flex flex-wrap gap-2"><button disabled={index === 0} onClick={() => onItemsChange(path, (list) => { [list[index - 1], list[index]] = [list[index], list[index - 1]]; list.forEach((entry, order) => { entry.displayOrder = order + 1; }); })} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1.5 text-xs font-semibold disabled:opacity-40">Move up</button><button onClick={() => onItemsChange(path, (list) => { list.splice(index, 1); list.forEach((entry, order) => { entry.displayOrder = order + 1; }); })} className="rounded-full border border-[var(--fluent-color-status-danger-foreground)] px-3 py-1.5 text-xs font-semibold text-[var(--fluent-color-status-danger-foreground)]">Remove</button></div> : null}
       </div>)}</div>
-    </div>)}
+    </div>})}
   </div>;
 }
 
@@ -2631,7 +2647,7 @@ function RealClientProfileDrawer({
             exit={{ x: 24, opacity: 0.98 }}
             transition={{ duration: 0.22, ease: 'easeOut' }}
             onClick={(event) => event.stopPropagation()}
-            className="absolute right-0 top-0 h-full w-full max-w-[920px] overflow-hidden bg-[var(--fluent-color-neutral-background-canvas)] shadow-[-18px_0_42px_rgba(15,23,42,0.16)]"
+            className="absolute right-0 top-0 h-full w-full overflow-hidden bg-[var(--fluent-color-neutral-background-canvas)] shadow-[-18px_0_42px_rgba(15,23,42,0.16)] md:w-[80vw] md:max-w-[1440px]"
           >
             <div className="flex h-full flex-col">
               <div className="border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[rgba(255,255,255,0.94)] px-5 py-4 backdrop-blur">
