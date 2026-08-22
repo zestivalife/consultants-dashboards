@@ -5488,7 +5488,7 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
                         <div className="min-w-0 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{item.primaryIssue}</div>
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">{item.momentum.label}</p>
-                          <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Adherence {item.adherenceScore}% • Confidence {item.confidence}%</p>
+                          <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Adherence {item.adherenceScore == null ? 'unavailable' : `${item.adherenceScore}%`} • Confidence {item.confidence == null ? 'not calculated' : `${item.confidence}%`}</p>
                         </div>
                         <div className="min-w-0 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">{item.lastActivity}</div>
                         <div className="min-w-0">
@@ -5534,8 +5534,9 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <span className="rounded-full bg-[var(--fluent-color-neutral-background-inset)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">Adherence {selectedItem.adherenceScore}%</span>
-                  <span className="rounded-full bg-[var(--fluent-color-neutral-background-inset)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">Confidence {selectedItem.confidence}%</span>
+                  <span className="rounded-full bg-[var(--fluent-color-neutral-background-inset)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">Adherence {selectedItem.adherenceScore == null ? 'unavailable' : `${selectedItem.adherenceScore}%`}</span>
+                  <span className="rounded-full bg-[var(--fluent-color-neutral-background-inset)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">Confidence {selectedItem.confidence == null ? 'not calculated' : `${selectedItem.confidence}%`}</span>
+                  <span className="rounded-full bg-[var(--fluent-color-neutral-background-inset)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">Priority {selectedItem.score == null ? 'not calculated' : selectedItem.score}</span>
                   <span className="rounded-full bg-[var(--fluent-color-neutral-background-inset)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{selectedItem.evidence.reports} reports</span>
                   <span className="rounded-full bg-[var(--fluent-color-neutral-background-inset)] px-3 py-1.5 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{selectedItem.evidence.adherence}</span>
                 </div>
@@ -7192,7 +7193,7 @@ function PlatformWorkspace({ forcedRole }) {
 
   const priorityQueue = useMemo(() => {
     if (usesRealFiteatsyClients) {
-      return consultantAttentionClients.map((client, index) => ({
+      return consultantAttentionClients.map((client) => ({
         clientId: client.clientId,
         name: client.name,
         title: client.title,
@@ -7200,16 +7201,16 @@ function PlatformWorkspace({ forcedRole }) {
         drivers: [client.title, client.reason].filter(Boolean),
         risk: client.tone,
         action: client.reason,
-        confidence: client.tone === 'high' ? 84 : client.tone === 'medium' ? 72 : 60,
+        confidence: null,
         evidence: {
           reports: clients.find((item) => item.id === client.clientId)?.reportsCount || 0,
           adherence: clients.find((item) => item.id === client.clientId)?.profileCompleted ? 'Profile complete' : 'Onboarding pending',
         },
-        momentum: { label: index === 0 ? 'Needs action' : 'Review recommended' },
-        adherenceScore: clients.find((item) => item.id === client.clientId)?.profileCompleted ? 78 : 46,
+        momentum: { label: 'Review indicated', status: client.tone },
+        adherenceScore: null,
         lastActivity: client.lastTouch,
         owner: roleName,
-        score: 100 - index * 8,
+        score: null,
         temporalState: 'follow-up pending',
       }));
     }
@@ -7491,7 +7492,7 @@ function PlatformWorkspace({ forcedRole }) {
       title: item.name,
       detail: item.action,
       status: item.risk,
-      badge: `${item.confidence}%`,
+      badge: item.confidence == null ? 'Not calculated' : `${item.confidence}%`,
     }));
     const memory = memoryItems.slice(0, 2).map((item) => ({
       ...item,
