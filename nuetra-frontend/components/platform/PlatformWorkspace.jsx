@@ -7427,11 +7427,11 @@ function PlatformWorkspace({ forcedRole }) {
   const pulseItems = useMemo(() => {
     if (usesRealFiteatsyClients) {
       return [
-        { label: 'Needs Review', value: queueViews.find((view) => view.key === 'needs_review')?.count || 0, delta: 'Live roster', status: 'medium', spark: [1, 2, 2, 3, 3, 4, queueViews.find((view) => view.key === 'needs_review')?.count || 0], color: '#637CEF', targetQueue: 'needs_review' },
-        { label: 'AI Draft Ready', value: queueViews.find((view) => view.key === 'ai_draft_ready')?.count || 0, delta: 'Consultant queue', status: 'pending', spark: [0, 0, 1, 1, 1, 2, queueViews.find((view) => view.key === 'ai_draft_ready')?.count || 0], color: '#1E88E5', targetQueue: 'ai_draft_ready' },
-        { label: 'Critical Biomarker Drift', value: queueViews.find((view) => view.key === 'critical_biomarker_drift')?.count || 0, delta: 'Live biomarker state', status: 'critical', spark: [0, 1, 1, 1, 2, 2, queueViews.find((view) => view.key === 'critical_biomarker_drift')?.count || 0], color: '#D13438', targetQueue: 'critical_biomarker_drift' },
-        { label: 'Adherence Declining', value: queueViews.find((view) => view.key === 'adherence_declining')?.count || 0, delta: 'Activity aging', status: 'high', spark: [0, 0, 1, 1, 1, 1, queueViews.find((view) => view.key === 'adherence_declining')?.count || 0], color: '#FFB900', targetQueue: 'adherence_declining' },
-        { label: 'Burnout Escalation', value: queueViews.find((view) => view.key === 'burnout_escalation')?.count || 0, delta: 'Compounding profile gaps', status: 'high', spark: [0, 0, 0, 1, 1, 1, queueViews.find((view) => view.key === 'burnout_escalation')?.count || 0], color: '#FF8C00', targetQueue: 'burnout_escalation' },
+        { label: 'Needs Review', value: queueViews.find((view) => view.key === 'needs_review')?.count || 0, delta: 'Live roster', status: 'medium', spark: [], color: '#637CEF', targetQueue: 'needs_review' },
+        { label: 'AI Draft Ready', value: queueViews.find((view) => view.key === 'ai_draft_ready')?.count || 0, delta: 'Consultant queue', status: 'pending', spark: [], color: '#1E88E5', targetQueue: 'ai_draft_ready' },
+        { label: 'Critical Biomarker Drift', value: queueViews.find((view) => view.key === 'critical_biomarker_drift')?.count || 0, delta: 'Live biomarker state', status: 'critical', spark: [], color: '#D13438', targetQueue: 'critical_biomarker_drift' },
+        { label: 'Adherence Declining', value: queueViews.find((view) => view.key === 'adherence_declining')?.count || 0, delta: 'Activity aging', status: 'high', spark: [], color: '#FFB900', targetQueue: 'adherence_declining' },
+        { label: 'Burnout Escalation', value: queueViews.find((view) => view.key === 'burnout_escalation')?.count || 0, delta: 'Compounding profile gaps', status: 'high', spark: [], color: '#FF8C00', targetQueue: 'burnout_escalation' },
       ];
     }
     return [
