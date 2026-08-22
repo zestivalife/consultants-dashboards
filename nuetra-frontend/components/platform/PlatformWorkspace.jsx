@@ -2473,8 +2473,8 @@ function RealClientProfileDrawer({
                         const hasNumericTarget = section?.target?.calories != null || section?.target?.proteinGrams != null;
                         const backendFitLabel = option.fitLabel || option.recommendationLabel || option.matchClassification;
                         const fitLabel = !hasNumericTarget && /outside.?target/i.test(String(backendFitLabel || ''))
-                          ? (option.proteinGrams != null ? 'High protein' : 'Best fit')
-                          : backendFitLabel || (option.proteinGrams != null ? 'High protein' : 'Best fit');
+                          ? 'Best fit'
+                          : backendFitLabel || 'Best fit';
                         return <div key={`${key}-option-${identity}`} className={`rounded-[14px] border px-3 py-2.5 ${isSelected ? 'border-[var(--fluent-color-brand-stroke-1)] bg-[var(--fluent-color-brand-background-2)]' : 'border-[var(--fluent-color-neutral-stroke-1)] bg-white'}`}>
                           <div className="grid min-h-[52px] grid-cols-[24px_minmax(180px,1fr)_auto_auto] items-center gap-3 max-lg:grid-cols-[24px_minmax(0,1fr)_auto]">
                             <input type="checkbox" checked={isSelected} onChange={() => isSelected ? handleRemoveMealOption(key, identity) : handleSelectMealOption(key, option)} aria-label={`${isSelected ? 'Unselect' : 'Select'} ${option.meal}`} className="h-4 w-4 accent-[var(--fluent-color-brand-background)] focus-visible:outline focus-visible:outline-2" />
