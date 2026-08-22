@@ -2132,10 +2132,10 @@ function RealClientProfileDrawer({
           </div>
         </div>
         {nutritionActionError ? (
-          <div className={`mt-4 rounded-[16px] px-4 py-4 text-sm ${/Optional Guidance|enabled verified options/i.test(nutritionActionError) ? 'bg-[var(--fluent-color-neutral-background-2)] text-[var(--fluent-color-neutral-foreground-1)]' : 'bg-[var(--fluent-color-status-danger-background)] text-[var(--fluent-color-status-danger-foreground)]'}`}>
-            <p className="font-semibold">{/Optional Guidance|enabled verified options/i.test(nutritionActionError) ? 'Optional Nutrition Guidance is not complete yet.' : 'Nutrition action could not be completed.'}</p>
+          <div className={`mt-4 rounded-[16px] px-4 py-4 text-sm ${/Optional(?: Nutrition)? Guidance|enabled verified options/i.test(nutritionActionError) ? 'bg-[var(--fluent-color-neutral-background-2)] text-[var(--fluent-color-neutral-foreground-1)]' : 'bg-[var(--fluent-color-status-danger-background)] text-[var(--fluent-color-status-danger-foreground)]'}`}>
+            <p className="font-semibold">{/Optional(?: Nutrition)? Guidance|enabled verified options/i.test(nutritionActionError) ? 'Optional Nutrition Guidance is not complete yet.' : 'Nutrition action could not be completed.'}</p>
             <p className="mt-1">{nutritionActionError}</p>
-            {!/Optional Guidance|enabled verified options/i.test(nutritionActionError) ? <div className="mt-3 flex flex-wrap gap-2">
+            {!/Optional(?: Nutrition)? Guidance|enabled verified options/i.test(nutritionActionError) ? <div className="mt-3 flex flex-wrap gap-2">
               <button
                 onClick={() => void syncNutritionSurfaces()}
                 className="rounded-full border border-[var(--fluent-color-status-danger-foreground)] px-3 py-1.5 text-xs font-semibold"
