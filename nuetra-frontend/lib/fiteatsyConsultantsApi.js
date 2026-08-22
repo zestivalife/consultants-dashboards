@@ -276,6 +276,17 @@ export async function updateFiteatsyConsultantDietPlanDraft(clientId, dietPlanId
   });
 }
 
+export async function generateFiteatsyConsultantOptionalGuidance(clientId, dietPlanId) {
+  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/optional-guidance/generate`, {
+    method: 'POST',
+  });
+}
+
+export async function searchFiteatsyConsultantOptionalGuidance(clientId, dietPlanId, { query = '', category, context = '' }) {
+  const params = new URLSearchParams({ category, ...(query ? { query } : {}), ...(context ? { context } : {}) });
+  return requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/optional-guidance/candidates?${params}`);
+}
+
 export async function approveFiteatsyConsultantDietPlan(clientId, dietPlanId) {
   return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/approve`, {
     method: 'POST',
