@@ -2323,7 +2323,7 @@ function RealClientProfileDrawer({
               <DetailField label="Prepared by" value={formatDisplayValue(dietPlanContentDraft.nutritionSnapshot?.preparedBy)} />
               <DetailField label="Programme" value={formatDisplayValue(dietPlanContentDraft.nutritionSnapshot?.programmeName)} />
               <DetailField label="Calories" value={dietPlanContentDraft.dailyTargets?.calories != null ? `${dietPlanContentDraft.dailyTargets.calories} kcal` : 'Not available'} />
-              <DetailField label="Hydration" value={dietPlanContentDraft.dailyTargets?.hydration != null ? `${dietPlanContentDraft.dailyTargets.hydration} L` : 'Not available'} />
+              <DetailField label="Draft hydration target" value={dietPlanContentDraft.dailyTargets?.hydration != null ? `${dietPlanContentDraft.dailyTargets.hydration} L/day` : 'Not available'} />
             </div>
           </Surface>
 
