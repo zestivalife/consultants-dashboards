@@ -54,7 +54,7 @@ def _assert_owner_authority(request: Request, permission: str) -> tuple[dict[str
     role = str(getattr(request.state, "user_role", "") or payload.get("role") or "").lower()
     permissions = _claim_values(payload, ("permissions", "permission", "scopes"))
     products = _claim_values(payload, ("products", "product_entitlements", "entitlements", "product"))
-    if role != "platform_owner":
+    if role not in {"platform_owner", "superuser"}:
         return None, JSONResponse(status_code=403, content={"error": "OWNER_AUTHORITY_REQUIRED", "message": "Platform Owner authority is required."})
     if not ({"fiteatsy", "fiteatsy-mobile"} & products):
         return None, JSONResponse(status_code=403, content={"error": "FITEATSY_ENTITLEMENT_REQUIRED", "message": "Fiteatsy entitlement is required."})
