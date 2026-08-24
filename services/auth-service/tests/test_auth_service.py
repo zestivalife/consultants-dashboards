@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ForbiddenException, NotFoundException, UnauthorizedException
-from app.core.security import hash_password, verify_password
+from app.core.security import decode_access_token, hash_password, verify_password
 from app.db.models.audit_log import AuthAuditLog
 from app.db.models.owner_access import Organization, OrganizationMembership, Product, UserProductAccess
 from app.db.models.refresh_token import RefreshToken
@@ -79,6 +79,31 @@ async def test_login_success(session: AsyncSession, seed_user: User):
     assert result.tokens.refresh_token
     assert result.tokens.token_type == "bearer"
     assert result.user.email == "test@nuetra.com"
+
+
+@pytest.mark.asyncio
+async def test_login_token_contains_only_active_product_entitlements(session: AsyncSession, seed_user: User):
+    active = Product(id=uuid.uuid4(), key="fiteatsy", name="FitEatsy", status="ACTIVE")
+    inactive = Product(id=uuid.uuid4(), key="retired", name="Retired", status="ACTIVE")
+    session.add_all([active, inactive])
+    await session.flush()
+    session.add_all(
+        [
+            UserProductAccess(
+                id=uuid.uuid4(), user_id=seed_user.id, product_id=active.id, status="ACTIVE", permissions=[]
+            ),
+            UserProductAccess(
+                id=uuid.uuid4(), user_id=seed_user.id, product_id=inactive.id, status="INACTIVE", permissions=[]
+            ),
+        ]
+    )
+    await session.flush()
+
+    with _always_allow_rate():
+        result = await auth_service.login(session, "test@nuetra.com", "Correct123!")
+
+    payload = decode_access_token(result.tokens.access_token)
+    assert payload["products"] == ["fiteatsy"]
 
 
 # ──────────────────────────────────────────────

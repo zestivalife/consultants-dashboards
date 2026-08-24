@@ -38,6 +38,7 @@ PERMISSION_SEEDS = [
     ("settings.manage", "settings", "Manage settings", "Manage workspace settings"),
     ("notifications.manage", "notifications", "Manage notifications", "Manage platform notifications"),
     ("subscriptions.manage", "subscriptions", "Manage subscriptions", "Manage subscription lifecycle"),
+    ("fiteatsy.qa.admin.create", "fiteatsy", "Provision Fiteatsy QA Admin", "Provision a non-clinical QA_TEST administrator through delegated authority"),
 ]
 
 ROLE_PERMISSION_MAP = {

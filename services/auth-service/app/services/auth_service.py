@@ -236,7 +236,12 @@ async def _user_response(
     )
 
 
-def _build_tokens(user: User, raw_refresh: str, permissions: list[str] | None = None) -> TokenResponse:
+def _build_tokens(
+    user: User,
+    raw_refresh: str,
+    permissions: list[str] | None = None,
+    products: list[str] | None = None,
+) -> TokenResponse:
     settings = get_settings()
     access_token = create_access_token(
         subject=str(user.id),
@@ -245,6 +250,7 @@ def _build_tokens(user: User, raw_refresh: str, permissions: list[str] | None = 
             "status": normalize_status(user.status),
             "credential_status": getattr(user, "credential_status", CREDENTIAL_PERMANENT) or CREDENTIAL_PERMANENT,
             "permissions": permissions if permissions is not None else (user.permissions or []),
+            "products": sorted(set(products or [])),
         },
     )
     return TokenResponse(
@@ -420,7 +426,8 @@ async def login(
     )
 
     permission_claims = await people_access_service.resolve_user_permissions(session, user)
-    tokens = _build_tokens(user, raw_refresh, permission_claims)
+    product_claims = await people_access_service.resolve_user_products(session, user)
+    tokens = _build_tokens(user, raw_refresh, permission_claims, product_claims)
     user_data = await _user_response(session, user, permission_claims)
 
     logger.info("user_logged_in", user_id=str(user.id))
@@ -506,7 +513,8 @@ async def refresh(
     )
 
     permissions = await people_access_service.resolve_user_permissions(session, user)
-    return _build_tokens(user, new_raw, permissions)
+    products = await people_access_service.resolve_user_products(session, user)
+    return _build_tokens(user, new_raw, permissions, products)
 
 
 async def logout(
@@ -653,8 +661,9 @@ async def change_password(
         user_agent,
     )
     permissions = await people_access_service.resolve_user_permissions(session, user)
+    products = await people_access_service.resolve_user_products(session, user)
     return LoginResponse(
-        tokens=_build_tokens(user, raw_refresh, permissions),
+        tokens=_build_tokens(user, raw_refresh, permissions, products),
         user=await _user_response(session, user, permissions),
     )
 

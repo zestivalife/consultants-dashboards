@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from io import StringIO
 import csv
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException, ConflictException, ForbiddenException, NotFoundException
@@ -180,6 +181,21 @@ async def resolve_user_permissions(session: AsyncSession, user: User) -> list[st
         if permission not in permissions:
             permissions.append(permission)
     return permissions
+
+
+async def resolve_user_products(session: AsyncSession, user: User) -> list[str]:
+    """Return active product entitlement keys for signed authentication claims."""
+    rows = await session.execute(
+        select(Product.key)
+        .join(UserProductAccess, UserProductAccess.product_id == Product.id)
+        .where(
+            UserProductAccess.user_id == user.id,
+            UserProductAccess.status == "ACTIVE",
+            Product.status == "ACTIVE",
+        )
+        .order_by(Product.key)
+    )
+    return sorted({str(key).strip().lower() for key in rows.scalars() if str(key).strip()})
 
 
 async def ensure_owner_access(

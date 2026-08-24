@@ -4,6 +4,7 @@ import httpx
 import structlog
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import get_settings
 from app.security.fiteatsy_delegation import issue_fiteatsy_delegation
@@ -14,11 +15,21 @@ router = APIRouter(prefix="/api/v1/platform/fiteatsy")
 OPERATIONS: dict[str, tuple[str, str, str]] = {
     "qa-clients": ("POST", "/v1/internal/delegated/qa-clients", "fiteatsy.qa.identity.create"),
     "qa-consultants": ("POST", "/v1/internal/delegated/qa-consultants", "fiteatsy.qa.identity.create"),
+    "qa-admins": ("POST", "/v1/internal/delegated/qa-admins", "fiteatsy.qa.admin.create"),
     "client-assignments": ("POST", "/v1/internal/delegated/client-assignments", "fiteatsy.client.assign"),
     "client-assignment-revoke": ("DELETE", "/v1/internal/delegated/client-assignments/{id}", "fiteatsy.client.assignment.revoke"),
     "qa-identities-deactivate": ("POST", "/v1/internal/delegated/qa-identities/{id}/deactivate", "fiteatsy.qa.identity.deactivate"),
     "qa-session": ("POST", "/v1/internal/delegated/qa-identities/{id}/session", "fiteatsy.qa.session.issue"),
 }
+
+
+class QaAdminProvisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=2, max_length=80)
+    email: str = Field(min_length=3, max_length=180, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+    mobileNumber: str = Field(pattern=r"^\+?[0-9]{10,15}$")
+    reason: str = Field(min_length=3, max_length=240)
 
 
 def _claim_values(payload: dict[str, Any], names: tuple[str, ...]) -> set[str]:
@@ -65,8 +76,20 @@ async def _bridge(request: Request, operation: str, target_path: str, permission
     if not idempotency_key:
         return JSONResponse(status_code=400, content={"error": "IDEMPOTENCY_KEY_REQUIRED", "message": "Retry-safe operation key is required."})
     path = target_path.format(**(path_params or {}))
+    actor_id = str(getattr(request.state, "user_id", None) or payload.get("sub"))
+    audit_context = {
+        "audit_event": "fiteatsy_delegated_operation",
+        "actor_user_id": actor_id,
+        "actor_role": "platform_owner",
+        "operation": operation,
+        "target_system": "fiteatsy",
+        "purpose": purpose,
+        "permission": permission,
+        "correlation_id": correlation_id,
+    }
+    logger.info("fiteatsy_delegated_operation_requested", **audit_context)
     try:
-        delegation = issue_fiteatsy_delegation(subject=str(getattr(request.state, "user_id", None) or payload.get("sub")), permissions=[permission], purpose=purpose, actor_type="platform_owner")
+        delegation = issue_fiteatsy_delegation(subject=actor_id, permissions=[permission], purpose=purpose, actor_type="platform_owner")
     except Exception:
         logger.exception("delegation_issue_failed", operation=operation, correlation_id=correlation_id)
         return JSONResponse(status_code=503, content={"error": "DELEGATION_UNAVAILABLE", "message": "Fiteatsy authority is temporarily unavailable."})
@@ -84,7 +107,7 @@ async def _bridge(request: Request, operation: str, target_path: str, permission
         response_body = response.json()
     except ValueError:
         response_body = {"error": "FITEATSY_INVALID_RESPONSE"}
-    logger.info("fiteatsy_bridge_completed", operation=operation, permission=permission, purpose=purpose, correlation_id=correlation_id, status=response.status_code)
+    logger.info("fiteatsy_delegated_operation_completed", **audit_context, result_status=response.status_code, succeeded=response.is_success)
     return JSONResponse(status_code=response.status_code, content=response_body)
 
 
@@ -96,6 +119,18 @@ async def provision_qa_client(request: Request, body: dict[str, Any]):
 @router.post("/qa-consultants")
 async def provision_qa_consultant(request: Request, body: dict[str, Any]):
     return await _bridge(request, "qa_consultant_provision", OPERATIONS["qa-consultants"][1], OPERATIONS["qa-consultants"][2], "qa_provisioning", body)
+
+
+@router.post("/qa-admins")
+async def provision_qa_admin(request: Request, body: QaAdminProvisionRequest):
+    return await _bridge(
+        request,
+        "qa_admin_provision",
+        OPERATIONS["qa-admins"][1],
+        OPERATIONS["qa-admins"][2],
+        "qa_provisioning",
+        body.model_dump(),
+    )
 
 
 @router.post("/client-assignments")

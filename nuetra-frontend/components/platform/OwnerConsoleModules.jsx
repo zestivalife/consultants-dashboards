@@ -915,6 +915,9 @@ export function PeopleAccessModule({
   onSelectUser,
   onFilterChange,
   onCreateUser,
+  onProvisionFiteatsyQaClient,
+  onProvisionFiteatsyQaConsultant,
+  onProvisionFiteatsyQaAdmin,
   onUpdateUser,
   onArchiveUser,
   onRestoreUser,
@@ -936,6 +939,8 @@ export function PeopleAccessModule({
   const [searchDraft, setSearchDraft] = useState(filters?.search || '');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showProvisioningModal, setShowProvisioningModal] = useState(false);
+  const [showQaAdminModal, setShowQaAdminModal] = useState(false);
+  const [qaAdminResult, setQaAdminResult] = useState(null);
   const [provisioningStep, setProvisioningStep] = useState(0);
   const [latestProvisioning, setLatestProvisioning] = useState(null);
   const [latestTemporaryCredentials, setLatestTemporaryCredentials] = useState(null);
@@ -981,6 +986,12 @@ export function PeopleAccessModule({
     organization_id: '',
     department_id: '',
     account_purpose: 'PRODUCTION_USER',
+  });
+  const [qaAdminDraft, setQaAdminDraft] = useState({
+    name: '',
+    email: '',
+    mobileNumber: '',
+    reason: 'Phase C authenticated production acceptance',
   });
   const [csvDraft, setCsvDraft] = useState('');
   const [roleBulkDraft, setRoleBulkDraft] = useState('consultant');
@@ -1876,6 +1887,29 @@ export function PeopleAccessModule({
     }
   };
 
+  const submitQaAdminProvisioning = async () => {
+    const payload = {
+      name: qaAdminDraft.name.trim(),
+      email: qaAdminDraft.email.trim(),
+      mobileNumber: qaAdminDraft.mobileNumber.replace(/[\s()-]/g, ''),
+      reason: qaAdminDraft.reason.trim(),
+    };
+    if (!payload.name || !payload.email || !/^\+?[0-9]{10,15}$/.test(payload.mobileNumber) || payload.reason.length < 3) {
+      setActionError('Name, valid email, 10–15 digit mobile number, and a reason are required.');
+      return;
+    }
+    setIsSubmitting(true);
+    setActionError(null);
+    try {
+      const result = await runAction('Provision Phase C QA Admin', onProvisionFiteatsyQaAdmin, payload);
+      if (result === null) return;
+      setQaAdminResult(result);
+      showNotice(result?.idempotentReplay ? 'Canonical Phase C QA Admin reused.' : 'Phase C QA Admin provisioned.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const syncProductAssignments = async () => {
     if (!selectedUser?.id) {
       setActionError('Select a user before syncing assignments.');
@@ -1968,11 +2002,50 @@ export function PeopleAccessModule({
       description="Manage users, roles and platform access."
       actions={
         <>
+          <ActionButton icon={Shield} label="Provision Phase C QA Admin" tone="ghost" onClick={() => { setQaAdminResult(null); setShowQaAdminModal(true); }} />
           <ActionButton icon={Plus} label="Add User" tone="primary" onClick={() => openProvisioningWizard('practitioner')} />
           <ActionButton icon={UserCog} label="Refresh" tone="ghost" onClick={() => runAction('Refresh People & Access', onRefresh)} />
         </>
       }
     >
+      {showQaAdminModal ? (
+        <WorkflowModal
+          eyebrow="Governed QA operation"
+          title="Provision Phase C QA Admin"
+          description="Creates or reuses one synthetic QA_TEST administrator through the server-side Zestiva delegation gateway. This cannot create production administrators or select arbitrary permissions."
+          steps={[{ id: 'qa-admin', label: 'QA Admin' }]}
+          activeStep={0}
+          onClose={() => setShowQaAdminModal(false)}
+          footer={
+            <div className="flex flex-wrap justify-end gap-3">
+              <button type="button" className="z-btn z-btn-secondary" onClick={() => setShowQaAdminModal(false)}>Close</button>
+              {!qaAdminResult ? (
+                <ActionButton icon={Shield} label="Provision QA Admin" tone="primary" onClick={submitQaAdminProvisioning} disabled={isSubmitting} />
+              ) : null}
+            </div>
+          }
+        >
+          {qaAdminResult ? (
+            <WorkflowCard title="QA Admin ready" description="The canonical synthetic administrator is classified as QA_TEST. No delegation token or signing material was returned to this browser.">
+              <div className="grid gap-3 rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-900 md:grid-cols-2">
+                <span><strong>Role:</strong> admin</span>
+                <span><strong>Purpose:</strong> QA_TEST</span>
+                <span><strong>Result:</strong> {qaAdminResult.idempotentReplay ? 'Reused' : 'Created'}</span>
+                <span><strong>Identity:</strong> {qaAdminResult.user?.email || qaAdminDraft.email}</span>
+              </div>
+            </WorkflowCard>
+          ) : (
+            <WorkflowCard title="Synthetic administrator details" description="The gateway fixes role=admin, account_purpose=QA_TEST, purpose=qa_provisioning, and permission=fiteatsy.qa.admin.create server-side.">
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Name"><input className="z-input" value={qaAdminDraft.name} onChange={(event) => setQaAdminDraft((current) => ({ ...current, name: event.target.value }))} autoComplete="off" /></Field>
+                <Field label="Email"><input className="z-input" type="email" value={qaAdminDraft.email} onChange={(event) => setQaAdminDraft((current) => ({ ...current, email: event.target.value }))} autoComplete="off" /></Field>
+                <Field label="Mobile number"><input className="z-input" value={qaAdminDraft.mobileNumber} onChange={(event) => setQaAdminDraft((current) => ({ ...current, mobileNumber: event.target.value }))} placeholder="+919876543210" autoComplete="off" /></Field>
+                <Field label="Audit reason"><input className="z-input" value={qaAdminDraft.reason} onChange={(event) => setQaAdminDraft((current) => ({ ...current, reason: event.target.value }))} /></Field>
+              </div>
+            </WorkflowCard>
+          )}
+        </WorkflowModal>
+      ) : null}
       <EnterpriseCollectionToolbar
         left={
           <EnterpriseSmartSearch
