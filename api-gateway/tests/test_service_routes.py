@@ -5,6 +5,12 @@ from app.config import Settings
 
 
 class ServiceRoutesTest(unittest.TestCase):
+    def test_fiteatsy_bridge_is_registered_before_catch_all_proxy(self):
+        main_source = Path("app/main.py").read_text()
+        bridge_index = main_source.index("app.include_router(fiteatsy_bridge_router)")
+        proxy_index = main_source.index("app.include_router(proxy_router)")
+        self.assertLess(bridge_index, proxy_index)
+
     def test_owner_master_data_routes_to_auth_service(self):
         settings = Settings(auth_service_url="http://auth-service.railway.internal")
         routes = {route["prefix"]: route["upstream"] for route in settings.get_service_routes()}

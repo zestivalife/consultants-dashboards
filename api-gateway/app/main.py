@@ -328,8 +328,8 @@ def create_app() -> FastAPI:
             },
         }
 
-    app.include_router(proxy_router)
     app.include_router(fiteatsy_bridge_router)
+    app.include_router(proxy_router)
 
     return app
 
