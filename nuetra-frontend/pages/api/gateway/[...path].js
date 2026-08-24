@@ -11,6 +11,7 @@ const HOP_BY_HOP_HEADERS = new Set([
   'host',
   'content-length',
   'content-encoding',
+  'x-nuetra-authorization',
 ]);
 
 export const config = {
@@ -46,6 +47,11 @@ function buildForwardHeaders(req, bodyBuffer) {
     } else {
       headers.set(key, value);
     }
+  }
+
+  const nuetraAuthorization = req.headers['x-nuetra-authorization'];
+  if (typeof nuetraAuthorization === 'string' && nuetraAuthorization.startsWith('Bearer ')) {
+    headers.set('authorization', nuetraAuthorization);
   }
 
   const forwardedFor = req.headers['x-forwarded-for'];

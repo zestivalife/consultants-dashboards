@@ -201,9 +201,11 @@ export async function apiRequest(path, opts = {}) {
   const shouldSkipAuthRefresh = skipAuthRefresh || path.startsWith('/auth/refresh') || path.startsWith('/auth/login');
 
   const token = getToken();
+  const usesDelegatedFiteatsyGateway = path.startsWith('/platform/fiteatsy/');
   const headers = {
     ...(fetchOptions.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(token && usesDelegatedFiteatsyGateway ? { 'X-Nuetra-Authorization': `Bearer ${token}` } : {}),
     ...(fetchOptions.headers || {}),
   };
 
@@ -263,6 +265,7 @@ export async function apiRequest(path, opts = {}) {
           const retryHeaders = {
             ...headers,
             Authorization: `Bearer ${nextAccessToken}`,
+            ...(usesDelegatedFiteatsyGateway ? { 'X-Nuetra-Authorization': `Bearer ${nextAccessToken}` } : {}),
           };
           const retryResponse = await fetch(url, {
             ...fetchOptions,

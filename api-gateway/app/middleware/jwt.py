@@ -72,7 +72,7 @@ class JWTMiddleware(BaseHTTPMiddleware):
 
         token = _extract_token(request)
         if not token:
-            logger.error(f"Missing token. Path: {request.url.path}, Headers: {dict(request.headers)}")
+            logger.warning("jwt_missing", path=request.url.path)
             return JSONResponse(
                 status_code=401,
                 content={
