@@ -5,6 +5,11 @@ from app.config import Settings
 
 
 class ServiceRoutesTest(unittest.TestCase):
+    def test_fiteatsy_service_url_accepts_canonical_environment_alias(self):
+        settings = Settings(FITEATSY_SERVICE_URL="https://fiteatsy.example")
+
+        self.assertEqual(settings.fiteatsy_service_url, "https://fiteatsy.example")
+
     def test_fiteatsy_bridge_is_registered_before_catch_all_proxy(self):
         main_source = Path("app/main.py").read_text()
         bridge_index = main_source.index("app.include_router(fiteatsy_bridge_router)")

@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     fiteatsy_delegation_issuer: str = Field(default="zestiva-platform", validation_alias=AliasChoices("FITEATSY_DELEGATION_ISSUER", "fiteatsy_delegation_issuer"))
     fiteatsy_delegation_audience: str = Field(default="fiteatsy-backend", validation_alias=AliasChoices("FITEATSY_DELEGATION_AUDIENCE", "fiteatsy_delegation_audience"))
     fiteatsy_delegation_ttl_seconds: int = Field(default=180, validation_alias=AliasChoices("FITEATSY_DELEGATION_TTL_SECONDS", "fiteatsy_delegation_ttl_seconds"))
+    fiteatsy_service_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("FITEATSY_SERVICE_URL", "fiteatsy_service_url"),
+    )
 
     redis_url: str = Field(
         default="redis://redis:6379/1",
