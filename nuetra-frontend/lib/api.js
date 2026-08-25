@@ -423,10 +423,11 @@ export const ownerPeopleAccessAPI = {
     return apiRequest('/platform/fiteatsy/qa-admins', { method: 'POST', body: payload, headers: { 'Idempotency-Key': idempotencyKey } });
   },
 
-  issueFiteatsyQaAdminHandoff(userId, reason) {
+  issueFiteatsyQaAdminHandoff(userId, reason, idempotencyKey) {
     return apiRequest(`/platform/fiteatsy/qa-identities/${userId}/session`, {
       method: 'POST',
       body: { reason },
+      headers: { 'Idempotency-Key': idempotencyKey },
     });
   },
 

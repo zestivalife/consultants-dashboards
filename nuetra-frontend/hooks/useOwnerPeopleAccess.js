@@ -245,7 +245,7 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
   }, [refresh]);
 
   const onIssueFiteatsyQaAdminHandoff = useCallback((userId, reason) => (
-    ownerPeopleAccessAPI.issueFiteatsyQaAdminHandoff(userId, reason)
+    ownerPeopleAccessAPI.issueFiteatsyQaAdminHandoff(userId, reason, newIdempotencyKey())
   ), []);
 
   const onAssignFiteatsyClient = useCallback(async (payload) => {
