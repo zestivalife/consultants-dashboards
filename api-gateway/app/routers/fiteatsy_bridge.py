@@ -150,4 +150,7 @@ async def deactivate_identity(request: Request, user_id: str, body: dict[str, An
 
 @router.post("/qa-identities/{user_id}/session")
 async def issue_session(request: Request, user_id: str, body: dict[str, Any]):
-    return await _bridge(request, "qa_session_issue", OPERATIONS["qa-session"][1], OPERATIONS["qa-session"][2], "qa_session", body, {"id": user_id})
+    response = await _bridge(request, "qa_session_issue", OPERATIONS["qa-session"][1], OPERATIONS["qa-session"][2], "qa_session", body, {"id": user_id})
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response

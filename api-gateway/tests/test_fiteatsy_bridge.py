@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 from pydantic import ValidationError
 from starlette.requests import Request
 
-from app.routers.fiteatsy_bridge import QaAdminProvisionRequest, _assert_owner_authority, provision_qa_admin
+from app.routers.fiteatsy_bridge import QaAdminProvisionRequest, _assert_owner_authority, issue_session, provision_qa_admin
 
 
 def owner_request(*, role="platform_owner", permissions=None, products=None, user_id="owner-123", idempotency_key="phase-c-admin"):
@@ -132,6 +132,24 @@ class FiteatsyOwnerBridgeTest(unittest.IsolatedAsyncioTestCase):
             response = await provision_qa_admin(request, body)
         self.assertEqual(response.status_code, 400)
         issue.assert_not_called()
+
+    async def test_qa_session_handoff_response_is_never_cached_or_referred(self):
+        permission = "fiteatsy.qa.session.issue"
+        request = owner_request(role="platform_owner", permissions=[permission], products=["fiteatsy"], idempotency_key="phase-c-handoff")
+        settings = SimpleNamespace(fiteatsy_service_url="https://fiteatsy.example")
+        with (
+            patch("app.routers.fiteatsy_bridge.get_settings", return_value=settings),
+            patch("app.routers.fiteatsy_bridge.issue_fiteatsy_delegation", return_value="signed-server-token"),
+            patch("app.routers.fiteatsy_bridge.httpx.AsyncClient", FakeHttpClient),
+        ):
+            response = await issue_session(request, "qa-admin-1", {"reason": "Phase C governed handoff"})
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(response.headers["Referrer-Policy"], "no-referrer")
+        call = FakeHttpClient.request.await_args
+        self.assertEqual(call.args[1], "https://fiteatsy.example/v1/internal/delegated/qa-identities/qa-admin-1/session")
+        self.assertEqual(call.kwargs["headers"]["Idempotency-Key"], "phase-c-handoff")
 
 
 if __name__ == "__main__":
