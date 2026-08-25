@@ -918,6 +918,7 @@ export function PeopleAccessModule({
   onProvisionFiteatsyQaClient,
   onProvisionFiteatsyQaConsultant,
   onProvisionFiteatsyQaAdmin,
+  onIssueFiteatsyQaAdminHandoff,
   onUpdateUser,
   onArchiveUser,
   onRestoreUser,
@@ -993,6 +994,7 @@ export function PeopleAccessModule({
     mobileNumber: '',
     reason: 'Phase C authenticated production acceptance',
   });
+  const [qaAdminHandoff, setQaAdminHandoff] = useState(null);
   const [csvDraft, setCsvDraft] = useState('');
   const [roleBulkDraft, setRoleBulkDraft] = useState('consultant');
   const [form, setForm] = useState({
@@ -1910,6 +1912,29 @@ export function PeopleAccessModule({
     }
   };
 
+  const issueQaAdminHandoff = async () => {
+    const userId = qaAdminResult?.user?.id;
+    if (!userId) {
+      setActionError('The canonical QA Admin identity is unavailable.');
+      return;
+    }
+    setIsSubmitting(true);
+    setActionError(null);
+    try {
+      const result = await runAction(
+        'Issue one-time QA Admin handoff',
+        onIssueFiteatsyQaAdminHandoff,
+        userId,
+        qaAdminDraft.reason.trim()
+      );
+      if (result === null) return;
+      setQaAdminHandoff(result?.exchange || null);
+      showNotice('One-time QA Admin handoff issued. It expires in three minutes.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const syncProductAssignments = async () => {
     if (!selectedUser?.id) {
       setActionError('Select a user before syncing assignments.');
@@ -2006,7 +2031,7 @@ export function PeopleAccessModule({
       description="Manage users, roles and platform access."
       actions={
         <>
-          <ActionButton icon={Shield} label="Provision Phase C QA Admin" tone="ghost" onClick={() => { setQaAdminResult(null); setShowQaAdminModal(true); }} />
+          <ActionButton icon={Shield} label="Provision Phase C QA Admin" tone="ghost" onClick={() => { setQaAdminResult(null); setQaAdminHandoff(null); setShowQaAdminModal(true); }} />
           <ActionButton icon={Plus} label="Add User" tone="primary" onClick={() => openProvisioningWizard('practitioner')} />
           <ActionButton icon={UserCog} label="Refresh" tone="ghost" onClick={() => runAction('Refresh People & Access', onRefresh)} />
         </>
@@ -2026,6 +2051,9 @@ export function PeopleAccessModule({
               {!qaAdminResult ? (
                 <ActionButton icon={Shield} label="Provision QA Admin" tone="primary" onClick={submitQaAdminProvisioning} disabled={isSubmitting} />
               ) : null}
+              {qaAdminResult && !qaAdminHandoff ? (
+                <ActionButton icon={Shield} label="Issue one-time handoff" tone="primary" onClick={issueQaAdminHandoff} disabled={isSubmitting} />
+              ) : null}
             </div>
           }
         >
@@ -2037,6 +2065,13 @@ export function PeopleAccessModule({
                 <span><strong>Result:</strong> {qaAdminResult.idempotentReplay ? 'Reused' : 'Created'}</span>
                 <span><strong>Identity:</strong> {qaAdminResult.user?.email || qaAdminDraft.email}</span>
               </div>
+              {qaAdminHandoff ? (
+                <div className="mt-4 grid gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+                  <strong>Single-use exchange code</strong>
+                  <input className="z-input font-mono" aria-label="Single-use exchange code" value={qaAdminHandoff.code || ''} readOnly autoComplete="off" />
+                  <span>Expires at {qaAdminHandoff.expiresAt}. The code is bound to this QA_TEST Admin and can be exchanged once.</span>
+                </div>
+              ) : null}
             </WorkflowCard>
           ) : (
             <WorkflowCard title="Synthetic administrator details" description="The gateway fixes role=admin, account_purpose=QA_TEST, purpose=qa_provisioning, and permission=fiteatsy.qa.admin.create server-side.">

@@ -244,6 +244,10 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     return result;
   }, [refresh]);
 
+  const onIssueFiteatsyQaAdminHandoff = useCallback((userId, reason) => (
+    ownerPeopleAccessAPI.issueFiteatsyQaAdminHandoff(userId, reason)
+  ), []);
+
   const onAssignFiteatsyClient = useCallback(async (payload) => {
     const result = await ownerPeopleAccessAPI.assignFiteatsyClient(payload, newIdempotencyKey());
     await refresh();
@@ -400,6 +404,7 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     onProvisionFiteatsyQaClient,
     onProvisionFiteatsyQaConsultant,
     onProvisionFiteatsyQaAdmin,
+    onIssueFiteatsyQaAdminHandoff,
     onAssignFiteatsyClient,
     onUpdateUser,
     onArchiveUser,
