@@ -918,7 +918,6 @@ export function PeopleAccessModule({
   onProvisionFiteatsyQaClient,
   onProvisionFiteatsyQaConsultant,
   onProvisionFiteatsyQaAdmin,
-  onIssueFiteatsyQaAdminHandoff,
   onUpdateUser,
   onArchiveUser,
   onRestoreUser,
@@ -1906,34 +1905,13 @@ export function PeopleAccessModule({
       const result = await runAction('Provision Phase C QA Admin', onProvisionFiteatsyQaAdmin, payload);
       if (result === null) return;
       setQaAdminResult(result);
+      setQaAdminHandoff(result?.exchange || null);
       showNotice(result?.idempotentReplay ? 'Canonical Phase C QA Admin reused.' : 'Phase C QA Admin provisioned.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const issueQaAdminHandoff = async () => {
-    const userId = qaAdminResult?.user?.id;
-    if (!userId) {
-      setActionError('The canonical QA Admin identity is unavailable.');
-      return;
-    }
-    setIsSubmitting(true);
-    setActionError(null);
-    try {
-      const result = await runAction(
-        'Issue one-time QA Admin handoff',
-        onIssueFiteatsyQaAdminHandoff,
-        userId,
-        qaAdminDraft.reason.trim()
-      );
-      if (result === null) return;
-      setQaAdminHandoff(result?.exchange || null);
-      showNotice('One-time QA Admin handoff issued. It expires in three minutes.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   const syncProductAssignments = async () => {
     if (!selectedUser?.id) {
@@ -2051,9 +2029,6 @@ export function PeopleAccessModule({
               {!qaAdminResult ? (
                 <ActionButton icon={Shield} label="Provision QA Admin" tone="primary" onClick={submitQaAdminProvisioning} disabled={isSubmitting} />
               ) : null}
-              {qaAdminResult && !qaAdminHandoff ? (
-                <ActionButton icon={Shield} label="Issue one-time handoff" tone="primary" onClick={issueQaAdminHandoff} disabled={isSubmitting} />
-              ) : null}
             </div>
           }
         >
@@ -2069,7 +2044,7 @@ export function PeopleAccessModule({
                 <div className="mt-4 grid gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
                   <strong>Single-use exchange code</strong>
                   <input className="z-input font-mono" aria-label="Single-use exchange code" value={qaAdminHandoff.code || ''} readOnly autoComplete="off" />
-                  <span>Expires at {qaAdminHandoff.expiresAt}. The code is bound to this QA_TEST Admin and can be exchanged once.</span>
+                  <span>Expires at {qaAdminHandoff.expiresAtISO}. The code is bound to this QA_TEST Admin and can be exchanged once.</span>
                 </div>
               ) : null}
             </WorkflowCard>

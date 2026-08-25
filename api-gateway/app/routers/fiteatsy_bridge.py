@@ -19,7 +19,6 @@ OPERATIONS: dict[str, tuple[str, str, str]] = {
     "client-assignments": ("POST", "/v1/internal/delegated/client-assignments", "fiteatsy.client.assign"),
     "client-assignment-revoke": ("DELETE", "/v1/internal/delegated/client-assignments/{id}", "fiteatsy.client.assignment.revoke"),
     "qa-identities-deactivate": ("POST", "/v1/internal/delegated/qa-identities/{id}/deactivate", "fiteatsy.qa.identity.deactivate"),
-    "qa-session": ("POST", "/v1/internal/delegated/qa-identities/{id}/session", "fiteatsy.qa.session.issue"),
 }
 
 
@@ -123,7 +122,7 @@ async def provision_qa_consultant(request: Request, body: dict[str, Any]):
 
 @router.post("/qa-admins")
 async def provision_qa_admin(request: Request, body: QaAdminProvisionRequest):
-    return await _bridge(
+    response = await _bridge(
         request,
         "qa_admin_provision",
         OPERATIONS["qa-admins"][1],
@@ -131,6 +130,9 @@ async def provision_qa_admin(request: Request, body: QaAdminProvisionRequest):
         "qa_provisioning",
         body.model_dump(),
     )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 @router.post("/client-assignments")
@@ -146,11 +148,3 @@ async def revoke_client(request: Request, assignment_id: str):
 @router.post("/qa-identities/{user_id}/deactivate")
 async def deactivate_identity(request: Request, user_id: str, body: dict[str, Any]):
     return await _bridge(request, "qa_identity_deactivate", OPERATIONS["qa-identities-deactivate"][1], OPERATIONS["qa-identities-deactivate"][2], "qa_provisioning", body, {"id": user_id})
-
-
-@router.post("/qa-identities/{user_id}/session")
-async def issue_session(request: Request, user_id: str, body: dict[str, Any]):
-    response = await _bridge(request, "qa_session_issue", OPERATIONS["qa-session"][1], OPERATIONS["qa-session"][2], "qa_session", body, {"id": user_id})
-    response.headers["Cache-Control"] = "no-store"
-    response.headers["Referrer-Policy"] = "no-referrer"
-    return response
