@@ -1202,38 +1202,24 @@ const optionalGuidanceSections = (guidance) => guidance ? [
   ...Object.entries(guidance.cravings || {}).map(([key, items]) => [`Craving · ${key}`, ['optionalGuidance', 'cravings', key], items]),
 ] : [];
 
-const OPTIONAL_GUIDANCE_MINIMUMS = [
-  ['What can I eat now', ['whatCanIEatNow'], 10],
-  ['North Indian', ['eatingOut', 'northIndian'], 5],
-  ['South Indian', ['eatingOut', 'southIndian'], 5],
-  ['Chinese', ['eatingOut', 'chinese'], 5],
-  ['Continental', ['eatingOut', 'continental'], 5],
-  ['Fast Food', ['eatingOut', 'fastFood'], 5],
-  ['Sweet', ['cravings', 'sweet'], 3],
-  ['Salty', ['cravings', 'salty'], 3],
-  ['Crunchy', ['cravings', 'crunchy'], 3],
-  ['Spicy', ['cravings', 'spicy'], 3],
-];
-
 function getOptionalGuidanceProgress(guidance) {
-  return OPTIONAL_GUIDANCE_MINIMUMS.map(([label, path, minimum]) => {
-    const items = path.reduce((value, key) => value?.[key], guidance) || [];
-    const enabled = items.filter((item) => item.enabled).length;
-    return { label, enabled, minimum, complete: enabled >= minimum };
-  });
+  return optionalGuidanceSections(guidance).map(([label, , items]) => ({
+    label,
+    enabled: items.filter((item) => item.enabled).length,
+  }));
 }
 
 function OptionalGuidanceProgress({ guidance }) {
   const progress = getOptionalGuidanceProgress(guidance);
-  const complete = progress.every((item) => item.complete);
+  const enabled = progress.reduce((sum, item) => sum + item.enabled, 0);
   return <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{complete ? 'Optional Nutrition Guidance meets submission minimums.' : 'Optional Nutrition Guidance is not complete yet.'}</p>
-      <StatusChip status={complete ? 'stable' : 'pending'}>{complete ? 'Ready for review' : 'Draft in progress'}</StatusChip>
+      <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{enabled ? 'Optional Nutrition Guidance included.' : 'No verified Optional Nutrition Guidance is included.'}</p>
+      <StatusChip status={enabled ? 'stable' : 'pending'}>{enabled ? `${enabled} verified option${enabled === 1 ? '' : 's'}` : 'Optional'}</StatusChip>
     </div>
-    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-      {progress.map((item) => <div key={item.label} className="flex items-center justify-between gap-3 rounded-[12px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2 text-xs"><span>{item.label}</span><span className={item.complete ? 'font-semibold text-[var(--fluent-color-status-success-foreground)]' : 'font-semibold text-[var(--fluent-color-neutral-foreground-2)]'}>{item.enabled} / {item.minimum} minimum</span></div>)}
-    </div>
+    {progress.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      {progress.map((item) => <div key={item.label} className="flex items-center justify-between gap-3 rounded-[12px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2 text-xs"><span>{item.label}</span><span className="font-semibold text-[var(--fluent-color-neutral-foreground-2)]">{item.enabled} included</span></div>)}
+    </div> : <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-2)]">The core Diet Plan can proceed to review. Guidance may be added later when verified, client-compatible catalogue options are available.</p>}
   </div>;
 }
 
@@ -1244,7 +1230,7 @@ function OptionalGuidanceEditor({ guidance, readOnly, onItemsChange, onSearch })
   const [activeEatingOut, setActiveEatingOut] = useState('northIndian');
   const [activeCraving, setActiveCraving] = useState('sweet');
   if (!guidance) {
-    return <div className="space-y-3"><OptionalGuidanceProgress guidance={null} /><div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Generate Optional Guidance to create the initial verified candidate package. You can save this draft while it is incomplete.</div></div>;
+    return <div className="space-y-3"><OptionalGuidanceProgress guidance={null} /><div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No verified guidance is available for these optional categories. This does not block review of the core Diet Plan.</div></div>;
   }
   return <div className="mt-4 space-y-4">
     <OptionalGuidanceProgress guidance={guidance} />
@@ -1273,10 +1259,9 @@ function OptionalGuidanceEditor({ guidance, readOnly, onItemsChange, onSearch })
       (activeGroup === 'eatingOut' && path[1] === 'eatingOut' && path[2] === activeEatingOut) ||
       (activeGroup === 'cravings' && path[1] === 'cravings' && path[2] === activeCraving)
     )).map(([label, path, items]) => {
-      const requirement = OPTIONAL_GUIDANCE_MINIMUMS.find(([, minimumPath]) => minimumPath.join('.') === path.slice(1).join('.'))?.[2] || 0;
       const enabledCount = items.filter((item) => item.enabled).length;
       return <div key={label} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{label}</p><span className={`text-xs font-semibold ${enabledCount >= requirement ? 'text-[var(--fluent-color-status-success-foreground)]' : 'text-[var(--fluent-color-neutral-foreground-3)]'}`}>{enabledCount} / {requirement} required {enabledCount >= requirement ? '✓' : ''}</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{label}</p><span className="text-xs font-semibold text-[var(--fluent-color-neutral-foreground-3)]">{enabledCount ? `${enabledCount} included` : 'No verified guidance available'}</span></div>
       {!readOnly ? <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => onItemsChange(path, (list) => list.forEach((item) => { item.enabled = true; }))} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1.5 text-xs font-semibold">Select all eligible</button><button type="button" onClick={() => onItemsChange(path, (list) => list.forEach((item) => { item.enabled = false; }))} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1.5 text-xs font-semibold">Clear selection</button></div> : null}
       {!readOnly ? <div className="mt-3 flex gap-2"><input value={searches[label] || ''} onChange={(event) => setSearches((current) => ({ ...current, [label]: event.target.value }))} placeholder="Search verified catalogue" className="min-w-0 flex-1 rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2 text-sm" /><button onClick={async () => { const next = await onSearch(path, searches[label] || ''); setCandidates((current) => ({ ...current, [label]: next })); }} className="rounded-[12px] bg-[var(--fluent-color-brand-background)] px-3 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">Search</button></div> : null}
       {!readOnly && candidates[label]?.length ? <div className="mt-2 space-y-2">{candidates[label].slice(0, 6).map((candidate) => <div key={candidate.id} className="flex items-center justify-between gap-3 rounded-[12px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2"><div><p className="text-xs font-semibold">{candidate.name}</p><p className="text-[11px] text-[var(--fluent-color-neutral-foreground-3)]">{candidate.servingLabel} · {candidate.nutrition.calories} kcal</p></div><button onClick={() => onItemsChange(path, (list) => { if (!list.some((item) => item.id === candidate.id)) list.push({ ...candidate, displayOrder: list.length + 1 }); })} className="rounded-full border border-[var(--fluent-color-brand-stroke-1)] px-3 py-1 text-xs font-semibold">Add</button></div>)}</div> : null}
@@ -1669,13 +1654,12 @@ function RealClientProfileDrawer({
       setDietPlanState(nextDietPlan);
       setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
       await refreshWorkspace();
-      const progress = getOptionalGuidanceProgress(nextDietPlan?.content?.optionalGuidance);
-      const missing = progress.filter((item) => !item.complete);
-      setNutritionActionSuccess(missing.length
-        ? `Verified guidance was saved to this draft. Complete before submission: ${missing.map((item) => `${item.label} ${item.enabled}/${item.minimum}`).join(' · ')}`
-        : 'Optional Nutrition Guidance generated from the verified catalogue and meets submission minimums. Review every category before submitting.');
+      const included = getOptionalGuidanceProgress(nextDietPlan?.content?.optionalGuidance).reduce((sum, item) => sum + item.enabled, 0);
+      setNutritionActionSuccess(included
+        ? `${included} verified, client-compatible Optional Guidance option${included === 1 ? ' was' : 's were'} saved. Review included guidance before submitting.`
+        : 'No verified, client-compatible Optional Guidance is currently available. The core Diet Plan may still be submitted for review.');
     } catch (actionError) {
-      setNutritionActionError(getNutritionWorkflowErrorMessage(actionError, 'Unable to generate complete verified Optional Nutrition Guidance.'));
+      setNutritionActionError(getNutritionWorkflowErrorMessage(actionError, 'Unable to generate verified Optional Nutrition Guidance.'));
     } finally {
       setNutritionActionLoading(false);
     }
@@ -2242,7 +2226,7 @@ function RealClientProfileDrawer({
         </div>
         {nutritionActionError ? (
           <div className={`mt-4 rounded-[16px] px-4 py-4 text-sm ${/Optional(?: Nutrition)? Guidance|enabled verified options/i.test(nutritionActionError) ? 'bg-[var(--fluent-color-neutral-background-2)] text-[var(--fluent-color-neutral-foreground-1)]' : 'bg-[var(--fluent-color-status-danger-background)] text-[var(--fluent-color-status-danger-foreground)]'}`}>
-            <p className="font-semibold">{/Optional(?: Nutrition)? Guidance|enabled verified options/i.test(nutritionActionError) ? 'Optional Nutrition Guidance is not complete yet.' : 'Nutrition action could not be completed.'}</p>
+            <p className="font-semibold">{/Optional(?: Nutrition)? Guidance|enabled verified options/i.test(nutritionActionError) ? 'Optional Nutrition Guidance needs attention.' : 'Nutrition action could not be completed.'}</p>
             <p className="mt-1">{nutritionActionError}</p>
             {!/Optional(?: Nutrition)? Guidance|enabled verified options/i.test(nutritionActionError) ? <div className="mt-3 flex flex-wrap gap-2">
               <button
@@ -2290,7 +2274,7 @@ function RealClientProfileDrawer({
           <span>{workflowLabelFromLifecycle(dietPlanState.currentLifecycle)}</span><span>·</span>
           <span>{mealPlanSectionEntries.length} meals</span><span>·</span>
           <span>{mealPlanSectionEntries.reduce((sum, [key]) => sum + (dietPlanContentDraft?.mealPlan?.[key]?.options?.length || 0), 0)} meal options</span><span>·</span>
-          <span>Guidance {optionalGuidanceSections(dietPlanContentDraft?.optionalGuidance).reduce((sum, [, , items]) => sum + items.filter((item) => item.enabled).length, 0)} / {OPTIONAL_GUIDANCE_MINIMUMS.reduce((sum, [, , minimum]) => sum + minimum, 0)}</span><span>·</span>
+          <span>Guidance {optionalGuidanceSections(dietPlanContentDraft?.optionalGuidance).reduce((sum, [, , items]) => sum + items.filter((item) => item.enabled).length, 0)} included</span><span>·</span>
           <span>{dietPlanDirty ? 'Unsaved changes' : 'Saved'}</span>
         </div> : null}
       </div>
