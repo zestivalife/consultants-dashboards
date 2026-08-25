@@ -481,8 +481,8 @@ async def get_user_detail(session: AsyncSession, user_id: uuid.UUID) -> UserProf
     user = await repo.get_user_detail(user_id)
     if user is None:
         raise NotFoundException("User not found")
-    package_assignments = list(user.package_assignments)
-    service_assignments = list(user.service_assignments)
+    package_assignments = await repo.list_user_package_assignments(user.id)
+    service_assignments = await repo.list_user_service_assignments(user.id)
     audit_events = await repo.list_user_audit_events(user.id)
 
     return UserProfileDetail(

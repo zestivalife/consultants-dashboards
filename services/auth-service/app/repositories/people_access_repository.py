@@ -328,6 +328,28 @@ class PeopleAccessRepository:
         result = await self._session.execute(select(User).options(joinedload(User.role)).where(User.email == email))
         return result.scalar_one_or_none()
 
+    async def list_user_package_assignments(self, user_id: uuid.UUID) -> list[UserPackageAssignment]:
+        result = await self._session.execute(
+            select(UserPackageAssignment)
+            .options(
+                joinedload(UserPackageAssignment.package).joinedload(PackageCatalog.product),
+                joinedload(UserPackageAssignment.organization),
+            )
+            .where(UserPackageAssignment.user_id == user_id)
+        )
+        return list(result.scalars().unique().all())
+
+    async def list_user_service_assignments(self, user_id: uuid.UUID) -> list[UserServiceAssignment]:
+        result = await self._session.execute(
+            select(UserServiceAssignment)
+            .options(
+                joinedload(UserServiceAssignment.service).joinedload(ServiceCatalog.product),
+                joinedload(UserServiceAssignment.organization),
+            )
+            .where(UserServiceAssignment.user_id == user_id)
+        )
+        return list(result.scalars().unique().all())
+
     async def get_user(self, user_id: uuid.UUID) -> User | None:
         result = await self._session.execute(select(User).options(joinedload(User.role)).where(User.id == user_id))
         return result.scalar_one_or_none()
