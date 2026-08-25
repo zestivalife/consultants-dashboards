@@ -481,6 +481,8 @@ async def get_user_detail(session: AsyncSession, user_id: uuid.UUID) -> UserProf
     user = await repo.get_user_detail(user_id)
     if user is None:
         raise NotFoundException("User not found")
+    package_assignments = list(user.package_assignments)
+    service_assignments = list(user.service_assignments)
     audit_events = await repo.list_user_audit_events(user.id)
 
     return UserProfileDetail(
@@ -513,8 +515,8 @@ async def get_user_detail(session: AsyncSession, user_id: uuid.UUID) -> UserProf
         archive_reason=user.archive_reason,
         memberships=[_membership_to_summary(membership) for membership in user.organization_memberships],
         product_access=[_serialize_product_access(access) for access in user.product_access],
-        package_assignments=[_serialize_package_assignment(item) for item in user.package_assignments],
-        service_assignments=[_serialize_service_assignment(item) for item in user.service_assignments],
+        package_assignments=[_serialize_package_assignment(item) for item in package_assignments],
+        service_assignments=[_serialize_service_assignment(item) for item in service_assignments],
         sessions=[
             LoginSessionItem(
                 id=session_item.id,
@@ -1332,7 +1334,8 @@ async def assign_products(
     user = await repo.get_user_detail(user_id)
     if user is None:
         raise NotFoundException("User not found")
-    _ensure_tenant_provisioning_allowed(user, "assign_products")
+    if not (_is_platform_owner(user) and actor.id == user.id):
+        _ensure_tenant_provisioning_allowed(user, "assign_products")
     await repo.clear_user_product_access(user.id)
     for assignment in assignments:
         product = await repo.get_product(assignment.product_id)

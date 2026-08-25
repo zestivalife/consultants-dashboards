@@ -5,11 +5,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictException, ForbiddenException
-from app.db.models.owner_access import AuditEvent, Permission, RolePermission, UserRole, UserStatusHistory
+from app.db.models.owner_access import AuditEvent, Permission, Product, RolePermission, UserRole, UserStatusHistory
 from app.db.models.role import Role
 from app.db.models.user import PasswordHistory, User
 from app.schemas.auth import UserResponse
-from app.schemas.people_access import BulkActionRequest, ManagedUserCreateRequest, ManagedUserUpdateRequest
+from app.schemas.people_access import BulkActionRequest, ManagedUserCreateRequest, ManagedUserUpdateRequest, UserProductAssignmentRequest
 from app.services import people_access_service
 from app.services.password_service import password_service
 
@@ -102,6 +102,40 @@ async def test_ensure_owner_access_rejects_non_owner_with_user_read(session: Asy
 
     with pytest.raises(ForbiddenException):
         await people_access_service.ensure_owner_access(session, actor, {"users.read"})
+
+
+@pytest.mark.asyncio
+async def test_platform_owner_can_assign_existing_product_to_self_only(session: AsyncSession):
+    owner_role = await _create_role(session, "superuser")
+    other_owner = await _create_user(session, owner_role, "other-owner@zestiva.in")
+    owner = await _create_user(session, owner_role, "owner@zestiva.in")
+    product = Product(id=uuid.uuid4(), key="fiteatsy", name="FitEatsy", status="ACTIVE")
+    session.add(product)
+    await session.flush()
+    actor = _actor_from_user(owner, permissions=["users.edit"])
+    assignment = UserProductAssignmentRequest(product_id=product.id, status="ACTIVE", is_primary=True)
+
+    result = await people_access_service.assign_products(
+        session,
+        owner.id,
+        [assignment],
+        actor=actor,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        request_id="owner-self-product",
+    )
+    assert [item.product for item in result] == ["FitEatsy"]
+
+    with pytest.raises(ForbiddenException):
+        await people_access_service.assign_products(
+            session,
+            other_owner.id,
+            [assignment],
+            actor=actor,
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+            request_id="owner-cross-product",
+        )
 
 
 @pytest.mark.asyncio

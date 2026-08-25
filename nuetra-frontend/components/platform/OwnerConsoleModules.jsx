@@ -1931,27 +1931,31 @@ export function PeopleAccessModule({
         }))
       );
       if (productResult === null) return;
-      const packageResult = await runAction(
-        'Assign packages',
-        onAssignPackages,
-        selectedUser.id,
-        form.package_ids.map((packageId) => ({
-          package_id: packageId,
-          organization_id: form.organization_id || null,
-          status: 'ACTIVE',
-        }))
-      );
-      if (packageResult === null) return;
-      await runAction(
-        'Assign services',
-        onAssignServices,
-        selectedUser.id,
-        form.service_ids.map((serviceId) => ({
-          service_id: serviceId,
-          organization_id: form.organization_id || null,
-          status: 'ACTIVE',
-        }))
-      );
+      if (form.package_ids.length || selectedUser.package_assignments.length) {
+        const packageResult = await runAction(
+          'Assign packages',
+          onAssignPackages,
+          selectedUser.id,
+          form.package_ids.map((packageId) => ({
+            package_id: packageId,
+            organization_id: form.organization_id || null,
+            status: 'ACTIVE',
+          }))
+        );
+        if (packageResult === null) return;
+      }
+      if (form.service_ids.length || selectedUser.service_assignments.length) {
+        await runAction(
+          'Assign services',
+          onAssignServices,
+          selectedUser.id,
+          form.service_ids.map((serviceId) => ({
+            service_id: serviceId,
+            organization_id: form.organization_id || null,
+            status: 'ACTIVE',
+          }))
+        );
+      }
     } finally {
       setIsSubmitting(false);
     }
