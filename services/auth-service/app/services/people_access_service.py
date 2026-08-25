@@ -481,8 +481,16 @@ async def get_user_detail(session: AsyncSession, user_id: uuid.UUID) -> UserProf
     user = await repo.get_user_detail(user_id)
     if user is None:
         raise NotFoundException("User not found")
+    user_roles = await repo.list_user_roles(user.id)
+    memberships = await repo.list_user_memberships(user.id)
+    product_access = await repo.list_user_product_access(user.id)
     package_assignments = await repo.list_user_package_assignments(user.id)
     service_assignments = await repo.list_user_service_assignments(user.id)
+    login_sessions = await repo.list_user_login_sessions(user.id)
+    notes = await repo.list_user_notes(user.id)
+    attachments = await repo.list_user_attachments(user.id)
+    status_history = await repo.list_user_status_history(user.id)
+    archived_by = await repo.get_archived_by(user.archived_by_user_id)
     audit_events = await repo.list_user_audit_events(user.id)
 
     return UserProfileDetail(
@@ -501,7 +509,7 @@ async def get_user_detail(session: AsyncSession, user_id: uuid.UUID) -> UserProf
                 description=user_role.role.description,
                 is_primary=user_role.is_primary,
             )
-            for user_role in user.user_roles
+            for user_role in user_roles
         ],
         permissions=await resolve_user_permissions(session, user),
         professional_title=user.industry,
@@ -511,10 +519,10 @@ async def get_user_detail(session: AsyncSession, user_id: uuid.UUID) -> UserProf
         last_login_at=user.last_login_at,
         created_at=user.created_at,
         archived_at=user.archived_at,
-        archived_by=_display_name(user.archived_by) if getattr(user, "archived_by", None) else None,
+        archived_by=_display_name(archived_by) if archived_by else None,
         archive_reason=user.archive_reason,
-        memberships=[_membership_to_summary(membership) for membership in user.organization_memberships],
-        product_access=[_serialize_product_access(access) for access in user.product_access],
+        memberships=[_membership_to_summary(membership) for membership in memberships],
+        product_access=[_serialize_product_access(access) for access in product_access],
         package_assignments=[_serialize_package_assignment(item) for item in package_assignments],
         service_assignments=[_serialize_service_assignment(item) for item in service_assignments],
         sessions=[
@@ -529,7 +537,7 @@ async def get_user_detail(session: AsyncSession, user_id: uuid.UUID) -> UserProf
                 last_seen_at=session_item.last_seen_at,
                 revoked_at=session_item.revoked_at,
             )
-            for session_item in sorted(user.login_sessions, key=lambda item: item.created_at, reverse=True)
+            for session_item in sorted(login_sessions, key=lambda item: item.created_at, reverse=True)
         ],
         notes=[
             UserNoteItem(
@@ -539,7 +547,7 @@ async def get_user_detail(session: AsyncSession, user_id: uuid.UUID) -> UserProf
                 created_at=note.created_at,
                 updated_at=note.updated_at,
             )
-            for note in sorted(user.notes, key=lambda item: item.created_at, reverse=True)
+            for note in sorted(notes, key=lambda item: item.created_at, reverse=True)
         ],
         attachments=[
             UserAttachmentItem(
@@ -551,7 +559,7 @@ async def get_user_detail(session: AsyncSession, user_id: uuid.UUID) -> UserProf
                 note=attachment.note,
                 created_at=attachment.created_at,
             )
-            for attachment in sorted(user.attachments, key=lambda item: item.created_at, reverse=True)
+            for attachment in sorted(attachments, key=lambda item: item.created_at, reverse=True)
         ],
         status_history=[
             UserStatusHistoryItem(
@@ -562,7 +570,7 @@ async def get_user_detail(session: AsyncSession, user_id: uuid.UUID) -> UserProf
                 changed_by=_display_name(history.changed_by),
                 created_at=history.created_at,
             )
-            for history in sorted(user.status_history, key=lambda item: item.created_at, reverse=True)
+            for history in sorted(status_history, key=lambda item: item.created_at, reverse=True)
         ],
         audit_events=[_serialize_audit_event(event) for event in audit_events],
     )

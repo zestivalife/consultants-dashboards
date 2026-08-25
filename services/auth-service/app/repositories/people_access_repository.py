@@ -339,6 +339,71 @@ class PeopleAccessRepository:
         )
         return list(result.scalars().unique().all())
 
+    async def list_user_roles(self, user_id: uuid.UUID) -> list[UserRole]:
+        result = await self._session.execute(
+            select(UserRole).options(joinedload(UserRole.role)).where(UserRole.user_id == user_id)
+        )
+        return list(result.scalars().unique().all())
+
+    async def list_user_memberships(self, user_id: uuid.UUID) -> list[OrganizationMembership]:
+        result = await self._session.execute(
+            select(OrganizationMembership)
+            .options(
+                joinedload(OrganizationMembership.organization),
+                joinedload(OrganizationMembership.department),
+                joinedload(OrganizationMembership.primary_product),
+                joinedload(OrganizationMembership.assigned_practitioner),
+                joinedload(OrganizationMembership.assigned_mentor),
+                joinedload(OrganizationMembership.assigned_consultant),
+            )
+            .where(OrganizationMembership.user_id == user_id)
+        )
+        return list(result.scalars().unique().all())
+
+    async def list_user_product_access(self, user_id: uuid.UUID) -> list[UserProductAccess]:
+        result = await self._session.execute(
+            select(UserProductAccess)
+            .options(
+                joinedload(UserProductAccess.product),
+                joinedload(UserProductAccess.organization),
+                joinedload(UserProductAccess.role),
+            )
+            .where(UserProductAccess.user_id == user_id)
+        )
+        return list(result.scalars().unique().all())
+
+    async def list_user_login_sessions(self, user_id: uuid.UUID) -> list[LoginSession]:
+        result = await self._session.execute(select(LoginSession).where(LoginSession.user_id == user_id))
+        return list(result.scalars().all())
+
+    async def list_user_notes(self, user_id: uuid.UUID) -> list[UserNote]:
+        result = await self._session.execute(
+            select(UserNote).options(joinedload(UserNote.author)).where(UserNote.user_id == user_id)
+        )
+        return list(result.scalars().unique().all())
+
+    async def list_user_attachments(self, user_id: uuid.UUID) -> list[UserAttachment]:
+        result = await self._session.execute(
+            select(UserAttachment)
+            .options(joinedload(UserAttachment.uploaded_by))
+            .where(UserAttachment.user_id == user_id)
+        )
+        return list(result.scalars().unique().all())
+
+    async def list_user_status_history(self, user_id: uuid.UUID) -> list[UserStatusHistory]:
+        result = await self._session.execute(
+            select(UserStatusHistory)
+            .options(joinedload(UserStatusHistory.changed_by))
+            .where(UserStatusHistory.user_id == user_id)
+        )
+        return list(result.scalars().unique().all())
+
+    async def get_archived_by(self, archived_by_user_id: uuid.UUID | None) -> User | None:
+        if archived_by_user_id is None:
+            return None
+        result = await self._session.execute(select(User).where(User.id == archived_by_user_id))
+        return result.scalar_one_or_none()
+
     async def list_user_service_assignments(self, user_id: uuid.UUID) -> list[UserServiceAssignment]:
         result = await self._session.execute(
             select(UserServiceAssignment)
