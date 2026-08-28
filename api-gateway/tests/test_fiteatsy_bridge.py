@@ -6,14 +6,20 @@ from unittest.mock import AsyncMock, patch
 from pydantic import ValidationError
 from starlette.requests import Request
 
-from app.routers.fiteatsy_bridge import QaAdminProvisionRequest, _assert_owner_authority, provision_qa_admin
+from app.routers.fiteatsy_bridge import (
+    QaAdminProvisionRequest,
+    _assert_owner_authority,
+    issue_qa_session,
+    provision_qa_admin,
+    provision_qa_client,
+)
 
 
-def owner_request(*, role="platform_owner", permissions=None, products=None, user_id="owner-123", idempotency_key="phase-c-admin"):
+def owner_request(*, role="platform_owner", permissions=None, products=None, user_id="owner-123", idempotency_key="phase-c-admin", path="/api/v1/platform/fiteatsy/qa-admins"):
     headers = []
     if idempotency_key is not None:
         headers.append((b"idempotency-key", idempotency_key.encode()))
-    request = Request({"type": "http", "method": "POST", "path": "/api/v1/platform/fiteatsy/qa-admins", "headers": headers})
+    request = Request({"type": "http", "method": "POST", "path": path, "headers": headers})
     request.state.user_id = user_id
     request.state.user_role = role
     request.state.token_payload = {
@@ -80,17 +86,16 @@ class FiteatsyOwnerBridgeTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(payload)
         self.assertIsNone(denied)
 
-        canonical_superuser = owner_request(role="superuser", permissions=[permission], products=["fiteatsy"])
-        payload, denied = _assert_owner_authority(canonical_superuser, permission)
-        self.assertIsNotNone(payload)
-        self.assertIsNone(denied)
-
         for request in (
+            owner_request(role="superuser", permissions=[permission], products=["fiteatsy"]),
             owner_request(role="consultant", permissions=[permission], products=["fiteatsy"]),
             owner_request(role="senior_consultant", permissions=[permission], products=["fiteatsy"]),
             owner_request(role="admin", permissions=[permission], products=["fiteatsy"]),
+            owner_request(role="client", permissions=[permission], products=["fiteatsy"]),
             owner_request(role="platform_owner", permissions=[], products=["fiteatsy"]),
             owner_request(role="platform_owner", permissions=[permission], products=[]),
+            owner_request(role="platform_owner", permissions=[permission], products=["unrelated-product"]),
+            owner_request(role="platform_owner", permissions=[permission], products=["fiteatsy"], user_id=""),
         ):
             payload, denied = _assert_owner_authority(request, permission)
             self.assertIsNone(payload)
@@ -139,6 +144,70 @@ class FiteatsyOwnerBridgeTest(unittest.IsolatedAsyncioTestCase):
             response = await provision_qa_admin(request, body)
         self.assertEqual(response.status_code, 400)
         issue.assert_not_called()
+
+    async def test_governed_identity_creation_uses_exact_permission_and_audit_context(self):
+        permission = "fiteatsy.qa.identity.create"
+        request = owner_request(
+            permissions=[permission],
+            products=["fiteatsy"],
+            idempotency_key="qa-client-1",
+            path="/api/v1/platform/fiteatsy/qa-clients",
+        )
+        body = {"name": "Synthetic QA Client", "accountPurpose": "QA_TEST"}
+        settings = SimpleNamespace(fiteatsy_service_url="https://fiteatsy.example")
+        with (
+            patch("app.routers.fiteatsy_bridge.get_settings", return_value=settings),
+            patch("app.routers.fiteatsy_bridge.issue_fiteatsy_delegation", return_value="signed-server-token") as issue,
+            patch("app.routers.fiteatsy_bridge.httpx.AsyncClient", FakeHttpClient),
+            patch("app.routers.fiteatsy_bridge.logger.info") as audit,
+        ):
+            response = await provision_qa_client(request, body)
+
+        self.assertEqual(response.status_code, 201)
+        issue.assert_called_once_with(
+            subject="owner-123",
+            permissions=[permission],
+            purpose="qa_provisioning",
+            actor_type="platform_owner",
+        )
+        self.assertEqual(FakeHttpClient.request.await_args.args[1], "https://fiteatsy.example/v1/internal/delegated/qa-clients")
+        self.assertEqual(audit.call_count, 2)
+        self.assertEqual(audit.call_args_list[0].kwargs["operation"], "qa_client_provision")
+        self.assertEqual(audit.call_args_list[1].kwargs["succeeded"], True)
+
+    async def test_governed_qa_session_uses_existing_audited_downstream_contract(self):
+        permission = "fiteatsy.qa.session.issue"
+        request = owner_request(
+            permissions=[permission],
+            products=["fiteatsy"],
+            idempotency_key="qa-session-1",
+            path="/api/v1/platform/fiteatsy/qa-identities/qa-user-1/session",
+        )
+        body = {"reason": "Reports V2 governed QA"}
+        settings = SimpleNamespace(fiteatsy_service_url="https://fiteatsy.example")
+        with (
+            patch("app.routers.fiteatsy_bridge.get_settings", return_value=settings),
+            patch("app.routers.fiteatsy_bridge.issue_fiteatsy_delegation", return_value="signed-server-token") as issue,
+            patch("app.routers.fiteatsy_bridge.httpx.AsyncClient", FakeHttpClient),
+            patch("app.routers.fiteatsy_bridge.logger.info") as audit,
+        ):
+            response = await issue_qa_session(request, "qa-user-1", body)
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(response.headers["Referrer-Policy"], "no-referrer")
+        issue.assert_called_once_with(
+            subject="owner-123",
+            permissions=[permission],
+            purpose="qa_session",
+            actor_type="platform_owner",
+        )
+        self.assertEqual(
+            FakeHttpClient.request.await_args.args[1],
+            "https://fiteatsy.example/v1/internal/delegated/qa-identities/qa-user-1/session",
+        )
+        self.assertEqual(audit.call_count, 2)
+        self.assertEqual(audit.call_args_list[0].kwargs["operation"], "qa_session_issue")
 
 if __name__ == "__main__":
     unittest.main()

@@ -39,11 +39,18 @@ PERMISSION_SEEDS = [
     ("notifications.manage", "notifications", "Manage notifications", "Manage platform notifications"),
     ("subscriptions.manage", "subscriptions", "Manage subscriptions", "Manage subscription lifecycle"),
     ("fiteatsy.qa.admin.create", "fiteatsy", "Provision Fiteatsy QA Admin", "Provision a non-clinical QA_TEST administrator through delegated authority"),
+    ("fiteatsy.qa.identity.create", "fiteatsy", "Provision Fiteatsy QA identity", "Provision a governed non-clinical QA_TEST identity through delegated authority"),
+    ("fiteatsy.qa.session.issue", "fiteatsy", "Issue Fiteatsy QA session", "Issue an audited short-lived session for a governed QA_TEST identity"),
 ]
+
+FITEATSY_OWNER_PERMISSION_KEYS = {
+    "fiteatsy.qa.identity.create",
+    "fiteatsy.qa.session.issue",
+}
 
 ROLE_PERMISSION_MAP = {
     "platform_owner": [seed[0] for seed in PERMISSION_SEEDS],
-    "superuser": [seed[0] for seed in PERMISSION_SEEDS],
+    "superuser": [seed[0] for seed in PERMISSION_SEEDS if seed[0] not in FITEATSY_OWNER_PERMISSION_KEYS],
     "support_admin": ["users.read", "users.edit", "reports.view", "audit.view", "notifications.manage"],
     "organization_admin": ["users.read", "users.create", "users.edit", "users.export", "reports.view"],
     "corporate_admin": [
@@ -262,6 +269,17 @@ async def reconcile() -> None:
         await _execute(
             conn,
             """
+            DELETE FROM role_permissions rp
+            USING roles r, permissions p
+            WHERE rp.role_id = r.id
+              AND rp.permission_id = p.id
+              AND p.key IN ('fiteatsy.qa.identity.create', 'fiteatsy.qa.session.issue')
+              AND lower(r.name) <> 'platform_owner'
+            """,
+        )
+        await _execute(
+            conn,
+            """
             DELETE FROM role_permissions
             USING permissions
             WHERE role_permissions.permission_id = permissions.id
@@ -299,15 +317,15 @@ async def reconcile() -> None:
               )
             """,
         )
-        superuser_role_id = await conn.fetchval(
+        platform_owner_role_id = await conn.fetchval(
             """
             SELECT id
             FROM roles
-            WHERE lower(name) = 'superuser'
+            WHERE lower(name) = 'platform_owner'
             LIMIT 1
             """
         )
-        if superuser_role_id is not None:
+        if platform_owner_role_id is not None:
             for owner in OWNER_USERS:
                 await conn.execute(
                     """
@@ -380,7 +398,7 @@ async def reconcile() -> None:
                     owner["id"],
                     owner["email"],
                     hash_password(owner["password"]),
-                    superuser_role_id,
+                    platform_owner_role_id,
                     owner["first_name"],
                     owner["last_name"],
                 )
@@ -394,7 +412,17 @@ async def reconcile() -> None:
                     SET is_primary = true
                     """,
                     owner["email"],
-                    superuser_role_id,
+                    platform_owner_role_id,
+                )
+                await conn.execute(
+                    """
+                    DELETE FROM user_roles
+                    WHERE user_id = (SELECT id FROM users WHERE lower(email) = lower($1))
+                      AND role_id <> $2::uuid
+                      AND role_id = (SELECT id FROM roles WHERE lower(name) = 'superuser' LIMIT 1)
+                    """,
+                    owner["email"],
+                    platform_owner_role_id,
                 )
         await _execute(
             conn,
@@ -413,7 +441,7 @@ async def reconcile() -> None:
                     (
                         SELECT id
                         FROM roles
-                        WHERE lower(name) = 'superuser'
+                        WHERE lower(name) = 'platform_owner'
                         LIMIT 1
                     ),
                     role_id
@@ -422,12 +450,6 @@ async def reconcile() -> None:
                 'zestivapriyanshi@gmail.com',
                 'lalitppaunikar26@gmail.com'
             )
-               OR EXISTS (
-                    SELECT 1
-                    FROM roles
-                    WHERE roles.id = users.role_id
-                      AND lower(roles.name) IN ('superuser', 'platform_owner')
-               )
             """
         )
 

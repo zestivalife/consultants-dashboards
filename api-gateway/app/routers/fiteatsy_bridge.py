@@ -16,6 +16,7 @@ OPERATIONS: dict[str, tuple[str, str, str]] = {
     "qa-clients": ("POST", "/v1/internal/delegated/qa-clients", "fiteatsy.qa.identity.create"),
     "qa-consultants": ("POST", "/v1/internal/delegated/qa-consultants", "fiteatsy.qa.identity.create"),
     "qa-admins": ("POST", "/v1/internal/delegated/qa-admins", "fiteatsy.qa.admin.create"),
+    "qa-sessions": ("POST", "/v1/internal/delegated/qa-identities/{id}/session", "fiteatsy.qa.session.issue"),
     "client-assignments": ("POST", "/v1/internal/delegated/client-assignments", "fiteatsy.client.assign"),
     "client-assignment-revoke": ("DELETE", "/v1/internal/delegated/client-assignments/{id}", "fiteatsy.client.assignment.revoke"),
     "qa-identities-deactivate": ("POST", "/v1/internal/delegated/qa-identities/{id}/deactivate", "fiteatsy.qa.identity.deactivate"),
@@ -53,7 +54,7 @@ def _assert_owner_authority(request: Request, permission: str) -> tuple[dict[str
     role = str(getattr(request.state, "user_role", "") or payload.get("role") or "").lower()
     permissions = _claim_values(payload, ("permissions", "permission", "scopes"))
     products = _claim_values(payload, ("products", "product_entitlements", "entitlements", "product"))
-    if role not in {"platform_owner", "superuser"}:
+    if role != "platform_owner":
         return None, JSONResponse(status_code=403, content={"error": "OWNER_AUTHORITY_REQUIRED", "message": "Platform Owner authority is required."})
     if not ({"fiteatsy", "fiteatsy-mobile"} & products):
         return None, JSONResponse(status_code=403, content={"error": "FITEATSY_ENTITLEMENT_REQUIRED", "message": "Fiteatsy entitlement is required."})
@@ -129,6 +130,22 @@ async def provision_qa_admin(request: Request, body: QaAdminProvisionRequest):
         OPERATIONS["qa-admins"][2],
         "qa_provisioning",
         body.model_dump(),
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@router.post("/qa-identities/{user_id}/session")
+async def issue_qa_session(request: Request, user_id: str, body: dict[str, Any]):
+    response = await _bridge(
+        request,
+        "qa_session_issue",
+        OPERATIONS["qa-sessions"][1],
+        OPERATIONS["qa-sessions"][2],
+        "qa_session",
+        body,
+        {"id": user_id},
     )
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
