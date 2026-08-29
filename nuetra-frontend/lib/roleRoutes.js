@@ -51,8 +51,8 @@ const PROFESSIONAL_ROUTE_MAP = {
 };
 
 export const OWNER_ACCESS_POLICY = {
-  workspaces: ['platform-operations'],
-  permissionsAny: WORKSPACE_POLICIES.platformOperations.permissionsAny,
+  requiredRoles: ['platform_owner'],
+  activeProductEntitlementsAny: ['fiteatsy', 'fiteatsy-mobile'],
 };
 
 export const ORGANIZATION_ACCESS_POLICY = {
@@ -136,6 +136,24 @@ export function getUserPermissions(user) {
   ]);
 }
 
+export function hasActiveProductEntitlement(user, productNames = []) {
+  if (!Array.isArray(productNames) || !productNames.length) return false;
+  const profile = getAccessProfile(user);
+  const activeProduct = profile?.active_product || profile?.activeProduct;
+  if (!activeProduct || String(activeProduct.status || '').trim().toUpperCase() !== 'ACTIVE') {
+    return false;
+  }
+
+  const productKey = getRoleKey(
+    activeProduct.name
+      || activeProduct.key
+      || activeProduct.slug
+      || activeProduct.product_key
+      || activeProduct.productKey,
+  );
+  return productNames.map(getRoleKey).includes(productKey);
+}
+
 function hasAnyPermission(user, permissions = []) {
   if (!permissions.length) return false;
   const permissionSet = new Set(getUserPermissions(user));
@@ -202,6 +220,11 @@ export function resolveUserWorkspace(user) {
 export function getDashboardPathForUser(user, fallback = '/dashboard/team-member') {
   if (!user) return fallback;
   const effectiveRole = getEffectiveWorkspaceRole(user);
+  if (effectiveRole === 'platform_owner') {
+    return hasActiveProductEntitlement(user, OWNER_ACCESS_POLICY.activeProductEntitlementsAny)
+      ? PROFESSIONAL_ROUTE_MAP.platform_owner
+      : fallback;
+  }
   if (PROFESSIONAL_ROUTE_MAP[effectiveRole]) return PROFESSIONAL_ROUTE_MAP[effectiveRole];
   return resolveUserWorkspace(user)?.landingPage || fallback;
 }
@@ -276,6 +299,30 @@ function normalizePolicy(policy) {
 export function isAccessAllowed(user, policy = {}) {
   const normalized = normalizePolicy(policy);
   if (!Object.keys(normalized).length) return true;
+
+  if (normalized.requiredRoles?.length && !isRoleAllowed(user?.role, normalized.requiredRoles)) {
+    return false;
+  }
+
+  if (
+    normalized.activeProductEntitlementsAny?.length
+    && !hasActiveProductEntitlement(user, normalized.activeProductEntitlementsAny)
+  ) {
+    return false;
+  }
+
+  const hasRequiredOwnerContext = Boolean(
+    normalized.requiredRoles?.length || normalized.activeProductEntitlementsAny?.length,
+  );
+  const hasAdditionalAccessRule = Boolean(
+    normalized.roles?.length
+      || normalized.workspaceRoles?.length
+      || normalized.permissionsAll?.length
+      || normalized.permissionsAny?.length
+      || normalized.workspaces?.length
+      || normalized.personaMarkers?.length,
+  );
+  if (hasRequiredOwnerContext && !hasAdditionalAccessRule) return true;
 
   if (normalized.roles?.length && isRoleAllowed(user?.role, normalized.roles)) {
     return true;
