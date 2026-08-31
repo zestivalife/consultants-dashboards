@@ -1,4 +1,5 @@
 import { getToken, refreshAccessToken } from './api';
+import { collectAllClientAllocationPages } from './clientAllocationPagination.mjs';
 
 const DEFAULT_FITEATSY_API_URL = 'https://fiteatsy-mobile-production.up.railway.app';
 
@@ -160,9 +161,15 @@ export async function searchFiteatsyAssignmentClients(query = '', offset = 0) {
   return Array.isArray(body?.clients) ? body.clients : [];
 }
 
-export async function listFiteatsyClientAllocationPool({ query = '', assignment = 'all', offset = 0 } = {}) {
-  const body = await requestFiteatsyJson(`/v1/professional-assignments/clients/pool?q=${encodeURIComponent(query)}&assignment=${encodeURIComponent(assignment)}&limit=50&offset=${offset}`);
+export async function listFiteatsyClientAllocationPool({ query = '', assignment = 'all', limit = 50, offset = 0 } = {}) {
+  const body = await requestFiteatsyJson(`/v1/professional-assignments/clients/pool?q=${encodeURIComponent(query)}&assignment=${encodeURIComponent(assignment)}&limit=${limit}&offset=${offset}`);
   return Array.isArray(body?.clients) ? body.clients : [];
+}
+
+export async function listAllFiteatsyClientAllocationPool({ query = '', assignment = 'all' } = {}) {
+  return collectAllClientAllocationPages(
+    ({ limit, offset }) => listFiteatsyClientAllocationPool({ query, assignment, limit, offset }),
+  );
 }
 
 export async function listFiteatsyAssignmentProfessionals(type) {

@@ -45,7 +45,7 @@ import {
   getFiteatsyConsultantLatestDietPlan,
   getFiteatsyConsultantNutritionIntelligence,
   listFiteatsyConsultantClients,
-  listFiteatsyClientAllocationPool,
+  listAllFiteatsyClientAllocationPool,
   searchFiteatsyAssignmentClients,
   listFiteatsyAssignmentProfessionals,
   listFiteatsyProfessionalAssignments,
@@ -5810,8 +5810,8 @@ function SeniorConsultantClientAllocationPage({ currentUserId, currentUserName =
     setError('');
     try {
       const [nextClients, allClients, nextProfessionals] = await Promise.all([
-        listFiteatsyClientAllocationPool({ query, assignment: view }),
-        listFiteatsyClientAllocationPool({ query, assignment: 'all' }),
+        listAllFiteatsyClientAllocationPool({ query, assignment: view }),
+        listAllFiteatsyClientAllocationPool({ query, assignment: 'all' }),
         listFiteatsyAssignmentProfessionals('CONSULTANT'),
       ]);
       setClients(nextClients);
