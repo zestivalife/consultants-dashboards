@@ -508,8 +508,15 @@ function buildFiteatsyClientRecords(apiClients) {
     mobileNumberMasked: client.mobileNumberMasked,
     status: client.status,
     accountStatus: client.accountStatus,
-    packageName: 'Not assigned',
-    packageLabel: 'Not assigned',
+    subscriptionStatus: client.subscriptionStatus ?? null,
+    subscriptionPlanName: client.subscriptionPlanName ?? null,
+    subscriptionActive: client.subscriptionActive === true,
+    packageName: client.subscriptionActive === true && client.subscriptionPlanName
+      ? client.subscriptionPlanName
+      : 'No active subscription',
+    packageLabel: client.subscriptionActive === true && client.subscriptionPlanName
+      ? client.subscriptionPlanName
+      : 'No active subscription',
     organization: 'Fiteatsy',
     recoveryStage: client.profileCompleted ? 'Onboarding completed' : 'Registration completed',
     profileCompleted: client.profileCompleted,
@@ -5624,26 +5631,10 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
                 Assign Client
               </button>
             ) : null}
-            {isRealFiteatsy ? (
-              isAdminDirectory ? (
-                <span className="rounded-full bg-[var(--fluent-color-status-info-background)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-status-info-foreground)]">
-                  Registered clients · {totalCount}
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setActiveQueue('assigned')}
-                  aria-label={`Show all assigned clients (${totalCount})`}
-                  aria-pressed={activeQueue === 'assigned'}
-                  className={`rounded-full px-3 py-2 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--fluent-color-brand-stroke-1)] focus-visible:ring-offset-2 ${
-                    activeQueue === 'assigned'
-                      ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]'
-                      : 'bg-[var(--fluent-color-status-info-background)] text-[var(--fluent-color-status-info-foreground)] hover:bg-[var(--fluent-color-neutral-background-2)]'
-                  }`}
-                >
-                  Assigned clients · {totalCount}
-                </button>
-              )
+            {isRealFiteatsy && isAdminDirectory ? (
+              <span className="rounded-full bg-[var(--fluent-color-status-info-background)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-status-info-foreground)]">
+                Registered clients · {totalCount}
+              </span>
             ) : null}
             {queueViews.slice(0, isRealFiteatsy ? 6 : 5).map((view) => (
               <button
@@ -5663,7 +5654,7 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
       <Surface className="overflow-hidden border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] text-[var(--fluent-color-neutral-foreground-1)]" animated>
         <div className="grid grid-cols-[1.3fr_0.9fr_1fr_0.8fr_1fr_0.9fr_1.1fr] gap-3 border-b border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-inset)] px-4 py-3 text-xs font-medium text-[var(--fluent-color-neutral-foreground-3)]">
           <span>Client</span>
-          <span>Program</span>
+          <span>Subscription plan</span>
           <span>Momentum</span>
           <span>Adherence</span>
           <span>Protocol Stage</span>
