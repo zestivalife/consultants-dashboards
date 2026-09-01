@@ -80,6 +80,9 @@ function mapClient(record) {
     profileCompleted: Boolean(record.profileCompleted ?? healthProfile.profileCompleted),
     registeredAt: record.registeredAt || null,
     lastActiveAt: record.lastActiveAt || null,
+    foodPreferences: record.foodPreferences && typeof record.foodPreferences === 'object'
+      ? record.foodPreferences
+      : null,
   };
 }
 
@@ -200,6 +203,7 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
     healthProfile: body?.healthProfile || null,
     bodyMetrics: body?.bodyMetrics || null,
     nutritionProtocol: body?.nutritionProtocol || null,
+    foodPreferences: body?.foodPreferences || null,
     nutritionSnapshot: body?.nutritionSnapshot || null,
     nutritionIntelligence: nutritionBody?.intelligence || body?.nutritionIntelligence || null,
     nutritionMonitoring: nutritionBody?.nutritionMonitoring || null,

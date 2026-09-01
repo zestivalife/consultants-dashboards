@@ -520,6 +520,7 @@ function buildFiteatsyClientRecords(apiClients) {
     goal: client.goal,
     activityLevel: client.activityLevel,
     dietPreference: client.dietPreference,
+    foodPreferences: client.foodPreferences || null,
     reportsCount: client.reportsCount ?? 0,
     lastHealthUpdate: client.lastHealthUpdate,
     biomarkerStatus: client.biomarkerStatus,
@@ -1031,6 +1032,21 @@ function formatDisplayValue(value, fallback = 'Not available') {
   return String(value);
 }
 
+function humanizeFoodPreferenceValue(value) {
+  return String(value || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatFoodPreferenceList(value, fallback = 'Not provided') {
+  if (!Array.isArray(value) || value.length === 0) return fallback;
+  return value.map(humanizeFoodPreferenceValue).join(', ');
+}
+
+function foodPreferenceValues(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 function formatMetricNumber(value, suffix = '') {
   if (value == null || Number.isNaN(Number(value))) return 'Not available';
   return `${value}${suffix}`;
@@ -1399,6 +1415,25 @@ function RealClientProfileDrawer({
   const metrics = profile?.healthMetrics;
   const bodyMetrics = profile?.bodyMetrics;
   const nutritionProtocol = profile?.nutritionProtocol;
+  const foodPreferences = profile?.foodPreferences;
+  const foodPreferenceProfile = foodPreferences?.profile;
+  const hasFoodPreferenceValues = Boolean(foodPreferenceProfile && [
+    foodPreferenceProfile.dietType,
+    foodPreferenceProfile.staplePreference,
+    foodPreferenceProfile.dairyPreference,
+    ...foodPreferenceValues(foodPreferenceProfile.cuisines),
+    ...foodPreferenceValues(foodPreferenceProfile.proteins),
+    ...foodPreferenceValues(foodPreferenceProfile.foodsLiked),
+    ...foodPreferenceValues(foodPreferenceProfile.foodsDisliked),
+    ...foodPreferenceValues(foodPreferenceProfile.foodsAvoided),
+    ...foodPreferenceValues(foodPreferenceProfile.restrictions),
+    ...foodPreferenceValues(foodPreferenceProfile.practicality),
+  ].some((value) => value != null && String(value).trim() !== ''));
+  const foodPreferenceStatusLabel = foodPreferences?.status === 'COMPLETE'
+    ? 'Available'
+    : hasFoodPreferenceValues
+      ? 'Partially provided'
+      : 'Not provided';
   const nutritionIntelligence = profile?.nutritionIntelligence;
   const nutritionSnapshot = profile?.nutritionSnapshot;
   const nutritionMonitoring = profile?.nutritionMonitoring;
@@ -2063,19 +2098,41 @@ function RealClientProfileDrawer({
   );
 
   const renderLifestyle = () => (
-    <Surface className="p-5" animated>
-      <h3 className={drawerSectionTitleClass}>Lifestyle</h3>
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+    <div className="space-y-4">
+      <Surface className="p-5" animated>
+        <h3 className={drawerSectionTitleClass}>Lifestyle</h3>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <DetailField label="Sleep" value={onboarding?.lifestyle?.sleepHours != null ? `${onboarding.lifestyle.sleepHours} hrs` : 'Complete profile to calculate'} />
         <DetailField label="Sleep quality" value={formatDisplayValue(sleepQuality)} />
         <DetailField label="Stress" value={formatDisplayValue(stressLevel)} />
         <DetailField label="Activity" value={formatDisplayValue(onboarding?.activityLevel)} />
-        <DetailField label="Food preference" value={formatDisplayValue(onboarding?.dietPreference)} />
-        <DetailField label="Preferred cuisines" value={formatDisplayValue(onboarding?.nutrition?.preferredCuisines)} />
-        <DetailField label="Allergies" value={formatDisplayValue(onboarding?.nutrition?.foodAllergies)} />
-        <DetailField label="Dislikes" value={formatDisplayValue(onboarding?.nutrition?.foodDislikes)} />
-      </div>
-    </Surface>
+        </div>
+      </Surface>
+      <Surface className="p-5" animated>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className={drawerSectionTitleClass}>Food Preferences</h3>
+          <StatusChip status={foodPreferences?.status === 'COMPLETE' ? 'stable' : 'pending'}>
+            {foodPreferenceStatusLabel}
+          </StatusChip>
+        </div>
+        {hasFoodPreferenceValues ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <DetailField label="Diet type" value={foodPreferenceProfile.dietType ? humanizeFoodPreferenceValue(foodPreferenceProfile.dietType) : 'Not provided'} />
+            <DetailField label="Preferred cuisines" value={formatFoodPreferenceList(foodPreferenceProfile.cuisines)} />
+            <DetailField label="Preferred staples" value={foodPreferenceProfile.staplePreference ? humanizeFoodPreferenceValue(foodPreferenceProfile.staplePreference) : 'Not provided'} />
+            <DetailField label="Dairy" value={foodPreferenceProfile.dairyPreference ? humanizeFoodPreferenceValue(foodPreferenceProfile.dairyPreference) : 'Not provided'} />
+            <DetailField label="Preferred proteins" value={formatFoodPreferenceList(foodPreferenceProfile.proteins)} />
+            <DetailField label="Foods liked" value={formatFoodPreferenceList(foodPreferenceProfile.foodsLiked)} />
+            <DetailField label="Foods disliked" value={formatFoodPreferenceList(foodPreferenceProfile.foodsDisliked)} />
+            <DetailField label="Foods to avoid" value={formatFoodPreferenceList(foodPreferenceProfile.foodsAvoided)} />
+            <DetailField label="Allergies / restrictions" value={formatFoodPreferenceList(foodPreferenceProfile.restrictions)} />
+            <DetailField label="Practical preferences" value={formatFoodPreferenceList(foodPreferenceProfile.practicality)} />
+          </div>
+        ) : (
+          <p className={drawerSectionBodyClass}>Food preferences not provided by the client.</p>
+        )}
+      </Surface>
+    </div>
   );
 
   const renderReports = () => (
@@ -5940,6 +5997,10 @@ function DietPlanReviewQueuePage() {
   useEffect(() => { void refresh(); }, [refresh]);
 
   const approve = async (review) => {
+    if (review.contentValidation?.status === 'blocked') {
+      setError(review.contentValidation.message || 'This submitted version is incomplete and cannot be approved. Request changes from the Consultant.');
+      return;
+    }
     try {
       await approveFiteatsyConsultantDietPlan(review.clientId || review.clientUserId, review.dietPlanId);
       await refresh();
@@ -5997,17 +6058,24 @@ function DietPlanReviewQueuePage() {
                   <DetailField label="Calories" value={review.version?.contentSummary?.calories != null ? `${review.version.contentSummary.calories} kcal` : 'Not available'} />
                   <DetailField label="Protein" value={review.version?.contentSummary?.protein != null ? `${review.version.contentSummary.protein} g` : 'Not available'} />
                 </div>
+                {review.contentValidation?.status === 'blocked' ? (
+                  <div className="rounded-[16px] border border-[var(--fluent-color-status-danger-border)] bg-[var(--fluent-color-status-danger-background)] p-4 text-sm text-[var(--fluent-color-status-danger-foreground)]" role="alert">
+                    <p className="font-semibold">Submitted version is incomplete</p>
+                    <p className="mt-1">{review.contentValidation.message || 'The persisted version does not contain a complete, reviewable diet plan. Return it to the Consultant for correction.'}</p>
+                    {review.contentValidation.code ? <p className="mt-2 text-xs">{review.contentValidation.code}</p> : null}
+                  </div>
+                ) : null}
                 <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] p-4">
                   <p className="text-sm font-semibold">Submitted meal options</p>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
-                    {Object.entries(review.version?.content?.mealPlan || {}).map(([mealKey, meal]) => (
+                    {Object.entries(review.version?.content?.mealPlan || {}).length ? Object.entries(review.version?.content?.mealPlan || {}).map(([mealKey, meal]) => (
                       <div key={mealKey} className="rounded-[12px] bg-[var(--fluent-color-neutral-background-1)] p-3">
                         <p className="text-xs font-semibold uppercase tracking-[0.08em]">{mealKey.replace(/[A-Z]/g, (letter) => ` ${letter}`).trim()}</p>
                         <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm">
                           {(meal?.options || []).map((option) => <li key={option.id || `${mealKey}-${option.meal}-${option.portion}`}>{option.meal} · {option.portion}{option.approxKcal != null || option.proteinGrams != null ? ` · ${option.approxKcal ?? '—'} kcal · ${option.proteinGrams ?? '—'} g protein` : ''}</li>)}
                         </ol>
                       </div>
-                    ))}
+                    )) : <p className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">No persisted meal content is available for this submitted version.</p>}
                   </div>
                 </div>
                 {review.reviewComment ? <p className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">Previous comment: {review.reviewComment}</p> : null}
@@ -6017,7 +6085,7 @@ function DietPlanReviewQueuePage() {
                 <textarea value={comments[review.dietPlanId] || ''} onChange={(event) => setComments((current) => ({ ...current, [review.dietPlanId]: event.target.value }))} placeholder="Required only when requesting changes" className="min-h-[84px] w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm" />
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={() => void requestChanges(review)} className="rounded-full border border-[var(--fluent-color-status-danger-border)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-status-danger-foreground)]">Request Changes</button>
-                  <button type="button" onClick={() => void approve(review)} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">Approve</button>
+                  <button type="button" onClick={() => void approve(review)} disabled={review.contentValidation?.status === 'blocked'} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-40">Approve</button>
                   <button type="button" onClick={() => void publish(review)} disabled={review.planStatus !== 'approved'} className="rounded-full border border-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-background)] disabled:cursor-not-allowed disabled:opacity-40">Publish</button>
                 </div>
               </div>
