@@ -57,6 +57,7 @@ import {
   searchFiteatsyConsultantOptionalGuidance,
   updateFiteatsyConsultantDietPlanDraft,
 } from '../../lib/fiteatsyConsultantsApi';
+import { biomarkerSourceLabel, formatBiomarkerDate } from '../../lib/biomarkerPresentation.mjs';
 import { corporateAPI } from '../../lib/api';
 import { ADMIN_ACCESS_POLICY, DELIVERY_ACCESS_POLICY, MENTOR_ACCESS_POLICY, ORGANIZATION_ACCESS_POLICY } from '../../lib/roleRoutes';
 
@@ -1417,6 +1418,7 @@ function RealClientProfileDrawer({
     { key: 'Health Profile', label: 'Health Intelligence' },
     ...(canManageNutrition ? [{ key: 'Nutrition Plan', label: 'Nutrition' }] : []),
     { key: 'Reports', label: 'Reports' },
+    { key: 'Biomarkers', label: 'Biomarkers' },
     { key: 'Activity', label: 'Activity' },
     { key: 'Timeline', label: 'Timeline' },
   ];
@@ -2005,14 +2007,15 @@ function RealClientProfileDrawer({
         <Surface className="p-5" animated>
           <h3 className={drawerSectionTitleClass}>Biomarker Snapshot</h3>
           <div className="mt-4 space-y-3">
-            {nutritionIntelligenceState?.biomarkerSnapshot?.length ? nutritionIntelligenceState.biomarkerSnapshot.slice(0, 5).map((item) => (
+            {biomarkers.length ? biomarkers.slice(0, 5).map((item) => (
               <div key={`${item.name}-${item.testDate}`} className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.name}</p>
-                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{`${item.value} ${item.unit}`.trim()} • {formatDisplayValue(item.referenceRange)}</p>
+                    <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{`${item.value} ${item.unit}`.trim()}</p>
+                    <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Reference: {formatDisplayValue(item.referenceRange)} • {formatBiomarkerDate(item.testDate)} • {biomarkerSourceLabel(item.source)}</p>
                   </div>
-                  <StatusChip status={biomarkerTone(item.status)}>{item.status}</StatusChip>
+                  {item.status ? <StatusChip status={biomarkerTone(item.status)}>{item.status}</StatusChip> : null}
                 </div>
               </div>
             )) : (
@@ -2118,14 +2121,42 @@ function RealClientProfileDrawer({
                     {`${biomarker.value} ${biomarker.unit}`.trim()}
                   </p>
                 </div>
-                <StatusChip status={biomarkerTone(biomarker.status)}>{biomarker.status}</StatusChip>
+                {biomarker.status ? <StatusChip status={biomarkerTone(biomarker.status)}>{biomarker.status}</StatusChip> : null}
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <DetailField label="Reference" value={formatDisplayValue(biomarker.referenceRange)} />
-                <DetailField label="Trend" value={trendLabel(biomarker.trend)} />
-                <DetailField label="Previous value" value={biomarker.previousValue != null ? `${biomarker.previousValue} ${biomarker.unit}`.trim() : 'Not available'} />
-                <DetailField label="Test date" value={formatDateLabel(biomarker.testDate)} />
+                <DetailField label="Observation date" value={formatBiomarkerDate(biomarker.testDate)} />
+                <DetailField label="Source" value={biomarkerSourceLabel(biomarker.source)} />
               </div>
+              {biomarker.history?.length > 1 ? (
+                <details className="mt-4 border-t border-[var(--fluent-color-neutral-stroke-1)] pt-3">
+                  <summary className="cursor-pointer text-xs font-semibold text-[var(--fluent-color-brand-foreground-link)]">View history ({biomarker.history.length})</summary>
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="w-full min-w-[620px] text-left text-xs">
+                      <thead className="text-[var(--fluent-color-neutral-foreground-3)]">
+                        <tr>
+                          <th className="pb-2 pr-3 font-medium">Date</th>
+                          <th className="pb-2 pr-3 font-medium">Value</th>
+                          <th className="pb-2 pr-3 font-medium">Unit</th>
+                          <th className="pb-2 pr-3 font-medium">Reference</th>
+                          <th className="pb-2 font-medium">Source</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--fluent-color-neutral-stroke-1)] text-[var(--fluent-color-neutral-foreground-2)]">
+                        {biomarker.history.map((observation) => (
+                          <tr key={observation.observationId || `${observation.testDate}-${observation.createdAtISO}`}>
+                            <td className="py-2 pr-3">{formatBiomarkerDate(observation.testDate)}</td>
+                            <td className="py-2 pr-3">{formatDisplayValue(observation.value)}</td>
+                            <td className="py-2 pr-3">{formatDisplayValue(observation.unit)}</td>
+                            <td className="py-2 pr-3">{formatDisplayValue(observation.referenceRange)}</td>
+                            <td className="py-2">{biomarkerSourceLabel(observation.source)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              ) : null}
             </div>
           ))}
         </div>

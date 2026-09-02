@@ -1,5 +1,6 @@
 import { getToken, refreshAccessToken } from './api';
 import { collectAllClientAllocationPages } from './clientAllocationPagination.mjs';
+import { normalizeBiomarkerForPresentation } from './biomarkerPresentation.mjs';
 
 const DEFAULT_FITEATSY_API_URL = 'https://fiteatsy-mobile-production.up.railway.app';
 
@@ -36,19 +37,7 @@ function mapHealthMetric(metric) {
 }
 
 function mapBiomarker(record) {
-  return {
-    biomarkerId: record.biomarkerId,
-    name: record.name || 'Biomarker',
-    value: typeof record.value === 'number' ? record.value : Number(record.value),
-    unit: record.unit || '',
-    status: record.status || 'VALIDATED',
-    referenceRange: record.referenceRange ?? null,
-    confidence: record.confidence ?? null,
-    testDate: record.testDate ?? null,
-    trend: record.trend ?? null,
-    previousValue: record.previousValue ?? null,
-    previousTestDate: record.previousTestDate ?? null,
-  };
+  return normalizeBiomarkerForPresentation(record);
 }
 
 function mapClient(record) {

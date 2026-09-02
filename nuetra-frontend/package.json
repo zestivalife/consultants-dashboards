@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:client-allocation": "node --test tests/client-allocation-pagination.test.mjs"
+    "test:client-allocation": "node --test tests/client-allocation-pagination.test.mjs",
+    "test:biomarkers": "node --test tests/biomarker-presentation.test.mjs"
   },
   "author": "Nuetra Team",
   "license": "MIT",
