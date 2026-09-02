@@ -1,6 +1,7 @@
 import { getToken, refreshAccessToken } from './api';
 import { collectAllClientAllocationPages } from './clientAllocationPagination.mjs';
 import { normalizeBiomarkerForPresentation } from './biomarkerPresentation.mjs';
+import { mapConsultantFoodPreferences } from './foodPreferencePresentation.mjs';
 
 const DEFAULT_FITEATSY_API_URL = 'https://fiteatsy-mobile-production.up.railway.app';
 
@@ -194,6 +195,7 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
     profile: body?.profile || null,
     onboarding: body?.onboarding || null,
     healthProfile: body?.healthProfile || null,
+    foodPreferences: mapConsultantFoodPreferences(body),
     bodyMetrics: body?.bodyMetrics || null,
     nutritionProtocol: body?.nutritionProtocol || null,
     nutritionSnapshot: body?.nutritionSnapshot || null,

@@ -58,6 +58,7 @@ import {
   updateFiteatsyConsultantDietPlanDraft,
 } from '../../lib/fiteatsyConsultantsApi';
 import { biomarkerSourceLabel, formatBiomarkerDate } from '../../lib/biomarkerPresentation.mjs';
+import { foodPreferenceSections, formatFoodPreferenceValue } from '../../lib/foodPreferencePresentation.mjs';
 import { corporateAPI } from '../../lib/api';
 import { ADMIN_ACCESS_POLICY, DELIVERY_ACCESS_POLICY, MENTOR_ACCESS_POLICY, ORGANIZATION_ACCESS_POLICY } from '../../lib/roleRoutes';
 
@@ -1397,6 +1398,7 @@ function RealClientProfileDrawer({
   const client = profile?.client;
   const onboarding = profile?.onboarding;
   const healthProfile = profile?.healthProfile;
+  const foodPreferences = profile?.foodPreferences;
   const metrics = profile?.healthMetrics;
   const bodyMetrics = profile?.bodyMetrics;
   const nutritionProtocol = profile?.nutritionProtocol;
@@ -1412,10 +1414,11 @@ function RealClientProfileDrawer({
   const biomarkers = profile?.biomarkers || [];
   const reports = profile?.reports || [];
   const timeline = profile?.timeline || [];
-  const workspaceTabs = ['Overview', 'Health Profile', 'Lifestyle', 'Reports', 'Biomarkers', ...(canManageNutrition ? ['Nutrition Plan'] : []), 'Activity', 'Timeline'];
+  const workspaceTabs = ['Overview', 'Health Profile', 'Food Preferences', 'Lifestyle', 'Reports', 'Biomarkers', ...(canManageNutrition ? ['Nutrition Plan'] : []), 'Activity', 'Timeline'];
   const groupedWorkspaceTabs = [
     { key: 'Overview', label: 'Overview' },
     { key: 'Health Profile', label: 'Health Intelligence' },
+    { key: 'Food Preferences', label: 'Food Preferences' },
     ...(canManageNutrition ? [{ key: 'Nutrition Plan', label: 'Nutrition' }] : []),
     { key: 'Reports', label: 'Reports' },
     { key: 'Biomarkers', label: 'Biomarkers' },
@@ -2081,6 +2084,36 @@ function RealClientProfileDrawer({
     </Surface>
   );
 
+  const renderFoodPreferences = () => (
+    <div className="space-y-4">
+      <Surface className="p-5" animated>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className={drawerSectionTitleClass}>Food Preferences</h3>
+            <p className={drawerSectionBodyClass}>Canonical facts provided by this client. Preferences remain separate from safety constraints.</p>
+          </div>
+          <StatusChip status={foodPreferences?.status === 'COMPLETE' ? 'stable' : 'pending'}>
+            {foodPreferences?.status === 'COMPLETE' ? 'Complete' : ['PARTIAL', 'INCOMPLETE'].includes(foodPreferences?.status) ? 'Partial' : 'Not provided'}
+          </StatusChip>
+        </div>
+        <p className="mt-3 text-xs text-[var(--fluent-color-neutral-foreground-3)]">
+          Source: {foodPreferences?.source || 'Fiteatsy canonical client profile'}
+        </p>
+      </Surface>
+      {foodPreferenceSections(foodPreferences).map((section) => (
+        <Surface key={section.key} className="p-5" animated>
+          <h3 className={drawerSectionTitleClass}>{section.title}</h3>
+          <p className={drawerSectionBodyClass}>{section.description}</p>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {section.fields.map(([label, value]) => (
+              <DetailField key={label} label={label} value={formatFoodPreferenceValue(value)} />
+            ))}
+          </div>
+        </Surface>
+      ))}
+    </div>
+  );
+
   const renderReports = () => (
     <Surface className="p-5" animated>
       <h3 className={drawerSectionTitleClass}>Reports Timeline</h3>
@@ -2623,6 +2656,7 @@ function RealClientProfileDrawer({
   const tabContent = {
     Overview: renderOverview,
     'Health Profile': renderHealthProfile,
+    'Food Preferences': renderFoodPreferences,
     Lifestyle: renderLifestyle,
     Reports: renderReports,
     Biomarkers: renderBiomarkers,
@@ -6974,6 +7008,7 @@ function PlatformWorkspace({ forcedRole }) {
     let cancelled = false;
     setRealClientProfileLoading(true);
     setRealClientProfileError(null);
+    setRealClientProfile(null);
 
     fetchRealClientWorkspace(selectedClientId)
       .then((payload) => {

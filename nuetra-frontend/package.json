@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "test:client-allocation": "node --test tests/client-allocation-pagination.test.mjs",
-    "test:biomarkers": "node --test tests/biomarker-presentation.test.mjs"
+    "test:biomarkers": "node --test tests/biomarker-presentation.test.mjs",
+    "test:food-preferences": "node --test tests/food-preference-presentation.test.mjs"
   },
   "author": "Nuetra Team",
   "license": "MIT",
