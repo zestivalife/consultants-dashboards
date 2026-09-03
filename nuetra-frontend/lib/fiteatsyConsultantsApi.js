@@ -140,7 +140,7 @@ async function requestFiteatsy(path, options = {}) {
 }
 
 const commonFoodPath = (clientId, suffix = '') =>
-  `/v1/consultants/nutrition/clients/${encodeURIComponent(clientId)}${suffix}`;
+  `/v1/consultants/clients/${encodeURIComponent(clientId)}${suffix}`;
 
 /** Server-authoritative Common Food catalogue search. */
 export async function searchFiteatsyCommonFoods(clientId, filters = {}, signal) {

@@ -13,13 +13,17 @@ export const COMMON_FOOD_ERROR_MESSAGES = {
   SOURCE_INVALID: 'This food does not have an eligible governed source.',
   SERVING_INVALID: 'That serving or multiplier is not available.',
   INVALID_SERVING_MULTIPLIER: 'That serving multiplier is not available.',
+  SERVING_NOT_FOUND: 'That serving is not available for this food.',
+  UNSAFE_OR_INELIGIBLE_FOOD: 'This food is not eligible for this client and meal.',
   MEAL_TEMPLATE_INVALID: 'This change would break the required meal structure.',
   STALE_PLAN_VERSION: 'A newer plan version exists. Reload before making further changes.',
-  VEGAN_COMMON_FOOD_ENGINE_V1_NOT_SUPPORTED: 'Common-food Diet Plan generation is not yet available for this diet pattern because a governed Bedtime food source is still required.',
+  VEGAN_COMMON_FOOD_ENGINE_V1_NOT_SUPPORTED: 'Diet Plan generation is not yet available for this diet pattern because a governed Bedtime food source is still required.',
 };
 
 export function commonFoodErrorMessage(error, fallback = 'The common-food action could not be completed.') {
   const code = error?.data?.error || error?.data?.code || error?.code;
+  if (error?.status === 401 || error?.status === 403) return 'You do not have access to generate or edit a Diet Plan for this client.';
+  if (error?.status >= 500) return 'Diet Plan generation is temporarily unavailable. Try again.';
   return COMMON_FOOD_ERROR_MESSAGES[code] || error?.data?.message || error?.message || fallback;
 }
 

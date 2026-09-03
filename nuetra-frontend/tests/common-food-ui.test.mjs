@@ -22,16 +22,19 @@ test('summarises a component-rich option without calling it a recipe', () => {
 });
 
 test('maps safety, vegan and stale errors', () => {
-  for (const code of ['ALLERGY_CONFLICT', 'INTOLERANCE_CONFLICT', 'HARD_AVOID_CONFLICT', 'DIET_PATTERN_CONFLICT', 'SERVING_INVALID', 'STALE_PLAN_VERSION', 'VEGAN_COMMON_FOOD_ENGINE_V1_NOT_SUPPORTED']) assert.ok(COMMON_FOOD_ERROR_MESSAGES[code]);
+  for (const code of ['ALLERGY_CONFLICT', 'INTOLERANCE_CONFLICT', 'HARD_AVOID_CONFLICT', 'DIET_PATTERN_CONFLICT', 'SERVING_INVALID', 'SERVING_NOT_FOUND', 'UNSAFE_OR_INELIGIBLE_FOOD', 'STALE_PLAN_VERSION', 'VEGAN_COMMON_FOOD_ENGINE_V1_NOT_SUPPORTED']) assert.ok(COMMON_FOOD_ERROR_MESSAGES[code]);
 });
 
 test('API client uses every accepted backend common-food route', () => {
   for (const fragment of ['/common-foods', '/common-food/generate', '/common-food/options', '/components/', '/serving']) assert.match(api, new RegExp(fragment.replaceAll('/', '\\/')));
   assert.doesNotMatch(api, /Math\.random/);
+  assert.match(api, /\/v1\/consultants\/clients\/\$\{encodeURIComponent\(clientId\)\}/);
+  assert.doesNotMatch(api, /\/v1\/consultants\/nutrition\/clients/);
 });
 
-test('editor provides generate, shortage, explorer, search and all mutations', () => {
-  for (const fragment of ['Generate 7×5', 'of 5 valid options available', 'Food Explorer', 'Replace', 'Add food', 'Remove', 'Serving', 'Save options', 'Reload latest']) assert.ok(editor.includes(fragment), fragment);
+test('single Diet Plan editor provides requested generation, shortage, explorer and all mutations', () => {
+  for (const fragment of ['generationRequestId', 'of 5 valid options available', 'Food Explorer', 'Replace', 'Add food', 'Remove', 'Serving', 'Reload latest', 'Meal navigator']) assert.ok(editor.includes(fragment), fragment);
+  assert.doesNotMatch(editor, /Generate 7×5|Common-food combinations|Common-food meal combinations/);
 });
 
 test('catalogue search is debounced, cancellable and paginated', () => {
@@ -45,9 +48,12 @@ test('authoritative nutrition is never summed in the UI', () => {
   assert.match(editor, /updated and recalculated by Fiteatsy/);
 });
 
-test('legacy editor remains available beside discriminated common-food rendering', async () => {
+test('common-food and rollback editors are mutually exclusive', async () => {
   const workspace = await readFile(new URL('../components/platform/PlatformWorkspace.jsx', import.meta.url), 'utf8');
   assert.match(workspace, /CommonFoodPlanEditor/);
-  assert.match(workspace, /Legacy Meal Plan Editor/);
+  assert.match(workspace, /commonFoodPlanActive/);
+  assert.doesNotMatch(workspace, /Legacy Meal Plan Editor|Generate 7×5/);
+  assert.match(workspace, /Generate Diet Plan/);
+  assert.match(workspace, /commonFoodEditorRef\.current\?\.save/);
   assert.match(workspace, /commonFoodOptions/);
 });

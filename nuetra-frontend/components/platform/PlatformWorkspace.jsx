@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -1391,6 +1391,8 @@ function RealClientProfileDrawer({
   const [nutritionDownloadLoading, setNutritionDownloadLoading] = useState(false);
   const [dietPlanDirty, setDietPlanDirty] = useState(false);
   const [commonFoodDirty, setCommonFoodDirty] = useState(false);
+  const [commonFoodGenerationRequest, setCommonFoodGenerationRequest] = useState(0);
+  const commonFoodEditorRef = useRef(null);
   const [mealOptionSearch, setMealOptionSearch] = useState({});
   const [mealSettingsOpen, setMealSettingsOpen] = useState({});
   const [mealOptionDetailsOpen, setMealOptionDetailsOpen] = useState({});
@@ -1431,6 +1433,10 @@ function RealClientProfileDrawer({
   const clientPhoneIdentity = formatClientPhoneIdentity(client?.mobile || client?.phone || summaryClient?.mobile || summaryClient?.mobileNumberMasked);
   const publishedPlanVersionNumber = dailyNutritionMonitoring?.version?.versionNumber ?? null;
   const editablePlanVersionNumber = dietPlanState?.currentLifecycle === 'published' ? null : dietPlanState?.currentVersionNumber ?? null;
+  const commonFoodPlanActive = COMMON_FOOD_COMBINATION_ENGINE_V1_ENABLED && (
+    commonFoodGenerationRequest > 0
+    || (dietPlanState?.version?.commonFoodOptions || dietPlanState?.commonFoodOptions || []).length > 0
+  );
   const syncState = String(syncMetadata?.status || syncMetadata?.syncStatus || 'synced').toLowerCase();
   const syncStateLabel = syncState.includes('fail') ? 'Sync failed' : syncState.includes('syncing') ? 'Syncing' : syncState.includes('stale') ? 'Stale' : 'Synced';
   const bodyComposition = {
@@ -1636,6 +1642,7 @@ function RealClientProfileDrawer({
       setDietPlanState(nextDietPlan);
       setDietPlanContentDraft(nextDietPlan?.content || null);
       setDietPlanDirty(false);
+      if (COMMON_FOOD_COMBINATION_ENGINE_V1_ENABLED) setCommonFoodGenerationRequest((current) => current + 1);
       if (response?.intelligence) {
         setNutritionIntelligenceState(response.intelligence);
       }
@@ -1811,10 +1818,11 @@ function RealClientProfileDrawer({
     setNutritionActionError(null);
     setNutritionActionSuccess(null);
     try {
-      const response = await updateFiteatsyConsultantDietPlanDraft(summaryClient.id, dietPlanState.plan.id, {
+      const response = dietPlanDirty ? await updateFiteatsyConsultantDietPlanDraft(summaryClient.id, dietPlanState.plan.id, {
         content: dietPlanContentDraft,
         reviewNotes: 'Consultant reviewed and updated diet chart.',
-      });
+      }) : { plan: dietPlanState.plan, version: dietPlanState.version };
+      if (commonFoodDirty) await commonFoodEditorRef.current?.save(response?.version?.id || dietPlanState.version?.id);
       const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
       setDietPlanState(nextDietPlan);
       setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
@@ -1826,7 +1834,7 @@ function RealClientProfileDrawer({
     } finally {
       setNutritionActionLoading(false);
     }
-  }, [dietPlanContentDraft, dietPlanState?.plan?.id, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
+  }, [commonFoodDirty, dietPlanContentDraft, dietPlanDirty, dietPlanState?.plan, dietPlanState?.version, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
 
   const handleSubmitForReview = useCallback(async () => {
     if (!summaryClient?.id || !dietPlanState?.plan?.id || nutritionActionLoading) return;
@@ -2199,7 +2207,7 @@ function RealClientProfileDrawer({
               disabled={nutritionActionLoading}
               className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {nutritionActionLoading && !dietPlanState ? 'Preparing...' : 'Prepare Diet Chart'}
+              {nutritionActionLoading ? 'Generating…' : 'Generate Diet Plan'}
             </button>
             {dietPlanState?.plan?.id ? (
               <>
@@ -2214,7 +2222,7 @@ function RealClientProfileDrawer({
                 ) : null}
                 <button
                   onClick={handleSaveDraft}
-                  disabled={nutritionActionLoading || !dietPlanContentDraft}
+                  disabled={nutritionActionLoading || !dietPlanContentDraft || (!dietPlanDirty && !commonFoodDirty)}
                   className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Save Plan
@@ -2472,11 +2480,13 @@ function RealClientProfileDrawer({
             </div>
           </Surface> : null}
 
-          {nutritionSectionTab === 'Diet Plan' && COMMON_FOOD_COMBINATION_ENGINE_V1_ENABLED ? <Surface className="p-5" animated>
+          {nutritionSectionTab === 'Diet Plan' && commonFoodPlanActive ? <Surface className="p-5" animated>
             <CommonFoodPlanEditor
+              ref={commonFoodEditorRef}
               clientId={summaryClient?.id}
               dietPlanId={dietPlanState.plan?.id}
               planVersionId={dietPlanState.version?.id}
+              generationRequestId={commonFoodGenerationRequest}
               lifecycle={dietPlanState.currentLifecycle}
               initialOptions={dietPlanState.version?.commonFoodOptions || dietPlanState.commonFoodOptions || []}
               readOnly={canReviewDietPlans}
@@ -2485,9 +2495,9 @@ function RealClientProfileDrawer({
             />
           </Surface> : null}
 
-          {nutritionSectionTab === 'Diet Plan' ? <Surface className="p-5" animated>
+          {nutritionSectionTab === 'Diet Plan' && !commonFoodPlanActive ? <Surface className="p-5" animated>
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className={drawerSectionTitleClass}>Legacy Meal Plan Editor</h3>
+              <h3 className={drawerSectionTitleClass}>Diet Plan</h3>
               <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-2)]">
                 Diet Plan · {mealPlanSectionEntries.reduce((total, [key]) => total + (dietPlanContentDraft.mealPlan?.[key]?.options?.length || 0), 0)} / {mealPlanSectionEntries.length * MAX_MEAL_OPTIONS_PER_SECTION} options selected
               </span>
