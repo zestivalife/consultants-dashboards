@@ -4,7 +4,7 @@ The Consultant client drawer integrates the Common Food Combination Engine throu
 
 ## Activation
 
-Set `NEXT_PUBLIC_COMMON_FOOD_COMBINATION_ENGINE_V1=true` in the Consultant frontend deployment. Leaving it unset or setting it to any other value keeps the legacy plan editor available without activating the new surface.
+The supported V1 surface is enabled by default. Set `NEXT_PUBLIC_COMMON_FOOD_COMBINATION_ENGINE_V1=false` in the Consultant frontend deployment to invoke the explicit legacy-editor rollback switch.
 
 Supported V1 profiles are Vegetarian, Egg-inclusive, and Non-vegetarian. Vegan generation remains fail-closed through the backend capability response.
 

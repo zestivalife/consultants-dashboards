@@ -1106,7 +1106,7 @@ const mealPlanSectionEntries = [
 ];
 
 const MAX_MEAL_OPTIONS_PER_SECTION = 5;
-const COMMON_FOOD_COMBINATION_ENGINE_V1_ENABLED = process.env.NEXT_PUBLIC_COMMON_FOOD_COMBINATION_ENGINE_V1 === 'true';
+const COMMON_FOOD_COMBINATION_ENGINE_V1_ENABLED = process.env.NEXT_PUBLIC_COMMON_FOOD_COMBINATION_ENGINE_V1 !== 'false';
 
 function getMealOptionIdentity(option) {
   return option?.id || `${option?.meal || ''}::${option?.portion || ''}::${option?.sourceType || ''}`;
