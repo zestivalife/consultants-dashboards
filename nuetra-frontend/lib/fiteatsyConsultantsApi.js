@@ -99,6 +99,7 @@ async function requestFiteatsy(path, options = {}) {
       ...(options.headers || {}),
     },
     ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
   });
   let body = await readJsonResponse(response);
 
@@ -114,6 +115,7 @@ async function requestFiteatsy(path, options = {}) {
           ...(options.headers || {}),
         },
         ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+        ...(options.signal ? { signal: options.signal } : {}),
       });
       body = await readJsonResponse(retryResponse);
       if (retryResponse.ok) return body;
@@ -135,6 +137,58 @@ async function requestFiteatsy(path, options = {}) {
   }
 
   return body;
+}
+
+const commonFoodPath = (clientId, suffix = '') =>
+  `/v1/consultants/nutrition/clients/${encodeURIComponent(clientId)}${suffix}`;
+
+/** Server-authoritative Common Food catalogue search. */
+export async function searchFiteatsyCommonFoods(clientId, filters = {}, signal) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+  });
+  return requestFiteatsy(`${commonFoodPath(clientId, '/common-foods')}?${params}`, { method: 'GET', signal });
+}
+
+export async function generateFiteatsyCommonFoodPlan(clientId, dietPlanId, mealHeads) {
+  return requestFiteatsy(commonFoodPath(clientId, `/diet-plans/${encodeURIComponent(dietPlanId)}/common-food/generate`), {
+    method: 'POST', body: { mealHeads },
+  });
+}
+
+export async function readFiteatsyCommonFoodOptions(clientId, dietPlanId) {
+  return requestFiteatsy(commonFoodPath(clientId, `/diet-plans/${encodeURIComponent(dietPlanId)}/common-food/options`));
+}
+
+export async function saveFiteatsyCommonFoodOption(clientId, dietPlanId, payload) {
+  return requestFiteatsy(commonFoodPath(clientId, `/diet-plans/${encodeURIComponent(dietPlanId)}/common-food/options`), {
+    method: 'POST', body: payload,
+  });
+}
+
+export async function replaceFiteatsyCommonFoodComponent(clientId, dietPlanId, optionId, componentId, payload) {
+  return requestFiteatsy(commonFoodPath(clientId, `/diet-plans/${encodeURIComponent(dietPlanId)}/common-food/options/${encodeURIComponent(optionId)}/components/${encodeURIComponent(componentId)}`), {
+    method: 'PATCH', body: payload,
+  });
+}
+
+export async function addFiteatsyCommonFoodComponent(clientId, dietPlanId, optionId, payload) {
+  return requestFiteatsy(commonFoodPath(clientId, `/diet-plans/${encodeURIComponent(dietPlanId)}/common-food/options/${encodeURIComponent(optionId)}/components`), {
+    method: 'POST', body: payload,
+  });
+}
+
+export async function removeFiteatsyCommonFoodComponent(clientId, dietPlanId, optionId, componentId, expectedPlanVersionId) {
+  return requestFiteatsy(commonFoodPath(clientId, `/diet-plans/${encodeURIComponent(dietPlanId)}/common-food/options/${encodeURIComponent(optionId)}/components/${encodeURIComponent(componentId)}`), {
+    method: 'DELETE', body: { expectedPlanVersionId },
+  });
+}
+
+export async function updateFiteatsyCommonFoodServing(clientId, dietPlanId, optionId, componentId, payload) {
+  return requestFiteatsy(commonFoodPath(clientId, `/diet-plans/${encodeURIComponent(dietPlanId)}/common-food/options/${encodeURIComponent(optionId)}/components/${encodeURIComponent(componentId)}/serving`), {
+    method: 'PATCH', body: payload,
+  });
 }
 
 export async function listFiteatsyConsultantClients() {

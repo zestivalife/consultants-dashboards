@@ -10,6 +10,7 @@
     "lint": "next lint",
     "test:client-allocation": "node --test tests/client-allocation-pagination.test.mjs",
     "test:biomarkers": "node --test tests/biomarker-presentation.test.mjs"
+    ,"test:common-food": "node --test tests/common-food-ui.test.mjs"
   },
   "author": "Nuetra Team",
   "license": "MIT",

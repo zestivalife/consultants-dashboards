@@ -32,6 +32,7 @@ import {
   X,
 } from 'lucide-react';
 import withAuth from '../../hocs/withAuth';
+import CommonFoodPlanEditor from './CommonFoodPlanEditor';
 import { useAuth } from '../../context/AuthContext';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
 import {
@@ -1105,6 +1106,7 @@ const mealPlanSectionEntries = [
 ];
 
 const MAX_MEAL_OPTIONS_PER_SECTION = 5;
+const COMMON_FOOD_COMBINATION_ENGINE_V1_ENABLED = process.env.NEXT_PUBLIC_COMMON_FOOD_COMBINATION_ENGINE_V1 === 'true';
 
 function getMealOptionIdentity(option) {
   return option?.id || `${option?.meal || ''}::${option?.portion || ''}::${option?.sourceType || ''}`;
@@ -1388,6 +1390,7 @@ function RealClientProfileDrawer({
   const [nutritionActionSuccess, setNutritionActionSuccess] = useState(null);
   const [nutritionDownloadLoading, setNutritionDownloadLoading] = useState(false);
   const [dietPlanDirty, setDietPlanDirty] = useState(false);
+  const [commonFoodDirty, setCommonFoodDirty] = useState(false);
   const [mealOptionSearch, setMealOptionSearch] = useState({});
   const [mealSettingsOpen, setMealSettingsOpen] = useState({});
   const [mealOptionDetailsOpen, setMealOptionDetailsOpen] = useState({});
@@ -1529,6 +1532,7 @@ function RealClientProfileDrawer({
     setNutritionActionSuccess(null);
     setNutritionDownloadLoading(false);
     setDietPlanDirty(false);
+    setCommonFoodDirty(false);
     setMealOptionSearch({});
     setMealSettingsOpen({});
     setMealOptionDetailsOpen({});
@@ -1826,6 +1830,10 @@ function RealClientProfileDrawer({
 
   const handleSubmitForReview = useCallback(async () => {
     if (!summaryClient?.id || !dietPlanState?.plan?.id || nutritionActionLoading) return;
+    if (commonFoodDirty) {
+      setNutritionActionError('Save the generated common-food options before submitting this plan for review.');
+      return;
+    }
     setNutritionActionLoading(true);
     setNutritionActionError(null);
     setNutritionActionSuccess(null);
@@ -1841,7 +1849,7 @@ function RealClientProfileDrawer({
     } finally {
       setNutritionActionLoading(false);
     }
-  }, [dietPlanContentDraft, dietPlanState?.plan?.id, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
+  }, [commonFoodDirty, dietPlanContentDraft, dietPlanState?.plan?.id, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
 
   const handleApprovePlan = useCallback(async () => {
     if (!summaryClient?.id || !dietPlanState?.plan?.id || nutritionActionLoading) return;
@@ -2214,7 +2222,7 @@ function RealClientProfileDrawer({
                 {!canReviewDietPlans ? (
                   <button
                     onClick={handleSubmitForReview}
-                    disabled={nutritionActionLoading || !['draft', 'changes_requested'].includes(dietPlanState.currentLifecycle)}
+                    disabled={nutritionActionLoading || commonFoodDirty || !['draft', 'changes_requested'].includes(dietPlanState.currentLifecycle)}
                     className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Submit for Review
@@ -2464,9 +2472,22 @@ function RealClientProfileDrawer({
             </div>
           </Surface> : null}
 
+          {nutritionSectionTab === 'Diet Plan' && COMMON_FOOD_COMBINATION_ENGINE_V1_ENABLED ? <Surface className="p-5" animated>
+            <CommonFoodPlanEditor
+              clientId={summaryClient?.id}
+              dietPlanId={dietPlanState.plan?.id}
+              planVersionId={dietPlanState.version?.id}
+              lifecycle={dietPlanState.currentLifecycle}
+              initialOptions={dietPlanState.version?.commonFoodOptions || dietPlanState.commonFoodOptions || []}
+              readOnly={canReviewDietPlans}
+              onStale={() => void syncNutritionSurfaces()}
+              onDirtyChange={setCommonFoodDirty}
+            />
+          </Surface> : null}
+
           {nutritionSectionTab === 'Diet Plan' ? <Surface className="p-5" animated>
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className={drawerSectionTitleClass}>Meal Plan Editor</h3>
+              <h3 className={drawerSectionTitleClass}>Legacy Meal Plan Editor</h3>
               <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-2)]">
                 Diet Plan · {mealPlanSectionEntries.reduce((total, [key]) => total + (dietPlanContentDraft.mealPlan?.[key]?.options?.length || 0), 0)} / {mealPlanSectionEntries.length * MAX_MEAL_OPTIONS_PER_SECTION} options selected
               </span>
@@ -6044,6 +6065,7 @@ function DietPlanReviewQueuePage() {
                 {review.reviewComment ? <p className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">Previous comment: {review.reviewComment}</p> : null}
                 {review.reviewHistory?.length ? <div className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">History: {review.reviewHistory.map((event) => event.eventType.replace(/_/g, ' ')).join(' -> ')}</div> : null}
                 <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Prescribed Diet Plan</p><div className="mt-3 grid gap-2 md:grid-cols-3"><DetailField label="Calories" value={review.version?.content?.dailyTargets?.calories != null ? `${review.version.content.dailyTargets.calories} kcal` : 'Unresolved'} /><DetailField label="Protein" value={review.version?.content?.dailyTargets?.protein != null ? `${review.version.content.dailyTargets.protein} g` : 'Unresolved'} /><DetailField label="Meal heads" value={Object.keys(review.version?.content?.mealPlan || {}).length} /></div></div>
+                {review.version?.commonFoodOptions?.length ? <CommonFoodPlanEditor clientId={review.clientId || review.clientUserId} dietPlanId={review.dietPlanId} planVersionId={review.version.id} lifecycle={review.planStatus || 'submitted_for_review'} initialOptions={review.version.commonFoodOptions} readOnly /> : null}
                 <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Optional Nutrition Guidance</p><OptionalGuidanceEditor guidance={review.version?.content?.optionalGuidance} readOnly onItemsChange={() => undefined} onSearch={async () => []} /></div>
                 <textarea value={comments[review.dietPlanId] || ''} onChange={(event) => setComments((current) => ({ ...current, [review.dietPlanId]: event.target.value }))} placeholder="Required only when requesting changes" className="min-h-[84px] w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm" />
                 <div className="flex flex-wrap gap-2">
