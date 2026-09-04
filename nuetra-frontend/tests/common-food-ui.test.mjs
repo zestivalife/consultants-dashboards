@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { COMMON_FOOD_ERROR_MESSAGES, COMMON_FOOD_MEALS, formatNutrient, optionSummary } from '../lib/commonFoodUi.mjs';
+import { COMMON_FOOD_ERROR_MESSAGES, COMMON_FOOD_MEALS, commonFoodOptionType, formatNutrient, legacyOptionsForUnifiedPlan, optionSummary } from '../lib/commonFoodUi.mjs';
 
 const api = await readFile(new URL('../lib/fiteatsyConsultantsApi.js', import.meta.url), 'utf8');
 const editor = await readFile(new URL('../components/platform/CommonFoodPlanEditor.jsx', import.meta.url), 'utf8');
@@ -56,4 +56,18 @@ test('common-food and rollback editors are mutually exclusive', async () => {
   assert.match(workspace, /Generate Diet Plan/);
   assert.match(workspace, /commonFoodEditorRef\.current\?\.save/);
   assert.match(workspace, /commonFoodOptions/);
+});
+
+test('legacy, validated recipe and generated combination normalize into one editor without identity collisions', () => {
+  const legacy = legacyOptionsForUnifiedPlan({ breakfast: { options: [{ id: 'legacy-1', meal: 'Vegetable upma', portion: '1 katori', approxKcal: 240, proteinGrams: 7 }] } });
+  const recipe = { combinationId: 'recipe-1', mealHead: 'BREAKFAST', sourceType: 'VALIDATED_RECIPE', components: [] };
+  const generated = { combinationId: 'generated-1', mealHead: 'BREAKFAST', components: [{ sourceType: 'COMMON_FOOD' }] };
+  const mixed = [...legacy, { ...recipe, sourceType: commonFoodOptionType(recipe) }, { ...generated, sourceType: commonFoodOptionType(generated) }];
+  assert.deepEqual(mixed.map((option) => option.sourceType), ['LEGACY', 'VALIDATED_RECIPE', 'GENERATED_COMBINATION']);
+  assert.equal(new Set(mixed.map((option) => option.combinationId)).size, 3);
+  assert.equal(legacy[0].nutrition.kcal, 240);
+});
+
+test('mixed-plan compatibility is rendered inside the existing Diet Plan surface', () => {
+  for (const fragment of ['legacyMealPlan', 'legacyOptionsForUnifiedPlan', 'Legacy option', 'Validated recipe', 'Generated combination', 'data-option-type']) assert.ok(editor.includes(fragment), fragment);
 });

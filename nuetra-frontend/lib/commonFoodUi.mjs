@@ -34,3 +34,34 @@ export function formatNutrient(value, unit = 'g') {
 export function optionSummary(option) {
   return (option?.components || []).map((component) => `${component.label || `${component.multiplier} × ${component.servingDisplayNameSnapshot}`} ${component.foodDisplayNameSnapshot}`).join(' · ');
 }
+
+const LEGACY_MEAL_HEADS = {
+  earlyMorning: 'EARLY_MORNING', breakfast: 'BREAKFAST', midMorningSnack: 'MID_MORNING',
+  lunch: 'LUNCH', eveningSnack: 'EVENING_SNACK', dinner: 'DINNER', bedtimeNutrition: 'BEDTIME',
+};
+
+export function commonFoodOptionType(option) {
+  return option?.sourceType === 'VALIDATED_RECIPE' || option?.components?.some((component) => component.sourceType === 'VALIDATED_RECIPE')
+    ? 'VALIDATED_RECIPE'
+    : 'GENERATED_COMBINATION';
+}
+
+export function legacyOptionsForUnifiedPlan(mealPlan = {}) {
+  return Object.entries(LEGACY_MEAL_HEADS).flatMap(([mealKey, mealHead]) =>
+    (mealPlan?.[mealKey]?.options || []).map((option, index) => ({
+      ...option,
+      combinationId: `legacy:${mealKey}:${option.id || index}`,
+      mealHead,
+      sourceType: 'LEGACY',
+      displayName: option.meal || `Option ${index + 1}`,
+      servingLabel: option.portion || 'Serving not set',
+      nutrition: {
+        kcal: option.approxKcal ?? null,
+        protein: option.proteinGrams ?? null,
+        carbohydrate: option.carbohydratesGrams ?? option.carbsGrams ?? null,
+        fat: option.fatGrams ?? null,
+        fibre: option.fibreGrams ?? null,
+      },
+    })),
+  );
+}

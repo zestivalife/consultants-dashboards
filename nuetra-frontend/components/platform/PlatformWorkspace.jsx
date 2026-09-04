@@ -2489,6 +2489,7 @@ function RealClientProfileDrawer({
               generationRequestId={commonFoodGenerationRequest}
               lifecycle={dietPlanState.currentLifecycle}
               initialOptions={dietPlanState.version?.commonFoodOptions || dietPlanState.commonFoodOptions || []}
+              legacyMealPlan={dietPlanContentDraft.mealPlan}
               readOnly={canReviewDietPlans}
               onStale={() => void syncNutritionSurfaces()}
               onDirtyChange={setCommonFoodDirty}
@@ -6059,7 +6060,7 @@ function DietPlanReviewQueuePage() {
                   <DetailField label="Calories" value={review.version?.contentSummary?.calories != null ? `${review.version.contentSummary.calories} kcal` : 'Not available'} />
                   <DetailField label="Protein" value={review.version?.contentSummary?.protein != null ? `${review.version.contentSummary.protein} g` : 'Not available'} />
                 </div>
-                <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] p-4">
+                {!review.version?.commonFoodOptions?.length ? <div className="rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] p-4">
                   <p className="text-sm font-semibold">Submitted meal options</p>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
                     {Object.entries(review.version?.content?.mealPlan || {}).map(([mealKey, meal]) => (
@@ -6071,11 +6072,11 @@ function DietPlanReviewQueuePage() {
                       </div>
                     ))}
                   </div>
-                </div>
+                </div> : null}
                 {review.reviewComment ? <p className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">Previous comment: {review.reviewComment}</p> : null}
                 {review.reviewHistory?.length ? <div className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">History: {review.reviewHistory.map((event) => event.eventType.replace(/_/g, ' ')).join(' -> ')}</div> : null}
                 <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Prescribed Diet Plan</p><div className="mt-3 grid gap-2 md:grid-cols-3"><DetailField label="Calories" value={review.version?.content?.dailyTargets?.calories != null ? `${review.version.content.dailyTargets.calories} kcal` : 'Unresolved'} /><DetailField label="Protein" value={review.version?.content?.dailyTargets?.protein != null ? `${review.version.content.dailyTargets.protein} g` : 'Unresolved'} /><DetailField label="Meal heads" value={Object.keys(review.version?.content?.mealPlan || {}).length} /></div></div>
-                {review.version?.commonFoodOptions?.length ? <CommonFoodPlanEditor clientId={review.clientId || review.clientUserId} dietPlanId={review.dietPlanId} planVersionId={review.version.id} lifecycle={review.planStatus || 'submitted_for_review'} initialOptions={review.version.commonFoodOptions} readOnly /> : null}
+                {review.version?.commonFoodOptions?.length ? <CommonFoodPlanEditor clientId={review.clientId || review.clientUserId} dietPlanId={review.dietPlanId} planVersionId={review.version.id} lifecycle={review.planStatus || 'submitted_for_review'} initialOptions={review.version.commonFoodOptions} legacyMealPlan={review.version?.content?.mealPlan} readOnly /> : null}
                 <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Optional Nutrition Guidance</p><OptionalGuidanceEditor guidance={review.version?.content?.optionalGuidance} readOnly onItemsChange={() => undefined} onSearch={async () => []} /></div>
                 <textarea value={comments[review.dietPlanId] || ''} onChange={(event) => setComments((current) => ({ ...current, [review.dietPlanId]: event.target.value }))} placeholder="Required only when requesting changes" className="min-h-[84px] w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm" />
                 <div className="flex flex-wrap gap-2">
