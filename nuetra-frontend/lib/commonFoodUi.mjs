@@ -28,7 +28,10 @@ export function commonFoodErrorMessage(error, fallback = 'The common-food action
 }
 
 export function formatNutrient(value, unit = 'g') {
-  return value === null || value === undefined ? 'Not reported' : `${value} ${unit}`;
+  if (value === null || value === undefined) return 'Not reported';
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 'Not reported';
+  return `${Number(numeric.toFixed(1))} ${unit}`;
 }
 
 export function optionSummary(option) {

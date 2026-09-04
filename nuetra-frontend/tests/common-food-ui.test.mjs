@@ -13,6 +13,8 @@ test('renders the exact seven governed meal heads', () => {
 test('preserves unknown nutrient semantics', () => {
   assert.equal(formatNutrient(null), 'Not reported');
   assert.equal(formatNutrient(0), '0 g');
+  assert.equal(formatNutrient(0.21999999999999997), '0.2 g');
+  assert.equal(formatNutrient(164.94, 'kcal'), '164.9 kcal');
 });
 
 test('summarises a component-rich option without calling it a recipe', () => {
@@ -33,7 +35,7 @@ test('API client uses every accepted backend common-food route', () => {
 });
 
 test('single Diet Plan editor provides requested generation, shortage, explorer and all mutations', () => {
-  for (const fragment of ['generationRequestId', 'of 5 valid options available', 'Food Explorer', 'Replace', 'Add food', 'Remove', 'Serving', 'Reload latest', 'Meal navigator']) assert.ok(editor.includes(fragment), fragment);
+  for (const fragment of ['generationRequestId', 'available', 'Food Explorer', 'Replace', 'Add food', 'Remove', 'Serving', 'Reload latest', 'Meal navigator']) assert.ok(editor.includes(fragment), fragment);
   assert.doesNotMatch(editor, /Generate 7×5|Common-food combinations|Common-food meal combinations/);
 });
 
@@ -70,4 +72,9 @@ test('legacy, validated recipe and generated combination normalize into one edit
 
 test('mixed-plan compatibility is rendered inside the existing Diet Plan surface', () => {
   for (const fragment of ['legacyMealPlan', 'legacyOptionsForUnifiedPlan', 'Legacy option', 'Validated recipe', 'Generated combination', 'data-option-type']) assert.ok(editor.includes(fragment), fragment);
+});
+
+test('generated candidates require an explicit exact-five selection before persistence', () => {
+  for (const fragment of ['AVAILABLE', 'SELECTED', 'SAVED', 'selectedIds', 'Select exactly five options for every meal', 'data-selection-state']) assert.ok(editor.includes(fragment), fragment);
+  assert.match(editor, /selected\.filter\(\(option\) => option\.mealHead === head\)\.length !== 5/);
 });
