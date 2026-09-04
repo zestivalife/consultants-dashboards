@@ -83,7 +83,7 @@ test('legacy, validated recipe and generated combination normalize into one edit
 });
 
 test('mixed-plan compatibility is rendered inside the existing Diet Plan surface', () => {
-  for (const fragment of ['legacyMealPlan', 'legacyOptionsForUnifiedPlan', 'Legacy option', 'Validated recipe', 'Generated combination', 'data-option-type']) assert.ok(editor.includes(fragment), fragment);
+  for (const fragment of ['legacyMealPlan', 'legacyOptionsForUnifiedPlan', 'Legacy option', 'data-option-type']) assert.ok(editor.includes(fragment), fragment);
 });
 
 test('generated candidates require an explicit exact-five selection before persistence', () => {
@@ -97,7 +97,31 @@ test('generated candidates require an explicit exact-five selection before persi
 test('semantic meal UX leads with client-ready titles, human servings, progress and truthful shortage', () => {
   assert.equal(optionTitle({ clientTitle: 'Chapati + Moong Dal + Bhindi Sabji + Curd' }), 'Chapati + Moong Dal + Bhindi Sabji + Curd');
   assert.equal(optionTitle({ clientTitle: 'Option 1' }), 'Structured meal');
-  for (const fragment of ['Diet Plan Progress', 'selections remaining', 'Available candidates and saved selections are tracked separately', 'Preview as Client', 'Build Meal', 'No suitable options are available']) assert.ok(editor.includes(fragment), fragment);
+  for (const fragment of ['35 selected', 'selections remaining', 'Preview as Client', 'Build Meal', 'No suitable options are available']) assert.ok(editor.includes(fragment), fragment);
   assert.doesNotMatch(editor, /<p className="text-sm font-semibold">Option \{index \+ 1\}<\/p>/);
   assert.match(editor, /optionTitle\(option\)/);
+});
+
+test('v17.22 uses compact progressive-disclosure cards and a client-only preview', () => {
+  for (const fragment of ['Structured meal components', 'exact equivalent', 'Choose any one', 'never the candidate pool', 'Good calorie fit', 'Good protein fit']) assert.ok(editor.includes(fragment), fragment);
+  assert.match(editor, /aria-expanded/);
+  assert.match(editor, /ClientPreview/);
+});
+
+test('v17.22 exposes role-safe component editing, locks and auto-balance', () => {
+  for (const fragment of ['Edit Meal', 'Adjust serving', 'Keep this serving fixed during Auto-Balance', 'Auto-Balance', '+ Build Meal']) assert.ok(editor.includes(fragment), fragment);
+  assert.match(editor, /componentRole\(component\)/);
+  assert.match(editor, /lockedFoodIds/);
+});
+
+test('v17.22 progress and shortage language are explicit and accessible', () => {
+  for (const fragment of ['selections remaining', 'All seven meals are complete', 'selected', 'source-governance requirements', 'aria-live="assertive"']) assert.ok(editor.includes(fragment), fragment);
+  assert.doesNotMatch(editor, />Generated combination</);
+});
+
+test('v17.22 workspace separates workflow stages and removes noisy guidance controls', async () => {
+  const workspace = await readFile(new URL('../components/platform/PlatformWorkspace.jsx', import.meta.url), 'utf8');
+  for (const fragment of ["'Diet Plan', 'Optional Guidance', 'Review & Submit'", 'Download Active Plan', 'Plan readiness', 'Add Recommended', 'Select up to 5', 'Feedback applies to', 'Publish to Client']) assert.ok(workspace.includes(fragment), fragment);
+  assert.doesNotMatch(workspace, /Select all eligible/);
+  assert.doesNotMatch(workspace, />Move up</);
 });
