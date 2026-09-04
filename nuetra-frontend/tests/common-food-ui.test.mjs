@@ -125,3 +125,13 @@ test('v17.22 workspace separates workflow stages and removes noisy guidance cont
   assert.doesNotMatch(workspace, /Select all eligible/);
   assert.doesNotMatch(workspace, />Move up</);
 });
+
+test('v17.23 explorer separates scope, uses serving nutrition and sends a governed draft snapshot', () => {
+  assert.match(editor, /Recommended for \$\{context\.mealLabel\}/);
+  assert.match(editor, /All eligible foods/);
+  assert.match(editor, /food\.defaultServing\?\.nutrition/);
+  assert.doesNotMatch(editor, /prefix="Per 100 g/);
+  assert.match(editor, /const draft = \{ mealHead: explorer\.option\.mealHead/);
+  assert.match(editor, /expectedPlanVersionId: planVersionId, draft, component/);
+  assert.match(editor, /\['PULSE', 'Dal & pulses'\]/);
+});
