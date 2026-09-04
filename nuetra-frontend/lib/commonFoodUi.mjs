@@ -18,6 +18,8 @@ export const COMMON_FOOD_ERROR_MESSAGES = {
   MEAL_TEMPLATE_INVALID: 'This change would break the required meal structure.',
   STALE_PLAN_VERSION: 'A newer plan version exists. Reload before making further changes.',
   VEGAN_COMMON_FOOD_ENGINE_V1_NOT_SUPPORTED: 'Diet Plan generation is not yet available for this diet pattern because a governed Bedtime food source is still required.',
+  MEAL_QUALITY_SANITY_FAILED: 'This meal does not meet the serving, structure, calorie, or client-facing quality requirements.',
+  COMPONENT_ROLE_MISMATCH: 'Choose a replacement from the same meal component role.',
 };
 
 export function commonFoodErrorMessage(error, fallback = 'The common-food action could not be completed.') {
@@ -35,7 +37,12 @@ export function formatNutrient(value, unit = 'g') {
 }
 
 export function optionSummary(option) {
-  return (option?.components || []).map((component) => `${component.label || `${component.multiplier} × ${component.servingDisplayNameSnapshot}`} ${component.foodDisplayNameSnapshot}`).join(' · ');
+  return option?.humanServingSummary || (option?.components || []).map((component) => `${component.label || `${component.multiplier} × ${component.servingDisplayNameSnapshot}`} ${component.foodDisplayNameSnapshot}`).join(' · ');
+}
+
+export function optionTitle(option) {
+  const title = option?.clientTitle || (option?.components || []).map((component) => component.foodDisplayNameSnapshot).filter(Boolean).join(' + ');
+  return title && !/^Option \d+$/i.test(title) ? title : 'Structured meal';
 }
 
 const LEGACY_MEAL_HEADS = {

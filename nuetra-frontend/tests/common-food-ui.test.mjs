@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { COMMON_FOOD_ERROR_MESSAGES, COMMON_FOOD_MEALS, commonFoodOptionType, formatNutrient, legacyOptionsForUnifiedPlan, optionSummary } from '../lib/commonFoodUi.mjs';
+import { COMMON_FOOD_ERROR_MESSAGES, COMMON_FOOD_MEALS, commonFoodOptionType, formatNutrient, legacyOptionsForUnifiedPlan, optionSummary, optionTitle } from '../lib/commonFoodUi.mjs';
 
 const api = await readFile(new URL('../lib/fiteatsyConsultantsApi.js', import.meta.url), 'utf8');
 const featureFlags = await readFile(new URL('../lib/dietFeatureFlags.js', import.meta.url), 'utf8');
@@ -92,4 +92,12 @@ test('generated candidates require an explicit exact-five selection before persi
   assert.match(editor, /replaceFiteatsyCommonFoodSelection/);
   assert.match(editor, /options: selected\.map/);
   assert.match(editor, /useImperativeHandle[\s\S]*selectedIds/);
+});
+
+test('semantic meal UX leads with client-ready titles, human servings, progress and truthful shortage', () => {
+  assert.equal(optionTitle({ clientTitle: 'Chapati + Moong Dal + Bhindi Sabji + Curd' }), 'Chapati + Moong Dal + Bhindi Sabji + Curd');
+  assert.equal(optionTitle({ clientTitle: 'Option 1' }), 'Structured meal');
+  for (const fragment of ['Diet Plan Progress', 'selections remaining', 'Available candidates and saved selections are tracked separately', 'Preview as Client', 'Build Meal', 'No suitable options are available']) assert.ok(editor.includes(fragment), fragment);
+  assert.doesNotMatch(editor, /<p className="text-sm font-semibold">Option \{index \+ 1\}<\/p>/);
+  assert.match(editor, /optionTitle\(option\)/);
 });

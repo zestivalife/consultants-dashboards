@@ -197,6 +197,12 @@ export async function updateFiteatsyCommonFoodServing(clientId, dietPlanId, opti
   });
 }
 
+export async function autoBalanceFiteatsyCommonFoodOption(clientId, dietPlanId, optionId, payload) {
+  return requestFiteatsy(commonFoodPath(clientId, `/diet-plans/${encodeURIComponent(dietPlanId)}/common-food/options/${encodeURIComponent(optionId)}/auto-balance`), {
+    method: 'POST', body: payload,
+  });
+}
+
 export async function listFiteatsyConsultantClients() {
   const body = await requestFiteatsyJson('/v1/consultants/clients');
 
