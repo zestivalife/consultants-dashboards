@@ -79,7 +79,15 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    setIsLoading(false);
+    fetch('/api/qa/session', { credentials: 'same-origin', cache: 'no-store' })
+      .then(async response => response.ok ? response.json() : null)
+      .then(payload => {
+        if (!payload?.user || payload.user.accountPurpose !== 'QA_TEST') return;
+        const session = { user: payload.user, loggedInAt: new Date().toISOString(), mode: 'qa-server-session', rememberMe: false };
+        setUser(payload.user); persistSession(session, false);
+      })
+      .catch(() => null)
+      .finally(() => setIsLoading(false));
   }, []);
 
   const clearError = () => setError(null);
@@ -154,6 +162,9 @@ export function AuthProvider({ children }) {
   }
 
   async function logout() {
+    if (readStoredSession()?.mode === 'qa-server-session') {
+      await fetch('/api/qa/session', { method: 'DELETE', credentials: 'same-origin' }).catch(() => null);
+    }
     if (BACKEND_AUTH_ENABLED) {
       const refreshToken = getRefreshToken();
       if (refreshToken) {

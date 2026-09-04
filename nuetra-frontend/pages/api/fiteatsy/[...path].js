@@ -1,3 +1,4 @@
+import { readQaSession } from '../../../lib/qaServerSession';
 const DEFAULT_UPSTREAM = 'https://fiteatsy-mobile-production.up.railway.app';
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -38,7 +39,7 @@ function buildForwardHeaders(req, bodyBuffer) {
   for (const [key, value] of Object.entries(req.headers)) {
     if (!value) continue;
     const lowerKey = key.toLowerCase();
-    if (HOP_BY_HOP_HEADERS.has(lowerKey) || lowerKey === 'origin') {
+    if (HOP_BY_HOP_HEADERS.has(lowerKey) || lowerKey === 'origin' || lowerKey === 'cookie') {
       continue;
     }
     if (Array.isArray(value)) {
@@ -58,6 +59,8 @@ function buildForwardHeaders(req, bodyBuffer) {
   if (bodyBuffer) {
     headers.set('content-length', String(bodyBuffer.length));
   }
+  const qaToken = readQaSession(req);
+  if (qaToken) headers.set('authorization', `Bearer ${qaToken}`);
 
   return headers;
 }
