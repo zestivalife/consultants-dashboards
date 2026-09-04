@@ -127,8 +127,8 @@ test('v17.22 workspace separates workflow stages and removes noisy guidance cont
 });
 
 test('v17.23 explorer separates scope, uses serving nutrition and sends a governed draft snapshot', () => {
-  assert.match(editor, /Recommended for \$\{context\.mealLabel\}/);
-  assert.match(editor, /All eligible foods/);
+  assert.match(editor, />Recommended</);
+  assert.match(editor, /All Foods &amp; Dishes/);
   assert.match(editor, /food\.defaultServing\?\.nutrition/);
   assert.doesNotMatch(editor, /prefix="Per 100 g/);
   assert.match(editor, /const draft = \{ mealHead: explorer\.option\.mealHead/);
@@ -136,8 +136,16 @@ test('v17.23 explorer separates scope, uses serving nutrition and sends a govern
   assert.match(editor, /\['PULSE', 'Dal & pulses'\]/);
 });
 
+test('v17.27 renders truthful catalogue maturity, compact cards and a sticky selected-food workflow', () => {
+  for (const fragment of ['My Templates', 'Team Templates', 'All Foods &amp; Dishes', 'Food Type filter', 'Role filter', 'Food State filter', 'Nutrition Status filter', 'More Filters', 'Reference catalogue', 'Nutrition verification pending', 'Not currently available for authoritative Diet calculation', 'sticky bottom-0', 'aria-selected', 'Add to Meal']) assert.ok(editor.includes(fragment), fragment);
+  assert.doesNotMatch(editor, /All eligible foods/);
+  assert.doesNotMatch(editor, /Serving unavailable/);
+  assert.match(editor, /result\.totals\?\.catalogue/);
+  assert.match(editor, /result\.facets\?\.states/);
+});
+
 test('v17.26A keeps catalogue references fail-closed and exposes reusable templates in the unified editor', () => {
-  for (const fragment of ['Template Library', 'Save selected meal as Template', 'Save as Template', 'My Templates', 'Team Templates', 'Nutrition is recalculated for each client', 'catalogue reference only', 'Verification pending']) assert.ok(editor.includes(fragment), fragment);
+  for (const fragment of ['Template Library', 'Save selected meal as Template', 'Save as Template', 'My Templates', 'Team Templates', 'Nutrition is recalculated for each client', 'Reference catalogue', 'Nutrition verification pending']) assert.ok(editor.includes(fragment), fragment);
   for (const fragment of ['/meal-templates', '/activate', '/apply']) assert.ok(api.includes(fragment), fragment);
   assert.doesNotMatch(editor, /template.*nutrition.*reduce\(/i);
 });

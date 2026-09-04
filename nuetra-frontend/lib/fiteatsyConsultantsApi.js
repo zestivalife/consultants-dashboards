@@ -169,6 +169,10 @@ export async function archiveFiteatsyMealTemplate(templateId) {
   return requestFiteatsy(`/v1/consultants/meal-templates/${encodeURIComponent(templateId)}`, { method: 'DELETE' });
 }
 
+export async function cloneFiteatsyMealTemplate(templateId, name) {
+  return requestFiteatsy(`/v1/consultants/meal-templates/${encodeURIComponent(templateId)}/clone`, { method: 'POST', body: name ? { name } : {} });
+}
+
 export async function applyFiteatsyMealTemplate(clientId, dietPlanId, templateId, revisionId) {
   return requestFiteatsy(commonFoodPath(clientId, `/diet-plans/${encodeURIComponent(dietPlanId)}/meal-templates/${encodeURIComponent(templateId)}/apply`), { method: 'POST', body: revisionId ? { revisionId } : {} });
 }
