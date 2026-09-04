@@ -10,6 +10,7 @@ import {
   searchFiteatsyCommonFoods,
   updateFiteatsyCommonFoodServing,
 } from '../../lib/fiteatsyConsultantsApi';
+import { isCommonFoodCombinationEngineEnabled } from '../../lib/dietFeatureFlags';
 import { COMMON_FOOD_MEALS, commonFoodErrorMessage, commonFoodOptionType, formatNutrient, legacyOptionsForUnifiedPlan, optionSummary } from '../../lib/commonFoodUi.mjs';
 
 const roles = ['', 'STARCH', 'GRAIN', 'BREAD', 'PULSE', 'PROTEIN', 'VEGETABLE', 'FRUIT', 'DAIRY', 'FAT', 'NUT_SEED', 'BEVERAGE', 'ACCOMPANIMENT'];
@@ -150,8 +151,9 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
       const savedOptions = response?.options || [];
       setOptions(savedOptions); setSelectedIds(new Set(savedOptions.map((option) => option.combinationId))); setPersistedIds(new Set(savedOptions.map((option) => option.combinationId))); setDirty(false);
       setMessage(savedOptions.length ? 'Saved Diet Plan reloaded.' : 'No saved Diet Plan options yet.');
+      if (isCommonFoodCombinationEngineEnabled && savedOptions.length < 35 && ['draft', 'changes_requested'].includes(lifecycle) && !readOnly) await generate();
     } catch (nextError) { setError(commonFoodErrorMessage(nextError, 'Unable to reload Diet Plan options.')); }
-  }, [clientId, dietPlanId]);
+  }, [clientId, dietPlanId, generate, lifecycle, readOnly]);
   useEffect(() => {
     if (!dietPlanId) return;
     if (generationRequestId > handledGenerationRequest.current && ['draft', 'changes_requested'].includes(lifecycle) && !readOnly) {

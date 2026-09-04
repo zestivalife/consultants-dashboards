@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import withAuth from '../../hocs/withAuth';
 import CommonFoodPlanEditor from './CommonFoodPlanEditor';
+import { isCommonFoodCombinationEngineEnabled } from '../../lib/dietFeatureFlags';
 import { useAuth } from '../../context/AuthContext';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
 import {
@@ -1601,7 +1602,7 @@ function RealClientProfileDrawer({
       setDietPlanState(nextDietPlan);
       setDietPlanContentDraft(nextDietPlan?.content || null);
       setDietPlanDirty(false);
-      if (COMMON_FOOD_COMBINATION_ENGINE_V1_ENABLED) setCommonFoodGenerationRequest((current) => current + 1);
+      if (isCommonFoodCombinationEngineEnabled) setCommonFoodGenerationRequest((current) => current + 1);
       if (response?.intelligence) {
         setNutritionIntelligenceState(response.intelligence);
       }

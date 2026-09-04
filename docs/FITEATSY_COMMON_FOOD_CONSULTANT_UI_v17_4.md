@@ -4,7 +4,7 @@ The Consultant client drawer integrates the Common Food Combination Engine throu
 
 ## Activation
 
-The supported V1 surface is enabled by default. Set `NEXT_PUBLIC_COMMON_FOOD_COMBINATION_ENGINE_V1=false` in the Consultant frontend deployment to invoke the explicit legacy-editor rollback switch.
+The supported V1 surface is the sole editable Diet Plan surface. `NEXT_PUBLIC_COMMON_FOOD_COMBINATION_ENGINE_V1=false` disables candidate generation without restoring a second editor; historical records remain readable through the unified legacy adapter. Missing or malformed values follow the accepted enabled production rollout.
 
 Supported V1 profiles are Vegetarian, Egg-inclusive, and Non-vegetarian. Vegan generation remains fail-closed through the backend capability response.
 
@@ -26,4 +26,4 @@ The frontend never calculates authoritative option nutrition. Unknown fibre and 
 
 ## Rollback
 
-Set `NEXT_PUBLIC_COMMON_FOOD_COMBINATION_ENGINE_V1=false` and restore the previous Vercel deployment if necessary. Legacy and mixed plans remain readable; the accepted backend migrations are additive.
+Restore a previously accepted Vercel deployment if an operational rollback is required. Legacy and mixed plans remain readable through the unified adapter; the accepted backend migrations are additive.

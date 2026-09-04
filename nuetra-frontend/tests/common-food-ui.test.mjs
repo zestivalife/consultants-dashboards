@@ -4,6 +4,7 @@ import test from 'node:test';
 import { COMMON_FOOD_ERROR_MESSAGES, COMMON_FOOD_MEALS, commonFoodOptionType, formatNutrient, legacyOptionsForUnifiedPlan, optionSummary } from '../lib/commonFoodUi.mjs';
 
 const api = await readFile(new URL('../lib/fiteatsyConsultantsApi.js', import.meta.url), 'utf8');
+const featureFlags = await readFile(new URL('../lib/dietFeatureFlags.js', import.meta.url), 'utf8');
 const editor = await readFile(new URL('../components/platform/CommonFoodPlanEditor.jsx', import.meta.url), 'utf8');
 
 test('renders the exact seven governed meal heads', () => {
@@ -54,11 +55,21 @@ test('authoritative nutrition is never summed in the UI', () => {
 test('all editable plans use one unified editor without the legacy fallback', async () => {
   const workspace = await readFile(new URL('../components/platform/PlatformWorkspace.jsx', import.meta.url), 'utf8');
   assert.match(workspace, /CommonFoodPlanEditor/);
+  assert.doesNotMatch(workspace, /COMMON_FOOD_COMBINATION_ENGINE_V1_ENABLED/);
+  assert.match(workspace, /isCommonFoodCombinationEngineEnabled/);
   assert.doesNotMatch(workspace, /No verified meal-library matches|Select recommended 5|commonFoodPlanActive \?/);
   assert.doesNotMatch(workspace, /Legacy Meal Plan Editor|Generate 7×5/);
   assert.match(workspace, /Generate Diet Plan/);
   assert.match(workspace, /commonFoodEditorRef\.current\?\.save/);
   assert.match(workspace, /commonFoodOptions/);
+});
+
+test('one build-time feature flag source fails safely without undeclared globals', () => {
+  assert.match(featureFlags, /process\.env\.NEXT_PUBLIC_COMMON_FOOD_COMBINATION_ENGINE_V1/);
+  assert.match(featureFlags, /COMMON_FOOD_FLAG !== 'false'/);
+  assert.doesNotMatch(editor, /process\.env\.NEXT_PUBLIC_COMMON_FOOD_COMBINATION_ENGINE_V1|COMMON_FOOD_COMBINATION_ENGINE_V1_ENABLED/);
+  assert.match(editor, /savedOptions\.length < 35/);
+  assert.match(editor, /await generate\(\)/);
 });
 
 test('legacy, validated recipe and generated combination normalize into one editor without identity collisions', () => {
