@@ -1105,13 +1105,6 @@ const mealPlanSectionEntries = [
   ['bedtimeNutrition', 'Bedtime'],
 ];
 
-const MAX_MEAL_OPTIONS_PER_SECTION = 5;
-const COMMON_FOOD_COMBINATION_ENGINE_V1_ENABLED = process.env.NEXT_PUBLIC_COMMON_FOOD_COMBINATION_ENGINE_V1 !== 'false';
-
-function getMealOptionIdentity(option) {
-  return option?.id || `${option?.meal || ''}::${option?.portion || ''}::${option?.sourceType || ''}`;
-}
-
 function lifecycleTone(status) {
   if (status === 'published' || status === 'approved') return 'improving';
   if (status === 'submitted_for_review') return 'medium';
@@ -1381,7 +1374,6 @@ function RealClientProfileDrawer({
 }) {
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('Overview');
   const [nutritionSectionTab, setNutritionSectionTab] = useState('Diet Plan');
-  const [activeMealKey, setActiveMealKey] = useState('earlyMorning');
   const [dietPlanState, setDietPlanState] = useState(() => profile?.dietPlan || null);
   const [dietPlanContentDraft, setDietPlanContentDraft] = useState(() => profile?.dietPlan?.content || null);
   const [nutritionIntelligenceState, setNutritionIntelligenceState] = useState(() => profile?.nutritionIntelligence || null);
@@ -1393,10 +1385,6 @@ function RealClientProfileDrawer({
   const [commonFoodDirty, setCommonFoodDirty] = useState(false);
   const [commonFoodGenerationRequest, setCommonFoodGenerationRequest] = useState(0);
   const commonFoodEditorRef = useRef(null);
-  const [mealOptionSearch, setMealOptionSearch] = useState({});
-  const [mealSettingsOpen, setMealSettingsOpen] = useState({});
-  const [mealOptionDetailsOpen, setMealOptionDetailsOpen] = useState({});
-  const [mealSelectionMessage, setMealSelectionMessage] = useState({});
   const [clientHeaderCollapsed, setClientHeaderCollapsed] = useState(false);
   const message = getProfileErrorMessage(error);
   const client = profile?.client;
@@ -1433,10 +1421,6 @@ function RealClientProfileDrawer({
   const clientPhoneIdentity = formatClientPhoneIdentity(client?.mobile || client?.phone || summaryClient?.mobile || summaryClient?.mobileNumberMasked);
   const publishedPlanVersionNumber = dailyNutritionMonitoring?.version?.versionNumber ?? null;
   const editablePlanVersionNumber = dietPlanState?.currentLifecycle === 'published' ? null : dietPlanState?.currentVersionNumber ?? null;
-  const commonFoodPlanActive = COMMON_FOOD_COMBINATION_ENGINE_V1_ENABLED && (
-    commonFoodGenerationRequest > 0
-    || (dietPlanState?.version?.commonFoodOptions || dietPlanState?.commonFoodOptions || []).length > 0
-  );
   const syncState = String(syncMetadata?.status || syncMetadata?.syncStatus || 'synced').toLowerCase();
   const syncStateLabel = syncState.includes('fail') ? 'Sync failed' : syncState.includes('syncing') ? 'Syncing' : syncState.includes('stale') ? 'Stale' : 'Synced';
   const bodyComposition = {
@@ -1539,32 +1523,7 @@ function RealClientProfileDrawer({
     setNutritionDownloadLoading(false);
     setDietPlanDirty(false);
     setCommonFoodDirty(false);
-    setMealOptionSearch({});
-    setMealSettingsOpen({});
-    setMealOptionDetailsOpen({});
-    setMealSelectionMessage({});
   }, [profile?.dietPlan, profile?.nutritionIntelligence, profile?.client?.id]);
-
-  useEffect(() => {
-    if (!dietPlanContentDraft?.mealPlan || !['draft', 'changes_requested'].includes(dietPlanState?.currentLifecycle)) return;
-    const sectionsToSeed = mealPlanSectionEntries.filter(([key]) => {
-      const section = dietPlanContentDraft.mealPlan[key];
-      return !(section?.options || []).length && (section?.availableOptions || []).length;
-    });
-    if (!sectionsToSeed.length) return;
-    setDietPlanContentDraft((current) => {
-      if (!current?.mealPlan) return current;
-      const next = structuredClone(current);
-      sectionsToSeed.forEach(([key]) => {
-        const section = next.mealPlan[key];
-        section.options = (section.availableOptions || [])
-          .slice(0, MAX_MEAL_OPTIONS_PER_SECTION)
-          .map((option, index) => ({ ...option, slot: index + 1 }));
-      });
-      return next;
-    });
-    setDietPlanDirty(true);
-  }, [dietPlanContentDraft?.mealPlan, dietPlanState?.currentLifecycle]);
 
   useEffect(() => {
     if (isOpen) setActiveWorkspaceTab('Overview');
@@ -1697,96 +1656,6 @@ function RealClientProfileDrawer({
     const response = await searchFiteatsyConsultantOptionalGuidance(summaryClient.id, dietPlanState.plan.id, { query, category, context: path[2] || '' });
     return response?.candidates || [];
   }, [dietPlanState?.plan?.id, summaryClient?.id]);
-
-  const handleDietFieldChange = useCallback((path, value) => {
-    setDietPlanContentDraft((current) => {
-      if (!current) return current;
-      const next = structuredClone(current);
-      let cursor = next;
-      for (let index = 0; index < path.length - 1; index += 1) {
-        cursor = cursor[path[index]];
-      }
-      cursor[path[path.length - 1]] = value;
-      setDietPlanDirty(true);
-      return next;
-    });
-  }, []);
-
-  const updateMealSectionDraft = useCallback((sectionKey, updater) => {
-    setDietPlanContentDraft((current) => {
-      if (!current?.mealPlan?.[sectionKey]) return current;
-      const next = structuredClone(current);
-      next.mealPlan[sectionKey] = updater(next.mealPlan[sectionKey]);
-      setDietPlanDirty(true);
-      return next;
-    });
-  }, []);
-
-  const handleMealOptionSearchChange = useCallback((sectionKey, value) => {
-    setMealOptionSearch((current) => ({
-      ...current,
-      [sectionKey]: value,
-    }));
-  }, []);
-
-  const handleSelectMealOption = useCallback((sectionKey, option) => {
-    let limitReached = false;
-    updateMealSectionDraft(sectionKey, (section) => {
-      const selected = Array.isArray(section.options) ? [...section.options] : [];
-      const selectedIds = new Set(selected.map(getMealOptionIdentity));
-      if (selectedIds.has(getMealOptionIdentity(option)) || selected.length >= MAX_MEAL_OPTIONS_PER_SECTION) {
-        limitReached = selected.length >= MAX_MEAL_OPTIONS_PER_SECTION && !selectedIds.has(getMealOptionIdentity(option));
-        return section;
-      }
-      return {
-        ...section,
-        options: [...selected, { ...option, slot: selected.length + 1 }],
-      };
-    });
-    setMealSelectionMessage((current) => ({
-      ...current,
-      [sectionKey]: limitReached ? 'Maximum 5 options. Unselect one option before adding another.' : '',
-    }));
-  }, [updateMealSectionDraft]);
-
-  const handleRemoveMealOption = useCallback((sectionKey, optionIdentity) => {
-    updateMealSectionDraft(sectionKey, (section) => ({
-      ...section,
-      options: (section.options || [])
-        .filter((option) => getMealOptionIdentity(option) !== optionIdentity)
-        .map((option, index) => ({ ...option, slot: index + 1 })),
-    }));
-    setMealSelectionMessage((current) => ({ ...current, [sectionKey]: '' }));
-  }, [updateMealSectionDraft]);
-
-  const handleSelectRecommendedMealOptions = useCallback((sectionKey) => {
-    updateMealSectionDraft(sectionKey, (section) => ({
-      ...section,
-      options: (section.availableOptions || [])
-        .slice(0, MAX_MEAL_OPTIONS_PER_SECTION)
-        .map((option, index) => ({ ...option, slot: index + 1 })),
-    }));
-    setMealSelectionMessage((current) => ({ ...current, [sectionKey]: '' }));
-  }, [updateMealSectionDraft]);
-
-  const handleClearMealOptions = useCallback((sectionKey) => {
-    updateMealSectionDraft(sectionKey, (section) => ({ ...section, options: [] }));
-    setMealSelectionMessage((current) => ({ ...current, [sectionKey]: '' }));
-  }, [updateMealSectionDraft]);
-
-  const handleMoveMealOption = useCallback((sectionKey, optionIndex, direction) => {
-    updateMealSectionDraft(sectionKey, (section) => {
-      const nextOptions = [...(section.options || [])];
-      const targetIndex = direction === 'up' ? optionIndex - 1 : optionIndex + 1;
-      if (targetIndex < 0 || targetIndex >= nextOptions.length) return section;
-      const [moved] = nextOptions.splice(optionIndex, 1);
-      nextOptions.splice(targetIndex, 0, moved);
-      return {
-        ...section,
-        options: nextOptions.map((option, index) => ({ ...option, slot: index + 1 })),
-      };
-    });
-  }, [updateMealSectionDraft]);
 
   const handleDownloadDietPlan = useCallback(async () => {
     if (!summaryClient?.id || !dietPlanState?.plan?.id || nutritionDownloadLoading) return;
@@ -2480,7 +2349,7 @@ function RealClientProfileDrawer({
             </div>
           </Surface> : null}
 
-          {nutritionSectionTab === 'Diet Plan' && commonFoodPlanActive ? <Surface className="p-5" animated>
+          {nutritionSectionTab === 'Diet Plan' ? <Surface className="p-5" animated>
             <CommonFoodPlanEditor
               ref={commonFoodEditorRef}
               clientId={summaryClient?.id}
@@ -2496,92 +2365,6 @@ function RealClientProfileDrawer({
             />
           </Surface> : null}
 
-          {nutritionSectionTab === 'Diet Plan' && !commonFoodPlanActive ? <Surface className="p-5" animated>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className={drawerSectionTitleClass}>Diet Plan</h3>
-              <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-3 py-1.5 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-2)]">
-                Diet Plan · {mealPlanSectionEntries.reduce((total, [key]) => total + (dietPlanContentDraft.mealPlan?.[key]?.options?.length || 0), 0)} / {mealPlanSectionEntries.length * MAX_MEAL_OPTIONS_PER_SECTION} options selected
-              </span>
-            </div>
-            {(() => {
-              const occurrences = new Map();
-              mealPlanSectionEntries.forEach(([mealKey, mealLabel]) => {
-                (dietPlanContentDraft.mealPlan?.[mealKey]?.options || []).forEach((option) => {
-                  const identity = getMealOptionIdentity(option);
-                  const current = occurrences.get(identity) || { name: option.meal || identity, meals: [] };
-                  current.meals.push(mealLabel);
-                  occurrences.set(identity, current);
-                });
-              });
-              const repeated = [...occurrences.values()].filter((item) => item.meals.length > 1).sort((a, b) => b.meals.length - a.meals.length);
-              return <div className="mt-3 rounded-[14px] bg-[var(--fluent-color-neutral-background-2)] px-3 py-2.5 text-xs"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">Plan variety</span><span>{occurrences.size} unique selected foods {repeated.length ? `· ${repeated.length} repeated across meals ⚠` : occurrences.size ? '✓' : ''}</span></div>{repeated.length ? <div className="mt-2 flex flex-wrap gap-2">{repeated.slice(0, 5).map((item) => <span key={item.name} title={item.meals.join(', ')} className="rounded-full bg-[var(--fluent-color-status-warning-background-1)] px-2.5 py-1 text-[var(--fluent-color-status-warning-foreground)]">{item.name}: {item.meals.length} meal heads</span>)}</div> : null}</div>;
-            })()}
-            <div className="mt-4 grid items-start gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
-              <nav className="space-y-2 rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] p-2" aria-label="Meal navigator">
-                {mealPlanSectionEntries.map(([key, label], index) => {
-                  const selectedCount = dietPlanContentDraft.mealPlan?.[key]?.options?.length || 0;
-                  const availableCount = dietPlanContentDraft.mealPlan?.[key]?.availableOptions?.length || 0;
-                  const stateLabel = selectedCount === 5 ? '5/5 ✓' : availableCount < 5 ? `${availableCount} verified` : selectedCount ? `${selectedCount}/5 · Needs ${5 - selectedCount}` : '0 selected';
-                  return <button key={key} type="button" onClick={() => setActiveMealKey(key)} className={`flex w-full items-center justify-between gap-3 rounded-[12px] px-3 py-2.5 text-left text-xs ${activeMealKey === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'bg-[var(--fluent-color-neutral-background-1)] text-[var(--fluent-color-neutral-foreground-2)]'}`}><span><span className="font-semibold">{String(index + 1).padStart(2, '0')}</span> {label}</span><span className="shrink-0 font-semibold">{stateLabel}</span></button>;
-                })}
-              </nav>
-              <div className="space-y-3">
-              {mealPlanSectionEntries.filter(([key]) => key === activeMealKey).map(([key, label]) => {
-                const section = dietPlanContentDraft.mealPlan?.[key];
-                return (
-                  <div key={key} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
-                    {(() => {
-                      const selected = section?.options || [];
-                      const selectedIds = new Set(selected.map(getMealOptionIdentity));
-                      const rankedOptions = section?.availableOptions || [];
-                      const allOptions = [...selected, ...rankedOptions.filter((option) => !selectedIds.has(getMealOptionIdentity(option)))];
-                      const query = String(mealOptionSearch[key] || '').trim().toLowerCase();
-                      const visibleOptions = allOptions.filter((option) => !query || [option.meal, option.portion, option.prepNote, option.recommendationReason, ...(option.cuisineTags || []), ...(option.dietaryTags || [])].join(' ').toLowerCase().includes(query));
-                      const recommendedIds = new Set(rankedOptions.slice(0, MAX_MEAL_OPTIONS_PER_SECTION).map(getMealOptionIdentity));
-                      const renderOption = (option, listIndex) => {
-                        const identity = getMealOptionIdentity(option);
-                        const isSelected = selectedIds.has(identity);
-                        const selectedIndex = selected.findIndex((item) => getMealOptionIdentity(item) === identity);
-                        const detailsKey = `${key}:${identity}`;
-                        const hasNumericTarget = section?.target?.calories != null || section?.target?.proteinGrams != null;
-                        const backendFitLabel = option.fitLabel || option.recommendationLabel || option.matchClassification;
-                        const fitLabel = !hasNumericTarget && /outside.?target/i.test(String(backendFitLabel || ''))
-                          ? 'Best fit'
-                          : backendFitLabel || 'Best fit';
-                        return <div key={`${key}-option-${identity}`} className={`rounded-[14px] border px-3 py-2.5 ${isSelected ? 'border-[var(--fluent-color-brand-stroke-1)] bg-[var(--fluent-color-brand-background-2)]' : 'border-[var(--fluent-color-neutral-stroke-1)] bg-white'}`}>
-                          <div className="grid min-h-[52px] grid-cols-[24px_minmax(180px,1fr)_auto_auto] items-center gap-3 max-lg:grid-cols-[24px_minmax(0,1fr)_auto]">
-                            <input type="checkbox" checked={isSelected} onChange={() => isSelected ? handleRemoveMealOption(key, identity) : handleSelectMealOption(key, option)} aria-label={`${isSelected ? 'Unselect' : 'Select'} ${option.meal}`} className="h-4 w-4 accent-[var(--fluent-color-brand-background)] focus-visible:outline focus-visible:outline-2" />
-                            <div className="min-w-0"><p className="truncate text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{option.meal || `Option ${listIndex + 1}`}</p><p className="mt-0.5 truncate text-xs text-[var(--fluent-color-neutral-foreground-3)]">{option.portion || 'Serving not set'}</p></div>
-                            <div className="flex gap-4 text-right text-xs max-lg:hidden"><span><strong>{option.approxKcal ?? '—'}</strong><br />kcal</span><span><strong>{option.proteinGrams ?? '—'}{option.proteinGrams != null ? 'g' : ''}</strong><br />protein</span></div>
-                            <div className="flex items-center justify-end gap-2"><span className="hidden rounded-full bg-[var(--fluent-color-neutral-background-2)] px-2.5 py-1 text-[11px] font-medium capitalize text-[var(--fluent-color-neutral-foreground-2)] sm:inline">{String(fitLabel).replace(/_/g, ' ')}</span><button type="button" aria-expanded={Boolean(mealOptionDetailsOpen[detailsKey])} aria-label={`View details for ${option.meal}`} onClick={() => setMealOptionDetailsOpen((current) => ({ ...current, [detailsKey]: !current[detailsKey] }))} className="rounded-full p-1.5 text-[var(--fluent-color-neutral-foreground-2)] hover:bg-[var(--fluent-color-neutral-background-2)]"><ChevronRight size={16} className={mealOptionDetailsOpen[detailsKey] ? 'rotate-90' : ''} /></button></div>
-                          </div>
-                          {isSelected ? <div className="mt-2 flex justify-end gap-2"><button type="button" onClick={() => handleMoveMealOption(key, selectedIndex, 'up')} disabled={selectedIndex === 0} className="text-[11px] font-semibold text-[var(--fluent-color-brand-foreground-link)] disabled:opacity-35">Move up</button><button type="button" onClick={() => handleMoveMealOption(key, selectedIndex, 'down')} disabled={selectedIndex === selected.length - 1} className="text-[11px] font-semibold text-[var(--fluent-color-brand-foreground-link)] disabled:opacity-35">Move down</button></div> : null}
-                          {mealOptionDetailsOpen[detailsKey] ? <div className="mt-2 grid gap-2 border-t border-[var(--fluent-color-neutral-stroke-1)] pt-2 text-xs text-[var(--fluent-color-neutral-foreground-2)] sm:grid-cols-2 xl:grid-cols-4"><span>Carbs: {option.carbohydratesGrams ?? option.carbsGrams ?? 'Not available'}</span><span>Fat: {option.fatGrams ?? 'Not available'}</span><span>Fibre: {option.fibreGrams ?? 'Not available'}</span><span>Verification: {option.verificationStatus || 'Verified catalogue'}</span><span className="sm:col-span-2">Suitability: {option.recommendationReason || option.prepNote || String(fitLabel).replace(/_/g, ' ')}</span><span>Dietary: {(option.dietaryTags || []).join(', ') || 'Not specified'}</span><span>Restrictions/allergens: {(option.allergenTags || option.restrictionTags || []).join(', ') || 'None specified'}</span></div> : null}
-                        </div>;
-                      };
-                      const recommended = visibleOptions.filter((option) => recommendedIds.has(getMealOptionIdentity(option)));
-                      const other = visibleOptions.filter((option) => !recommendedIds.has(getMealOptionIdentity(option)));
-                      return <div className="space-y-4">
-                        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--fluent-color-neutral-stroke-1)] pb-3"><div><div className="flex items-center gap-2"><p className="text-base font-semibold">{label}</p><span className="rounded-full bg-[var(--fluent-color-neutral-background-1)] px-2.5 py-1 text-xs font-semibold">{selected.length} / 5 selected {selected.length === 5 ? '✓' : ''}</span></div><p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{section?.window || 'Window not set'}{section?.focus ? ` · ${section.focus}` : ''}</p><p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">{section?.target?.calories != null || section?.target?.proteinGrams != null ? `Approx target: ${section?.target?.calories != null ? `${section.target.calories} kcal` : 'calories not set'} · ${section?.target?.proteinGrams != null ? `${section.target.proteinGrams} g protein` : 'protein not set'}` : 'Meal target: Not explicitly set'}</p></div><button type="button" onClick={() => setMealSettingsOpen((current) => ({ ...current, [key]: !current[key] }))} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1.5 text-xs font-semibold">Edit meal settings</button></div>
-                        {mealSettingsOpen[key] ? <div className="grid gap-3 rounded-[14px] bg-[var(--fluent-color-neutral-background-1)] p-3 lg:grid-cols-[0.35fr_0.65fr]"><DetailField label={`${label} window`} value={section?.window || 'Not set'} /><div><label className="text-xs font-semibold" htmlFor={`${key}-focus`}>Focus</label><textarea id={`${key}-focus`} rows={2} value={section?.focus || ''} onChange={(event) => handleDietFieldChange(['mealPlan', key, 'focus'], event.target.value)} onInput={(event) => { event.currentTarget.style.height = 'auto'; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }} className="mt-1 min-h-[52px] w-full resize-none overflow-hidden rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm outline-none" /></div></div> : null}
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between"><div><p className="text-sm font-semibold">Meal Options</p><p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">The highest-fit verified options are pre-selected. Review or replace them before saving.</p></div><div className="flex flex-wrap gap-2"><input value={mealOptionSearch[key] || ''} onChange={(event) => handleMealOptionSearchChange(key, event.target.value)} placeholder={`Search verified ${label.toLowerCase()} options`} className="min-w-[240px] rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-3 py-2 text-sm outline-none" /><button type="button" onClick={() => handleSelectRecommendedMealOptions(key)} className="rounded-full border border-[var(--fluent-color-brand-stroke-1)] px-3 py-2 text-xs font-semibold">Select recommended 5</button><button type="button" onClick={() => handleClearMealOptions(key)} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-2 text-xs font-semibold">Clear selection</button></div></div>
-                        {mealSelectionMessage[key] ? <p role="alert" className="rounded-[10px] bg-[var(--fluent-color-status-warning-background-1)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-status-warning-foreground)]">{mealSelectionMessage[key]}</p> : null}
-                        <div><div className="mb-2 flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Recommended for this client</p><span className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">{recommended.length} options</span></div><div className="space-y-2">{recommended.map(renderOption)}</div></div>
-                        {other.length ? <div><div className="mb-2 flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Other verified options</p><span className="text-xs text-[var(--fluent-color-neutral-foreground-3)]">{other.length} options</span></div><div className="space-y-2">{other.map(renderOption)}</div></div> : null}
-                        {!visibleOptions.length ? <div className="rounded-[14px] border border-dashed border-[var(--fluent-color-neutral-stroke-1)] bg-white px-4 py-4 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{allOptions.length ? 'No verified options match this search.' : 'No verified meal-library matches are available for this meal yet.'}</div> : null}
-                        <div className="flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-[var(--fluent-color-neutral-background-1)] px-3 py-1.5">{new Set(selected.map((option) => getMealOptionIdentity(option))).size} unique options {selected.length && new Set(selected.map((option) => getMealOptionIdentity(option))).size === selected.length ? '✓' : ''}</span></div>
-                      </div>;
-                    })()}
-                  </div>
-                );
-              })}
-              <div className="flex items-center justify-between gap-3">
-                <button type="button" disabled={mealPlanSectionEntries.findIndex(([key]) => key === activeMealKey) === 0} onClick={() => { const index = mealPlanSectionEntries.findIndex(([key]) => key === activeMealKey); if (index > 0) setActiveMealKey(mealPlanSectionEntries[index - 1][0]); }} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-4 py-2 text-xs font-semibold disabled:opacity-40">← Previous Meal</button>
-                <button type="button" disabled={mealPlanSectionEntries.findIndex(([key]) => key === activeMealKey) === mealPlanSectionEntries.length - 1} onClick={() => { const index = mealPlanSectionEntries.findIndex(([key]) => key === activeMealKey); if (index < mealPlanSectionEntries.length - 1) setActiveMealKey(mealPlanSectionEntries[index + 1][0]); }} className="rounded-full border border-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-background)] disabled:opacity-40">Next Meal →</button>
-              </div>
-              </div>
-            </div>
-          </Surface> : null}
 
           {nutritionSectionTab === 'Optional Guidance' ? <Surface className="p-5" animated>
             <div className="flex flex-wrap items-start justify-between gap-3">

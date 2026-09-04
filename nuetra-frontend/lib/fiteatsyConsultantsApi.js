@@ -167,6 +167,12 @@ export async function saveFiteatsyCommonFoodOption(clientId, dietPlanId, payload
   });
 }
 
+export async function replaceFiteatsyCommonFoodSelection(clientId, dietPlanId, payload) {
+  return requestFiteatsy(commonFoodPath(clientId, `/diet-plans/${encodeURIComponent(dietPlanId)}/common-food/options`), {
+    method: 'PUT', body: payload,
+  });
+}
+
 export async function replaceFiteatsyCommonFoodComponent(clientId, dietPlanId, optionId, componentId, payload) {
   return requestFiteatsy(commonFoodPath(clientId, `/diet-plans/${encodeURIComponent(dietPlanId)}/common-food/options/${encodeURIComponent(optionId)}/components/${encodeURIComponent(componentId)}`), {
     method: 'PATCH', body: payload,

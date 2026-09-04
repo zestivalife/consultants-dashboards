@@ -32,6 +32,7 @@ test('API client uses every accepted backend common-food route', () => {
   assert.doesNotMatch(api, /Math\.random/);
   assert.match(api, /\/v1\/consultants\/clients\/\$\{encodeURIComponent\(clientId\)\}/);
   assert.doesNotMatch(api, /\/v1\/consultants\/nutrition\/clients/);
+  assert.match(api, /method: 'PUT'/);
 });
 
 test('single Diet Plan editor provides requested generation, shortage, explorer and all mutations', () => {
@@ -50,10 +51,10 @@ test('authoritative nutrition is never summed in the UI', () => {
   assert.match(editor, /updated and recalculated by Fiteatsy/);
 });
 
-test('common-food and rollback editors are mutually exclusive', async () => {
+test('all editable plans use one unified editor without the legacy fallback', async () => {
   const workspace = await readFile(new URL('../components/platform/PlatformWorkspace.jsx', import.meta.url), 'utf8');
   assert.match(workspace, /CommonFoodPlanEditor/);
-  assert.match(workspace, /commonFoodPlanActive/);
+  assert.doesNotMatch(workspace, /No verified meal-library matches|Select recommended 5|commonFoodPlanActive \?/);
   assert.doesNotMatch(workspace, /Legacy Meal Plan Editor|Generate 7×5/);
   assert.match(workspace, /Generate Diet Plan/);
   assert.match(workspace, /commonFoodEditorRef\.current\?\.save/);
@@ -77,4 +78,7 @@ test('mixed-plan compatibility is rendered inside the existing Diet Plan surface
 test('generated candidates require an explicit exact-five selection before persistence', () => {
   for (const fragment of ['AVAILABLE', 'SELECTED', 'SAVED', 'selectedIds', 'Select exactly five options for every meal', 'data-selection-state']) assert.ok(editor.includes(fragment), fragment);
   assert.match(editor, /selected\.filter\(\(option\) => option\.mealHead === head\)\.length !== 5/);
+  assert.match(editor, /replaceFiteatsyCommonFoodSelection/);
+  assert.match(editor, /options: selected\.map/);
+  assert.match(editor, /useImperativeHandle[\s\S]*selectedIds/);
 });

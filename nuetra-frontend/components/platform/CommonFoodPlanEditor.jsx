@@ -6,7 +6,7 @@ import {
   readFiteatsyCommonFoodOptions,
   removeFiteatsyCommonFoodComponent,
   replaceFiteatsyCommonFoodComponent,
-  saveFiteatsyCommonFoodOption,
+  replaceFiteatsyCommonFoodSelection,
   searchFiteatsyCommonFoods,
   updateFiteatsyCommonFoodServing,
 } from '../../lib/fiteatsyConsultantsApi';
@@ -132,7 +132,14 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
     try {
       const response = await generateFiteatsyCommonFoodPlan(clientId, dietPlanId, COMMON_FOOD_MEALS.map(([head]) => head));
       if (response?.supported === false) { setOptions([]); setMeals([]); setError(commonFoodErrorMessage({ data: { error: response.code } })); return; }
-      setMeals(response?.meals || []); setOptions((response?.meals || []).flatMap((meal) => meal.options || [])); setSelectedIds(new Set()); setPersistedIds(new Set()); setDirty(false); setMessage('Your candidate options are ready. Select exactly five for every meal, then save before review.');
+      const generated = (response?.meals || []).flatMap((meal) => meal.options || []);
+      setMeals(response?.meals || []);
+      setOptions((current) => {
+        const byId = new Map(current.map((option) => [option.combinationId, option]));
+        generated.forEach((option) => { if (!byId.has(option.combinationId)) byId.set(option.combinationId, option); });
+        return [...byId.values()];
+      });
+      setDirty(false); setMessage('Candidate options refreshed. Existing saved selections were preserved; select exactly five for every meal, then save before review.');
     } catch (nextError) { setError(commonFoodErrorMessage(nextError, 'Unable to generate Diet Plan options.')); }
     finally { setLoading(false); }
   }, [clientId, dietPlanId]);
@@ -167,14 +174,14 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
     }
     setSaving(true); setError('');
     try {
-      const persisted = [];
-      for (const option of selected) persisted.push(await saveFiteatsyCommonFoodOption(clientId, dietPlanId, { optionId: option.combinationId, expectedPlanVersionId, mealHead: option.mealHead, components: option.components.map(({ foodId, servingId, multiplier }) => ({ foodId, servingId, multiplier })) }));
+      const response = await replaceFiteatsyCommonFoodSelection(clientId, dietPlanId, { expectedPlanVersionId, options: selected.map((option) => ({ optionId: option.combinationId, mealHead: option.mealHead, components: option.components.map(({ foodId, servingId, multiplier }) => ({ foodId, servingId, multiplier })) })) });
+      const persisted = response?.options || [];
       const nextIds = new Set(persisted.map((option) => option.combinationId));
       setOptions(persisted); setSelectedIds(nextIds); setPersistedIds(nextIds); setDirty(false); setMessage(`Saved ${persisted.length} selected, server-validated options.`);
     } catch (nextError) { if (nextError?.status === 409) onStale?.(); setError(commonFoodErrorMessage(nextError)); throw nextError; }
     finally { setSaving(false); }
   };
-  useImperativeHandle(ref, () => ({ save: saveAll, reload: () => reload(), generate }), [generate, options, planVersionId, reload]);
+  useImperativeHandle(ref, () => ({ save: saveAll, reload: () => reload(), generate }), [generate, options, planVersionId, reload, selectedIds]);
   const mutate = async (action) => {
     setError('');
     try { const next = await action(); setOptions((current) => current.map((item) => item.combinationId === next.combinationId ? next : item)); setDirty(false); setExplorer(null); setMessage('Option updated and recalculated by Fiteatsy.'); }
