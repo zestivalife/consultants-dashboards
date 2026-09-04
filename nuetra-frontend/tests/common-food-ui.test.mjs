@@ -135,3 +135,9 @@ test('v17.23 explorer separates scope, uses serving nutrition and sends a govern
   assert.match(editor, /expectedPlanVersionId: planVersionId, draft, component/);
   assert.match(editor, /\['PULSE', 'Dal & pulses'\]/);
 });
+
+test('v17.26A keeps catalogue references fail-closed and exposes reusable templates in the unified editor', () => {
+  for (const fragment of ['Template Library', 'Save selected meal as Template', 'Save as Template', 'My Templates', 'Team Templates', 'Nutrition is recalculated for each client', 'catalogue reference only', 'Verification pending']) assert.ok(editor.includes(fragment), fragment);
+  for (const fragment of ['/meal-templates', '/activate', '/apply']) assert.ok(api.includes(fragment), fragment);
+  assert.doesNotMatch(editor, /template.*nutrition.*reduce\(/i);
+});
