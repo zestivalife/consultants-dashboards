@@ -47,6 +47,21 @@ test('catalogue search is debounced, cancellable and paginated', () => {
   assert.match(editor, /hasMore/);
 });
 
+test('Explorer recovery owns scope, pagination and stale-response state', () => {
+  assert.match(editor, /requestSequence\.current/);
+  assert.match(editor, /requestId === requestSequence\.current/);
+  assert.match(editor, /filters\.scope === 'ALL'[\s\S]*componentRole: ''[\s\S]*mealHead: undefined/);
+  assert.match(editor, /setScope[\s\S]*offset: 0/);
+  assert.match(editor, /result\.emptyGuidance\?\.message/);
+  assert.match(editor, /result\.counts\?\.excluded/);
+  assert.match(editor, /applyRecoveryAction/);
+  assert.match(editor, /VIEW_ALL_CATALOGUE/);
+});
+
+test('generated candidate rendering preserves the backend-selected order', () => {
+  assert.match(editor, /return \[\.\.\.generated, \.\.\.current\.filter/);
+});
+
 test('authoritative nutrition is never summed in the UI', () => {
   assert.doesNotMatch(editor, /reduce\([^)]*(kcal|protein|carbohydrate|fat|fibre)/);
   assert.match(editor, /updated and recalculated by Fiteatsy/);
