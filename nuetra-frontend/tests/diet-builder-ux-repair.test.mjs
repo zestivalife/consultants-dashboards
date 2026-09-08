@@ -43,3 +43,11 @@ test('manual food access remains permissive and search remains compact', () => {
   assert.match(editor, /primaryActionEnabled/);
   assert.doesNotMatch(editor, /disabled=.*generatorEligible/);
 });
+
+test('component mutations remain unsaved until the authoritative 35-selection replacement succeeds', () => {
+  assert.match(editor, /Option updated and recalculated by Fiteatsy\. Save the Diet Plan to persist the complete selection\./);
+  assert.match(editor, /Component added independently to \$\{updated\.length\} meal options\. Save the Diet Plan to persist the complete selection\./);
+  assert.match(editor, /replaceFiteatsyCommonFoodSelection/);
+  assert.match(editor, /setOptions\(persisted\); setSelectedIds\(nextIds\); setPersistedIds\(nextIds\); setDirty\(false\)/);
+  assert.doesNotMatch(editor, /Option updated and recalculated by Fiteatsy\.['"]\); \}\s*catch/);
+});

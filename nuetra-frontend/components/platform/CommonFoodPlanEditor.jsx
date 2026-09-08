@@ -248,7 +248,7 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
   useImperativeHandle(ref, () => ({ save: saveAll, reload: () => reload(), generate }), [generate, options, planVersionId, reload, selectedIds]);
   const mutate = async (action) => {
     setError('');
-    try { const next = await action(); setOptions((current) => current.map((item) => item.combinationId === next.combinationId ? next : item)); setDirty(false); setExplorer(null); setMessage('Option updated and recalculated by Fiteatsy.'); }
+    try { const next = await action(); setOptions((current) => current.map((item) => item.combinationId === next.combinationId ? next : item)); setDirty(true); setExplorer(null); setMessage('Option updated and recalculated by Fiteatsy. Save the Diet Plan to persist the complete selection.'); }
     catch (nextError) { if (nextError?.status === 409) onStale?.(); setError(commonFoodErrorMessage(nextError)); }
   };
   const openExplorer = (mode, option, component, mealLabel, targetRole = '', extra = {}) => setExplorer({ mode, option, component, mealHead: option.mealHead, mealLabel, targetRole, ...extra });
@@ -277,7 +277,7 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
           updated.push(await addFiteatsyCommonFoodComponent(clientId, dietPlanId, optionId, { expectedPlanVersionId: planVersionId, draft, component: foodComponent }));
         }
         setOptions((current) => current.map((item) => updated.find((next) => next.combinationId === item.combinationId) || item));
-        setDirty(false); setExplorer(null); setMessage(`Component added independently to ${updated.length} meal options.`);
+        setDirty(true); setExplorer(null); setMessage(`Component added independently to ${updated.length} meal options. Save the Diet Plan to persist the complete selection.`);
       } catch (nextError) { if (nextError?.status === 409) onStale?.(); setError(commonFoodErrorMessage(nextError)); }
       return;
     }
