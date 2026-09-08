@@ -1195,10 +1195,11 @@ function deriveClientHealthStatus({ nutritionIntelligence, syncMetadata, wearabl
   };
 }
 
+const EATING_OUT_CATEGORIES = [['chinese', 'Chinese'], ['northIndian', 'North Indian'], ['southIndian', 'South Indian'], ['continental', 'Continental'], ['indianFastFood', 'Indian Fast Food'], ['streetFood', 'Street Food'], ['cafeBakery', 'Café / Bakery'], ['other', 'Other']];
+const CRAVING_CATEGORIES = [['sweet', 'Sweet'], ['salty', 'Salty'], ['spicy', 'Spicy'], ['crunchy', 'Crunchy']];
 const optionalGuidanceSections = (guidance) => guidance ? [
-  ['What Can I Eat Now', ['optionalGuidance', 'whatCanIEatNow'], guidance.whatCanIEatNow || []],
-  ...Object.entries(guidance.eatingOut || {}).map(([key, items]) => [`Eating Out · ${key.replace(/([A-Z])/g, ' $1')}`, ['optionalGuidance', 'eatingOut', key], items]),
-  ...Object.entries(guidance.cravings || {}).map(([key, items]) => [`Craving · ${key}`, ['optionalGuidance', 'cravings', key], items]),
+  ...EATING_OUT_CATEGORIES.map(([key, label]) => [label, ['optionalGuidance', 'eatingOut', key], guidance.eatingOut?.[key] || []]),
+  ...CRAVING_CATEGORIES.map(([key, label]) => [label, ['optionalGuidance', 'cravings', key], guidance.cravings?.[key] || []]),
 ] : [];
 
 function getOptionalGuidanceProgress(guidance) {
@@ -1225,7 +1226,7 @@ function OptionalGuidanceProgress({ guidance }) {
 function OptionalGuidanceEditor({ guidance, readOnly, onItemsChange, onSearch }) {
   const [searches, setSearches] = useState({});
   const [candidates, setCandidates] = useState({});
-  const [activeGroup, setActiveGroup] = useState('whatCanIEatNow');
+  const [activeGroup, setActiveGroup] = useState('eatingOut');
   const [activeEatingOut, setActiveEatingOut] = useState('northIndian');
   const [activeCraving, setActiveCraving] = useState('sweet');
   if (!guidance) {
@@ -1233,8 +1234,9 @@ function OptionalGuidanceEditor({ guidance, readOnly, onItemsChange, onSearch })
   }
   return <div className="mt-4 space-y-4">
     <OptionalGuidanceProgress guidance={guidance} />
+    <p className="rounded-[14px] bg-blue-50 px-4 py-3 text-sm text-blue-900">Optional choices are not included in the prescribed daily calorie total unless added to the Diet Plan.</p>
     <div className="flex flex-wrap gap-2 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-2">
-      {[['whatCanIEatNow', 'Eat Now'], ['eatingOut', 'Eating Out'], ['cravings', 'Cravings']].map(([key, label]) => <button key={key} type="button" onClick={() => setActiveGroup(key)} className={`rounded-[12px] px-4 py-2 text-xs font-semibold ${activeGroup === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'text-[var(--fluent-color-neutral-foreground-2)]'}`}>{label}</button>)}
+      {[['eatingOut', 'Eating Out'], ['cravings', 'Cravings']].map(([key, label]) => <button key={key} type="button" onClick={() => setActiveGroup(key)} className={`rounded-[12px] px-4 py-2 text-xs font-semibold ${activeGroup === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'text-[var(--fluent-color-neutral-foreground-2)]'}`}>{label}</button>)}
     </div>
     <div className="grid gap-3 md:grid-cols-3">
       <DetailField label="Prepared by" value={guidance.generatedBy && !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(guidance.generatedBy) ? guidance.generatedBy : 'Consultant'} />
@@ -1245,16 +1247,15 @@ function OptionalGuidanceEditor({ guidance, readOnly, onItemsChange, onSearch })
       {activeGroup === 'eatingOut' ? (
       <div className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
         <p className="text-sm font-semibold">Eating Out</p>
-        <div className="mt-3 flex flex-wrap gap-2">{Object.keys(guidance.eatingOut || {}).map((key) => <button key={key} type="button" onClick={() => setActiveEatingOut(key)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${activeEatingOut === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'border border-[var(--fluent-color-neutral-stroke-1)]'}`}>{key.replace(/([A-Z])/g, ' $1')}</button>)}</div>
+        <div className="mt-3 flex flex-wrap gap-2">{EATING_OUT_CATEGORIES.map(([key,label]) => <button key={key} type="button" onClick={() => setActiveEatingOut(key)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${activeEatingOut === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'border border-[var(--fluent-color-neutral-stroke-1)]'}`}>{label}</button>)}</div>
       </div>) : null}
       {activeGroup === 'cravings' ? (
       <div className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
         <p className="text-sm font-semibold">Cravings</p>
-        <div className="mt-3 flex flex-wrap gap-2">{Object.keys(guidance.cravings || {}).map((key) => <button key={key} type="button" onClick={() => setActiveCraving(key)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${activeCraving === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'border border-[var(--fluent-color-neutral-stroke-1)]'}`}>{key}</button>)}</div>
+        <div className="mt-3 flex flex-wrap gap-2">{CRAVING_CATEGORIES.map(([key,label]) => <button key={key} type="button" onClick={() => setActiveCraving(key)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${activeCraving === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'border border-[var(--fluent-color-neutral-stroke-1)]'}`}>{label}</button>)}</div>
       </div>) : null}
     </div> : null}
     {optionalGuidanceSections(guidance).filter(([, path]) => (
-      (activeGroup === 'whatCanIEatNow' && path.length === 2) ||
       (activeGroup === 'eatingOut' && path[1] === 'eatingOut' && path[2] === activeEatingOut) ||
       (activeGroup === 'cravings' && path[1] === 'cravings' && path[2] === activeCraving)
     )).map(([label, path, items]) => {
@@ -1265,8 +1266,7 @@ function OptionalGuidanceEditor({ guidance, readOnly, onItemsChange, onSearch })
       {!readOnly ? <div className="mt-3 flex gap-2"><input value={searches[label] || ''} onChange={(event) => setSearches((current) => ({ ...current, [label]: event.target.value }))} placeholder="Search verified catalogue" className="min-w-0 flex-1 rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2 text-sm" /><button onClick={async () => { const next = await onSearch(path, searches[label] || ''); setCandidates((current) => ({ ...current, [label]: next })); }} className="rounded-[12px] bg-[var(--fluent-color-brand-background)] px-3 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">Search</button></div> : null}
       {!readOnly && candidates[label]?.length ? <div className="mt-2 space-y-2">{candidates[label].slice(0, 6).map((candidate) => <div key={candidate.id} className="flex items-center justify-between gap-3 rounded-[12px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2"><div><p className="text-xs font-semibold">{candidate.name}</p><p className="text-[11px] text-[var(--fluent-color-neutral-foreground-3)]">{candidate.servingLabel} · {candidate.nutrition.calories} kcal</p></div><button onClick={() => onItemsChange(path, (list) => { if (!list.some((item) => item.id === candidate.id)) list.push({ ...candidate, displayOrder: list.length + 1 }); })} className="rounded-full border border-[var(--fluent-color-brand-stroke-1)] px-3 py-1 text-xs font-semibold">Add</button></div>)}</div> : null}
       <div className="mt-3 grid gap-3 xl:grid-cols-2">{items.map((item, index) => <div key={item.id} className={`rounded-[16px] border p-3 ${item.enabled ? 'border-[var(--fluent-color-brand-stroke-1)] bg-[var(--fluent-color-neutral-background-1)]' : 'border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-inset)] opacity-75'}`}>
-        <div className="flex flex-wrap items-start justify-between gap-3"><label className="flex min-w-0 cursor-pointer items-start gap-3"><input type="checkbox" checked={Boolean(item.enabled)} disabled={readOnly} onChange={() => onItemsChange(path, (list) => { const enabled = list.filter((entry) => entry.enabled).length; if (!list[index].enabled && enabled >= 5) return; list[index].enabled = !list[index].enabled; })} className="mt-1 h-4 w-4 rounded border-[var(--fluent-color-neutral-stroke-1)] accent-[var(--fluent-color-brand-background)]" /><span className="min-w-0"><span className="block text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.name}</span><span className="mt-1 block text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.planMembership ? 'Prescribed plan option' : 'Optional guidance'} · Verified catalogue</span></span></label></div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-6"><DetailField label="Serving" value={item.servingLabel} /><DetailField label="Calories" value={`${item.nutrition.calories} kcal`} /><DetailField label="Protein" value={`${item.nutrition.protein} g`} /><DetailField label="Carbs" value={`${item.nutrition.carbs} g`} /><DetailField label="Fat" value={`${item.nutrition.fat} g`} /><DetailField label="Fibre" value={`${item.nutrition.fibre} g`} /></div>
+        <div className="flex flex-wrap items-start justify-between gap-3"><label className="flex min-w-0 cursor-pointer items-start gap-3"><input type="checkbox" checked={Boolean(item.enabled)} disabled={readOnly} onChange={() => onItemsChange(path, (list) => { const enabled = list.filter((entry) => entry.enabled).length; if (!list[index].enabled && enabled >= 5) return; list[index].enabled = !list[index].enabled; })} className="mt-1 h-4 w-4 rounded border-[var(--fluent-color-neutral-stroke-1)] accent-[var(--fluent-color-brand-background)]" /><span className="min-w-0"><span className="block text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.name}</span><span className="mt-1 block text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.servingLabel} · {item.nutrition.calories} kcal · P {item.nutrition.protein} g</span></span></label><span className="text-xs font-semibold text-blue-700">{item.enabled ? 'Included' : 'Include'}</span></div>
         <p className="mt-3 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.reason}</p>
         {!readOnly ? <div className="mt-3 flex flex-wrap gap-2"><button aria-label={`Move ${item.name} earlier`} disabled={index === 0} onClick={() => onItemsChange(path, (list) => { [list[index - 1], list[index]] = [list[index], list[index - 1]]; list.forEach((entry, order) => { entry.displayOrder = order + 1; }); })} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1.5 text-xs font-semibold disabled:opacity-40">Reorder ↑</button><button onClick={() => onItemsChange(path, (list) => { list.splice(index, 1); list.forEach((entry, order) => { entry.displayOrder = order + 1; }); })} className="rounded-full border border-[var(--fluent-color-status-danger-foreground)] px-3 py-1.5 text-xs font-semibold text-[var(--fluent-color-status-danger-foreground)]">Remove</button></div> : null}
       </div>)}</div>
@@ -2187,16 +2187,19 @@ function RealClientProfileDrawer({
         </div>
       </Surface>
 
-      <div className="sticky top-[132px] z-20 rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[rgba(255,255,255,0.96)] p-2 shadow-[0_8px_24px_rgba(15,23,42,0.08)] backdrop-blur">
+      <details className="rounded-[14px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-4 py-3">
+        <summary className="cursor-pointer text-sm"><span className="font-semibold">{summaryClient?.name || 'Client'}</span><span className="ml-2 text-[var(--fluent-color-neutral-foreground-2)]">{formatDisplayValue(goalLabel)} · {dailyNutritionMonitoring?.dailyNutrition?.targetCalories ?? '—'} kcal/day · {dailyNutritionMonitoring?.dailyNutrition?.targetProtein ?? '—'} g protein · BMI {nutritionIntelligenceState?.clientSummary?.bmi ?? '—'} · Biomarkers reviewed</span><span className="ml-2 font-semibold text-blue-700">View Health Context</span></summary>
+        <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-2)]">Detailed profile, preferences and biomarker context remain available here without occupying the meal-authoring workspace.</p>
+      </details>
+      <div className="sticky top-[72px] z-20 rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[rgba(255,255,255,0.96)] p-2 shadow-[0_8px_24px_rgba(15,23,42,0.08)] backdrop-blur">
         <div className="flex flex-wrap gap-2">
           {['Diet Plan', 'Optional Guidance', 'Review & Submit'].map((tab) => <button key={tab} type="button" onClick={() => setNutritionSectionTab(tab)} className={`rounded-[12px] px-4 py-2 text-xs font-semibold ${nutritionSectionTab === tab ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'text-[var(--fluent-color-neutral-foreground-2)]'}`}>{tab}</button>)}
         </div>
         {dietPlanState?.plan?.id ? <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 px-2 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
-          <span>Version {dietPlanState.currentVersionNumber}</span><span>·</span>
-          <span>{workflowLabelFromLifecycle(dietPlanState.currentLifecycle)}</span><span>·</span>
+          <span>{workflowLabelFromLifecycle(dietPlanState.currentLifecycle)} v{dietPlanState.currentVersionNumber}</span><span>·</span>
           <span>{mealPlanSectionEntries.length} meals</span><span>·</span>
-          <span>{selectedDietOptionCount}/35 selected</span><span>·</span>
-          <span>Guidance {optionalGuidanceSections(dietPlanContentDraft?.optionalGuidance).reduce((sum, [, , items]) => sum + items.filter((item) => item.enabled).length, 0)} included</span><span>·</span>
+          <span>{selectedDietOptionCount}/35 included</span><span>·</span>
+          <span>{optionalGuidanceSections(dietPlanContentDraft?.optionalGuidance).reduce((sum, [, , items]) => sum + items.filter((item) => item.enabled).length, 0)} guidance choices</span><span>·</span>
           <span>{dietPlanDirty ? 'Unsaved changes' : 'Saved'}</span>
         </div> : null}
       </div>

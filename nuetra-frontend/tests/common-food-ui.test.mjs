@@ -83,39 +83,41 @@ test('legacy, validated recipe and generated combination normalize into one edit
 });
 
 test('mixed-plan compatibility is rendered inside the existing Diet Plan surface', () => {
-  for (const fragment of ['legacyMealPlan', 'legacyOptionsForUnifiedPlan', 'Legacy option', 'data-option-type']) assert.ok(editor.includes(fragment), fragment);
+  for (const fragment of ['legacyMealPlan', 'legacyOptionsForUnifiedPlan', 'Previous plan choices', 'data-option-type']) assert.ok(editor.includes(fragment), fragment);
 });
 
-test('generated candidates require an explicit exact-five selection before persistence', () => {
+test('generated candidates default to exact-five inclusion before persistence', () => {
   for (const fragment of ['AVAILABLE', 'SELECTED', 'SAVED', 'selectedIds', 'Select exactly five options for every meal', 'data-selection-state']) assert.ok(editor.includes(fragment), fragment);
   assert.match(editor, /selected\.filter\(\(option\) => option\.mealHead === head\)\.length !== 5/);
   assert.match(editor, /replaceFiteatsyCommonFoodSelection/);
   assert.match(editor, /options: selected\.map/);
   assert.match(editor, /useImperativeHandle[\s\S]*selectedIds/);
+  assert.match(editor, /slice\(0, 5\).*next\.add/s);
+  assert.match(editor, /Generated options are included by default/);
 });
 
 test('semantic meal UX leads with client-ready titles, human servings, progress and truthful shortage', () => {
   assert.equal(optionTitle({ clientTitle: 'Chapati + Moong Dal + Bhindi Sabji + Curd' }), 'Chapati + Moong Dal + Bhindi Sabji + Curd');
   assert.equal(optionTitle({ clientTitle: 'Option 1' }), 'Structured meal');
-  for (const fragment of ['35 selected', 'selections remaining', 'Preview as Client', 'Build Meal', 'No suitable options are available']) assert.ok(editor.includes(fragment), fragment);
+  for (const fragment of ['35 included', 'choices remaining', 'Preview as Client', 'Build Meal', 'No suitable options are available']) assert.ok(editor.includes(fragment), fragment);
   assert.doesNotMatch(editor, /<p className="text-sm font-semibold">Option \{index \+ 1\}<\/p>/);
   assert.match(editor, /optionTitle\(option\)/);
 });
 
 test('v17.22 uses compact progressive-disclosure cards and a client-only preview', () => {
-  for (const fragment of ['Structured meal components', 'exact equivalent', 'Choose any one', 'never the candidate pool', 'Good calorie fit', 'Good protein fit']) assert.ok(editor.includes(fragment), fragment);
+  for (const fragment of ['Meal composition', 'Serving:', 'Choose any one', 'never the candidate pool', 'Within target']) assert.ok(editor.includes(fragment), fragment);
   assert.match(editor, /aria-expanded/);
   assert.match(editor, /ClientPreview/);
 });
 
 test('v17.22 exposes role-safe component editing, locks and auto-balance', () => {
-  for (const fragment of ['Edit Meal', 'Adjust serving', 'Keep this serving fixed during Auto-Balance', 'Auto-Balance', '+ Build Meal']) assert.ok(editor.includes(fragment), fragment);
+  for (const fragment of ['Edit quantity', 'Balance to target', '+ Build Meal']) assert.ok(editor.includes(fragment), fragment);
   assert.match(editor, /componentRole\(component\)/);
   assert.match(editor, /lockedFoodIds/);
 });
 
 test('v17.22 progress and shortage language are explicit and accessible', () => {
-  for (const fragment of ['selections remaining', 'All seven meals are complete', 'selected', 'source-governance requirements', 'aria-live="assertive"']) assert.ok(editor.includes(fragment), fragment);
+  for (const fragment of ['choices remaining', 'All seven meals complete', 'included', 'aria-live="assertive"']) assert.ok(editor.includes(fragment), fragment);
   assert.doesNotMatch(editor, />Generated combination</);
 });
 
@@ -145,7 +147,7 @@ test('v17.27 renders truthful catalogue maturity, compact cards and a sticky sel
 });
 
 test('v17.28 renders backend-owned operational actions and role-scoped meal building', () => {
-  for (const fragment of ['nutritionDisplayMode', 'primaryActionEnabled', 'primaryAction', 'relatedPreparedItems', 'Target role:', 'No production-active prepared', "['STARCH','Staple']", "['PULSE','Protein / Pulse']", "['VEGETABLE','Vegetable']", "['ACCOMPANIMENT','Accompaniment']"]) assert.ok(editor.includes(fragment), fragment);
+  for (const fragment of ['nutritionDisplayMode', 'primaryActionEnabled', 'primaryAction', 'relatedPreparedItems', 'Target role:', 'No prepared', "['STARCH', 'Staple']", "['PULSE', 'Protein / Pulse']", "['VEGETABLE', 'Vegetable']", "['ACCOMPANIMENT', 'Accompaniment']", "['OPTIONAL_EXTRA', 'Optional Extra']"]) assert.ok(editor.includes(fragment), fragment);
   assert.match(editor, /context\.targetRole/);
   assert.doesNotMatch(editor, /five “Not Reported” fields/);
 });
