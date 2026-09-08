@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { COMMON_FOOD_ERROR_MESSAGES, COMMON_FOOD_MEALS, commonFoodOptionType, formatNutrient, legacyOptionsForUnifiedPlan, optionSummary, optionTitle } from '../lib/commonFoodUi.mjs';
+import { buildDailyCalorieModel } from '../lib/commonFoodCalorieModel.mjs';
 
 const api = await readFile(new URL('../lib/fiteatsyConsultantsApi.js', import.meta.url), 'utf8');
 const featureFlags = await readFile(new URL('../lib/dietFeatureFlags.js', import.meta.url), 'utf8');
@@ -172,3 +173,26 @@ test('v17.26A keeps catalogue references fail-closed and exposes reusable templa
 });
 
 test('merged authoring renders advisory quality and governed quantity nutrition',()=>{for(const fragment of ['targets are advisory while editing','Add foods progressively','option.warnings','Serving quantity','min={serving?.minMultiplier}','max={serving?.maxMultiplier}','Calcium','Iron','Sodium','Potassium','Magnesium','Zinc','Vitamin A','Vitamin C','Vitamin B12','Folate'])assert.ok(editor.includes(fragment),fragment);assert.notEqual(COMMON_FOOD_ERROR_MESSAGES.MEAL_QUALITY_SANITY_FAILED,'This meal does not meet the serving, structure, calorie, or client-facing quality requirements.');});
+
+test('daily calorie intelligence sums seven meal extrema, never all 35 alternatives', () => {
+  const options = COMMON_FOOD_MEALS.flatMap(([mealHead], mealIndex) => Array.from({ length: 5 }, (_, index) => ({ combinationId: `${mealHead}-${index}`, mealHead, nutrition: { kcal: 100 + mealIndex * 20 + index * 5 } })));
+  const model = buildDailyCalorieModel({ dailyTargetKcal: 1000, options });
+  assert.equal(model.minimumDailyKcal, 1120);
+  assert.equal(model.maximumDailyKcal, 1260);
+  assert.notEqual(model.maximumDailyKcal, options.reduce((sum, option) => sum + option.nutrition.kcal, 0));
+  assert.equal(model.selectedDailyKcal, null);
+});
+
+test('exact daily total appears only with one authoritative choice per meal and quantity changes refresh range', () => {
+  const options = COMMON_FOOD_MEALS.map(([mealHead]) => ({ combinationId: mealHead, mealHead, authoritativeDailyChoice: true, nutrition: { kcal: 300 } }));
+  const complete = buildDailyCalorieModel({ dailyTargetKcal: 2000, options });
+  assert.equal(complete.selectedDailyKcal, 2100);
+  assert.equal(complete.selectedDailyAdvisory, 'Daily calorie target exceeded by 100 kcal.');
+  const edited = options.map((option, index) => index === 0 ? { ...option, nutrition: { kcal: 350 } } : option);
+  assert.equal(buildDailyCalorieModel({ dailyTargetKcal: 2000, options: edited }).maximumDailyKcal, 2150);
+  assert.equal(buildDailyCalorieModel({ dailyTargetKcal: 2000, options: edited.slice(0, 6) }).selectedDailyKcal, null);
+});
+
+test('calorie UI states alternatives, target, range and authoritative selected-day semantics', () => {
+  for (const fragment of ['Daily calorie intelligence', 'Daily target', 'Planned range', 'Current daily plan', 'not actual consumption', 'does not add all 35 alternatives', 'mealTargetKcal']) assert.ok(editor.includes(fragment), fragment);
+});
