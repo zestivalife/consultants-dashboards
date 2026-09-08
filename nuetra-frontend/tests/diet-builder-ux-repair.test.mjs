@@ -5,6 +5,21 @@ import test from 'node:test';
 const editor = await readFile(new URL('../components/platform/CommonFoodPlanEditor.jsx', import.meta.url), 'utf8');
 const workspace = await readFile(new URL('../components/platform/PlatformWorkspace.jsx', import.meta.url), 'utf8');
 
+test('Nutrition uses one adaptive sticky stack and a non-sticky detailed health drawer', () => {
+  assert.match(workspace, /data-testid="nutrition-sticky-stack"/);
+  assert.match(workspace, /className="sticky top-0 z-20/);
+  assert.doesNotMatch(workspace, /sticky top-\[72px\] z-20/);
+  assert.match(workspace, /aria-labelledby="health-context-title"/);
+  assert.doesNotMatch(workspace, /Health Snapshot[\s\S]{0,250}sticky top-0 z-30/);
+});
+
+test('Optional Guidance has explicit scoped authoring and remains calorie-isolated', () => {
+  for (const fragment of ['+ Add Guidance', 'Add to guidance', 'Edit guidance', 'Consultant note', 'Add to Diet Plan', 'available ·', 'included']) assert.ok(workspace.includes(fragment), fragment);
+  assert.match(workspace, /onSearch\(authoring\.targetPath, authoringQuery\)/);
+  assert.match(workspace, /Guidance stays separate from prescribed Diet Plan calories/);
+  assert.match(workspace, /Choose the target meal and option/);
+});
+
 test('generation includes five choices for every meal by default', () => {
   assert.match(editor, /COMMON_FOOD_MEALS\.forEach/);
   assert.match(editor, /slice\(0, 5\)\.forEach/);
