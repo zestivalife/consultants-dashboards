@@ -1421,6 +1421,8 @@ function RealClientProfileDrawer({
   const wearableSummary = profile?.wearableSummary;
   const planWorkflow = profile?.planWorkflow;
   const selectedDietOptionCount = commonFoodProgress?.selected ?? (dietPlanState?.version?.commonFoodOptions || dietPlanState?.commonFoodOptions || []).length;
+  const persistedDietOptionCount = commonFoodProgress?.persisted ?? (dietPlanState?.version?.commonFoodOptions || dietPlanState?.commonFoodOptions || []).length;
+  const effectiveCommonFoodDirty = commonFoodProgress?.dirty ?? commonFoodDirty;
   const remainingDietOptionCount = Math.max(0, 35 - selectedDietOptionCount);
   const backendRecommendations = profile?.recommendations || [];
   const biomarkers = profile?.biomarkers || [];
@@ -1712,7 +1714,7 @@ function RealClientProfileDrawer({
         content: dietPlanContentDraft,
         reviewNotes: 'Consultant reviewed and updated diet chart.',
       }) : { plan: dietPlanState.plan, version: dietPlanState.version };
-      if (commonFoodDirty) await commonFoodEditorRef.current?.save(response?.version?.id || dietPlanState.version?.id);
+      if (effectiveCommonFoodDirty) await commonFoodEditorRef.current?.save(response?.version?.id || dietPlanState.version?.id);
       const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
       setDietPlanState(nextDietPlan);
       setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
@@ -1724,11 +1726,11 @@ function RealClientProfileDrawer({
     } finally {
       setNutritionActionLoading(false);
     }
-  }, [commonFoodDirty, dietPlanContentDraft, dietPlanDirty, dietPlanState?.plan, dietPlanState?.version, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
+  }, [dietPlanContentDraft, dietPlanDirty, dietPlanState?.plan, dietPlanState?.version, effectiveCommonFoodDirty, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
 
   const handleSubmitForReview = useCallback(async () => {
     if (!summaryClient?.id || !dietPlanState?.plan?.id || nutritionActionLoading) return;
-    if (commonFoodDirty) {
+    if (effectiveCommonFoodDirty || persistedDietOptionCount !== 35) {
       setNutritionActionError('Save the generated common-food options before submitting this plan for review.');
       return;
     }
@@ -1747,7 +1749,7 @@ function RealClientProfileDrawer({
     } finally {
       setNutritionActionLoading(false);
     }
-  }, [commonFoodDirty, dietPlanContentDraft, dietPlanState?.plan?.id, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
+  }, [dietPlanContentDraft, dietPlanState?.plan?.id, effectiveCommonFoodDirty, nutritionActionLoading, persistedDietOptionCount, refreshWorkspace, summaryClient?.id]);
 
   const handleApprovePlan = useCallback(async () => {
     if (!summaryClient?.id || !dietPlanState?.plan?.id || nutritionActionLoading) return;
@@ -2087,8 +2089,8 @@ function RealClientProfileDrawer({
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{summaryClient?.name || 'Client'} · Diet Plan</p>
-            <h3 className="mt-1 text-[20px] font-semibold">{workflowLabelFromLifecycle(dietPlanState?.currentLifecycle || 'draft')} v{dietPlanState?.currentVersionNumber || '—'} · {selectedDietOptionCount}/35 selected · {dietPlanDirty || commonFoodDirty ? 'Unsaved changes' : 'Saved'}</h3>
-            <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{remainingDietOptionCount ? `${remainingDietOptionCount} selections remaining` : 'All required selections complete'}{dietPlanState?.plan?.latestPublishedVersionId ? ' · Active published plan remains separate' : ''}</p>
+            <h3 className="mt-1 text-[20px] font-semibold">{workflowLabelFromLifecycle(dietPlanState?.currentLifecycle || 'draft')} v{dietPlanState?.currentVersionNumber || '—'} · {persistedDietOptionCount}/35 persisted · {dietPlanDirty || effectiveCommonFoodDirty ? 'Unsaved changes' : persistedDietOptionCount === 35 ? 'Saved' : 'Incomplete draft'}</h3>
+            <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{persistedDietOptionCount < 35 ? `${35 - persistedDietOptionCount} persisted selections missing; generated candidates are not saved selections` : 'All required selections saved'}{dietPlanState?.plan?.latestPublishedVersionId ? ' · Active published plan remains separate' : ''}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -2111,7 +2113,7 @@ function RealClientProfileDrawer({
                 ) : null}
                 <button
                   onClick={handleSaveDraft}
-                  disabled={nutritionActionLoading || !dietPlanContentDraft || (!dietPlanDirty && !commonFoodDirty)}
+                  disabled={nutritionActionLoading || !dietPlanContentDraft || (!dietPlanDirty && !effectiveCommonFoodDirty)}
                   className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Save Plan
@@ -2119,8 +2121,8 @@ function RealClientProfileDrawer({
                 {!canReviewDietPlans ? (
                   <button
                     onClick={handleSubmitForReview}
-                    disabled={nutritionActionLoading || commonFoodDirty || selectedDietOptionCount !== 35 || !['draft', 'changes_requested'].includes(dietPlanState.currentLifecycle)}
-                    title={selectedDietOptionCount !== 35 ? `${remainingDietOptionCount} selections remaining before review` : undefined}
+                    disabled={nutritionActionLoading || effectiveCommonFoodDirty || persistedDietOptionCount !== 35 || !['draft', 'changes_requested'].includes(dietPlanState.currentLifecycle)}
+                    title={persistedDietOptionCount !== 35 ? `${35 - persistedDietOptionCount} persisted selections remaining before review` : undefined}
                     className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Submit for Review
@@ -2213,9 +2215,9 @@ function RealClientProfileDrawer({
         {dietPlanState?.plan?.id ? <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 px-2 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
           <span>{workflowLabelFromLifecycle(dietPlanState.currentLifecycle)} v{dietPlanState.currentVersionNumber}</span><span>·</span>
           <span>{mealPlanSectionEntries.length} meals</span><span>·</span>
-          <span>{selectedDietOptionCount}/35 included</span><span>·</span>
+          <span>{persistedDietOptionCount}/35 persisted</span><span>·</span>
           <span>{optionalGuidanceSections(dietPlanContentDraft?.optionalGuidance).reduce((sum, [, , items]) => sum + items.filter((item) => item.enabled).length, 0)} guidance choices</span><span>·</span>
-          <span>{dietPlanDirty ? 'Unsaved changes' : 'Saved'}</span>
+          <span>{dietPlanDirty || effectiveCommonFoodDirty ? 'Unsaved changes' : persistedDietOptionCount === 35 ? 'Saved' : 'Incomplete draft'}</span>
         </div> : null}
       </div>
 
@@ -2350,11 +2352,11 @@ function RealClientProfileDrawer({
             </div>
             <div className="mt-4 grid items-start gap-4 xl:grid-cols-2">
               <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
-                <div className="flex items-center justify-between gap-3"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Plan readiness</p><span className={`rounded-full px-2 py-1 text-xs font-semibold ${selectedDietOptionCount === 35 ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-800'}`}>{selectedDietOptionCount}/35 selected</span></div>
+                <div className="flex items-center justify-between gap-3"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Plan readiness</p><span className={`rounded-full px-2 py-1 text-xs font-semibold ${persistedDietOptionCount === 35 ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-800'}`}>{persistedDietOptionCount}/35 persisted</span></div>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs"><span>Safety passed</span><span>Serving sanity passed</span><span>Client-facing names passed</span><span>{remainingDietOptionCount ? `${remainingDietOptionCount} remaining` : 'Ready for review'}</span></div>
                 <div className="mt-3 space-y-2">{mealPlanSectionEntries.map(([key, label], index) => {
                   const mealHead = COMMON_FOOD_MEALS[index]?.[0];
-                  const selected = (dietPlanState?.version?.commonFoodOptions || dietPlanState?.commonFoodOptions || []).filter((option) => option.mealHead === mealHead).length;
+                  const selected = commonFoodProgress?.persistedByMeal?.[mealHead] ?? (dietPlanState?.version?.commonFoodOptions || dietPlanState?.commonFoodOptions || []).filter((option) => option.mealHead === mealHead).length;
                   return <div key={key} className="flex items-center justify-between rounded-[12px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2 text-xs"><span>{label}</span><span className="font-semibold">{selected}/5 {selected === 5 ? '✓' : 'Needs attention'}</span></div>;
                 })}</div>
               </div>

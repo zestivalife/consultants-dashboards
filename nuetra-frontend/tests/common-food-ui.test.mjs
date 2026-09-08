@@ -69,7 +69,7 @@ test('one build-time feature flag source fails safely without undeclared globals
   assert.match(featureFlags, /COMMON_FOOD_FLAG !== 'false'/);
   assert.doesNotMatch(editor, /process\.env\.NEXT_PUBLIC_COMMON_FOOD_COMBINATION_ENGINE_V1|COMMON_FOOD_COMBINATION_ENGINE_V1_ENABLED/);
   assert.match(editor, /savedOptions\.length < 35/);
-  assert.match(editor, /await generate\(\)/);
+  assert.match(editor, /await generate\(\{ autoSelect: false, baseOptions: savedOptions, selectedSeed: savedIds \}\)/);
 });
 
 test('legacy, validated recipe and generated combination normalize into one editor without identity collisions', () => {

@@ -31,7 +31,7 @@ test('Build Meal supports all slots and independent multi-option application', (
 });
 
 test('Nutrition workspace is compact and optional guidance is calorie-isolated', () => {
-  for (const text of ['View Health Context', '35 included', 'guidance choices', 'Optional choices are not included in the prescribed daily calorie total unless added to the Diet Plan.']) assert.ok(workspace.includes(text), text);
+  for (const text of ['View Health Context', '35 persisted', 'guidance choices', 'Optional choices are not included in the prescribed daily calorie total unless added to the Diet Plan.']) assert.ok(workspace.includes(text), text);
   for (const text of ['Chinese', 'North Indian', 'South Indian', 'Continental', 'Indian Fast Food', 'Street Food', 'Café / Bakery', 'Other', 'Sweet', 'Salty', 'Spicy', 'Crunchy']) assert.ok(workspace.includes(text), text);
   assert.doesNotMatch(workspace, /Eating Out · \$\{key/);
   assert.doesNotMatch(workspace, /Prescribed plan option.*Verified catalogue/);
@@ -50,4 +50,21 @@ test('component mutations remain unsaved until the authoritative 35-selection re
   assert.match(editor, /replaceFiteatsyCommonFoodSelection/);
   assert.match(editor, /setOptions\(persisted\); setSelectedIds\(nextIds\); setPersistedIds\(nextIds\); setDirty\(false\)/);
   assert.doesNotMatch(editor, /Option updated and recalculated by Fiteatsy\.['"]\); \}\s*catch/);
+});
+
+test('legacy partial drafts keep persisted selection truth separate from generated candidates', () => {
+  assert.match(editor, /generate\(\{ autoSelect: false, baseOptions: savedOptions, selectedSeed: savedIds \}\)/);
+  assert.match(editor, /if \(!autoSelect\) return new Set/);
+  assert.match(editor, /Incomplete saved draft: \$\{savedOptions\.length\}\/35 persisted/);
+  assert.match(editor, /Missing candidates loaded\. Existing saved selections were preserved/);
+  assert.match(editor, /persistedTotal/);
+  assert.match(editor, /persistedByMeal/);
+});
+
+test('review readiness and saved labels use authoritative persisted mappings', () => {
+  assert.match(workspace, /persistedDietOptionCount/);
+  assert.match(workspace, /effectiveCommonFoodDirty \|\| persistedDietOptionCount !== 35/);
+  assert.match(workspace, /generated candidates are not saved selections/);
+  assert.match(workspace, /persisted selections remaining before review/);
+  assert.doesNotMatch(workspace, /disabled=\{nutritionActionLoading \|\| commonFoodDirty \|\| selectedDietOptionCount !== 35/);
 });
