@@ -152,7 +152,7 @@ test('v17.23 explorer separates scope, uses serving nutrition and sends a govern
 });
 
 test('v17.27 renders truthful catalogue maturity, compact cards and a sticky selected-food workflow', () => {
-  for (const fragment of ['My Templates', 'Team Templates', 'All Foods &amp; Dishes', 'Food Type filter', 'Role filter', 'Food State filter', 'Nutrition Status filter', 'More Filters', 'Reference catalogue', 'nutrition verification is complete', 'authoritative Diet calculation', 'sticky bottom-0', 'aria-selected']) assert.ok(editor.includes(fragment), fragment);
+  for (const fragment of ['My Templates', 'Team Templates', 'All Foods &amp; Dishes', 'Food Type filter', 'Role filter', 'Food State filter', 'Nutrition Status filter', 'More Filters', 'Reference catalogue', 'nutrition and safety metadata are governed', 'sticky bottom-0', 'aria-selected']) assert.ok(editor.includes(fragment), fragment);
   assert.doesNotMatch(editor, /All eligible foods/);
   assert.doesNotMatch(editor, /Serving unavailable/);
   assert.match(editor, /result\.totals\?\.catalogue/);
@@ -166,7 +166,9 @@ test('v17.28 renders backend-owned operational actions and role-scoped meal buil
 });
 
 test('v17.26A keeps catalogue references fail-closed and exposes reusable templates in the unified editor', () => {
-  for (const fragment of ['Template Library', 'Save selected meal as Template', 'Save as Template', 'My Templates', 'Team Templates', 'Nutrition is recalculated for each client', 'Reference catalogue', 'nutrition verification is complete']) assert.ok(editor.includes(fragment), fragment);
+  for (const fragment of ['Template Library', 'Save selected meal as Template', 'Save as Template', 'My Templates', 'Team Templates', 'Nutrition is recalculated for each client', 'Reference catalogue', 'nutrition and safety metadata are governed']) assert.ok(editor.includes(fragment), fragment);
   for (const fragment of ['/meal-templates', '/activate', '/apply']) assert.ok(api.includes(fragment), fragment);
   assert.doesNotMatch(editor, /template.*nutrition.*reduce\(/i);
 });
+
+test('merged authoring renders advisory quality and governed quantity nutrition',()=>{for(const fragment of ['targets are advisory while editing','Add foods progressively','option.warnings','Serving quantity','min={serving?.minMultiplier}','max={serving?.maxMultiplier}','Calcium','Iron','Sodium','Potassium','Magnesium','Zinc','Vitamin A','Vitamin C','Vitamin B12','Folate'])assert.ok(editor.includes(fragment),fragment);assert.notEqual(COMMON_FOOD_ERROR_MESSAGES.MEAL_QUALITY_SANITY_FAILED,'This meal does not meet the serving, structure, calorie, or client-facing quality requirements.');});

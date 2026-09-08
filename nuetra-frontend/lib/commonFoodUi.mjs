@@ -15,11 +15,11 @@ export const COMMON_FOOD_ERROR_MESSAGES = {
   INVALID_SERVING_MULTIPLIER: 'That serving multiplier is not available.',
   SERVING_NOT_FOUND: 'That serving is not available for this food.',
   UNSAFE_OR_INELIGIBLE_FOOD: 'This food is not eligible for this client and meal.',
-  MEAL_TEMPLATE_INVALID: 'This change would break the required meal structure.',
+  MEAL_TEMPLATE_INVALID: 'Meal structure is still incomplete. You can continue editing this draft.',
   STALE_PLAN_VERSION: 'A newer plan version exists. Reload before making further changes.',
   VEGAN_COMMON_FOOD_ENGINE_V1_NOT_SUPPORTED: 'Diet Plan generation is not yet available for this diet pattern because a governed Bedtime food source is still required.',
-  MEAL_QUALITY_SANITY_FAILED: 'This meal does not meet the serving, structure, calorie, or client-facing quality requirements.',
-  COMPONENT_ROLE_MISMATCH: 'Choose a replacement from the same meal component role.',
+  MEAL_QUALITY_SANITY_FAILED: 'Review the meal-quality recommendations and continue editing the draft.',
+  COMPONENT_ROLE_MISMATCH: 'This replacement changes the suggested component role. Review the meal structure before submission.',
 };
 
 export function commonFoodErrorMessage(error, fallback = 'The common-food action could not be completed.') {
