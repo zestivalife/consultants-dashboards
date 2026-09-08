@@ -1198,7 +1198,8 @@ function deriveClientHealthStatus({ nutritionIntelligence, syncMetadata, wearabl
 const EATING_OUT_CATEGORIES = [['chinese', 'Chinese'], ['northIndian', 'North Indian'], ['southIndian', 'South Indian'], ['continental', 'Continental'], ['indianFastFood', 'Indian Fast Food'], ['streetFood', 'Street Food'], ['cafeBakery', 'Café / Bakery'], ['other', 'Other']];
 const CRAVING_CATEGORIES = [['sweet', 'Sweet'], ['salty', 'Salty'], ['spicy', 'Spicy'], ['crunchy', 'Crunchy']];
 const optionalGuidanceSections = (guidance) => guidance ? [
-  ...EATING_OUT_CATEGORIES.map(([key, label]) => [label, ['optionalGuidance', 'eatingOut', key], guidance.eatingOut?.[key] || []]),
+  ['What Can I Eat Now?', ['optionalGuidance', 'whatCanIEatNow'], guidance.whatCanIEatNow || []],
+  ...EATING_OUT_CATEGORIES.map(([key, label]) => [label, ['optionalGuidance', 'eatingOut', key], guidance.eatingOut?.[key] || (key === 'indianFastFood' ? guidance.eatingOut?.fastFood : []) || []]),
   ...CRAVING_CATEGORIES.map(([key, label]) => [label, ['optionalGuidance', 'cravings', key], guidance.cravings?.[key] || []]),
 ] : [];
 
@@ -1226,9 +1227,22 @@ function OptionalGuidanceProgress({ guidance }) {
 function OptionalGuidanceEditor({ guidance, readOnly, onItemsChange, onSearch }) {
   const [searches, setSearches] = useState({});
   const [candidates, setCandidates] = useState({});
-  const [activeGroup, setActiveGroup] = useState('eatingOut');
+  const [activeGroup, setActiveGroup] = useState('whatCanIEatNow');
   const [activeEatingOut, setActiveEatingOut] = useState('northIndian');
   const [activeCraving, setActiveCraving] = useState('sweet');
+  useEffect(() => {
+    if (!guidance || readOnly) return undefined;
+    const section = optionalGuidanceSections(guidance).find(([, path]) => (
+      (activeGroup === 'whatCanIEatNow' && path[1] === 'whatCanIEatNow') ||
+      (activeGroup === 'eatingOut' && path[1] === 'eatingOut' && path[2] === activeEatingOut) ||
+      (activeGroup === 'cravings' && path[1] === 'cravings' && path[2] === activeCraving)
+    ));
+    if (!section) return undefined;
+    const [label, path] = section;
+    let cancelled = false;
+    void onSearch(path, searches[label] || '').then((next) => { if (!cancelled) setCandidates((current) => ({ ...current, [label]: next })); });
+    return () => { cancelled = true; };
+  }, [activeCraving, activeEatingOut, activeGroup, guidance?.updatedAtISO, onSearch, readOnly]);
   if (!guidance) {
     return <div className="space-y-3"><OptionalGuidanceProgress guidance={null} /><div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No verified guidance is available for these optional categories. This does not block review of the core Diet Plan.</div></div>;
   }
@@ -1236,7 +1250,7 @@ function OptionalGuidanceEditor({ guidance, readOnly, onItemsChange, onSearch })
     <OptionalGuidanceProgress guidance={guidance} />
     <p className="rounded-[14px] bg-blue-50 px-4 py-3 text-sm text-blue-900">Optional choices are not included in the prescribed daily calorie total unless added to the Diet Plan.</p>
     <div className="flex flex-wrap gap-2 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-2">
-      {[['eatingOut', 'Eating Out'], ['cravings', 'Cravings']].map(([key, label]) => <button key={key} type="button" onClick={() => setActiveGroup(key)} className={`rounded-[12px] px-4 py-2 text-xs font-semibold ${activeGroup === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'text-[var(--fluent-color-neutral-foreground-2)]'}`}>{label}</button>)}
+      {[['whatCanIEatNow', 'What Can I Eat Now?'], ['eatingOut', 'Eating Out'], ['cravings', 'Cravings']].map(([key, label]) => <button key={key} type="button" onClick={() => setActiveGroup(key)} className={`rounded-[12px] px-4 py-2 text-xs font-semibold ${activeGroup === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'text-[var(--fluent-color-neutral-foreground-2)]'}`}>{label}</button>)}
     </div>
     <div className="grid gap-3 md:grid-cols-3">
       <DetailField label="Prepared by" value={guidance.generatedBy && !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(guidance.generatedBy) ? guidance.generatedBy : 'Consultant'} />
@@ -1256,15 +1270,16 @@ function OptionalGuidanceEditor({ guidance, readOnly, onItemsChange, onSearch })
       </div>) : null}
     </div> : null}
     {optionalGuidanceSections(guidance).filter(([, path]) => (
+      (activeGroup === 'whatCanIEatNow' && path[1] === 'whatCanIEatNow') ||
       (activeGroup === 'eatingOut' && path[1] === 'eatingOut' && path[2] === activeEatingOut) ||
       (activeGroup === 'cravings' && path[1] === 'cravings' && path[2] === activeCraving)
     )).map(([label, path, items]) => {
       const enabledCount = items.filter((item) => item.enabled).length;
       return <div key={label} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{label}</p><span className="text-xs font-semibold text-[var(--fluent-color-neutral-foreground-3)]">{enabledCount ? `${enabledCount} included` : 'No verified guidance available'}</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{label}</p><span className="text-xs font-semibold text-[var(--fluent-color-neutral-foreground-3)]">{candidates[label]?.length ?? items.length} available · {enabledCount} included</span></div>
       {!readOnly ? <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={!items.length} onClick={() => onItemsChange(path, (list) => list.forEach((item, index) => { item.enabled = index < 5; }))} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1.5 text-xs font-semibold disabled:opacity-40">Add Recommended</button><button type="button" onClick={() => onItemsChange(path, (list) => list.forEach((item) => { item.enabled = false; }))} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1.5 text-xs font-semibold">Clear</button><span className="self-center text-xs text-[var(--fluent-color-neutral-foreground-3)]">Select up to 5</span></div> : null}
       {!readOnly ? <div className="mt-3 flex gap-2"><input value={searches[label] || ''} onChange={(event) => setSearches((current) => ({ ...current, [label]: event.target.value }))} placeholder="Search verified catalogue" className="min-w-0 flex-1 rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2 text-sm" /><button onClick={async () => { const next = await onSearch(path, searches[label] || ''); setCandidates((current) => ({ ...current, [label]: next })); }} className="rounded-[12px] bg-[var(--fluent-color-brand-background)] px-3 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">Search</button></div> : null}
-      {!readOnly && candidates[label]?.length ? <div className="mt-2 space-y-2">{candidates[label].slice(0, 6).map((candidate) => <div key={candidate.id} className="flex items-center justify-between gap-3 rounded-[12px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2"><div><p className="text-xs font-semibold">{candidate.name}</p><p className="text-[11px] text-[var(--fluent-color-neutral-foreground-3)]">{candidate.servingLabel} · {candidate.nutrition.calories} kcal</p></div><button onClick={() => onItemsChange(path, (list) => { if (!list.some((item) => item.id === candidate.id)) list.push({ ...candidate, displayOrder: list.length + 1 }); })} className="rounded-full border border-[var(--fluent-color-brand-stroke-1)] px-3 py-1 text-xs font-semibold">Add</button></div>)}</div> : null}
+      {!readOnly && candidates[label]?.length ? <div className="mt-2 max-h-[360px] space-y-2 overflow-y-auto">{candidates[label].map((candidate) => { const included = items.some((item) => item.id === candidate.id && item.enabled); return <div key={candidate.id} className="flex items-center justify-between gap-3 rounded-[12px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2"><div><p className="text-xs font-semibold">{candidate.name}</p><p className="text-[11px] text-[var(--fluent-color-neutral-foreground-3)]">{candidate.servingLabel} · {candidate.nutrition.calories} kcal · P {candidate.nutrition.protein} g</p></div><button disabled={included} onClick={() => onItemsChange(path, (list) => { const existing=list.find((item) => item.id === candidate.id); if(existing) existing.enabled=true; else list.push({ ...candidate, enabled:true, displayOrder: list.length + 1 }); })} className="rounded-full border border-[var(--fluent-color-brand-stroke-1)] px-3 py-1 text-xs font-semibold disabled:border-green-200 disabled:bg-green-50 disabled:text-green-700">{included?'Included':'Include'}</button></div>; })}</div> : !readOnly ? <p className="mt-3 rounded-[12px] border border-dashed p-3 text-sm text-gray-600">No guidance is available for this category yet.</p> : null}
       <div className="mt-3 grid gap-3 xl:grid-cols-2">{items.map((item, index) => <div key={item.id} className={`rounded-[16px] border p-3 ${item.enabled ? 'border-[var(--fluent-color-brand-stroke-1)] bg-[var(--fluent-color-neutral-background-1)]' : 'border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-inset)] opacity-75'}`}>
         <div className="flex flex-wrap items-start justify-between gap-3"><label className="flex min-w-0 cursor-pointer items-start gap-3"><input type="checkbox" checked={Boolean(item.enabled)} disabled={readOnly} onChange={() => onItemsChange(path, (list) => { const enabled = list.filter((entry) => entry.enabled).length; if (!list[index].enabled && enabled >= 5) return; list[index].enabled = !list[index].enabled; })} className="mt-1 h-4 w-4 rounded border-[var(--fluent-color-neutral-stroke-1)] accent-[var(--fluent-color-brand-background)]" /><span className="min-w-0"><span className="block text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.name}</span><span className="mt-1 block text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.servingLabel} · {item.nutrition.calories} kcal · P {item.nutrition.protein} g</span></span></label><span className="text-xs font-semibold text-blue-700">{item.enabled ? 'Included' : 'Include'}</span></div>
         <p className="mt-3 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.reason}</p>
