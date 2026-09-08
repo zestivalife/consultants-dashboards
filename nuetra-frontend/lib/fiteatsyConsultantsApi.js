@@ -406,3 +406,11 @@ export async function downloadFiteatsyConsultantDietPlan(clientId, dietPlanId) {
     filename: match?.[1] || 'fiteatsy-diet-plan.docx',
   };
 }
+
+export const findSimilarFiteatsyFoods = (name) => requestFiteatsyJson(`/v1/consultants/food-proposals/similar?name=${encodeURIComponent(name)}`);
+export const createFiteatsyFoodProposal = (body) => requestFiteatsy('/v1/consultants/food-proposals', { method: 'POST', body });
+export const updateFiteatsyFoodProposal = (id, body) => requestFiteatsy(`/v1/consultants/food-proposals/${encodeURIComponent(id)}`, { method: 'PATCH', body });
+export const submitFiteatsyFoodProposal = (id, expectedRevision) => requestFiteatsy(`/v1/consultants/food-proposals/${encodeURIComponent(id)}/submit`, { method: 'POST', body: { expectedRevision } });
+export const listMyFiteatsyFoodProposals = () => requestFiteatsyJson('/v1/consultants/food-proposals/mine');
+export const listFiteatsyFoodProposalReviews = () => requestFiteatsyJson('/v1/consultants/food-proposals/review');
+export const reviewFiteatsyFoodProposal = (id, body) => requestFiteatsy(`/v1/consultants/food-proposals/${encodeURIComponent(id)}/review`, { method: 'POST', body });

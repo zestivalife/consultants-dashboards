@@ -196,3 +196,10 @@ test('exact daily total appears only with one authoritative choice per meal and 
 test('calorie UI states alternatives, target, range and authoritative selected-day semantics', () => {
   for (const fragment of ['Daily calorie intelligence', 'Daily target', 'Planned range', 'Current daily plan', 'not actual consumption', 'does not add all 35 alternatives', 'mealTargetKcal']) assert.ok(editor.includes(fragment), fragment);
 });
+
+test('minimum food proposal UI exposes nullable nutrients, similarity and all Senior decisions', async () => {
+  const proposal = await readFile(new URL('../components/platform/FoodProposalPanel.jsx', import.meta.url), 'utf8');
+  for (const value of ['New Food Proposal','Check similar foods','Save Draft','My proposals','Senior review','APPROVE_AS_NEW','REJECT_AS_DUPLICATE','USE_EXISTING','LINK_ALIAS','REQUEST_CHANGES','vitaminB12','folate']) assert.ok(proposal.includes(value), value);
+  assert.match(api, /\/food-proposals\/similar/);
+  assert.match(editor, /Propose New Food/);
+});
