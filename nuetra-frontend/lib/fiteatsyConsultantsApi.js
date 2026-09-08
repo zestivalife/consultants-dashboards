@@ -151,6 +151,38 @@ export async function searchFiteatsyCommonFoods(clientId, filters = {}, signal) 
   return requestFiteatsy(`${commonFoodPath(clientId, '/common-foods')}?${params}`, { method: 'GET', signal });
 }
 
+export async function findSimilarFiteatsyFoods(name, signal) {
+  return requestFiteatsy(`/v1/consultants/food-proposals/similar?name=${encodeURIComponent(name)}`, { method: 'GET', signal });
+}
+
+export async function createFiteatsyFoodProposal(payload) {
+  return requestFiteatsy('/v1/consultants/food-proposals', { method: 'POST', body: payload });
+}
+
+export async function updateFiteatsyFoodProposal(proposalId, payload) {
+  return requestFiteatsy(`/v1/consultants/food-proposals/${encodeURIComponent(proposalId)}`, { method: 'PATCH', body: payload });
+}
+
+export async function submitFiteatsyFoodProposal(proposalId, expectedRevision) {
+  return requestFiteatsy(`/v1/consultants/food-proposals/${encodeURIComponent(proposalId)}/submit`, { method: 'POST', body: { expectedRevision } });
+}
+
+export async function listMyFiteatsyFoodProposals() {
+  return requestFiteatsy('/v1/consultants/food-proposals/mine');
+}
+
+export async function listFiteatsyFoodProposalReviews() {
+  return requestFiteatsy('/v1/consultants/food-proposals/review');
+}
+
+export async function getFiteatsyFoodProposal(proposalId) {
+  return requestFiteatsy(`/v1/consultants/food-proposals/${encodeURIComponent(proposalId)}`);
+}
+
+export async function reviewFiteatsyFoodProposal(proposalId, payload) {
+  return requestFiteatsy(`/v1/consultants/food-proposals/${encodeURIComponent(proposalId)}/review`, { method: 'POST', body: payload });
+}
+
 export async function listFiteatsyMealTemplates(filters = {}, signal) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== null && value !== '') params.set(key, String(value)); });

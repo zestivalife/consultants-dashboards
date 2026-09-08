@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import withAuth from '../../hocs/withAuth';
 import CommonFoodPlanEditor from './CommonFoodPlanEditor';
+import { SeniorFoodProposalReviewPanel } from './FoodProposalUx';
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import { isCommonFoodCombinationEngineEnabled } from '../../lib/dietFeatureFlags';
 import { useAuth } from '../../context/AuthContext';
@@ -5824,6 +5825,7 @@ function DietPlanReviewQueuePage() {
         <h2 className="mt-2 text-[24px] font-semibold">Senior Consultant review queue</h2>
         <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Review submitted Consultant plans, request focused corrections, or approve the submitted version.</p>
       </Surface>
+      <SeniorFoodProposalReviewPanel />
       {error ? <p className="rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-3 text-sm text-[var(--fluent-color-status-danger-foreground)]">{error}</p> : null}
       <Surface className="overflow-hidden border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)]" animated>
         {loading ? <p className="p-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading review queue...</p> : reviews.length ? (
