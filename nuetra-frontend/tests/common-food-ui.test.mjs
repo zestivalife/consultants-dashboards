@@ -83,7 +83,7 @@ test('legacy, validated recipe and generated combination normalize into one edit
 });
 
 test('mixed-plan compatibility is rendered inside the existing Diet Plan surface', () => {
-  for (const fragment of ['legacyMealPlan', 'legacyOptionsForUnifiedPlan', 'Previous plan choices', 'data-option-type']) assert.ok(editor.includes(fragment), fragment);
+  for (const fragment of ['legacyMealPlan', 'legacyOptionsForUnifiedPlan', 'Previous plan options available now', 'data-option-type']) assert.ok(editor.includes(fragment), fragment);
 });
 
 test('generated candidates default to exact-five inclusion before persistence', () => {
@@ -99,7 +99,7 @@ test('generated candidates default to exact-five inclusion before persistence', 
 test('semantic meal UX leads with client-ready titles, human servings, progress and truthful shortage', () => {
   assert.equal(optionTitle({ clientTitle: 'Chapati + Moong Dal + Bhindi Sabji + Curd' }), 'Chapati + Moong Dal + Bhindi Sabji + Curd');
   assert.equal(optionTitle({ clientTitle: 'Option 1' }), 'Structured meal');
-  for (const fragment of ['35 included', 'choices remaining', 'Preview as Client', 'Build Meal', 'No suitable options are available']) assert.ok(editor.includes(fragment), fragment);
+  for (const fragment of ['35 included', 'choices remaining', 'Preview as Client', 'Build Meal', 'No generated options are available']) assert.ok(editor.includes(fragment), fragment);
   assert.doesNotMatch(editor, /<p className="text-sm font-semibold">Option \{index \+ 1\}<\/p>/);
   assert.match(editor, /optionTitle\(option\)/);
 });

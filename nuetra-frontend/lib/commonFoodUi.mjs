@@ -51,9 +51,52 @@ const LEGACY_MEAL_HEADS = {
 };
 
 export function commonFoodOptionType(option) {
+  if (['LEGACY', 'PREVIOUS_PLAN', 'MANUAL', 'BUILD_MEAL'].includes(option?.sourceType)) return option.sourceType;
   return option?.sourceType === 'VALIDATED_RECIPE' || option?.components?.some((component) => component.sourceType === 'VALIDATED_RECIPE')
     ? 'VALIDATED_RECIPE'
     : 'GENERATED_COMBINATION';
+}
+
+const normalizedOptionText = (value) => String(value || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim();
+
+export function optionSemanticIdentity(option = {}) {
+  const componentIdentity = (option.components || [])
+    .map((component) => [component.foodId, component.servingId, Number(component.multiplier || 1)])
+    .filter(([foodId, servingId]) => foodId && servingId)
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  if (componentIdentity.length) return `COMPONENTS:${JSON.stringify(componentIdentity)}`;
+  if (option.optionHash) return `HASH:${option.optionHash}`;
+  return `DISPLAY:${normalizedOptionText(option.displayName || option.meal || option.clientTitle)}:${normalizedOptionText(option.servingLabel || option.portion)}`;
+}
+
+export function previousOptionReuseState(option = {}) {
+  if (option.currentSuitability === 'NOT_SUITABLE' || option.hardConstraintViolation || option.corrupt) {
+    return { reusable: false, reason: option.currentSuitabilityReason || 'Not currently suitable for this client.' };
+  }
+  const components = Array.isArray(option.components) ? option.components : [];
+  if (!components.length || components.some((component) => !component.foodId || !component.servingId || !Number.isFinite(Number(component.multiplier)) || Number(component.multiplier) <= 0)) {
+    return { reusable: false, reason: 'This historical option has no reusable governed food mapping.' };
+  }
+  if (option.nutrition?.kcal === null || option.nutrition?.kcal === undefined) return { reusable: false, reason: 'This historical option has an incomplete nutrition snapshot.' };
+  const kcal = Number(option.nutrition.kcal);
+  if (!Number.isFinite(kcal) || kcal < 0) return { reusable: false, reason: 'This historical option has an invalid nutrition snapshot.' };
+  return { reusable: true, reason: '' };
+}
+
+export function buildMealAuthoringPool(generated = [], previous = [], limit = 5) {
+  const result = [];
+  const identities = new Set();
+  const append = (option, source) => {
+    if (result.length >= limit) return;
+    if (source === 'PREVIOUS_PLAN' && !previousOptionReuseState(option).reusable) return;
+    const identity = optionSemanticIdentity(option);
+    if (identities.has(identity)) return;
+    identities.add(identity);
+    result.push({ ...option, authoringSource: source });
+  };
+  generated.forEach((option) => append(option, option.authoringSource || 'GENERATED'));
+  previous.forEach((option) => append(option, 'PREVIOUS_PLAN'));
+  return result;
 }
 
 export function legacyOptionsForUnifiedPlan(mealPlan = {}) {
