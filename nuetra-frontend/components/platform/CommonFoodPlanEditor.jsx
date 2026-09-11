@@ -222,7 +222,7 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
       setOptions(savedOptions); setSelectedIds(savedIds); setPersistedIds(savedIds); setDirty(false);
       setMessage(savedOptions.length === 35 ? 'Saved Diet Plan reloaded.' : savedOptions.length ? `Incomplete saved draft: ${savedOptions.length}/35 persisted.` : 'No saved Diet Plan options yet.');
       if (isCommonFoodCombinationEngineEnabled && savedOptions.length < 35 && ['draft', 'changes_requested'].includes(lifecycle) && !readOnly) {
-        await generate({ autoSelect: false, baseOptions: savedOptions, selectedSeed: savedIds });
+        await generate({ autoSelect: savedOptions.length === 0, baseOptions: savedOptions, selectedSeed: savedIds });
       }
     } catch (nextError) { setError(commonFoodErrorMessage(nextError, 'Unable to reload Diet Plan options.')); }
   }, [clientId, dietPlanId, generate, lifecycle, readOnly]);

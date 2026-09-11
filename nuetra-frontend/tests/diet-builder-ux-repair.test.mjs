@@ -68,12 +68,18 @@ test('component mutations remain unsaved until the authoritative 35-selection re
 });
 
 test('legacy partial drafts keep persisted selection truth separate from generated candidates', () => {
-  assert.match(editor, /generate\(\{ autoSelect: false, baseOptions: savedOptions, selectedSeed: savedIds \}\)/);
+  assert.match(editor, /generate\(\{ autoSelect: savedOptions\.length === 0, baseOptions: savedOptions, selectedSeed: savedIds \}\)/);
   assert.match(editor, /if \(!autoSelect\) return new Set/);
   assert.match(editor, /Incomplete saved draft: \$\{savedOptions\.length\}\/35 persisted/);
   assert.match(editor, /Missing candidates loaded\. Existing saved selections were preserved/);
   assert.match(editor, /persistedTotal/);
   assert.match(editor, /persistedByMeal/);
+});
+
+test('empty new drafts include generated options by default while partial saved drafts remain explicit', () => {
+  assert.match(editor, /autoSelect: savedOptions\.length === 0/);
+  assert.match(editor, /setDirty\(autoSelect\)/);
+  assert.match(editor, /Generated options are included by default/);
 });
 
 test('review readiness and saved labels use authoritative persisted mappings', () => {
