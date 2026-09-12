@@ -15,8 +15,9 @@ test('Super Admin Food Authorisation exposes the minimal filters and bulk action
 });
 
 test('Food Authorisation uses server pagination and the single bulk API',()=>{
- assert.match(api,/\/v1\/admin\/food-authorisation\?/);
- assert.match(api,/\/v1\/admin\/food-authorisation\/bulk/);
+ assert.match(api,/\/platform\/fiteatsy\/food-authorisation\?/);
+ assert.match(api,/\/platform\/fiteatsy\/food-authorisation\/bulk/);
+ assert.match(api,/Idempotency-Key/);
   assert.match(page,/patchFilter\('offset', filters\.offset \+ filters\.limit\)/);
 });
 

@@ -1,4 +1,4 @@
-import { getToken, refreshAccessToken } from './api';
+import { apiRequest, getToken, refreshAccessToken } from './api';
 import { collectAllClientAllocationPages } from './clientAllocationPagination.mjs';
 import { normalizeBiomarkerForPresentation } from './biomarkerPresentation.mjs';
 
@@ -144,13 +144,14 @@ export async function listFoodAuthorisation(filters = {}, signal) {
   Object.entries(filters).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
   });
-  return requestFiteatsy(`/v1/admin/food-authorisation?${params}`, { method: 'GET', signal });
+  return apiRequest(`/platform/fiteatsy/food-authorisation?${params}`, { method: 'GET', signal });
 }
 
 export async function bulkSetFoodAuthorisation(foodIds, status) {
-  return requestFiteatsy('/v1/admin/food-authorisation/bulk', {
+  return apiRequest('/platform/fiteatsy/food-authorisation/bulk', {
     method: 'POST',
     body: { foodIds, status, reason: 'Super Admin food authorisation' },
+    headers: { 'Idempotency-Key': crypto.randomUUID() },
   });
 }
 

@@ -57,7 +57,7 @@ def _assert_owner_authority(request: Request, permission: str) -> tuple[dict[str
         return None, JSONResponse(status_code=403, content={"error": "OWNER_AUTHORITY_REQUIRED", "message": "Platform Owner authority is required."})
     if not ({"fiteatsy", "fiteatsy-mobile"} & products):
         return None, JSONResponse(status_code=403, content={"error": "FITEATSY_ENTITLEMENT_REQUIRED", "message": "Fiteatsy entitlement is required."})
-    if permission.lower() not in permissions:
+    if permission and permission.lower() not in permissions:
         return None, JSONResponse(status_code=403, content={"error": "FITEATSY_PERMISSION_REQUIRED", "message": "The requested Fiteatsy operation is not permitted."})
     user_id = getattr(request.state, "user_id", None) or payload.get("sub")
     if not isinstance(user_id, str) or not user_id.strip():
@@ -65,14 +65,14 @@ def _assert_owner_authority(request: Request, permission: str) -> tuple[dict[str
     return payload, None
 
 
-async def _bridge(request: Request, operation: str, target_path: str, permission: str, purpose: str, body: dict[str, Any], path_params: dict[str, str] | None = None, method: str = "POST"):
-    payload, denied = _assert_owner_authority(request, permission)
+async def _bridge(request: Request, operation: str, target_path: str, permission: str, purpose: str, body: dict[str, Any] | None = None, path_params: dict[str, str] | None = None, method: str = "POST", require_operation_permission: bool = True):
+    payload, denied = _assert_owner_authority(request, permission if require_operation_permission else "")
     if denied:
         return denied
     settings = get_settings()
     correlation_id = request.headers.get("X-Correlation-Id") or request.headers.get("X-Request-Id")
     idempotency_key = request.headers.get("Idempotency-Key")
-    if not idempotency_key:
+    if method != "GET" and not idempotency_key:
         return JSONResponse(status_code=400, content={"error": "IDEMPOTENCY_KEY_REQUIRED", "message": "Retry-safe operation key is required."})
     path = target_path.format(**(path_params or {}))
     actor_id = str(getattr(request.state, "user_id", None) or payload.get("sub"))
@@ -92,10 +92,17 @@ async def _bridge(request: Request, operation: str, target_path: str, permission
     except Exception:
         logger.exception("delegation_issue_failed", operation=operation, correlation_id=correlation_id)
         return JSONResponse(status_code=503, content={"error": "DELEGATION_UNAVAILABLE", "message": "Fiteatsy authority is temporarily unavailable."})
-    headers = {"Accept": "application/json", "Content-Type": "application/json", "X-Zestiva-Delegation": delegation, "X-Correlation-Id": correlation_id or "", "Idempotency-Key": idempotency_key}
+    headers = {"Accept": "application/json", "Content-Type": "application/json", "X-Zestiva-Delegation": delegation, "X-Correlation-Id": correlation_id or ""}
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
-            response = await client.request(method, f"{settings.fiteatsy_service_url.rstrip('/')}{path}", headers=headers, json=body)
+            request_kwargs: dict[str, Any] = {"headers": headers}
+            if method == "GET":
+                request_kwargs["params"] = dict(request.query_params)
+            elif body is not None:
+                request_kwargs["json"] = body
+            response = await client.request(method, f"{settings.fiteatsy_service_url.rstrip('/')}{path}", **request_kwargs)
     except httpx.TimeoutException:
         logger.warning("fiteatsy_bridge_timeout", operation=operation, correlation_id=correlation_id)
         return JSONResponse(status_code=504, content={"error": "FITEATSY_TIMEOUT", "message": "Fiteatsy did not respond in time."})
@@ -113,6 +120,24 @@ async def _bridge(request: Request, operation: str, target_path: str, permission
 @router.post("/qa-clients")
 async def provision_qa_client(request: Request, body: dict[str, Any]):
     return await _bridge(request, "qa_client_provision", OPERATIONS["qa-clients"][1], OPERATIONS["qa-clients"][2], "qa_provisioning", body)
+
+
+@router.get("/food-authorisation")
+async def list_food_authorisation(request: Request):
+    return await _bridge(
+        request, "food_authorisation_list", "/v1/internal/delegated/food-authorisation",
+        "fiteatsy.food.authorisation.manage", "food_authorisation", method="GET",
+        require_operation_permission=False,
+    )
+
+
+@router.post("/food-authorisation/bulk")
+async def update_food_authorisation(request: Request, body: dict[str, Any]):
+    return await _bridge(
+        request, "food_authorisation_bulk_update", "/v1/internal/delegated/food-authorisation/bulk",
+        "fiteatsy.food.authorisation.manage", "food_authorisation", body,
+        require_operation_permission=False,
+    )
 
 
 @router.post("/qa-consultants")
