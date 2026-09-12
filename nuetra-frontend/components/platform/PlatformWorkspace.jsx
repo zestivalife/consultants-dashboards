@@ -63,7 +63,7 @@ import {
 } from '../../lib/fiteatsyConsultantsApi';
 import { biomarkerSourceLabel, formatBiomarkerDate } from '../../lib/biomarkerPresentation.mjs';
 import { corporateAPI } from '../../lib/api';
-import { ADMIN_ACCESS_POLICY, DELIVERY_ACCESS_POLICY, MENTOR_ACCESS_POLICY, ORGANIZATION_ACCESS_POLICY } from '../../lib/roleRoutes';
+import { ADMIN_ACCESS_POLICY, DELIVERY_ACCESS_POLICY, MENTOR_ACCESS_POLICY, ORGANIZATION_ACCESS_POLICY, canAccessFoodAuthorisation } from '../../lib/roleRoutes';
 
 const roleKinds = {
   consultant: 'consultant',
@@ -132,7 +132,6 @@ const intelligenceRangeOptions = [
   { id: 'custom', label: 'Custom' },
 ];
 const clientWorkspaceTabs = ['Overview', 'Biomarkers', 'Behaviors', 'Diet Plan', 'Reports', 'Notes', 'Chat', 'Timeline'];
-const superAdminRoles = new Set(['superuser', 'super_admin', 'platform_owner']);
 const assignmentManagerRoles = new Set(['admin', 'super_admin', 'platform_owner', 'care_operations']);
 const managedRoleOptions = [
   { value: 'mentor', label: 'Mentor', audience: 'mentor' },
@@ -6580,7 +6579,7 @@ function PlatformWorkspace({ forcedRole }) {
   const resolvedRole = forcedRole || user?.role || 'consultant';
   const roleKind = getRoleKind(resolvedRole);
   const isSeniorConsultant = String(resolvedRole).toLowerCase() === 'senior_consultant';
-  const isSuperAdmin = superAdminRoles.has(String(resolvedRole).toLowerCase());
+  const isSuperAdmin = canAccessFoodAuthorisation(resolvedRole);
   const canManageProfessionalAssignments = assignmentManagerRoles.has(String(resolvedRole).toLowerCase());
   const canManageConsultantNutrition = roleKind === 'consultant' && consultantNutritionRoles.has(String(resolvedRole).toLowerCase());
   const [brandView, setBrandView] = useState('All Brands');
@@ -6659,6 +6658,13 @@ function PlatformWorkspace({ forcedRole }) {
     const nextNav = resolveConsultantNavCandidate(queryView, isSeniorConsultant);
     setNav((current) => (current === nextNav ? current : nextNav));
   }, [isSeniorConsultant, roleKind, router.isReady, router.query.view]);
+
+  useEffect(() => {
+    if (roleKind !== 'admin' || !router.isReady) return;
+    const queryView = Array.isArray(router.query.view) ? router.query.view[0] : router.query.view;
+    if (!queryView || !adminNav.some((item) => item.id === queryView)) return;
+    setNav((current) => (current === queryView ? current : queryView));
+  }, [roleKind, router.isReady, router.query.view]);
 
   const navigateConsultantWorkspace = useCallback((nextNav) => {
     const resolvedNav = resolveConsultantNavCandidate(nextNav, isSeniorConsultant);
