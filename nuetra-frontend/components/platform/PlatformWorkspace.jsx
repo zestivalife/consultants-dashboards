@@ -6579,7 +6579,7 @@ function PlatformWorkspace({ forcedRole }) {
   const resolvedRole = forcedRole || user?.role || 'consultant';
   const roleKind = getRoleKind(resolvedRole);
   const isSeniorConsultant = String(resolvedRole).toLowerCase() === 'senior_consultant';
-  const isSuperAdmin = canAccessFoodAuthorisation(resolvedRole);
+  const isSuperAdmin = canAccessFoodAuthorisation(user);
   const canManageProfessionalAssignments = assignmentManagerRoles.has(String(resolvedRole).toLowerCase());
   const canManageConsultantNutrition = roleKind === 'consultant' && consultantNutritionRoles.has(String(resolvedRole).toLowerCase());
   const [brandView, setBrandView] = useState('All Brands');
@@ -6604,7 +6604,7 @@ function PlatformWorkspace({ forcedRole }) {
   const [globalSearch, setGlobalSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [activeQueue, setActiveQueue] = useState('assigned');
-  const [selectedClientId, setSelectedClientId] = useState('emp-1');
+  const [selectedClientId, setSelectedClientId] = useState(() => (roleKind === 'consultant' ? 'emp-1' : null));
   const [clientWorkspaceTab, setClientWorkspaceTab] = useState('Overview');
   const [clientDrawerOpen, setClientDrawerOpen] = useState(false);
   const [queueConsoleMode, setQueueConsoleMode] = useState('closed');
@@ -6642,15 +6642,20 @@ function PlatformWorkspace({ forcedRole }) {
   }, [consultantWorkspace, consultantWorkspaceStorageKey, roleKind]);
 
   useEffect(() => {
+    if (roleKind !== 'consultant') return;
     if (selectedClientId) {
-      window.localStorage.setItem('nuetra:last-active-client', selectedClientId);
+      window.localStorage.setItem(`${consultantWorkspaceStorageKey}:last-active-client`, selectedClientId);
     }
-  }, [selectedClientId]);
+  }, [consultantWorkspaceStorageKey, roleKind, selectedClientId]);
 
   useEffect(() => {
-    const savedClientId = window.localStorage.getItem('nuetra:last-active-client');
+    if (roleKind !== 'consultant') {
+      setSelectedClientId(null);
+      return;
+    }
+    const savedClientId = window.localStorage.getItem(`${consultantWorkspaceStorageKey}:last-active-client`);
     if (savedClientId) setSelectedClientId(savedClientId);
-  }, []);
+  }, [consultantWorkspaceStorageKey, roleKind]);
 
   useEffect(() => {
     if (roleKind !== 'consultant' || !router.isReady) return;
@@ -6832,7 +6837,7 @@ function PlatformWorkspace({ forcedRole }) {
   ), [allClients, brandView]);
   const selectedClient = useMemo(() => allClients.find((client) => client.id === selectedClientId) || allClients[0], [allClients, selectedClientId]);
   const selectedPlan = useMemo(() => state.plans.find((plan) => plan.employeeId === selectedClient?.id), [selectedClient, state.plans]);
-  const roleName = getRoleDisplayName(resolvedRole);
+  const roleName = getRoleDisplayName(roleKind === 'admin' ? user?.role : resolvedRole);
   const topNavItems = roleKind === 'consultant' ? (isSeniorConsultant ? seniorConsultantNav : consultantNav) : roleKind === 'mentor' ? mentorNav : (isSuperAdmin ? adminNav : adminNav.filter((item) => item.id !== 'people'));
   const adminHeader = brandView === 'Fiteatsy'
     ? {
@@ -7863,8 +7868,8 @@ function PlatformWorkspace({ forcedRole }) {
         user={user}
         logout={logout}
         onQuickAction={() => setSearchOpen(true)}
-        onResumeWorkspace={usesRealFiteatsyClients ? undefined : () => openClient(selectedClientId, clientWorkspaceTab)}
-        resumeLabel={selectedClient?.name}
+        onResumeWorkspace={roleKind === 'consultant' && !usesRealFiteatsyClients ? () => openClient(selectedClientId, clientWorkspaceTab) : undefined}
+        resumeLabel={roleKind === 'consultant' ? selectedClient?.name : undefined}
       />
 
       <SearchOverlay

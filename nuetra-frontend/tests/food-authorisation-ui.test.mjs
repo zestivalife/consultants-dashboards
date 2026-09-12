@@ -24,7 +24,7 @@ test('Food Authorisation navigation is restricted to Super Admin roles',()=>{
  const capabilityRoles=roleRoutes.match(/FOOD_AUTHORISATION_ROLE_KEYS = new Set\(\[([^\]]+)]\)/)?.[1]||'';
  for(const role of ['platform_owner','super_admin','superuser']) assert.ok(capabilityRoles.includes(`'${role}'`),role);
  for(const role of ['consultant','senior_consultant','client','user']) assert.equal(capabilityRoles.includes(`'${role}'`),false,role);
- assert.match(workspace,/canAccessFoodAuthorisation\(resolvedRole\)/);
+ assert.match(workspace,/canAccessFoodAuthorisation\(user\)/);
  assert.match(workspace,/isSuperAdmin \? <FoodAuthorisationPage/);
 });
 
@@ -40,4 +40,14 @@ test('authorised Food Authorisation route is distinct from the default owner lan
  assert.match(authContext,/!canAccessDashboardLocation\(nextUser, router\.pathname, router\.query\)/);
  assert.match(workspace,/roleKind !== 'admin'/);
  assert.match(workspace,/adminNav\.some\(\(item\) => item\.id === queryView\)/);
+});
+
+test('Admin workspace authority and persisted client state remain persona isolated',()=>{
+ assert.match(workspace,/canAccessFoodAuthorisation\(user\)/);
+ assert.match(workspace,/roleKind === 'consultant' \? 'emp-1' : null/);
+ assert.match(workspace,/consultantWorkspaceStorageKey}:last-active-client/);
+ assert.match(workspace,/if \(roleKind !== 'consultant'\) \{\s*setSelectedClientId\(null\)/);
+ assert.match(workspace,/onResumeWorkspace={roleKind === 'consultant'/);
+ assert.match(workspace,/resumeLabel={roleKind === 'consultant'/);
+ assert.doesNotMatch(workspace,/localStorage\.setItem\('nuetra:last-active-client'/);
 });

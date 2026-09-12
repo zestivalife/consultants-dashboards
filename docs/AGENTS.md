@@ -392,3 +392,20 @@ For feature slices, the Product Owner must be able to execute the workflow throu
 Every change must leave the Zestiva Enterprise Platform more stable, more understandable, and more production-ready than before.
 
 When speed conflicts with correctness, security, reliability, or evidence, choose correctness.
+
+---
+
+## FITEATSY PRODUCT ENGINEERING AND UX NON-NEGOTIABLES
+
+- Treat FitEatsy as one connected product. Validate every change through authenticated identity, canonical role, persona, workspace context, navigation, route access, API authority, data context, UI state, and downstream effect. Never accept a page in isolation.
+- Canonical backend/session identity is authoritative. Never infer authority or persona from local storage, cached UI roles, route strings, selected clients, demo data, or fallback state. An unresolved role renders a controlled loading/unknown state and fails closed for privileged actions.
+- Isolate persisted state by account ID, canonical role/persona, and workspace type. Clear incompatible state across login, logout, account or role switches, refresh, and restored tabs. Owner/admin personas must not inherit Consultant clients, assignments, or resume-workspace state.
+- Keep default dashboard routing separate from route/view access policy. A persona may default to one workspace while retaining explicitly authorised routes elsewhere. A visible CTA must always lead to an allowed, rendered, API-authorised workflow; hidden and route-denied states must agree.
+- Centralise capability checks. Food Authorisation belongs to authorised Product Owner/Super Admin personas and uses the same capability for navigation, route access, rendering, and actions. Consultant, Senior Consultant, and client/user personas remain denied.
+- Food business authorisation states are `PENDING`, `AUTHORISED`, and `NOT_AUTHORISED`. Technical completeness remains separate. Source/provenance metadata supports traceability and must not become a competing business-authorisation layer.
+- Reuse the established FitEatsy design system, components, layouts, interaction states, spacing, typography, and responsive patterns. Do not ship scrap, placeholder, duplicated, disconnected, or one-off UI.
+- Preserve canonical food/projection identity resolution and one category taxonomy. Do not compare opaque projection IDs directly with canonical catalogue IDs or merge distinct preparation states.
+- Classify changes by impact (`UI_ONLY`, `BACKEND_LOGIC`, `DATABASE_OR_LIFECYCLE`, `FOOD_OR_NUTRITION`, `HEALTH_OR_MOBILE`, or `CROSS_SYSTEM`) and run only relevant gates. Do not over-gate unrelated work or under-gate schema, catalogue, lifecycle, or native changes.
+- Repair locally solvable build, type, lint, unit, and fixture failures in the same task. Stop only for a genuine external blocker, missing authority, waiting CI/deployment, or a Product Owner decision.
+- Deploy only affected services. Production acceptance requires exact runtime SHA parity (and verified identity where supported), plus a targeted authenticated smoke test of CTA → route → page → API → action → downstream effect. Unit tests and build success alone are insufficient.
+- Never use production demo-person fallbacks, hard-coded people, stale Consultant workspaces, secrets, or destructive real-client data in acceptance. Use an approved reversible test identity for smoke writes and restore its state when appropriate.
