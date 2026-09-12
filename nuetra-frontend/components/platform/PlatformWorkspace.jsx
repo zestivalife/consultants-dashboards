@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import withAuth from '../../hocs/withAuth';
 import CommonFoodPlanEditor from './CommonFoodPlanEditor';
+import FoodAuthorisationPage from './FoodAuthorisationPage';
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import { isCommonFoodCombinationEngineEnabled } from '../../lib/dietFeatureFlags';
 import { useAuth } from '../../context/AuthContext';
@@ -119,6 +120,7 @@ const adminNav = [
   { id: 'intelligence', label: 'Intelligence', icon: TrendingUp },
   { id: 'organizations', label: 'Organizations', icon: FileBarChart2 },
   { id: 'people', label: 'People', icon: ListChecks },
+  { id: 'food-authorisation', label: 'Food Authorisation', icon: ClipboardCheck },
 ];
 
 const timeframeOptions = ['Day', 'Week', 'Month', 'Quarter', 'Custom Range'];
@@ -130,7 +132,7 @@ const intelligenceRangeOptions = [
   { id: 'custom', label: 'Custom' },
 ];
 const clientWorkspaceTabs = ['Overview', 'Biomarkers', 'Behaviors', 'Diet Plan', 'Reports', 'Notes', 'Chat', 'Timeline'];
-const superAdminRoles = new Set(['superuser', 'platform_owner']);
+const superAdminRoles = new Set(['superuser', 'super_admin', 'platform_owner']);
 const assignmentManagerRoles = new Set(['admin', 'super_admin', 'platform_owner', 'care_operations']);
 const managedRoleOptions = [
   { value: 'mentor', label: 'Mentor', audience: 'mentor' },
@@ -7995,7 +7997,9 @@ function PlatformWorkspace({ forcedRole }) {
 
           {roleKind === 'admin' ? (
             <>
-              {nav === 'assignments' ? (
+              {nav === 'food-authorisation' ? (
+                isSuperAdmin ? <FoodAuthorisationPage /> : <CompactPageHeader title="Restricted" subtitle="Only super admins can authorise Food Master items." />
+              ) : nav === 'assignments' ? (
                 <ProfessionalAssignmentPage />
               ) : nav === 'organizations' ? (
                 <OrganizationsPage organizationSignals={organizationSignals} />

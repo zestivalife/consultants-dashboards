@@ -139,6 +139,21 @@ async function requestFiteatsy(path, options = {}) {
   return body;
 }
 
+export async function listFoodAuthorisation(filters = {}, signal) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+  });
+  return requestFiteatsy(`/v1/admin/food-authorisation?${params}`, { method: 'GET', signal });
+}
+
+export async function bulkSetFoodAuthorisation(foodIds, status) {
+  return requestFiteatsy('/v1/admin/food-authorisation/bulk', {
+    method: 'POST',
+    body: { foodIds, status, reason: 'Super Admin food authorisation' },
+  });
+}
+
 const commonFoodPath = (clientId, suffix = '') =>
   `/v1/consultants/clients/${encodeURIComponent(clientId)}${suffix}`;
 

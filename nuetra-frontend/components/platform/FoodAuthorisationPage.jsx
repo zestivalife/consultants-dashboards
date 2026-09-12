@@ -1,0 +1,31 @@
+import { useEffect, useMemo, useState } from 'react';
+import { bulkSetFoodAuthorisation, listFoodAuthorisation } from '../../lib/fiteatsyConsultantsApi';
+
+const statuses = ['', 'PENDING', 'AUTHORISED', 'NOT_AUTHORISED'];
+
+export default function FoodAuthorisationPage() {
+  const [filters, setFilters] = useState({ search: '', category: '', status: '', nutritionCompleteness: '', limit: 25, offset: 0 });
+  const [data, setData] = useState({ items: [], total: 0, categories: [] });
+  const [selected, setSelected] = useState(new Set());
+  const [state, setState] = useState({ loading: true, error: '', saving: false });
+  useEffect(() => { const controller = new AbortController(); setState((x) => ({ ...x, loading: true, error: '' }));
+    const timer = setTimeout(() => listFoodAuthorisation(filters, controller.signal).then((result) => { setData(result); setSelected(new Set()); setState((x) => ({ ...x, loading: false })); }).catch((error) => { if (error.name !== 'AbortError') setState((x) => ({ ...x, loading: false, error: error.message })); }), 200);
+    return () => { clearTimeout(timer); controller.abort(); }; }, [filters]);
+  const pageIds = useMemo(() => data.items.map((item) => item.id), [data.items]);
+  const patchFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value, offset: key === 'offset' ? value : 0 }));
+  const toggle = (id) => setSelected((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const apply = async (status) => { if (!selected.size) return; setState((x) => ({ ...x, saving: true, error: '' })); try { await bulkSetFoodAuthorisation([...selected], status); setData((current) => ({ ...current, items: current.items.map((item) => selected.has(item.id) ? { ...item, authorization_status: status } : item) })); setSelected(new Set()); } catch (error) { setState((x) => ({ ...x, error: error.message })); } finally { setState((x) => ({ ...x, saving: false })); } };
+  return <section className="space-y-4" aria-labelledby="food-authorisation-title">
+    <div><h1 id="food-authorisation-title" className="text-2xl font-bold text-gray-950">Food Authorisation</h1><p className="mt-1 text-sm text-gray-600">Choose which Food Master items consultants can use.</p></div>
+    <div className="grid gap-3 rounded-2xl border bg-white p-4 md:grid-cols-4">
+      <label className="text-sm font-semibold">Search<input aria-label="Search foods" className="mt-1 w-full rounded-lg border px-3 py-2 font-normal" value={filters.search} onChange={(e) => patchFilter('search', e.target.value)} placeholder="Name or alias" /></label>
+      <label className="text-sm font-semibold">Category<select className="mt-1 w-full rounded-lg border px-3 py-2 font-normal" value={filters.category} onChange={(e) => patchFilter('category', e.target.value)}><option value="">All categories</option>{data.categories.map((x) => <option key={x}>{x}</option>)}</select></label>
+      <label className="text-sm font-semibold">Authorisation status<select className="mt-1 w-full rounded-lg border px-3 py-2 font-normal" value={filters.status} onChange={(e) => patchFilter('status', e.target.value)}>{statuses.map((x) => <option key={x} value={x}>{x || 'All statuses'}</option>)}</select></label>
+      <label className="text-sm font-semibold">Nutrition completeness<select className="mt-1 w-full rounded-lg border px-3 py-2 font-normal" value={filters.nutritionCompleteness} onChange={(e) => patchFilter('nutritionCompleteness', e.target.value)}><option value="">All</option><option>COMPLETE</option><option>INCOMPLETE</option></select></label>
+    </div>
+    <div className="flex flex-wrap items-center gap-2"><button className="rounded-lg border px-3 py-2 text-sm font-semibold" onClick={() => setSelected(new Set(pageIds))}>Select all on page</button><button className="rounded-lg border px-3 py-2 text-sm font-semibold" onClick={() => setSelected(new Set())}>Deselect all</button><span className="text-sm text-gray-600">{selected.size} selected</span><button disabled={!selected.size || state.saving} className="rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" onClick={() => apply('AUTHORISED')}>Authorise selected</button><button disabled={!selected.size || state.saving} className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" onClick={() => apply('NOT_AUTHORISED')}>Do not authorise</button></div>
+    {state.error ? <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{state.error}</p> : null}
+    <div className="overflow-x-auto rounded-2xl border bg-white"><table className="w-full text-left text-sm"><thead className="bg-gray-50"><tr><th className="p-3"><span className="sr-only">Select</span></th><th className="p-3">Food Name</th><th className="p-3">Category</th><th className="p-3">Nutrition Status</th><th className="p-3">Authorisation Status</th></tr></thead><tbody>{state.loading ? <tr><td colSpan="5" className="p-6 text-center">Loading foods…</td></tr> : data.items.map((item) => <tr key={item.id} className="border-t"><td className="p-3"><input type="checkbox" aria-label={`Select ${item.display_name}`} checked={selected.has(item.id)} onChange={() => toggle(item.id)} /></td><td className="p-3 font-semibold">{item.display_name}</td><td className="p-3">{item.category}</td><td className="p-3">{item.nutrition_completeness}</td><td className="p-3">{item.authorization_status}</td></tr>)}</tbody></table></div>
+    <div className="flex items-center justify-between text-sm"><span>{data.total} foods</span><div className="flex gap-2"><button className="rounded-lg border px-3 py-2 disabled:opacity-40" disabled={filters.offset === 0} onClick={() => patchFilter('offset', Math.max(0, filters.offset - filters.limit))}>Previous</button><button className="rounded-lg border px-3 py-2 disabled:opacity-40" disabled={filters.offset + filters.limit >= data.total} onClick={() => patchFilter('offset', filters.offset + filters.limit)}>Next</button><select aria-label="Rows per page" value={filters.limit} onChange={(e) => patchFilter('limit', Number(e.target.value))} className="rounded-lg border px-2"><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></div></div>
+  </section>;
+}
