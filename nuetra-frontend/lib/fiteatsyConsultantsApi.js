@@ -150,6 +150,7 @@ export async function listAdminGrievances(filters = {}) {
 export async function getAdminGrievance(grievanceId) {
   return requestFiteatsy(`/v1/admin/grievances/${encodeURIComponent(grievanceId)}`, { method: 'GET' });
 }
+export async function listAdminGrievanceAssignees() { return requestFiteatsy('/v1/admin/grievances/assignees', { method: 'GET' }); }
 
 export async function updateAdminGrievance(grievanceId, patch) {
   return requestFiteatsy(`/v1/admin/grievances/${encodeURIComponent(grievanceId)}`, { method: 'PATCH', body: patch });
