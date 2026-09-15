@@ -34,6 +34,7 @@ const OWNER_NAV_ICONS = {
   mentors: BriefcaseBusiness,
   consultants: BriefcaseBusiness,
   reports: LayoutPanelTop,
+  grievances: ClipboardList,
   audit: ClipboardList,
   'platform-health': Activity,
   settings: Settings,

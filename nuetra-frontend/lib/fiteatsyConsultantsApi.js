@@ -139,6 +139,22 @@ async function requestFiteatsy(path, options = {}) {
   return body;
 }
 
+export async function listAdminGrievances(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+  });
+  return requestFiteatsy(`/v1/admin/grievances?${params}`, { method: 'GET' });
+}
+
+export async function getAdminGrievance(grievanceId) {
+  return requestFiteatsy(`/v1/admin/grievances/${encodeURIComponent(grievanceId)}`, { method: 'GET' });
+}
+
+export async function updateAdminGrievance(grievanceId, patch) {
+  return requestFiteatsy(`/v1/admin/grievances/${encodeURIComponent(grievanceId)}`, { method: 'PATCH', body: patch });
+}
+
 const commonFoodPath = (clientId, suffix = '') =>
   `/v1/consultants/clients/${encodeURIComponent(clientId)}${suffix}`;
 
