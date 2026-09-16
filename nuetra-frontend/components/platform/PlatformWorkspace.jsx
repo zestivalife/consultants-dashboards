@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import withAuth from '../../hocs/withAuth';
 import CommonFoodPlanEditor from './CommonFoodPlanEditor';
+import { SeniorFoodProposalReviewPanel } from './FoodProposalUx';
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import { isCommonFoodCombinationEngineEnabled } from '../../lib/dietFeatureFlags';
 import { useAuth } from '../../context/AuthContext';
@@ -1194,10 +1195,12 @@ function deriveClientHealthStatus({ nutritionIntelligence, syncMetadata, wearabl
   };
 }
 
+const EATING_OUT_CATEGORIES = [['chinese', 'Chinese'], ['northIndian', 'North Indian'], ['southIndian', 'South Indian'], ['continental', 'Continental'], ['indianFastFood', 'Indian Fast Food'], ['streetFood', 'Street Food'], ['cafeBakery', 'Café / Bakery'], ['other', 'Other']];
+const CRAVING_CATEGORIES = [['sweet', 'Sweet'], ['salty', 'Salty'], ['spicy', 'Spicy'], ['crunchy', 'Crunchy']];
 const optionalGuidanceSections = (guidance) => guidance ? [
-  ['What Can I Eat Now', ['optionalGuidance', 'whatCanIEatNow'], guidance.whatCanIEatNow || []],
-  ...Object.entries(guidance.eatingOut || {}).map(([key, items]) => [`Eating Out · ${key.replace(/([A-Z])/g, ' $1')}`, ['optionalGuidance', 'eatingOut', key], items]),
-  ...Object.entries(guidance.cravings || {}).map(([key, items]) => [`Craving · ${key}`, ['optionalGuidance', 'cravings', key], items]),
+  ['What Can I Eat Now?', ['optionalGuidance', 'whatCanIEatNow'], guidance.whatCanIEatNow || []],
+  ...EATING_OUT_CATEGORIES.map(([key, label]) => [label, ['optionalGuidance', 'eatingOut', key], guidance.eatingOut?.[key] || (key === 'indianFastFood' ? guidance.eatingOut?.fastFood : []) || []]),
+  ...CRAVING_CATEGORIES.map(([key, label]) => [label, ['optionalGuidance', 'cravings', key], guidance.cravings?.[key] || []]),
 ] : [];
 
 function getOptionalGuidanceProgress(guidance) {
@@ -1221,19 +1224,59 @@ function OptionalGuidanceProgress({ guidance }) {
   </div>;
 }
 
-function OptionalGuidanceEditor({ guidance, readOnly, onItemsChange, onSearch }) {
+function OptionalGuidanceEditor({ guidance, readOnly, onItemsChange, onMoveItem, onSearch, onAddToDietPlan }) {
   const [searches, setSearches] = useState({});
   const [candidates, setCandidates] = useState({});
   const [activeGroup, setActiveGroup] = useState('whatCanIEatNow');
   const [activeEatingOut, setActiveEatingOut] = useState('northIndian');
   const [activeCraving, setActiveCraving] = useState('sweet');
+  const [authoring, setAuthoring] = useState(null);
+  const [authoringCandidates, setAuthoringCandidates] = useState([]);
+  const [authoringQuery, setAuthoringQuery] = useState('');
+  const [authoringSelection, setAuthoringSelection] = useState(null);
+  const openAuthoring = (path, item = null) => {
+    setAuthoring({ sourcePath: path, targetPath: path, item });
+    setAuthoringSelection(item);
+    setAuthoringQuery(item?.name || '');
+    setAuthoringCandidates([]);
+  };
+  const closeAuthoring = () => {
+    setAuthoring(null);
+    setAuthoringSelection(null);
+    setAuthoringCandidates([]);
+    setAuthoringQuery('');
+  };
+  const changeAuthoringGroup = (group) => {
+    const targetPath = group === 'whatCanIEatNow'
+      ? ['optionalGuidance', 'whatCanIEatNow']
+      : group === 'eatingOut'
+        ? ['optionalGuidance', 'eatingOut', 'northIndian']
+        : ['optionalGuidance', 'cravings', 'sweet'];
+    setAuthoring((current) => ({ ...current, targetPath }));
+    setAuthoringSelection(null);
+    setAuthoringCandidates([]);
+  };
+  useEffect(() => {
+    if (!guidance || readOnly) return undefined;
+    const section = optionalGuidanceSections(guidance).find(([, path]) => (
+      (activeGroup === 'whatCanIEatNow' && path[1] === 'whatCanIEatNow') ||
+      (activeGroup === 'eatingOut' && path[1] === 'eatingOut' && path[2] === activeEatingOut) ||
+      (activeGroup === 'cravings' && path[1] === 'cravings' && path[2] === activeCraving)
+    ));
+    if (!section) return undefined;
+    const [label, path] = section;
+    let cancelled = false;
+    void onSearch(path, searches[label] || '').then((next) => { if (!cancelled) setCandidates((current) => ({ ...current, [label]: next })); });
+    return () => { cancelled = true; };
+  }, [activeCraving, activeEatingOut, activeGroup, guidance?.updatedAtISO, onSearch, readOnly]);
   if (!guidance) {
     return <div className="space-y-3"><OptionalGuidanceProgress guidance={null} /><div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">No verified guidance is available for these optional categories. This does not block review of the core Diet Plan.</div></div>;
   }
   return <div className="mt-4 space-y-4">
     <OptionalGuidanceProgress guidance={guidance} />
+    <p className="rounded-[14px] bg-blue-50 px-4 py-3 text-sm text-blue-900">Optional choices are not included in the prescribed daily calorie total unless added to the Diet Plan.</p>
     <div className="flex flex-wrap gap-2 rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-2">
-      {[['whatCanIEatNow', 'Eat Now'], ['eatingOut', 'Eating Out'], ['cravings', 'Cravings']].map(([key, label]) => <button key={key} type="button" onClick={() => setActiveGroup(key)} className={`rounded-[12px] px-4 py-2 text-xs font-semibold ${activeGroup === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'text-[var(--fluent-color-neutral-foreground-2)]'}`}>{label}</button>)}
+      {[['whatCanIEatNow', 'What Can I Eat Now?'], ['eatingOut', 'Eating Out'], ['cravings', 'Cravings']].map(([key, label]) => <button key={key} type="button" onClick={() => setActiveGroup(key)} className={`rounded-[12px] px-4 py-2 text-xs font-semibold ${activeGroup === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'text-[var(--fluent-color-neutral-foreground-2)]'}`}>{label}</button>)}
     </div>
     <div className="grid gap-3 md:grid-cols-3">
       <DetailField label="Prepared by" value={guidance.generatedBy && !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(guidance.generatedBy) ? guidance.generatedBy : 'Consultant'} />
@@ -1244,32 +1287,41 @@ function OptionalGuidanceEditor({ guidance, readOnly, onItemsChange, onSearch })
       {activeGroup === 'eatingOut' ? (
       <div className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
         <p className="text-sm font-semibold">Eating Out</p>
-        <div className="mt-3 flex flex-wrap gap-2">{Object.keys(guidance.eatingOut || {}).map((key) => <button key={key} type="button" onClick={() => setActiveEatingOut(key)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${activeEatingOut === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'border border-[var(--fluent-color-neutral-stroke-1)]'}`}>{key.replace(/([A-Z])/g, ' $1')}</button>)}</div>
+        <div className="mt-3 flex flex-wrap gap-2">{EATING_OUT_CATEGORIES.map(([key,label]) => <button key={key} type="button" onClick={() => setActiveEatingOut(key)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${activeEatingOut === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'border border-[var(--fluent-color-neutral-stroke-1)]'}`}>{label}</button>)}</div>
       </div>) : null}
       {activeGroup === 'cravings' ? (
       <div className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
         <p className="text-sm font-semibold">Cravings</p>
-        <div className="mt-3 flex flex-wrap gap-2">{Object.keys(guidance.cravings || {}).map((key) => <button key={key} type="button" onClick={() => setActiveCraving(key)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${activeCraving === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'border border-[var(--fluent-color-neutral-stroke-1)]'}`}>{key}</button>)}</div>
+        <div className="mt-3 flex flex-wrap gap-2">{CRAVING_CATEGORIES.map(([key,label]) => <button key={key} type="button" onClick={() => setActiveCraving(key)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${activeCraving === key ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'border border-[var(--fluent-color-neutral-stroke-1)]'}`}>{label}</button>)}</div>
       </div>) : null}
     </div> : null}
     {optionalGuidanceSections(guidance).filter(([, path]) => (
-      (activeGroup === 'whatCanIEatNow' && path.length === 2) ||
+      (activeGroup === 'whatCanIEatNow' && path[1] === 'whatCanIEatNow') ||
       (activeGroup === 'eatingOut' && path[1] === 'eatingOut' && path[2] === activeEatingOut) ||
       (activeGroup === 'cravings' && path[1] === 'cravings' && path[2] === activeCraving)
     )).map(([label, path, items]) => {
       const enabledCount = items.filter((item) => item.enabled).length;
       return <div key={label} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{label}</p><span className="text-xs font-semibold text-[var(--fluent-color-neutral-foreground-3)]">{enabledCount ? `${enabledCount} included` : 'No verified guidance available'}</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{label}</p><div className="flex items-center gap-3"><span className="text-xs font-semibold text-[var(--fluent-color-neutral-foreground-3)]">{candidates[label]?.length ?? items.length} available · {enabledCount} included</span>{!readOnly ? <button type="button" onClick={() => openAuthoring(path)} className="rounded-full bg-[var(--fluent-color-brand-background)] px-3 py-1.5 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">+ Add Guidance</button> : null}</div></div>
       {!readOnly ? <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={!items.length} onClick={() => onItemsChange(path, (list) => list.forEach((item, index) => { item.enabled = index < 5; }))} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1.5 text-xs font-semibold disabled:opacity-40">Add Recommended</button><button type="button" onClick={() => onItemsChange(path, (list) => list.forEach((item) => { item.enabled = false; }))} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1.5 text-xs font-semibold">Clear</button><span className="self-center text-xs text-[var(--fluent-color-neutral-foreground-3)]">Select up to 5</span></div> : null}
       {!readOnly ? <div className="mt-3 flex gap-2"><input value={searches[label] || ''} onChange={(event) => setSearches((current) => ({ ...current, [label]: event.target.value }))} placeholder="Search verified catalogue" className="min-w-0 flex-1 rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2 text-sm" /><button onClick={async () => { const next = await onSearch(path, searches[label] || ''); setCandidates((current) => ({ ...current, [label]: next })); }} className="rounded-[12px] bg-[var(--fluent-color-brand-background)] px-3 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">Search</button></div> : null}
-      {!readOnly && candidates[label]?.length ? <div className="mt-2 space-y-2">{candidates[label].slice(0, 6).map((candidate) => <div key={candidate.id} className="flex items-center justify-between gap-3 rounded-[12px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2"><div><p className="text-xs font-semibold">{candidate.name}</p><p className="text-[11px] text-[var(--fluent-color-neutral-foreground-3)]">{candidate.servingLabel} · {candidate.nutrition.calories} kcal</p></div><button onClick={() => onItemsChange(path, (list) => { if (!list.some((item) => item.id === candidate.id)) list.push({ ...candidate, displayOrder: list.length + 1 }); })} className="rounded-full border border-[var(--fluent-color-brand-stroke-1)] px-3 py-1 text-xs font-semibold">Add</button></div>)}</div> : null}
+      {!readOnly && candidates[label]?.length ? <div className="mt-2 max-h-[360px] space-y-2 overflow-y-auto">{candidates[label].map((candidate) => { const included = items.some((item) => item.id === candidate.id && item.enabled); return <div key={candidate.id} className="flex items-center justify-between gap-3 rounded-[12px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2"><div><p className="text-xs font-semibold">{candidate.name}</p><p className="text-[11px] text-[var(--fluent-color-neutral-foreground-3)]">{candidate.servingLabel} · {candidate.nutrition.calories} kcal · P {candidate.nutrition.protein} g</p></div><button disabled={included} onClick={() => onItemsChange(path, (list) => { const existing=list.find((item) => item.id === candidate.id); if(existing) existing.enabled=true; else list.push({ ...candidate, enabled:true, displayOrder: list.length + 1 }); })} className="rounded-full border border-[var(--fluent-color-brand-stroke-1)] px-3 py-1 text-xs font-semibold disabled:border-green-200 disabled:bg-green-50 disabled:text-green-700">{included?'Included':'Include'}</button></div>; })}</div> : !readOnly ? <p className="mt-3 rounded-[12px] border border-dashed p-3 text-sm text-gray-600">No guidance is available for this category yet.</p> : null}
       <div className="mt-3 grid gap-3 xl:grid-cols-2">{items.map((item, index) => <div key={item.id} className={`rounded-[16px] border p-3 ${item.enabled ? 'border-[var(--fluent-color-brand-stroke-1)] bg-[var(--fluent-color-neutral-background-1)]' : 'border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-inset)] opacity-75'}`}>
-        <div className="flex flex-wrap items-start justify-between gap-3"><label className="flex min-w-0 cursor-pointer items-start gap-3"><input type="checkbox" checked={Boolean(item.enabled)} disabled={readOnly} onChange={() => onItemsChange(path, (list) => { const enabled = list.filter((entry) => entry.enabled).length; if (!list[index].enabled && enabled >= 5) return; list[index].enabled = !list[index].enabled; })} className="mt-1 h-4 w-4 rounded border-[var(--fluent-color-neutral-stroke-1)] accent-[var(--fluent-color-brand-background)]" /><span className="min-w-0"><span className="block text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.name}</span><span className="mt-1 block text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.planMembership ? 'Prescribed plan option' : 'Optional guidance'} · Verified catalogue</span></span></label></div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-6"><DetailField label="Serving" value={item.servingLabel} /><DetailField label="Calories" value={`${item.nutrition.calories} kcal`} /><DetailField label="Protein" value={`${item.nutrition.protein} g`} /><DetailField label="Carbs" value={`${item.nutrition.carbs} g`} /><DetailField label="Fat" value={`${item.nutrition.fat} g`} /><DetailField label="Fibre" value={`${item.nutrition.fibre} g`} /></div>
+        <div className="flex flex-wrap items-start justify-between gap-3"><label className="flex min-w-0 cursor-pointer items-start gap-3"><input type="checkbox" checked={Boolean(item.enabled)} disabled={readOnly} onChange={() => onItemsChange(path, (list) => { const enabled = list.filter((entry) => entry.enabled).length; if (!list[index].enabled && enabled >= 5) return; list[index].enabled = !list[index].enabled; })} className="mt-1 h-4 w-4 rounded border-[var(--fluent-color-neutral-stroke-1)] accent-[var(--fluent-color-brand-background)]" /><span className="min-w-0"><span className="block text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{item.name}</span><span className="mt-1 block text-xs text-[var(--fluent-color-neutral-foreground-3)]">{item.servingLabel} · {item.nutrition.calories} kcal · P {item.nutrition.protein} g</span></span></label><span className="text-xs font-semibold text-blue-700">{item.enabled ? 'Included' : 'Include'}</span></div>
         <p className="mt-3 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{item.reason}</p>
-        {!readOnly ? <div className="mt-3 flex flex-wrap gap-2"><button aria-label={`Move ${item.name} earlier`} disabled={index === 0} onClick={() => onItemsChange(path, (list) => { [list[index - 1], list[index]] = [list[index], list[index - 1]]; list.forEach((entry, order) => { entry.displayOrder = order + 1; }); })} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1.5 text-xs font-semibold disabled:opacity-40">Reorder ↑</button><button onClick={() => onItemsChange(path, (list) => { list.splice(index, 1); list.forEach((entry, order) => { entry.displayOrder = order + 1; }); })} className="rounded-full border border-[var(--fluent-color-status-danger-foreground)] px-3 py-1.5 text-xs font-semibold text-[var(--fluent-color-status-danger-foreground)]">Remove</button></div> : null}
+        {!readOnly ? <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => openAuthoring(path, item)} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1.5 text-xs font-semibold">Edit</button><button type="button" onClick={() => onAddToDietPlan(item)} className="rounded-full border border-[var(--fluent-color-brand-stroke-1)] px-3 py-1.5 text-xs font-semibold text-blue-700">Add to Diet Plan</button><button aria-label={`Move ${item.name} earlier`} disabled={index === 0} onClick={() => onItemsChange(path, (list) => { [list[index - 1], list[index]] = [list[index], list[index - 1]]; list.forEach((entry, order) => { entry.displayOrder = order + 1; }); })} className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-3 py-1.5 text-xs font-semibold disabled:opacity-40">Reorder ↑</button><button onClick={() => onItemsChange(path, (list) => { list.splice(index, 1); list.forEach((entry, order) => { entry.displayOrder = order + 1; }); })} className="rounded-full border border-[var(--fluent-color-status-danger-foreground)] px-3 py-1.5 text-xs font-semibold text-[var(--fluent-color-status-danger-foreground)]">Remove</button></div> : null}
       </div>)}</div>
     </div>})}
+    {authoring ? <div className="fixed inset-0 z-50 flex justify-end bg-black/25" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeAuthoring(); }}>
+      <aside role="dialog" aria-modal="true" aria-labelledby="guidance-authoring-title" className="h-full w-full max-w-[520px] overflow-y-auto bg-white p-5 shadow-[-12px_0_40px_rgba(15,23,42,0.18)]">
+        <div className="flex items-start justify-between gap-4"><div><h3 id="guidance-authoring-title" className="text-lg font-semibold">{authoring.item ? 'Edit guidance' : 'Add guidance'}</h3><p className="mt-1 text-sm text-gray-600">Guidance stays separate from prescribed Diet Plan calories.</p></div><button type="button" aria-label="Close guidance panel" onClick={closeAuthoring} className="rounded-full border p-2"><X size={18} /></button></div>
+        <label className="mt-5 block text-xs font-semibold">Guidance section<select value={authoring.targetPath[1]} onChange={(event) => changeAuthoringGroup(event.target.value)} className="mt-2 w-full rounded-[12px] border px-3 py-2 text-sm"><option value="whatCanIEatNow">What Can I Eat Now?</option><option value="eatingOut">Eating Out</option><option value="cravings">Cravings</option></select></label>
+        {authoring.targetPath[1] === 'eatingOut' ? <label className="mt-4 block text-xs font-semibold">Category<select value={authoring.targetPath[2]} onChange={(event) => setAuthoring((current) => ({ ...current, targetPath: ['optionalGuidance', 'eatingOut', event.target.value] }))} className="mt-2 w-full rounded-[12px] border px-3 py-2 text-sm">{EATING_OUT_CATEGORIES.map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select></label> : null}
+        {authoring.targetPath[1] === 'cravings' ? <label className="mt-4 block text-xs font-semibold">Category<select value={authoring.targetPath[2]} onChange={(event) => setAuthoring((current) => ({ ...current, targetPath: ['optionalGuidance', 'cravings', event.target.value] }))} className="mt-2 w-full rounded-[12px] border px-3 py-2 text-sm">{CRAVING_CATEGORIES.map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select></label> : null}
+        {!authoring.item ? <><label className="mt-4 block text-xs font-semibold">Search approved foods or meals<div className="mt-2 flex gap-2"><input value={authoringQuery} onChange={(event) => setAuthoringQuery(event.target.value)} className="min-w-0 flex-1 rounded-[12px] border px-3 py-2 text-sm" /><button type="button" onClick={async () => setAuthoringCandidates(await onSearch(authoring.targetPath, authoringQuery))} className="rounded-[12px] bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-white">Search</button></div></label><div className="mt-3 max-h-64 space-y-2 overflow-y-auto">{authoringCandidates.map((candidate) => <button key={candidate.id} type="button" onClick={() => setAuthoringSelection(candidate)} className={`w-full rounded-[12px] border p-3 text-left ${authoringSelection?.id === candidate.id ? 'border-blue-600 bg-blue-50' : ''}`}><span className="block text-sm font-semibold">{candidate.name}</span><span className="text-xs text-gray-600">{candidate.servingLabel} · {candidate.nutrition.calories} kcal</span></button>)}</div></> : null}
+        {authoringSelection ? <div className="mt-4 space-y-4"><div className="rounded-[12px] bg-gray-50 p-3"><p className="text-sm font-semibold">{authoringSelection.name}</p><p className="mt-1 text-xs text-gray-600">Approved serving: {authoringSelection.servingLabel}</p></div><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold">Quantity<input type="number" min="0.01" step="0.01" value={authoringSelection.quantity ?? ''} onChange={(event) => setAuthoringSelection((current) => ({ ...current, quantity: Number(event.target.value) }))} className="mt-2 w-full rounded-[12px] border px-3 py-2 text-sm" /></label><label className="text-xs font-semibold">Unit<input value={authoringSelection.unit ?? ''} onChange={(event) => setAuthoringSelection((current) => ({ ...current, unit: event.target.value }))} className="mt-2 w-full rounded-[12px] border px-3 py-2 text-sm" /></label></div><label className="block text-xs font-semibold">Consultant note<textarea value={authoringSelection.reason || ''} onChange={(event) => setAuthoringSelection((current) => ({ ...current, reason: event.target.value }))} rows={3} className="mt-2 w-full rounded-[12px] border px-3 py-2 text-sm" /></label><button type="button" disabled={!Number.isFinite(authoringSelection.quantity) || authoringSelection.quantity <= 0 || !authoringSelection.unit?.trim() || !authoringSelection.reason?.trim()} onClick={() => { const section = authoring.targetPath[1]; const context = authoring.targetPath[2]; const item = { ...authoringSelection, servingLabel: `${authoringSelection.quantity} ${authoringSelection.unit}`.trim(), category: section === 'whatCanIEatNow' ? 'what_can_i_eat_now' : section === 'eatingOut' ? 'eating_out' : 'craving', cuisineTags: section === 'eatingOut' ? [context] : [], cravingTags: section === 'cravings' ? [context] : [], enabled: true, clinicallyReviewed: false }; if (authoring.item) onMoveItem(authoring.sourcePath, authoring.targetPath, item); else onItemsChange(authoring.targetPath, (list) => { const existing = list.findIndex((entry) => entry.id === item.id); if (existing >= 0) list[existing] = item; else list.push({ ...item, displayOrder: list.length + 1 }); }); closeAuthoring(); }} className="w-full rounded-[12px] bg-[var(--fluent-color-brand-background)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-40">{authoring.item ? 'Save guidance' : 'Add to guidance'}</button></div> : null}
+      </aside>
+    </div> : null}
   </div>;
 }
 
@@ -1389,6 +1441,7 @@ function RealClientProfileDrawer({
   const [commonFoodGenerationRequest, setCommonFoodGenerationRequest] = useState(0);
   const commonFoodEditorRef = useRef(null);
   const [clientHeaderCollapsed, setClientHeaderCollapsed] = useState(false);
+  const [healthContextOpen, setHealthContextOpen] = useState(false);
   const message = getProfileErrorMessage(error);
   const client = profile?.client;
   const onboarding = profile?.onboarding;
@@ -1405,6 +1458,8 @@ function RealClientProfileDrawer({
   const wearableSummary = profile?.wearableSummary;
   const planWorkflow = profile?.planWorkflow;
   const selectedDietOptionCount = commonFoodProgress?.selected ?? (dietPlanState?.version?.commonFoodOptions || dietPlanState?.commonFoodOptions || []).length;
+  const persistedDietOptionCount = commonFoodProgress?.persisted ?? (dietPlanState?.version?.commonFoodOptions || dietPlanState?.commonFoodOptions || []).length;
+  const effectiveCommonFoodDirty = commonFoodProgress?.dirty ?? commonFoodDirty;
   const remainingDietOptionCount = Math.max(0, 35 - selectedDietOptionCount);
   const backendRecommendations = profile?.recommendations || [];
   const biomarkers = profile?.biomarkers || [];
@@ -1655,6 +1710,31 @@ function RealClientProfileDrawer({
     });
   }, []);
 
+  const handleGuidanceItemMove = useCallback((sourcePath, targetPath, item) => {
+    setDietPlanContentDraft((current) => {
+      if (!current) return current;
+      const next = structuredClone(current);
+      const resolve = (path) => path.reduce((cursor, key) => cursor[key], next);
+      const source = resolve(sourcePath);
+      const target = resolve(targetPath);
+      const existingIndex = source.findIndex((entry) => entry.id === item.id);
+      if (existingIndex >= 0) source.splice(existingIndex, 1);
+      const targetIndex = target.findIndex((entry) => entry.id === item.id);
+      if (targetIndex >= 0) target[targetIndex] = item;
+      else target.push(item);
+      source.forEach((entry, index) => { entry.displayOrder = index + 1; });
+      target.forEach((entry, index) => { entry.displayOrder = index + 1; });
+      if (next.optionalGuidance) next.optionalGuidance.updatedAtISO = new Date().toISOString();
+      setDietPlanDirty(true);
+      return next;
+    });
+  }, []);
+
+  const handleGuidanceAddToDietPlan = useCallback((item) => {
+    setNutritionSectionTab('Diet Plan');
+    setNutritionActionSuccess(`Choose the target meal and option, then add ${item.name} through Build Meal. Nutrition will be recalculated before save.`);
+  }, []);
+
   const handleGuidanceSearch = useCallback(async (path, query) => {
     if (!summaryClient?.id || !dietPlanState?.plan?.id) return [];
     const category = path[1] === 'whatCanIEatNow' ? 'what_can_i_eat_now' : path[1] === 'eatingOut' ? 'eating_out' : 'craving';
@@ -1696,7 +1776,7 @@ function RealClientProfileDrawer({
         content: dietPlanContentDraft,
         reviewNotes: 'Consultant reviewed and updated diet chart.',
       }) : { plan: dietPlanState.plan, version: dietPlanState.version };
-      if (commonFoodDirty) await commonFoodEditorRef.current?.save(response?.version?.id || dietPlanState.version?.id);
+      if (effectiveCommonFoodDirty) await commonFoodEditorRef.current?.save(response?.version?.id || dietPlanState.version?.id);
       const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
       setDietPlanState(nextDietPlan);
       setDietPlanContentDraft(nextDietPlan?.content || dietPlanContentDraft);
@@ -1708,11 +1788,11 @@ function RealClientProfileDrawer({
     } finally {
       setNutritionActionLoading(false);
     }
-  }, [commonFoodDirty, dietPlanContentDraft, dietPlanDirty, dietPlanState?.plan, dietPlanState?.version, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
+  }, [dietPlanContentDraft, dietPlanDirty, dietPlanState?.plan, dietPlanState?.version, effectiveCommonFoodDirty, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
 
   const handleSubmitForReview = useCallback(async () => {
     if (!summaryClient?.id || !dietPlanState?.plan?.id || nutritionActionLoading) return;
-    if (commonFoodDirty) {
+    if (effectiveCommonFoodDirty || persistedDietOptionCount !== 35) {
       setNutritionActionError('Save the generated common-food options before submitting this plan for review.');
       return;
     }
@@ -1731,7 +1811,7 @@ function RealClientProfileDrawer({
     } finally {
       setNutritionActionLoading(false);
     }
-  }, [commonFoodDirty, dietPlanContentDraft, dietPlanState?.plan?.id, nutritionActionLoading, refreshWorkspace, summaryClient?.id]);
+  }, [dietPlanContentDraft, dietPlanState?.plan?.id, effectiveCommonFoodDirty, nutritionActionLoading, persistedDietOptionCount, refreshWorkspace, summaryClient?.id]);
 
   const handleApprovePlan = useCallback(async () => {
     if (!summaryClient?.id || !dietPlanState?.plan?.id || nutritionActionLoading) return;
@@ -1791,7 +1871,7 @@ function RealClientProfileDrawer({
 
   const renderOverview = () => (
     <div className="space-y-4">
-      <Surface className="sticky top-0 z-30 p-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]" animated>
+      <Surface className="p-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]" animated>
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-[620px]">
             <h3 className={drawerSectionTitleClass}>Health Snapshot</h3>
@@ -2071,8 +2151,8 @@ function RealClientProfileDrawer({
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{summaryClient?.name || 'Client'} · Diet Plan</p>
-            <h3 className="mt-1 text-[20px] font-semibold">{workflowLabelFromLifecycle(dietPlanState?.currentLifecycle || 'draft')} v{dietPlanState?.currentVersionNumber || '—'} · {selectedDietOptionCount}/35 selected · {dietPlanDirty || commonFoodDirty ? 'Unsaved changes' : 'Saved'}</h3>
-            <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{remainingDietOptionCount ? `${remainingDietOptionCount} selections remaining` : 'All required selections complete'}{dietPlanState?.plan?.latestPublishedVersionId ? ' · Active published plan remains separate' : ''}</p>
+            <h3 className="mt-1 text-[20px] font-semibold">{workflowLabelFromLifecycle(dietPlanState?.currentLifecycle || 'draft')} v{dietPlanState?.currentVersionNumber || '—'} · {persistedDietOptionCount}/35 persisted · {dietPlanDirty || effectiveCommonFoodDirty ? 'Unsaved changes' : persistedDietOptionCount === 35 ? 'Saved' : 'Incomplete draft'}</h3>
+            <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{persistedDietOptionCount < 35 ? `${35 - persistedDietOptionCount} persisted selections missing; generated candidates are not saved selections` : 'All required selections saved'}{dietPlanState?.plan?.latestPublishedVersionId ? ' · Active published plan remains separate' : ''}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -2095,7 +2175,7 @@ function RealClientProfileDrawer({
                 ) : null}
                 <button
                   onClick={handleSaveDraft}
-                  disabled={nutritionActionLoading || !dietPlanContentDraft || (!dietPlanDirty && !commonFoodDirty)}
+                  disabled={nutritionActionLoading || !dietPlanContentDraft || (!dietPlanDirty && !effectiveCommonFoodDirty)}
                   className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-neutral-foreground-1)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Save Plan
@@ -2103,8 +2183,8 @@ function RealClientProfileDrawer({
                 {!canReviewDietPlans ? (
                   <button
                     onClick={handleSubmitForReview}
-                    disabled={nutritionActionLoading || commonFoodDirty || selectedDietOptionCount !== 35 || !['draft', 'changes_requested'].includes(dietPlanState.currentLifecycle)}
-                    title={selectedDietOptionCount !== 35 ? `${remainingDietOptionCount} selections remaining before review` : undefined}
+                    disabled={nutritionActionLoading || effectiveCommonFoodDirty || persistedDietOptionCount !== 35 || !['draft', 'changes_requested'].includes(dietPlanState.currentLifecycle)}
+                    title={persistedDietOptionCount !== 35 ? `${35 - persistedDietOptionCount} persisted selections remaining before review` : undefined}
                     className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Submit for Review
@@ -2186,18 +2266,22 @@ function RealClientProfileDrawer({
         </div>
       </Surface>
 
-      <div className="sticky top-[132px] z-20 rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[rgba(255,255,255,0.96)] p-2 shadow-[0_8px_24px_rgba(15,23,42,0.08)] backdrop-blur">
+      <div data-testid="nutrition-sticky-stack" className="sticky top-0 z-20 space-y-2 bg-[var(--fluent-color-neutral-background-1)] pb-2 [--nutrition-sticky-top:0px]">
+      <div className="rounded-[14px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white px-4 py-3 shadow-[0_4px_12px_rgba(15,23,42,0.06)]">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm"><p><span className="font-semibold">{summaryClient?.name || 'Client'}</span><span className="ml-2 text-[var(--fluent-color-neutral-foreground-2)]">{formatDisplayValue(goalLabel)} · {dailyNutritionMonitoring?.dailyNutrition?.targetCalories ?? '—'} kcal/day · {dailyNutritionMonitoring?.dailyNutrition?.targetProtein ?? '—'} g protein · BMI {nutritionIntelligenceState?.clientSummary?.bmi ?? '—'} · Biomarkers reviewed</span></p><button type="button" onClick={() => setHealthContextOpen(true)} className="font-semibold text-blue-700">View Health Context</button></div>
+      </div>
+      <div className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-white p-2 shadow-[0_8px_24px_rgba(15,23,42,0.08)]">
         <div className="flex flex-wrap gap-2">
           {['Diet Plan', 'Optional Guidance', 'Review & Submit'].map((tab) => <button key={tab} type="button" onClick={() => setNutritionSectionTab(tab)} className={`rounded-[12px] px-4 py-2 text-xs font-semibold ${nutritionSectionTab === tab ? 'bg-[var(--fluent-color-brand-background)] text-[var(--fluent-color-brand-foreground)]' : 'text-[var(--fluent-color-neutral-foreground-2)]'}`}>{tab}</button>)}
         </div>
         {dietPlanState?.plan?.id ? <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 px-2 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
-          <span>Version {dietPlanState.currentVersionNumber}</span><span>·</span>
-          <span>{workflowLabelFromLifecycle(dietPlanState.currentLifecycle)}</span><span>·</span>
+          <span>{workflowLabelFromLifecycle(dietPlanState.currentLifecycle)} v{dietPlanState.currentVersionNumber}</span><span>·</span>
           <span>{mealPlanSectionEntries.length} meals</span><span>·</span>
-          <span>{selectedDietOptionCount}/35 selected</span><span>·</span>
-          <span>Guidance {optionalGuidanceSections(dietPlanContentDraft?.optionalGuidance).reduce((sum, [, , items]) => sum + items.filter((item) => item.enabled).length, 0)} included</span><span>·</span>
-          <span>{dietPlanDirty ? 'Unsaved changes' : 'Saved'}</span>
+          <span>{persistedDietOptionCount}/35 persisted</span><span>·</span>
+          <span>{optionalGuidanceSections(dietPlanContentDraft?.optionalGuidance).reduce((sum, [, , items]) => sum + items.filter((item) => item.enabled).length, 0)} guidance choices</span><span>·</span>
+          <span>{dietPlanDirty || effectiveCommonFoodDirty ? 'Unsaved changes' : persistedDietOptionCount === 35 ? 'Saved' : 'Incomplete draft'}</span>
         </div> : null}
+      </div>
       </div>
 
       {nutritionSectionTab === 'Diet Plan' && dailyNutritionMonitoring ? (
@@ -2331,11 +2415,11 @@ function RealClientProfileDrawer({
             </div>
             <div className="mt-4 grid items-start gap-4 xl:grid-cols-2">
               <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4">
-                <div className="flex items-center justify-between gap-3"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Plan readiness</p><span className={`rounded-full px-2 py-1 text-xs font-semibold ${selectedDietOptionCount === 35 ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-800'}`}>{selectedDietOptionCount}/35 selected</span></div>
+                <div className="flex items-center justify-between gap-3"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Plan readiness</p><span className={`rounded-full px-2 py-1 text-xs font-semibold ${persistedDietOptionCount === 35 ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-800'}`}>{persistedDietOptionCount}/35 persisted</span></div>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs"><span>Safety passed</span><span>Serving sanity passed</span><span>Client-facing names passed</span><span>{remainingDietOptionCount ? `${remainingDietOptionCount} remaining` : 'Ready for review'}</span></div>
                 <div className="mt-3 space-y-2">{mealPlanSectionEntries.map(([key, label], index) => {
                   const mealHead = COMMON_FOOD_MEALS[index]?.[0];
-                  const selected = (dietPlanState?.version?.commonFoodOptions || dietPlanState?.commonFoodOptions || []).filter((option) => option.mealHead === mealHead).length;
+                  const selected = commonFoodProgress?.persistedByMeal?.[mealHead] ?? (dietPlanState?.version?.commonFoodOptions || dietPlanState?.commonFoodOptions || []).filter((option) => option.mealHead === mealHead).length;
                   return <div key={key} className="flex items-center justify-between rounded-[12px] bg-[var(--fluent-color-neutral-background-1)] px-3 py-2 text-xs"><span>{label}</span><span className="font-semibold">{selected}/5 {selected === 5 ? '✓' : 'Needs attention'}</span></div>;
                 })}</div>
               </div>
@@ -2377,7 +2461,7 @@ function RealClientProfileDrawer({
               <div><p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Optional Nutrition Guidance</p><p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">This guidance is part of Version {dietPlanState.currentVersionNumber}. Senior Consultant approval covers this complete package.</p></div>
               {!canReviewDietPlans && ['draft', 'changes_requested'].includes(dietPlanState.currentLifecycle) ? <button onClick={handleGenerateOptionalGuidance} disabled={nutritionActionLoading} className="rounded-full border border-[var(--fluent-color-brand-stroke-1)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground-1)] disabled:opacity-50">Regenerate all guidance</button> : null}
             </div>
-            <OptionalGuidanceEditor guidance={dietPlanContentDraft.optionalGuidance} readOnly={canReviewDietPlans || !['draft', 'changes_requested'].includes(dietPlanState.currentLifecycle)} onItemsChange={handleGuidanceItemChange} onSearch={handleGuidanceSearch} />
+            <OptionalGuidanceEditor guidance={dietPlanContentDraft.optionalGuidance} readOnly={canReviewDietPlans || !['draft', 'changes_requested'].includes(dietPlanState.currentLifecycle)} onItemsChange={handleGuidanceItemChange} onMoveItem={handleGuidanceItemMove} onSearch={handleGuidanceSearch} onAddToDietPlan={handleGuidanceAddToDietPlan} />
           </Surface> : null}
         </div>
       ) : (
@@ -2387,6 +2471,7 @@ function RealClientProfileDrawer({
           </div>
         </Surface>
       )}
+      {healthContextOpen ? <div className="fixed inset-0 z-50 flex justify-end bg-black/25" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setHealthContextOpen(false); }}><aside role="dialog" aria-modal="true" aria-labelledby="health-context-title" className="h-full w-full max-w-[520px] overflow-y-auto bg-white p-5 shadow-[-12px_0_40px_rgba(15,23,42,0.18)]"><div className="flex items-start justify-between gap-4"><div><h3 id="health-context-title" className="text-lg font-semibold">Health Context</h3><p className="mt-1 text-sm text-gray-600">Current governed context for {summaryClient?.name || 'this client'}.</p></div><button type="button" aria-label="Close Health Context" onClick={() => setHealthContextOpen(false)} className="rounded-full border p-2"><X size={18} /></button></div><div className="mt-5 grid gap-3 sm:grid-cols-2"><DetailField label="Goal" value={formatDisplayValue(goalLabel)} /><DetailField label="Calories" value={dailyNutritionMonitoring?.dailyNutrition?.targetCalories != null ? `${dailyNutritionMonitoring.dailyNutrition.targetCalories} kcal/day` : 'Not calculated'} /><DetailField label="Protein" value={dailyNutritionMonitoring?.dailyNutrition?.targetProtein != null ? `${dailyNutritionMonitoring.dailyNutrition.targetProtein} g/day` : 'Not calculated'} /><DetailField label="BMI" value={nutritionIntelligenceState?.clientSummary?.bmi ?? 'Not available'} /><DetailField label="Biomarkers" value={biomarkers.length ? `${biomarkers.length} reviewed records` : 'No reviewed records'} /><DetailField label="Programme" value={onboarding?.goal || 'Not available'} /></div><p className="mt-5 rounded-[14px] bg-blue-50 p-4 text-sm text-blue-900">Diet preferences, restrictions, reports and biomarker detail remain available in the Health Intelligence and Biomarkers tabs.</p></aside></div> : null}
     </div>
     )
   );
@@ -5824,6 +5909,7 @@ function DietPlanReviewQueuePage() {
         <h2 className="mt-2 text-[24px] font-semibold">Senior Consultant review queue</h2>
         <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Review submitted Consultant plans, request focused corrections, or approve the submitted version.</p>
       </Surface>
+      <SeniorFoodProposalReviewPanel />
       {error ? <p className="rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-3 text-sm text-[var(--fluent-color-status-danger-foreground)]">{error}</p> : null}
       <Surface className="overflow-hidden border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)]" animated>
         {loading ? <p className="p-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading review queue...</p> : reviews.length ? (
