@@ -85,6 +85,11 @@ class FiteatsyOwnerBridgeTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(payload)
         self.assertIsNone(denied)
 
+        canonical_super_admin = owner_request(role="super_admin", permissions=[permission], products=["fiteatsy"])
+        payload, denied = _assert_owner_authority(canonical_super_admin, permission)
+        self.assertIsNotNone(payload)
+        self.assertIsNone(denied)
+
         for request in (
             owner_request(role="consultant", permissions=[permission], products=["fiteatsy"]),
             owner_request(role="senior_consultant", permissions=[permission], products=["fiteatsy"]),

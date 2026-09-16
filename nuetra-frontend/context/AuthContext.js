@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { findUserByCredentials, sampleUsers } from '../data/mockPlatformData';
-import { getDashboardPathForUser, getPostAuthPathForUser } from '../lib/roleRoutes';
+import { canAccessDashboardLocation, getDashboardPathForUser, getPostAuthPathForUser } from '../lib/roleRoutes';
 import { authAPI, clearTokens, getRefreshToken, getToken, isRememberedAuthSession, setRefreshToken, setToken } from '../lib/api';
 
 const SESSION_KEY = 'nuetra_session';
@@ -238,7 +238,12 @@ export function AuthProvider({ children }) {
           setUser(nextUser);
           persistSession(session, rememberMe);
           const postAuthPath = getPostAuthPathForUser(nextUser);
-          if (postAuthPath && router.pathname !== postAuthPath && router.pathname.startsWith('/dashboard')) {
+          if (
+            postAuthPath
+            && router.pathname !== postAuthPath
+            && router.pathname.startsWith('/dashboard')
+            && !canAccessDashboardLocation(nextUser, router.pathname, router.query)
+          ) {
             router.replace(postAuthPath);
           }
           return true;

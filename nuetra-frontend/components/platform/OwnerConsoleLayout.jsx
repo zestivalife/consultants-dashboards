@@ -6,6 +6,7 @@ import {
   BriefcaseBusiness,
   Building2,
   ClipboardList,
+  ClipboardCheck,
   Database,
   FolderKanban,
   LayoutPanelTop,
@@ -17,6 +18,8 @@ import {
 } from 'lucide-react';
 
 import { OWNER_ROUTE_DEFINITIONS, getOwnerConsolePath } from '../../lib/ownerConsoleRoutes';
+import { useAuth } from '../../context/AuthContext';
+import { canAccessFoodAuthorisation } from '../../lib/roleRoutes';
 
 function cn(...values) {
   return values.filter(Boolean).join(' ');
@@ -41,7 +44,9 @@ const OWNER_NAV_ICONS = {
 
 export default function OwnerConsoleLayout({ activeSlug, children }) {
   const router = useRouter();
+  const { user } = useAuth();
   const navItems = OWNER_ROUTE_DEFINITIONS.filter((item) => !item.hidden || item.slug === activeSlug);
+  const showFoodAuthorisation = canAccessFoodAuthorisation(user);
 
   return (
     <div className="relative z-10 mx-auto flex max-w-[1600px] gap-6 px-4 pb-20 pt-6 sm:px-6 lg:px-8">
@@ -74,6 +79,15 @@ export default function OwnerConsoleLayout({ activeSlug, children }) {
               </Link>
             );
           })}
+          {showFoodAuthorisation ? (
+            <Link
+              href="/dashboard/admin?view=food-authorisation"
+              className="flex items-center gap-3 rounded-2xl px-4 py-3 z-body font-medium text-gray-600 transition-all hover:bg-[#f5f9ff] hover:text-[#237afc]"
+            >
+              <ClipboardCheck className="h-4 w-4 shrink-0" />
+              <span className="truncate">Food Authorisation</span>
+            </Link>
+          ) : null}
         </nav>
 
         <div className="mt-6 rounded-3xl border border-gray-100 bg-gray-50 p-4">
@@ -106,6 +120,15 @@ export default function OwnerConsoleLayout({ activeSlug, children }) {
                 </button>
               );
             })}
+            {showFoodAuthorisation ? (
+              <button
+                type="button"
+                onClick={() => router.push('/dashboard/admin?view=food-authorisation')}
+                className="rounded-full border border-gray-200 bg-white px-3 py-2 z-label whitespace-nowrap text-gray-600 transition-all"
+              >
+                Food Authorisation
+              </button>
+            ) : null}
           </div>
         </div>
 

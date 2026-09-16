@@ -42,6 +42,7 @@ const WORKSPACE_POLICIES = {
 };
 
 const PROFESSIONAL_ROLE_KEYS = new Set(['consultant', 'provider', 'dietician', 'dietitian', 'senior_consultant', 'practitioner', 'mentor', 'team_lead']);
+const FOOD_AUTHORISATION_ROLE_KEYS = new Set(['platform_owner', 'super_admin', 'superuser']);
 const PROFESSIONAL_ROUTE_MAP = {
   senior_consultant: '/dashboard/senior-consultant', consultant: '/dashboard/consultant',
   provider: '/dashboard/provider', dietician: '/dashboard/provider', dietitian: '/dashboard/provider',
@@ -121,6 +122,20 @@ function getProductRole(user) {
 
 export function getEffectiveWorkspaceRole(user) {
   return getProductRole(user) || getRoleKey(user?.role) || getRoleKey(getAccessProfile(user)?.role);
+}
+
+export function canAccessFoodAuthorisation(userOrRole) {
+  const roleKey = typeof userOrRole === 'object'
+    ? getEffectiveWorkspaceRole(userOrRole)
+    : getRoleKey(userOrRole);
+  return FOOD_AUTHORISATION_ROLE_KEYS.has(roleKey);
+}
+
+export function canAccessDashboardLocation(user, pathname, query = {}) {
+  const view = Array.isArray(query?.view) ? query.view[0] : query?.view;
+  return pathname === '/dashboard/admin'
+    && view === 'food-authorisation'
+    && canAccessFoodAuthorisation(user);
 }
 
 function unique(values) {
