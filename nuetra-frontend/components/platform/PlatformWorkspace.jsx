@@ -1720,6 +1720,8 @@ function RealClientProfileDrawer({
     setNutritionActionError(null);
     setNutritionActionSuccess(null);
     try {
+      const serverVerified = await commonFoodEditorRef.current?.verify();
+      if (!serverVerified) throw new Error('The selected 35 options do not match the current saved server version. Save and reload before submitting.');
       const response = await submitFiteatsyConsultantDietPlanForReview(summaryClient.id, dietPlanState.plan.id);
       const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
       setDietPlanState(nextDietPlan);
@@ -2071,7 +2073,7 @@ function RealClientProfileDrawer({
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">{summaryClient?.name || 'Client'} · Diet Plan</p>
-            <h3 className="mt-1 text-[20px] font-semibold">{workflowLabelFromLifecycle(dietPlanState?.currentLifecycle || 'draft')} v{dietPlanState?.currentVersionNumber || '—'} · {selectedDietOptionCount}/35 selected · {dietPlanDirty || commonFoodDirty ? 'Unsaved changes' : 'Saved'}</h3>
+            <h3 className="mt-1 text-[20px] font-semibold">{workflowLabelFromLifecycle(dietPlanState?.currentLifecycle || 'draft')} v{dietPlanState?.currentVersionNumber || '—'} · {selectedDietOptionCount}/35 selected · {dietPlanDirty || commonFoodDirty ? 'Unsaved changes' : commonFoodProgress?.savedVerified ? 'Saved & verified' : 'Not yet server verified'}</h3>
             <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{remainingDietOptionCount ? `${remainingDietOptionCount} selections remaining` : 'All required selections complete'}{dietPlanState?.plan?.latestPublishedVersionId ? ' · Active published plan remains separate' : ''}</p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -2103,7 +2105,7 @@ function RealClientProfileDrawer({
                 {!canReviewDietPlans ? (
                   <button
                     onClick={handleSubmitForReview}
-                    disabled={nutritionActionLoading || commonFoodDirty || selectedDietOptionCount !== 35 || !['draft', 'changes_requested'].includes(dietPlanState.currentLifecycle)}
+                    disabled={nutritionActionLoading || commonFoodDirty || !commonFoodProgress?.savedVerified || selectedDietOptionCount !== 35 || !['draft', 'changes_requested'].includes(dietPlanState.currentLifecycle)}
                     title={selectedDietOptionCount !== 35 ? `${remainingDietOptionCount} selections remaining before review` : undefined}
                     className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
                   >
@@ -2155,11 +2157,6 @@ function RealClientProfileDrawer({
                 className="rounded-full border border-[var(--fluent-color-status-danger-foreground)] px-3 py-1.5 text-xs font-semibold"
               >
                 Retry
-              </button>
-              <button
-                className="rounded-full border border-transparent bg-[rgba(255,255,255,0.2)] px-3 py-1.5 text-xs font-semibold"
-              >
-                Contact support
               </button>
             </div> : null}
           </div>
