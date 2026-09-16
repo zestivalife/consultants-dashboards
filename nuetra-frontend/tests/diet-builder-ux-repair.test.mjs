@@ -63,7 +63,8 @@ test('component mutations remain unsaved until the authoritative 35-selection re
   assert.match(editor, /Option updated and recalculated by Fiteatsy\. Save the Diet Plan to persist the complete selection\./);
   assert.match(editor, /Component added independently to \$\{updated\.length\} meal options\. Save the Diet Plan to persist the complete selection\./);
   assert.match(editor, /replaceFiteatsyCommonFoodSelection/);
-  assert.match(editor, /setOptions\(persisted\); setSelectedIds\(nextIds\); setPersistedIds\(nextIds\); setDirty\(false\)/);
+  assert.match(editor, /verifyPersistedSelection\(\{ requestedIds: selectedIds, responseOptions: fresh\?\.options \|\| \[\], expectedPlanVersionId/);
+  assert.match(editor, /setOptions\(\(current\) => mergeCandidateOptions\(persisted, current\)\); setSelectedIds\(nextIds\); setPersistedIds\(nextIds\); setDirty\(false\); setSavedVerified\(true\)/);
   assert.doesNotMatch(editor, /Option updated and recalculated by Fiteatsy\.['"]\); \}\s*catch/);
 });
 
