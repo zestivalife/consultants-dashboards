@@ -1801,6 +1801,11 @@ function RealClientProfileDrawer({
     setNutritionActionError(null);
     setNutritionActionSuccess(null);
     try {
+      const serverVerified = await commonFoodEditorRef.current?.verify();
+      if (!serverVerified) {
+        setNutritionActionError('The saved selections could not be verified against the current server version. Reload and save the plan before review.');
+        return;
+      }
       const response = await submitFiteatsyConsultantDietPlanForReview(summaryClient.id, dietPlanState.plan.id);
       const nextDietPlan = buildDietPlanPayload(response?.plan, response?.version);
       setDietPlanState(nextDietPlan);
@@ -2184,7 +2189,7 @@ function RealClientProfileDrawer({
                 {!canReviewDietPlans ? (
                   <button
                     onClick={handleSubmitForReview}
-                    disabled={nutritionActionLoading || effectiveCommonFoodDirty || persistedDietOptionCount !== 35 || !['draft', 'changes_requested'].includes(dietPlanState.currentLifecycle)}
+                    disabled={nutritionActionLoading || effectiveCommonFoodDirty || persistedDietOptionCount !== 35 || !commonFoodProgress?.savedVerified || !['draft', 'changes_requested'].includes(dietPlanState.currentLifecycle)}
                     title={persistedDietOptionCount !== 35 ? `${35 - persistedDietOptionCount} persisted selections remaining before review` : undefined}
                     className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
                   >

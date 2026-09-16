@@ -16,6 +16,7 @@ export const OWNER_ROUTE_DEFINITIONS = [
   { slug: 'mentors', moduleKey: 'mentors', label: 'Mentors', section: 'Owner Console' },
   { slug: 'consultants', moduleKey: 'consultants', label: 'Consultants', section: 'Owner Console' },
   { slug: 'reports', moduleKey: 'reports', label: 'Reports', section: 'Owner Console' },
+  { slug: 'grievances', moduleKey: 'grievances', label: 'Grievances', section: 'Owner Console' },
   { slug: 'audit', moduleKey: 'audit', label: 'Audit Logs', section: 'Owner Console' },
   { slug: 'platform-health', moduleKey: 'system', label: 'Platform Health', section: 'Owner Console' },
   { slug: 'settings', moduleKey: 'settings', label: 'Settings', section: 'Owner Console' },

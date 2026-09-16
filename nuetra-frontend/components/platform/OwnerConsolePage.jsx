@@ -20,6 +20,7 @@ import {
   SettingsModule,
 } from './OwnerConsoleModules';
 import MasterDataModule from './MasterDataModule';
+import GrievanceManagementModule from './GrievanceManagementModule';
 import OwnerConsoleLayout from './OwnerConsoleLayout';
 import { platformOwnerConsoleData } from '../../data/platformOwnerConsoleData';
 import { getOwnerBreadcrumbs, getOwnerRouteBySlug } from '../../lib/ownerConsoleRoutes';
@@ -153,6 +154,8 @@ export default function OwnerConsolePage({ moduleSlug = 'command-center' }) {
         return <MentorsModule mentors={platformOwnerConsoleData.mentors} />;
       case 'reports':
         return <ReportsModule reports={platformOwnerConsoleData.reports} />;
+      case 'grievances':
+        return <GrievanceManagementModule />;
       case 'audit':
         return <AuditLogsModule auditLogs={platformOwnerConsoleData.auditLogs} />;
       case 'system':

@@ -19,6 +19,7 @@ import {
 } from '../../lib/fiteatsyConsultantsApi';
 import { isCommonFoodCombinationEngineEnabled } from '../../lib/dietFeatureFlags';
 import { COMMON_FOOD_MEALS, buildMealAuthoringPool, commonFoodErrorMessage, commonFoodOptionType, formatNutrient, legacyOptionsForUnifiedPlan, optionSummary, optionTitle, previousOptionReuseState } from '../../lib/commonFoodUi.mjs';
+import { isExactSelection, mergeCandidateOptions, verifyPersistedSelection } from '../../lib/commonFoodSelectionLifecycle.mjs';
 import { ConsultantFoodProposalPanel } from './FoodProposalUx';
 
 const roles = [['', 'All food groups'], ['STARCH', 'Staples'], ['GRAIN', 'Grains'], ['BREAD', 'Indian breads'], ['PULSE', 'Dal & pulses'], ['PROTEIN', 'Protein foods'], ['VEGETABLE', 'Vegetables'], ['FRUIT', 'Fruits'], ['DAIRY', 'Dairy'], ['FAT', 'Fats'], ['NUT_SEED', 'Nuts & seeds'], ['BEVERAGE', 'Drinks'], ['ACCOMPANIMENT', 'Accompaniments']];
@@ -162,6 +163,7 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [savedVerified, setSavedVerified] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [explorer, setExplorer] = useState(null);
@@ -206,7 +208,7 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
         });
         return merged;
       });
-      setDirty(autoSelect);
+      setDirty(autoSelect); setSavedVerified(false);
       setMessage(autoSelect
         ? 'Generated options are included by default. Review the five choices for each meal, then save.'
         : 'Missing candidates loaded. Existing saved selections were preserved; choose and save the remaining options explicitly.');
@@ -219,13 +221,15 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
       const response = await readFiteatsyCommonFoodOptions(clientId, dietPlanId);
       const savedOptions = response?.options || [];
       const savedIds = new Set(savedOptions.map((option) => option.combinationId));
-      setOptions(savedOptions); setSelectedIds(savedIds); setPersistedIds(savedIds); setDirty(false);
-      setMessage(savedOptions.length === 35 ? 'Saved Diet Plan reloaded.' : savedOptions.length ? `Incomplete saved draft: ${savedOptions.length}/35 persisted.` : 'No saved Diet Plan options yet.');
+      const verified = response?.planVersionId === planVersionId
+        && isExactSelection(savedOptions, savedIds, COMMON_FOOD_MEALS.map(([head]) => head));
+      setOptions(savedOptions); setSelectedIds(savedIds); setPersistedIds(savedIds); setDirty(false); setSavedVerified(verified);
+      setMessage(verified ? 'Saved selections verified against the current server version.' : savedOptions.length ? `Incomplete saved draft: ${savedOptions.length}/35 persisted.` : 'No saved Diet Plan options yet.');
       if (isCommonFoodCombinationEngineEnabled && savedOptions.length < 35 && ['draft', 'changes_requested'].includes(lifecycle) && !readOnly) {
         await generate({ autoSelect: savedOptions.length === 0, baseOptions: savedOptions, selectedSeed: savedIds });
       }
     } catch (nextError) { setError(commonFoodErrorMessage(nextError, 'Unable to reload Diet Plan options.')); }
-  }, [clientId, dietPlanId, generate, lifecycle, readOnly]);
+  }, [clientId, dietPlanId, generate, lifecycle, planVersionId, readOnly]);
   useEffect(() => {
     if (!dietPlanId) return;
     if (generationRequestId > handledGenerationRequest.current && ['draft', 'changes_requested'].includes(lifecycle) && !readOnly) {
@@ -249,16 +253,27 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
     setSaving(true); setError('');
     try {
       const response = await replaceFiteatsyCommonFoodSelection(clientId, dietPlanId, { expectedPlanVersionId, options: selected.map((option) => ({ optionId: option.combinationId, mealHead: option.mealHead, components: option.components.map(({ foodId, servingId, multiplier }) => ({ foodId, servingId, multiplier })) })) });
-      const persisted = response?.options || [];
+      if (response?.planVersionId !== expectedPlanVersionId) throw Object.assign(new Error('STALE_PLAN_VERSION'), { status: 409 });
+      const fresh = await readFiteatsyCommonFoodOptions(clientId, dietPlanId);
+      if (!verifyPersistedSelection({ requestedIds: selectedIds, responseOptions: fresh?.options || [], expectedPlanVersionId, responsePlanVersionId: fresh?.planVersionId, mealHeads: COMMON_FOOD_MEALS.map(([head]) => head) })) {
+        throw new Error('Saved selection verification failed. Your local choices were preserved; retry save.');
+      }
+      const persisted = fresh.options;
       const nextIds = new Set(persisted.map((option) => option.combinationId));
-      setOptions(persisted); setSelectedIds(nextIds); setPersistedIds(nextIds); setDirty(false); setMessage(`Saved ${persisted.length} selected, server-validated options.`);
-    } catch (nextError) { if (nextError?.status === 409) onStale?.(); setError(commonFoodErrorMessage(nextError)); throw nextError; }
+      setOptions((current) => mergeCandidateOptions(persisted, current)); setSelectedIds(nextIds); setPersistedIds(nextIds); setDirty(false); setSavedVerified(true); setMessage(`Saved and reloaded ${persisted.length} server-verified options.`);
+    } catch (nextError) { setSavedVerified(false); if (nextError?.status === 409) onStale?.(); setError(commonFoodErrorMessage(nextError)); throw nextError; }
     finally { setSaving(false); }
   };
-  useImperativeHandle(ref, () => ({ save: saveAll, reload: () => reload(), generate }), [generate, options, planVersionId, reload, selectedIds]);
+  const verify = useCallback(async () => {
+    const fresh = await readFiteatsyCommonFoodOptions(clientId, dietPlanId);
+    const valid = savedVerified && verifyPersistedSelection({ requestedIds: selectedIds, responseOptions: fresh?.options || [], expectedPlanVersionId: planVersionId, responsePlanVersionId: fresh?.planVersionId, mealHeads: COMMON_FOOD_MEALS.map(([head]) => head) });
+    if (!valid) setSavedVerified(false);
+    return valid;
+  }, [clientId, dietPlanId, planVersionId, savedVerified, selectedIds]);
+  useImperativeHandle(ref, () => ({ save: saveAll, verify, reload: () => reload(), generate }), [generate, planVersionId, reload, selectedIds, verify]);
   const mutate = async (action) => {
     setError('');
-    try { const next = await action(); setOptions((current) => current.map((item) => item.combinationId === next.combinationId ? next : item)); setDirty(true); setExplorer(null); setMessage('Option updated and recalculated by Fiteatsy. Save the Diet Plan to persist the complete selection.'); }
+    try { const next = await action(); setOptions((current) => current.map((item) => item.combinationId === next.combinationId ? next : item)); setDirty(true); setSavedVerified(false); setExplorer(null); setMessage('Option updated and recalculated by Fiteatsy. Save the Diet Plan to persist the complete selection.'); }
     catch (nextError) { if (nextError?.status === 409) onStale?.(); setError(commonFoodErrorMessage(nextError)); }
   };
   const openExplorer = (mode, option, component, mealLabel, targetRole = '', extra = {}) => setExplorer({ mode, option, component, mealHead: option?.mealHead || extra.mealHead, mealLabel, targetRole, ...extra });
@@ -267,11 +282,11 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
     const selectedForMeal = options.filter((item) => item.mealHead === option.mealHead && selectedIds.has(item.combinationId));
     if (!selectedIds.has(id) && selectedForMeal.length >= 5) { setError('A meal can have at most five selected options. Unselect one before choosing another.'); return; }
     setSelectedIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-    setDirty(true); setError(''); setMessage('Selection updated. Save the Diet Plan to persist it.');
+    setDirty(true); setSavedVerified(false); setError(''); setMessage('Selection updated. Save the Diet Plan to persist it.');
   };
   const setMealSelection = (mealHead, include) => {
     setSelectedIds((current) => { const next = new Set(current); options.filter((option) => option.mealHead === mealHead).forEach((option, index) => { if (include && index < 5) next.add(option.combinationId); else next.delete(option.combinationId); }); return next; });
-    setDirty(true); setError(''); setMessage(include ? 'All five meal options included.' : 'Meal options cleared.');
+    setDirty(true); setSavedVerified(false); setError(''); setMessage(include ? 'All five meal options included.' : 'Meal options cleared.');
   };
   const selectFood = async (component) => {
     const { applyScope: _applyScope, ...foodComponent } = component;
@@ -329,7 +344,7 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
   const persistedTotal = typedOptions.filter((option) => persistedIds.has(option.combinationId)).length;
   const remainingTotal = Math.max(0, 35 - selectedTotal);
   const persistedByMeal = Object.fromEntries(COMMON_FOOD_MEALS.map(([head]) => [head, typedOptions.filter((option) => option.mealHead === head && persistedIds.has(option.combinationId)).length]));
-  useEffect(() => { onProgressChange?.({ selected: selectedTotal, persisted: persistedTotal, persistedByMeal, remaining: remainingTotal, ready: selectedTotal === 35, persistedReady: persistedTotal === 35, dirty }); }, [dirty, onProgressChange, persistedTotal, remainingTotal, selectedTotal]);
+  useEffect(() => { onProgressChange?.({ selected: selectedTotal, persisted: persistedTotal, persistedByMeal, remaining: remainingTotal, ready: selectedTotal === 35, persistedReady: persistedTotal === 35, savedVerified, dirty }); }, [dirty, onProgressChange, persistedTotal, remainingTotal, savedVerified, selectedTotal]);
   return <section aria-label="Diet Plan" className="space-y-4">
     {!readOnly ? <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setTemplateLibrary(true)} className="inline-flex items-center gap-1 rounded-full border px-3 py-2 text-xs font-semibold"><Copy size={14} /> Template Library</button><button type="button" disabled={dirty || !typedOptions.find((option) => selectedIds.has(option.combinationId))} title={dirty ? 'Save the Diet Plan before creating a reusable template.' : 'Save a complete selected meal as a reusable template.'} onClick={() => setTemplateMeal(typedOptions.find((option) => selectedIds.has(option.combinationId)))} className="rounded-full border px-3 py-2 text-xs font-semibold disabled:opacity-40">Save selected meal as Template</button></div> : null}
     {generationSnapshot?<details className="rounded-[14px] border bg-[var(--fluent-color-neutral-background-2)] px-4 py-3"><summary className="cursor-pointer text-sm font-semibold">Plan Context · Generated using current client profile, food preferences and available biomarkers</summary><div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><p className="text-xs text-gray-500">Diet preference</p><p className="font-semibold">{generationSnapshot.dietPreference||'Not provided'}</p></div><div><p className="text-xs text-gray-500">Calorie target</p><p className="font-semibold">{generationSnapshot.dailyTargets?.calories!=null?`${generationSnapshot.dailyTargets.calories} kcal`:'Not calculated'}</p></div><div><p className="text-xs text-gray-500">Biomarkers available</p><p className="font-semibold">{generationSnapshot.biomarkers?.length||0}</p></div><div><p className="text-xs text-gray-500">Biomarkers affecting ranking</p><p className="font-semibold">{generationSnapshot.biomarkers?.filter((item)=>item.generationEffect==='RANKING').map((item)=>item.canonicalMarkerName).join(', ')||'No governed generation rule'}</p></div></div></details>:null}
