@@ -66,7 +66,8 @@ test('single observations do not fabricate historical results', () => {
 
 test('Consultant profile exposes the factual biomarker navigation and fields', async () => {
   const workspace = await readFile(new URL('../components/platform/PlatformWorkspace.jsx', import.meta.url), 'utf8');
-  assert.match(workspace, /key: 'Biomarkers', label: 'Biomarkers'/);
+  assert.match(workspace, /key: 'Health', label: 'Health'/);
+  assert.match(workspace, /renderBiomarkers\(\)/);
   assert.match(workspace, /label="Observation date"/);
   assert.match(workspace, /label="Source"/);
   assert.match(workspace, /View history \(\{biomarker\.history\.length\}\)/);

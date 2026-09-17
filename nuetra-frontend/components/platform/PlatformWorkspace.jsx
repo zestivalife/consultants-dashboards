@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import withAuth from '../../hocs/withAuth';
 import CommonFoodPlanEditor from './CommonFoodPlanEditor';
+import Client360CareWorkspace from './Client360CareWorkspace';
 import { SeniorFoodProposalReviewPanel } from './FoodProposalUx';
 import FoodAuthorisationPage from './FoodAuthorisationPage';
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
@@ -49,7 +50,9 @@ import {
   getFiteatsyConsultantClientProfile,
   getFiteatsyConsultantLatestDietPlan,
   getFiteatsyConsultantNutritionIntelligence,
+  getFiteatsyConsultantAvailability,
   listFiteatsyConsultantClients,
+  listFiteatsyConsultantOperations,
   listAllFiteatsyClientAllocationPool,
   searchFiteatsyAssignmentClients,
   listFiteatsyAssignmentProfessionals,
@@ -61,6 +64,9 @@ import {
   submitFiteatsyConsultantDietPlanForReview,
   searchFiteatsyConsultantOptionalGuidance,
   updateFiteatsyConsultantDietPlanDraft,
+  createFiteatsyClientOperation,
+  updateFiteatsyClientOperation,
+  updateFiteatsyConsultantAvailability,
 } from '../../lib/fiteatsyConsultantsApi';
 import { biomarkerSourceLabel, formatBiomarkerDate } from '../../lib/biomarkerPresentation.mjs';
 import { corporateAPI } from '../../lib/api';
@@ -226,51 +232,39 @@ function createDefaultConsultantWorkspaceState() {
   };
 }
 
-function readConsultantWorkspaceState(storageKey) {
-  if (typeof window === 'undefined' || !storageKey) return createDefaultConsultantWorkspaceState();
-
-  try {
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return createDefaultConsultantWorkspaceState();
-    const parsed = JSON.parse(raw);
+function mapBackendOperation(operation) {
+  const metadata = operation?.metadata && typeof operation.metadata === 'object' ? operation.metadata : {};
+  const base = {
+    id: operation.id,
+    operationType: operation.operationType,
+    clientId: operation.clientId,
+    clientName: operation.clientName || 'Client',
+    title: operation.title,
+    status: operation.operationType === 'TASK' && operation.status === 'COMPLETED'
+      ? 'done'
+      : String(operation.status || 'OPEN').toLowerCase(),
+    version: Number(operation.version || 1),
+    createdAt: operation.createdAt,
+    updatedAt: operation.updatedAt,
+  };
+  if (operation.operationType === 'CONSULTATION') {
+    const scheduledAt = operation.scheduledAt ? new Date(operation.scheduledAt) : null;
     return {
-      ...createDefaultConsultantWorkspaceState(),
-      ...parsed,
-      appointments: Array.isArray(parsed?.appointments) ? parsed.appointments : [],
-      tasks: Array.isArray(parsed?.tasks) ? parsed.tasks : [],
-      followUps: Array.isArray(parsed?.followUps) ? parsed.followUps : [],
-      activityLog: Array.isArray(parsed?.activityLog) ? parsed.activityLog : [],
-      consultationNotes: parsed?.consultationNotes && typeof parsed.consultationNotes === 'object' ? parsed.consultationNotes : {},
-      profile: {
-        ...createDefaultConsultantWorkspaceState().profile,
-        ...(parsed?.profile || {}),
-      },
-      availability: {
-        ...createDefaultConsultantWorkspaceState().availability,
-        ...(parsed?.availability || {}),
-      },
+      ...base,
+      date: scheduledAt ? scheduledAt.toISOString().slice(0, 10) : '',
+      time: scheduledAt ? scheduledAt.toTimeString().slice(0, 5) : '',
+      mode: metadata.mode || 'Video',
+      objective: operation.detail || '',
     };
-  } catch (error) {
-    console.warn('Unable to read consultant workspace state', error);
-    return createDefaultConsultantWorkspaceState();
   }
-}
-
-function createWorkspaceId(prefix) {
-  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function appendConsultantWorkspaceActivity(state, activity) {
+  if (operation.operationType === 'FOLLOW_UP') {
+    return { ...base, reason: operation.detail || operation.title, dueDate: operation.dueAt };
+  }
   return {
-    ...state,
-    activityLog: [
-      {
-        id: activity.id || createWorkspaceId('activity'),
-        createdAt: activity.createdAt || new Date().toISOString(),
-        ...activity,
-      },
-      ...(state.activityLog || []),
-    ].slice(0, 60),
+    ...base,
+    category: metadata.category || 'General',
+    dueDate: operation.dueAt ? String(operation.dueAt).slice(0, 10) : '',
+    detail: operation.detail || '',
   };
 }
 
@@ -1466,14 +1460,15 @@ function RealClientProfileDrawer({
   const biomarkers = profile?.biomarkers || [];
   const reports = profile?.reports || [];
   const timeline = profile?.timeline || [];
-  const workspaceTabs = ['Overview', 'Health Profile', 'Lifestyle', 'Reports', 'Biomarkers', ...(canManageNutrition ? ['Nutrition Plan'] : []), 'Activity', 'Timeline'];
+  const workspaceTabs = ['Overview', 'Profile', 'Health', 'Nutrition', 'Diet Plan', 'Reports', 'Care', 'Timeline'];
   const groupedWorkspaceTabs = [
     { key: 'Overview', label: 'Overview' },
-    { key: 'Health Profile', label: 'Health Intelligence' },
-    ...(canManageNutrition ? [{ key: 'Nutrition Plan', label: 'Nutrition' }] : []),
+    { key: 'Profile', label: 'Profile' },
+    { key: 'Health', label: 'Health' },
+    { key: 'Nutrition', label: 'Nutrition' },
+    { key: 'Diet Plan', label: 'Diet Plan' },
     { key: 'Reports', label: 'Reports' },
-    { key: 'Biomarkers', label: 'Biomarkers' },
-    { key: 'Activity', label: 'Activity' },
+    { key: 'Care', label: 'Care' },
     { key: 'Timeline', label: 'Timeline' },
   ];
   const goalLabel = onboarding?.goal || summaryClient?.program || 'Not assigned';
@@ -2532,14 +2527,43 @@ function RealClientProfileDrawer({
     </Surface>
   );
 
+  const renderProfile = () => (
+    <div className="space-y-4">
+      {renderHealthProfile()}
+      {renderLifestyle()}
+    </div>
+  );
+
+  const renderHealth = () => (
+    <div className="space-y-4">
+      {renderBiomarkers()}
+      {renderActivity()}
+    </div>
+  );
+
+  const renderNutritionSummary = () => (
+    <Surface className="p-5" animated>
+      <h3 className={drawerSectionTitleClass}>Nutrition overview</h3>
+      <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Backend-authoritative targets and monitoring. Diet authoring remains in Diet Plan.</p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <DetailField label="Daily energy target" value={nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : nutritionSnapshot?.calorieTarget != null ? `${nutritionSnapshot.calorieTarget} kcal` : 'Not available'} />
+        <DetailField label="Protein target" value={nutritionProtocol?.macroTargets?.proteinGrams != null ? `${nutritionProtocol.macroTargets.proteinGrams} g` : nutritionSnapshot?.proteinTarget != null ? `${nutritionSnapshot.proteinTarget} g` : 'Not available'} />
+        <DetailField label="Hydration target" value={nutritionProtocol?.hydrationTargetLitres != null ? `${nutritionProtocol.hydrationTargetLitres} L` : nutritionSnapshot?.hydrationTargetLitres != null ? `${nutritionSnapshot.hydrationTargetLitres} L` : 'Not available'} />
+        <DetailField label="Current adherence" value={weeklyNutritionMonitoring?.adherencePercent != null ? `${weeklyNutritionMonitoring.adherencePercent}%` : 'Not available'} />
+      </div>
+    </Surface>
+  );
+
+  const renderCare = () => <Client360CareWorkspace clientId={summaryClient?.id || client?.id} clientName={client?.name || summaryClient?.name} />;
+
   const tabContent = {
     Overview: renderOverview,
-    'Health Profile': renderHealthProfile,
-    Lifestyle: renderLifestyle,
+    Profile: renderProfile,
+    Health: renderHealth,
+    Nutrition: renderNutritionSummary,
+    'Diet Plan': renderNutrition,
     Reports: renderReports,
-    Biomarkers: renderBiomarkers,
-    'Nutrition Plan': renderNutrition,
-    Activity: renderActivity,
+    Care: renderCare,
     Timeline: renderTimeline,
   }[activeWorkspaceTab] || renderOverview;
 
@@ -2575,7 +2599,7 @@ function RealClientProfileDrawer({
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
                         <span className="text-sm font-medium">{clientPhoneIdentity} · {goalLabel === 'Not assigned' ? 'Recovery Program not assigned' : `${goalLabel} Recovery Program`}</span><span aria-hidden="true">·</span>
                         <span>{healthStatus.label}</span><span aria-hidden="true">·</span>
-                        <button type="button" onClick={() => setActiveWorkspaceTab('Health Profile')} className="rounded-sm font-medium text-[var(--fluent-color-brand-foreground-link)] focus-visible:outline focus-visible:outline-2">Profile {profileStrength != null ? `${profileStrength}%` : 'pending'}</button><span aria-hidden="true">·</span>
+                        <button type="button" onClick={() => setActiveWorkspaceTab('Profile')} className="rounded-sm font-medium text-[var(--fluent-color-brand-foreground-link)] focus-visible:outline focus-visible:outline-2">Profile {profileStrength != null ? `${profileStrength}%` : 'pending'}</button><span aria-hidden="true">·</span>
                         <span className={`inline-flex items-center gap-1 ${syncStateLabel === 'Sync failed' ? 'font-semibold text-[var(--fluent-color-status-danger-foreground)]' : syncStateLabel === 'Stale' ? 'font-semibold text-[var(--fluent-color-status-warning-foreground)]' : ''}`}><Clock3 size={12} />{syncStateLabel} {formatCompactSyncTimestamp(lastSynced)}</span>
                         {publishedPlanVersionNumber != null ? <span className="rounded-full bg-[var(--fluent-color-status-success-background)] px-2.5 py-1 text-[var(--fluent-color-status-success-foreground)]">Active plan v{publishedPlanVersionNumber}</span> : <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-2.5 py-1 text-[var(--fluent-color-neutral-foreground-2)]">No active plan</span>}
                         {editablePlanVersionNumber != null ? <span className="rounded-full bg-[var(--fluent-color-neutral-background-2)] px-2.5 py-1 text-[var(--fluent-color-neutral-foreground-2)]">{workflowLabelFromLifecycle(dietPlanState?.currentLifecycle)} v{editablePlanVersionNumber}</span> : null}
@@ -6721,16 +6745,43 @@ function PlatformWorkspace({ forcedRole }) {
     [resolvedRole, user?.email, user?.id]
   );
   const [consultantWorkspace, setConsultantWorkspace] = useState(() => createDefaultConsultantWorkspaceState());
+  const [consultantOperationsError, setConsultantOperationsError] = useState(null);
 
-  useEffect(() => {
+  const refreshConsultantOperations = useCallback(async () => {
     if (roleKind !== 'consultant') return;
-    setConsultantWorkspace(readConsultantWorkspaceState(consultantWorkspaceStorageKey));
-  }, [consultantWorkspaceStorageKey, roleKind]);
+    try {
+      const [operations, availability] = await Promise.all([
+        listFiteatsyConsultantOperations(),
+        getFiteatsyConsultantAvailability(),
+      ]);
+      const mapped = operations.map(mapBackendOperation);
+      setConsultantWorkspace((current) => ({
+        ...current,
+        appointments: mapped.filter((item) => item.operationType === 'CONSULTATION'),
+        tasks: mapped.filter((item) => item.operationType === 'TASK'),
+        followUps: mapped.filter((item) => item.operationType === 'FOLLOW_UP'),
+        availability: availability
+          ? {
+              workingDays: Array.isArray(availability.schedule) ? availability.schedule.map((slot) => slot.day).filter(Boolean) : [],
+              startTime: availability.schedule?.[0]?.startTime || '',
+              endTime: availability.schedule?.[0]?.endTime || '',
+              breakBufferMinutes: availability.schedule?.[0]?.breakBufferMinutes || '',
+              teleconsultEnabled: availability.schedule?.[0]?.teleconsultEnabled !== false,
+              timezone: availability.timezone,
+              unavailableDates: availability.unavailableDates || [],
+              version: availability.version,
+            }
+          : current.availability,
+      }));
+      setConsultantOperationsError(null);
+    } catch (error) {
+      setConsultantOperationsError(error?.message || 'Consultant operations could not be loaded.');
+    }
+  }, [roleKind]);
 
   useEffect(() => {
-    if (roleKind !== 'consultant' || typeof window === 'undefined') return;
-    window.localStorage.setItem(consultantWorkspaceStorageKey, JSON.stringify(consultantWorkspace));
-  }, [consultantWorkspace, consultantWorkspaceStorageKey, roleKind]);
+    refreshConsultantOperations();
+  }, [refreshConsultantOperations]);
 
   useEffect(() => {
     if (roleKind !== 'consultant') return;
@@ -6855,10 +6906,11 @@ function PlatformWorkspace({ forcedRole }) {
     if (!usesRealFiteatsyClients) return undefined;
 
     let cancelled = false;
+    const timer = window.setTimeout(() => {
     setFiteatsyClientsLoading(true);
     setFiteatsyClientsError(null);
 
-    listFiteatsyConsultantClients()
+    listFiteatsyConsultantClients({ query: globalSearch, pageSize: 100 })
       .then(({ clients: apiClients }) => {
         if (cancelled) return;
         setFiteatsyClients(apiClients);
@@ -6872,11 +6924,13 @@ function PlatformWorkspace({ forcedRole }) {
         if (cancelled) return;
         setFiteatsyClientsLoading(false);
       });
+    }, 250);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, [usesRealFiteatsyClients]);
+  }, [globalSearch, usesRealFiteatsyClients]);
 
   useEffect(() => {
     const source = usesRealFiteatsyClients ? 'API' : 'MOCK';
@@ -6961,6 +7015,18 @@ function PlatformWorkspace({ forcedRole }) {
   );
 
   const consultantRecentActivity = useMemo(() => {
+    const operationEvents = [
+      ...consultantWorkspace.appointments,
+      ...consultantWorkspace.tasks,
+      ...consultantWorkspace.followUps,
+    ].map((operation) => ({
+      id: `operation-${operation.id}`,
+      title: operation.title,
+      detail: `${operation.operationType.replace('_', ' ').toLowerCase()} · ${operation.status}`,
+      createdAt: operation.updatedAt || operation.createdAt,
+      clientName: operation.clientName,
+      tone: operation.status === 'completed' || operation.status === 'done' ? 'improving' : 'medium',
+    }));
     const liveClientEvents = clients.slice(0, 6).map((client) => ({
       id: `client-${client.id}`,
       title: `${client.name} updated`,
@@ -6970,11 +7036,11 @@ function PlatformWorkspace({ forcedRole }) {
       tone: client.profileCompleted ? 'improving' : 'medium',
     }));
 
-    return [...(consultantWorkspace.activityLog || []), ...liveClientEvents]
+    return [...operationEvents, ...liveClientEvents]
       .filter((item) => item?.createdAt)
       .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
       .slice(0, 12);
-  }, [clients, consultantWorkspace.activityLog]);
+  }, [clients, consultantWorkspace.appointments, consultantWorkspace.followUps, consultantWorkspace.tasks]);
 
   const consultantQuickActions = useMemo(() => ([
     { label: 'Prepare consultations', detail: consultantAppointmentsToday.length ? `${consultantAppointmentsToday.length} session${consultantAppointmentsToday.length === 1 ? '' : 's'} scheduled today.` : 'Create your first follow-up slot for today.', badge: 'Consult', tone: consultantAppointmentsToday.length ? 'pending' : 'stable', target: 'consultations' },
@@ -7396,7 +7462,7 @@ function PlatformWorkspace({ forcedRole }) {
     usesRealFiteatsyClients
       ? [
           { title: 'Client roster', detail: `${clients.length} Fiteatsy clients are available from the live consultant API.` },
-          { title: 'Consultation memory', detail: consultantWorkspace.activityLog.length ? `${consultantWorkspace.activityLog.length} consultant workflow events are retained in local operational memory.` : 'Consultation notes, follow-ups, and tasks will accumulate here as you work.' },
+          { title: 'Consultation memory', detail: consultantRecentActivity.length ? `${consultantRecentActivity.length} governed workflow and client events are available from the live platform.` : 'Consultation notes, follow-ups, and tasks will appear after they are saved to the platform.' },
           { title: 'Care readiness', detail: consultantAttentionClients.length ? `${consultantAttentionClients.length} clients need a targeted review before the next nutrition move.` : 'No critical consultant attention signals are active right now.' },
         ]
       : [
@@ -7404,7 +7470,7 @@ function PlatformWorkspace({ forcedRole }) {
           { title: 'Behavioral learning', detail: 'Hydration-first recovery improved adherence by 18% in similar corporate stress profiles.' },
           { title: 'Fiteatsy learning', detail: 'Hormonal recovery clients respond better when breakfast complexity is reduced before supplement intensification.' },
         ]
-  ), [clients.length, clusters, consultantAttentionClients.length, consultantWorkspace.activityLog.length, usesRealFiteatsyClients]);
+  ), [clients.length, clusters, consultantAttentionClients.length, consultantRecentActivity.length, usesRealFiteatsyClients]);
 
   const railItems = useMemo(() => {
     if (usesRealFiteatsyClients) {
@@ -7463,210 +7529,136 @@ function PlatformWorkspace({ forcedRole }) {
     setSearchOpen(false);
   }
 
-  function createConsultantAppointment(draft) {
+  async function createConsultantAppointment(draft) {
     const client = clients.find((item) => item.id === draft.clientId);
     if (!client) return;
-    setConsultantWorkspace((current) =>
-      appendConsultantWorkspaceActivity(
-        {
-          ...current,
-          appointments: [
-            {
-              id: createWorkspaceId('appt'),
-              clientId: client.id,
-              clientName: client.name,
-              date: draft.date,
-              time: draft.time,
-              mode: draft.mode,
-              objective: draft.objective,
-              status: 'scheduled',
-              createdAt: new Date().toISOString(),
-            },
-            ...current.appointments,
-          ],
-        },
-        {
-          title: `Consultation scheduled for ${client.name}`,
-          detail: `${draft.mode} consultation on ${formatDateLabel(draft.date)} at ${formatTimeLabel(draft.time)}.`,
-          clientId: client.id,
-          clientName: client.name,
-          tone: 'pending',
-        }
-      )
-    );
+    try {
+      await createFiteatsyClientOperation(client.id, {
+        operationType: 'CONSULTATION',
+        title: `Consultation with ${client.name}`,
+        detail: draft.objective || null,
+        status: 'SCHEDULED',
+        scheduledAt: new Date(`${draft.date}T${draft.time}:00`).toISOString(),
+        metadata: { mode: draft.mode },
+      }, crypto.randomUUID());
+      await refreshConsultantOperations();
+    } catch (error) {
+      setConsultantOperationsError(error?.message || 'Consultation could not be scheduled.');
+    }
   }
 
-  function saveConsultationNotes(clientId, draft) {
+  async function saveConsultationNotes(clientId, draft) {
     const client = clients.find((item) => item.id === clientId);
-    setConsultantWorkspace((current) =>
-      appendConsultantWorkspaceActivity(
-        {
-          ...current,
-          consultationNotes: {
-            ...current.consultationNotes,
-            [clientId]: {
-              ...draft,
-              updatedAt: new Date().toISOString(),
-            },
-          },
-        },
-        {
-          title: `Consultation notes saved for ${client?.name || 'client'}`,
-          detail: 'Structured consultation notes are ready for follow-up planning.',
-          clientId,
-          clientName: client?.name,
-          tone: 'improving',
-        }
-      )
-    );
+    try {
+      await createFiteatsyClientOperation(clientId, {
+        operationType: 'NOTE',
+        title: `Consultation note for ${client?.name || 'client'}`,
+        detail: JSON.stringify(draft),
+        status: 'COMPLETED',
+        metadata: { noteType: 'CONSULTANT_NOTE', visibility: 'CARE_TEAM' },
+      }, crypto.randomUUID());
+      setConsultantWorkspace((current) => ({
+        ...current,
+        consultationNotes: { ...current.consultationNotes, [clientId]: { ...draft, updatedAt: new Date().toISOString() } },
+      }));
+    } catch (error) {
+      setConsultantOperationsError(error?.message || 'Consultation notes could not be saved.');
+    }
   }
 
-  function completeConsultationAppointment(appointmentId) {
-    setConsultantWorkspace((current) => {
-      const appointment = current.appointments.find((item) => item.id === appointmentId);
-      return appendConsultantWorkspaceActivity(
-        {
-          ...current,
-          appointments: current.appointments.map((item) => (item.id === appointmentId ? { ...item, status: 'completed', completedAt: new Date().toISOString() } : item)),
-        },
-        {
-          title: `${appointment?.clientName || 'Consultation'} completed`,
-          detail: 'Consultation marked complete and ready for next follow-up.',
-          clientId: appointment?.clientId,
-          clientName: appointment?.clientName,
-          tone: 'improving',
-        }
-      );
-    });
+  async function completeConsultationAppointment(appointmentId) {
+    const appointment = consultantWorkspace.appointments.find((item) => item.id === appointmentId);
+    if (!appointment) return;
+    try {
+      await updateFiteatsyClientOperation(appointment.clientId, appointment.id, { status: 'COMPLETED', expectedVersion: appointment.version });
+      await refreshConsultantOperations();
+    } catch (error) {
+      setConsultantOperationsError(error?.message || 'Consultation could not be completed.');
+    }
   }
 
-  function createConsultantFollowUp(clientId, reason) {
+  async function createConsultantFollowUp(clientId, reason) {
     const client = clients.find((item) => item.id === clientId);
     const dueDate = new Date();
     dueDate.setDate(dueDate.getDate() + 3);
-    setConsultantWorkspace((current) =>
-      appendConsultantWorkspaceActivity(
-        {
-          ...current,
-          followUps: [
-            {
-              id: createWorkspaceId('followup'),
-              clientId,
-              clientName: client?.name || 'Client',
-              reason,
-              dueDate: dueDate.toISOString(),
-              status: 'scheduled',
-              createdAt: new Date().toISOString(),
-            },
-            ...current.followUps,
-          ],
-        },
-        {
-          title: `Follow-up created for ${client?.name || 'client'}`,
-          detail: reason || 'Follow-up scheduled from consultant workspace.',
-          clientId,
-          clientName: client?.name,
-          tone: 'pending',
-        }
-      )
-    );
+    try {
+      await createFiteatsyClientOperation(clientId, {
+        operationType: 'FOLLOW_UP',
+        title: `Follow-up for ${client?.name || 'client'}`,
+        detail: reason || null,
+        status: 'SCHEDULED',
+        dueAt: dueDate.toISOString(),
+      }, crypto.randomUUID());
+      await refreshConsultantOperations();
+    } catch (error) {
+      setConsultantOperationsError(error?.message || 'Follow-up could not be created.');
+    }
   }
 
-  function resolveConsultantFollowUp(followUpId) {
-    setConsultantWorkspace((current) => {
-      const followUp = current.followUps.find((item) => item.id === followUpId);
-      return appendConsultantWorkspaceActivity(
-        {
-          ...current,
-          followUps: current.followUps.map((item) => (item.id === followUpId ? { ...item, status: 'completed', completedAt: new Date().toISOString() } : item)),
-        },
-        {
-          title: `Follow-up closed for ${followUp?.clientName || 'client'}`,
-          detail: followUp?.reason || 'Follow-up marked complete.',
-          clientId: followUp?.clientId,
-          clientName: followUp?.clientName,
-          tone: 'improving',
-        }
-      );
-    });
+  async function resolveConsultantFollowUp(followUpId) {
+    const followUp = consultantWorkspace.followUps.find((item) => item.id === followUpId);
+    if (!followUp) return;
+    try {
+      await updateFiteatsyClientOperation(followUp.clientId, followUp.id, { status: 'COMPLETED', expectedVersion: followUp.version });
+      await refreshConsultantOperations();
+    } catch (error) {
+      setConsultantOperationsError(error?.message || 'Follow-up could not be completed.');
+    }
   }
 
-  function createConsultantTask(draft) {
+  async function createConsultantTask(draft) {
     const client = clients.find((item) => item.id === draft.clientId);
     if (!client) return;
-    setConsultantWorkspace((current) =>
-      appendConsultantWorkspaceActivity(
-        {
-          ...current,
-          tasks: [
-            {
-              id: createWorkspaceId('task'),
-              clientId: client.id,
-              clientName: client.name,
-              title: draft.title,
-              dueDate: draft.dueDate,
-              category: draft.category,
-              status: 'open',
-              createdAt: new Date().toISOString(),
-            },
-            ...current.tasks,
-          ],
-        },
-        {
-          title: `Task created for ${client.name}`,
-          detail: draft.title,
-          clientId: client.id,
-          clientName: client.name,
-          tone: 'pending',
-        }
-      )
-    );
+    try {
+      await createFiteatsyClientOperation(client.id, {
+        operationType: 'TASK',
+        title: draft.title,
+        status: 'OPEN',
+        dueAt: draft.dueDate ? new Date(`${draft.dueDate}T23:59:59`).toISOString() : null,
+        metadata: { category: draft.category },
+      }, crypto.randomUUID());
+      await refreshConsultantOperations();
+    } catch (error) {
+      setConsultantOperationsError(error?.message || 'Task could not be created.');
+    }
   }
 
-  function toggleConsultantTask(taskId) {
-    setConsultantWorkspace((current) => {
-      const task = current.tasks.find((item) => item.id === taskId);
-      const nextStatus = task?.status === 'done' ? 'open' : 'done';
-      return appendConsultantWorkspaceActivity(
-        {
-          ...current,
-          tasks: current.tasks.map((item) => (item.id === taskId ? { ...item, status: nextStatus, updatedAt: new Date().toISOString() } : item)),
-        },
-        {
-          title: `${task?.title || 'Task'} ${nextStatus === 'done' ? 'completed' : 'reopened'}`,
-          detail: task?.clientName || 'Consultant task updated.',
-          clientId: task?.clientId,
-          clientName: task?.clientName,
-          tone: nextStatus === 'done' ? 'improving' : 'pending',
-        }
-      );
-    });
+  async function toggleConsultantTask(taskId) {
+    const task = consultantWorkspace.tasks.find((item) => item.id === taskId);
+    if (!task) return;
+    try {
+      await updateFiteatsyClientOperation(task.clientId, task.id, {
+        status: task.status === 'done' ? 'OPEN' : 'COMPLETED',
+        expectedVersion: task.version,
+      });
+      await refreshConsultantOperations();
+    } catch (error) {
+      setConsultantOperationsError(error?.message || 'Task could not be updated.');
+    }
   }
 
   function saveConsultantProfile(profile) {
-    setConsultantWorkspace((current) =>
-      appendConsultantWorkspaceActivity(
-        { ...current, profile },
-        {
-          title: 'Consultant profile updated',
-          detail: 'Specialisation and consultation style were saved.',
-          tone: 'improving',
-        }
-      )
-    );
+    setConsultantWorkspace((current) => ({ ...current, profile }));
   }
 
-  function saveConsultantAvailability(availability) {
-    setConsultantWorkspace((current) =>
-      appendConsultantWorkspaceActivity(
-        { ...current, availability },
-        {
-          title: 'Consultant availability updated',
-          detail: 'Working hours and response windows were saved.',
-          tone: 'improving',
-        }
-      )
-    );
+  async function saveConsultantAvailability(availability) {
+    try {
+      await updateFiteatsyConsultantAvailability({
+        timezone: availability.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+        schedule: availability.workingDays.map((day) => ({
+          day,
+          startTime: availability.startTime,
+          endTime: availability.endTime,
+          breakBufferMinutes: availability.breakBufferMinutes,
+          teleconsultEnabled: availability.teleconsultEnabled,
+        })),
+        unavailableDates: availability.unavailableDates || [],
+        ...(availability.version ? { expectedVersion: availability.version } : {}),
+      });
+      await refreshConsultantOperations();
+    } catch (error) {
+      setConsultantOperationsError(error?.message || 'Availability could not be saved.');
+    }
   }
 
   function openGenerateDraftModal() {
@@ -7983,6 +7975,11 @@ function PlatformWorkspace({ forcedRole }) {
 
       <div className="mx-auto max-w-[1480px] px-4 py-5 md:px-6 lg:px-8">
         <main className="min-w-0 space-y-4">
+          {roleKind === 'consultant' && consultantOperationsError ? (
+            <div role="alert" className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">
+              {consultantOperationsError}
+            </div>
+          ) : null}
           {roleKind === 'consultant' && nav === 'command-center' ? (
             <>
               <CommandCenterPage

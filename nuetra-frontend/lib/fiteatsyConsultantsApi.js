@@ -297,11 +297,20 @@ export async function autoBalanceFiteatsyCommonFoodOption(clientId, dietPlanId, 
   });
 }
 
-export async function listFiteatsyConsultantClients() {
-  const body = await requestFiteatsyJson('/v1/consultants/clients');
+export async function listFiteatsyConsultantClients({ query = '', status = 'all', sort = 'registeredAt', order = 'desc', page = 1, pageSize = 100 } = {}) {
+  const params = new URLSearchParams({
+    q: query,
+    status,
+    sort,
+    order,
+    page: String(page),
+    pageSize: String(pageSize),
+  });
+  const body = await requestFiteatsyJson(`/v1/consultants/clients?${params.toString()}`);
 
   return {
     clients: Array.isArray(body?.clients) ? body.clients.map(mapClient) : [],
+    pagination: body?.pagination || { total: 0, page, pageSize },
   };
 }
 
@@ -473,4 +482,45 @@ export async function downloadFiteatsyConsultantDietPlan(clientId, dietPlanId) {
     blob,
     filename: match?.[1] || 'fiteatsy-diet-plan.docx',
   };
+}
+
+export async function listFiteatsyClientOperations(clientId, type) {
+  const params = type ? `?type=${encodeURIComponent(type)}` : '';
+  const body = await requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/operations${params}`);
+  return Array.isArray(body?.operations) ? body.operations : [];
+}
+
+export async function listFiteatsyConsultantOperations(type) {
+  const params = type ? `?type=${encodeURIComponent(type)}` : '';
+  const body = await requestFiteatsyJson(`/v1/consultants/operations${params}`);
+  return Array.isArray(body?.operations) ? body.operations : [];
+}
+
+export async function createFiteatsyClientOperation(clientId, payload, idempotencyKey) {
+  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/operations`, {
+    method: 'POST',
+    body: payload,
+    headers: { 'Idempotency-Key': idempotencyKey },
+  });
+}
+
+export async function updateFiteatsyClientOperation(clientId, operationId, payload) {
+  return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/operations/${encodeURIComponent(operationId)}`, {
+    method: 'PATCH',
+    body: payload,
+  });
+}
+
+export async function listFiteatsyClientOperationAudit(clientId) {
+  const body = await requestFiteatsyJson(`/v1/consultants/clients/${encodeURIComponent(clientId)}/operations-audit`);
+  return Array.isArray(body?.events) ? body.events : [];
+}
+
+export async function getFiteatsyConsultantAvailability() {
+  const body = await requestFiteatsyJson('/v1/consultants/availability');
+  return body?.availability ?? null;
+}
+
+export async function updateFiteatsyConsultantAvailability(payload) {
+  return requestFiteatsy('/v1/consultants/availability', { method: 'PUT', body: payload });
 }
