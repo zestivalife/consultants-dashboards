@@ -6933,14 +6933,6 @@ function PlatformWorkspace({ forcedRole }) {
   }, [globalSearch, usesRealFiteatsyClients]);
 
   useEffect(() => {
-    const source = usesRealFiteatsyClients ? 'API' : 'MOCK';
-    const activeClients = usesRealFiteatsyClients ? fiteatsyClients : state.employees;
-    console.info('CLIENT DATA SOURCE:', source);
-    console.info('CLIENT COUNT:', activeClients.length);
-    console.info('FIRST CLIENT:', activeClients[0]?.name || 'NONE');
-  }, [fiteatsyClients, state.employees, usesRealFiteatsyClients]);
-
-  useEffect(() => {
     if (!usesRealFiteatsyClients || !realClientDrawerOpen || !selectedClientId) return undefined;
 
     let cancelled = false;
