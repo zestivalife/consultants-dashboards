@@ -5564,8 +5564,14 @@ function CommandCenterPage({ briefingMeta, pulseItems, priorityQueue, workloadIt
   );
 }
 
-function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filteredClients, totalCount = 0, onClientOpen, loading = false, error = null, isRealFiteatsy = false, isAdminDirectory = false, canManageAssignments = false, onAssignClient }) {
+function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filteredClients, totalCount = null, onClientOpen, loading = false, error = null, isRealFiteatsy = false, isAdminDirectory = false, canManageAssignments = false, onAssignClient }) {
   const errorMessage = getFiteatsyClientsErrorMessage(error);
+  const hasConfirmedTotal = Number.isInteger(totalCount) && totalCount >= 0;
+  const rosterSummary = errorMessage
+    ? 'Assigned client roster is temporarily unavailable.'
+    : loading || !hasConfirmedTotal
+      ? 'Loading assigned client roster…'
+      : `${totalCount} clients assigned to your consultant workspace.`;
 
   return (
     <div className="space-y-4">
@@ -5576,7 +5582,7 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
             <h2 className="mt-2 text-[24px] font-semibold">Healthcare operating roster</h2>
             <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
               {isRealFiteatsy
-                ? `${totalCount} clients assigned to your consultant workspace.`
+                ? rosterSummary
                 : 'Filter the client population by risk, momentum, inactivity, and intervention stage before opening the workspace.'}
             </p>
             {isRealFiteatsy && !canManageAssignments ? (
@@ -5591,7 +5597,7 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
                 Assign Client
               </button>
             ) : null}
-            {isRealFiteatsy ? (
+            {isRealFiteatsy && hasConfirmedTotal && !errorMessage ? (
               isAdminDirectory ? (
                 <span className="rounded-full bg-[var(--fluent-color-status-info-background)] px-3 py-2 text-xs font-medium text-[var(--fluent-color-status-info-foreground)]">
                   Registered clients · {totalCount}
@@ -8009,7 +8015,7 @@ function PlatformWorkspace({ forcedRole }) {
               activeQueue={activeQueue}
               setActiveQueue={setActiveQueue}
               filteredClients={filteredClients}
-              totalCount={clients.length}
+              totalCount={fiteatsyClientsLoading || fiteatsyClientsError ? null : clients.length}
               onClientOpen={openClient}
               loading={fiteatsyClientsLoading}
               error={fiteatsyClientsError}
@@ -8102,7 +8108,7 @@ function PlatformWorkspace({ forcedRole }) {
                   activeQueue={activeQueue}
                   setActiveQueue={setActiveQueue}
                   filteredClients={filteredClients}
-                  totalCount={clients.length}
+                  totalCount={fiteatsyClientsLoading || fiteatsyClientsError ? null : clients.length}
                   onClientOpen={openClient}
                   loading={fiteatsyClientsLoading}
                   error={fiteatsyClientsError}
