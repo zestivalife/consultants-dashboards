@@ -38,3 +38,25 @@ test('real client directory queries remain server-side and bounded', () => {
   assert.match(api, /new URLSearchParams\(\{[\s\S]*q: query[\s\S]*status[\s\S]*pageSize/);
   assert.match(workspace, /listFiteatsyConsultantClients\(\{[\s\S]*pageSize: 100/);
 });
+
+test('assigned clients without consent retain the Client 360 shell while protected tabs stay gated', () => {
+  assert.match(api, /errorCode !== 'CONSULTANT_ACCESS_CONSENT_REQUIRED'/);
+  assert.match(api, /status: 'CONSENT_REQUIRED'/);
+  assert.doesNotMatch(
+    api.match(/export async function getFiteatsyConsultantClientProfile[\s\S]*?\n}/)?.[0] || '',
+    /Promise\.all|nutrition-intelligence/,
+    'opening Client 360 must not eagerly request a second protected nutrition endpoint'
+  );
+  assert.match(workspace, /protectedAccessDenied = profile\?\.protectedAccess\?\.status === 'CONSENT_REQUIRED'/);
+  assert.match(workspace, /Overview: protectedAccessDenied \? renderAssignmentSafeOverview : renderOverview/);
+  assert.match(workspace, /Health: renderProtectedTab\(renderHealth\)/);
+  assert.match(workspace, /Nutrition: renderProtectedTab\(renderNutritionSummary\)/);
+  assert.match(workspace, /Reports: renderProtectedTab\(renderReports\)/);
+  assert.match(workspace, /The client shell remains available because this client is assigned to you\./);
+  assert.match(workspace, /if \(!isOpen \|\| protectedAccessDenied \|\| !summaryClient\?\.id\) return;/);
+});
+
+test('non-consent authorization failures remain global and fail closed', () => {
+  assert.match(api, /if \(error\?\.status !== 403 \|\| errorCode !== 'CONSULTANT_ACCESS_CONSENT_REQUIRED'\) \{\s*throw error;/);
+  assert.match(workspace, /if \(error\.status === 403\) return 'Consultant access required';/);
+});

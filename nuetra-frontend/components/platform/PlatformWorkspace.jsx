@@ -1438,6 +1438,7 @@ function RealClientProfileDrawer({
   const [clientHeaderCollapsed, setClientHeaderCollapsed] = useState(false);
   const [healthContextOpen, setHealthContextOpen] = useState(false);
   const message = getProfileErrorMessage(error);
+  const protectedAccessDenied = profile?.protectedAccess?.status === 'CONSENT_REQUIRED';
   const client = profile?.client;
   const onboarding = profile?.onboarding;
   const healthProfile = profile?.healthProfile;
@@ -1599,10 +1600,10 @@ function RealClientProfileDrawer({
   }, [onProfileRefresh, summaryClient?.id]);
 
   useEffect(() => {
-    if (!isOpen || activeWorkspaceTab !== 'Nutrition' || !summaryClient?.id) return undefined;
+    if (!isOpen || protectedAccessDenied || activeWorkspaceTab !== 'Nutrition' || !summaryClient?.id) return undefined;
     const intervalId = window.setInterval(() => { void refreshWorkspace(); }, 15000);
     return () => window.clearInterval(intervalId);
-  }, [activeWorkspaceTab, isOpen, refreshWorkspace, summaryClient?.id]);
+  }, [activeWorkspaceTab, isOpen, protectedAccessDenied, refreshWorkspace, summaryClient?.id]);
 
   const syncNutritionSurfaces = useCallback(async () => {
     if (!summaryClient?.id) return;
@@ -1642,9 +1643,9 @@ function RealClientProfileDrawer({
   }, [profile?.dietPlan, profile?.nutritionIntelligence, summaryClient?.id]);
 
   useEffect(() => {
-    if (!isOpen || !summaryClient?.id) return;
+    if (!isOpen || protectedAccessDenied || !summaryClient?.id) return;
     void syncNutritionSurfaces();
-  }, [isOpen, summaryClient?.id, syncNutritionSurfaces]);
+  }, [isOpen, protectedAccessDenied, summaryClient?.id, syncNutritionSurfaces]);
 
   const handleGenerateDietPlan = useCallback(async () => {
     if (!summaryClient?.id || nutritionActionLoading) return;
@@ -2556,16 +2557,42 @@ function RealClientProfileDrawer({
 
   const renderCare = () => <Client360CareWorkspace clientId={summaryClient?.id || client?.id} clientName={client?.name || summaryClient?.name} />;
 
+  const renderAssignmentSafeOverview = () => (
+    <Surface className="p-5" animated>
+      <h3 className={drawerSectionTitleClass}>Client overview</h3>
+      <p className="mt-2 max-w-[720px] text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
+        This client is actively assigned to your workspace. Health, clinical, nutrition, report,
+        biomarker, and wearable information remains protected until the client grants consultant access.
+      </p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <DetailField label="Client" value={summaryClient?.name || 'Assigned client'} />
+        <DetailField label="Assignment" value="Active" />
+      </div>
+    </Surface>
+  );
+
+  const renderProtectedAccessGate = () => (
+    <Surface className="border-[var(--fluent-color-status-warning-foreground)] bg-[var(--fluent-color-status-warning-background)] p-5">
+      <h3 className="text-base font-semibold text-[var(--fluent-color-status-warning-foreground)]">Consultant access required</h3>
+      <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
+        The client shell remains available because this client is assigned to you. This protected section
+        will unlock only after the client grants consultant access.
+      </p>
+    </Surface>
+  );
+
+  const renderProtectedTab = (renderer) => (protectedAccessDenied ? renderProtectedAccessGate : renderer);
+
   const tabContent = {
-    Overview: renderOverview,
-    Profile: renderProfile,
-    Health: renderHealth,
-    Nutrition: renderNutritionSummary,
-    'Diet Plan': renderNutrition,
-    Reports: renderReports,
-    Care: renderCare,
-    Timeline: renderTimeline,
-  }[activeWorkspaceTab] || renderOverview;
+    Overview: protectedAccessDenied ? renderAssignmentSafeOverview : renderOverview,
+    Profile: renderProtectedTab(renderProfile),
+    Health: renderProtectedTab(renderHealth),
+    Nutrition: renderProtectedTab(renderNutritionSummary),
+    'Diet Plan': renderProtectedTab(renderNutrition),
+    Reports: renderProtectedTab(renderReports),
+    Care: renderProtectedTab(renderCare),
+    Timeline: renderProtectedTab(renderTimeline),
+  }[activeWorkspaceTab] || (protectedAccessDenied ? renderAssignmentSafeOverview : renderOverview);
 
   return (
     <AnimatePresence>

@@ -351,10 +351,26 @@ export async function revokeFiteatsyProfessionalAssignment(assignmentId, reason)
 
 export async function getFiteatsyConsultantClientProfile(clientId) {
   const encodedClientId = encodeURIComponent(clientId);
-  const [body, nutritionBody] = await Promise.all([
-    requestFiteatsyJson(`/v1/consultants/clients/${encodedClientId}/workspace`),
-    requestFiteatsyJson(`/v1/consultants/clients/${encodedClientId}/nutrition-intelligence`),
-  ]);
+  let body;
+
+  try {
+    body = await requestFiteatsyJson(`/v1/consultants/clients/${encodedClientId}/workspace`);
+  } catch (error) {
+    const errorCode = error?.data?.error || error?.data?.code;
+    if (error?.status !== 403 || errorCode !== 'CONSULTANT_ACCESS_CONSENT_REQUIRED') {
+      throw error;
+    }
+
+    return {
+      protectedAccess: {
+        status: 'CONSENT_REQUIRED',
+        errorCode,
+      },
+      reports: [],
+      recommendations: [],
+      timeline: [],
+    };
+  }
 
   return {
     contract: body?.contract || null,
@@ -366,8 +382,8 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
     bodyMetrics: body?.bodyMetrics || null,
     nutritionProtocol: body?.nutritionProtocol || null,
     nutritionSnapshot: body?.nutritionSnapshot || null,
-    nutritionIntelligence: nutritionBody?.intelligence || body?.nutritionIntelligence || null,
-    nutritionMonitoring: nutritionBody?.nutritionMonitoring || null,
+    nutritionIntelligence: body?.nutritionIntelligence || null,
+    nutritionMonitoring: body?.nutritionMonitoring || null,
     dietPlan: body?.dietPlan || null,
     planWorkflow: body?.planWorkflow || null,
     wearableSummary: body?.wearableSummary || null,
