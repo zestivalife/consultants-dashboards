@@ -177,6 +177,19 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
   const [buildOptionIds, setBuildOptionIds] = useState(new Set());
   const handledGenerationRequest = useRef(0);
 
+  useEffect(() => {
+    if (!readOnly) return;
+    const submittedOptions = Array.isArray(initialOptions) ? initialOptions : [];
+    const submittedIds = new Set(submittedOptions.map((option) => option.combinationId));
+    setOptions(submittedOptions);
+    setSelectedIds(submittedIds);
+    setPersistedIds(submittedIds);
+    setDirty(false);
+    setSavedVerified(true);
+    setError('');
+    setMessage('Submitted version snapshot.');
+  }, [initialOptions, readOnly]);
+
   const legacyOptions = useMemo(() => legacyOptionsForUnifiedPlan(legacyMealPlan), [legacyMealPlan]);
   const typedOptions = useMemo(() => options.map((option) => ({ ...option, sourceType: commonFoodOptionType(option) })), [options]);
   const unifiedOptions = useMemo(() => [...legacyOptions, ...typedOptions], [legacyOptions, typedOptions]);
@@ -232,6 +245,7 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
   }, [clientId, dietPlanId, generate, lifecycle, planVersionId, readOnly]);
   useEffect(() => {
     if (!dietPlanId) return;
+    if (readOnly) return;
     if (generationRequestId > handledGenerationRequest.current && ['draft', 'changes_requested'].includes(lifecycle) && !readOnly) {
       handledGenerationRequest.current = generationRequestId;
       void generate();
