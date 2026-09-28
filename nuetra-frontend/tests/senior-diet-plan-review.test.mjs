@@ -14,8 +14,25 @@ test('Senior Consultant review renders the submitted version snapshot without au
   assert.match(reviewPage, /listFiteatsyDietPlanReviews/);
   assert.match(reviewPage, /initialOptions=\{review\.version\.commonFoodOptions\}/);
   assert.match(reviewPage, /legacyMealPlan=\{review\.version\?\.content\?\.mealPlan\}/);
+  assert.match(reviewPage, /mode="senior-review"/);
   assert.match(reviewPage, /<CommonFoodPlanEditor[\s\S]*readOnly/);
   assert.doesNotMatch(reviewPage, /readFiteatsyCommonFoodOptions/);
+});
+
+test('Senior review mode suppresses Consultant authoring controls and permission errors', () => {
+  assert.match(editor, /const isSeniorReview = mode === 'senior-review'/);
+  assert.match(editor, /!readOnly && !isSeniorReview \? <button[\s\S]*Generate alternatives[\s\S]*: null/);
+  assert.match(editor, /!readOnly && !isSeniorReview && error \? <p role="alert"/);
+
+  const reviewStart = workspace.indexOf('function DietPlanReviewQueuePage()');
+  const reviewEnd = workspace.indexOf('function ConsultantOperationalOverview', reviewStart);
+  const reviewPage = workspace.slice(reviewStart, reviewEnd);
+
+  assert.doesNotMatch(reviewPage, />Save</);
+  assert.doesNotMatch(reviewPage, />Edit</);
+  assert.doesNotMatch(reviewPage, />Publish</);
+  assert.match(reviewPage, />Request Changes</);
+  assert.match(reviewPage, />Approve</);
 });
 
 test('read-only submitted snapshots never reload through the Consultant authoring endpoint', () => {
