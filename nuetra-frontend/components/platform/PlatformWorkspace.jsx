@@ -6771,7 +6771,7 @@ function PlatformWorkspace({ forcedRole }) {
   const [consultantOperationsError, setConsultantOperationsError] = useState(null);
 
   const refreshConsultantOperations = useCallback(async () => {
-    if (roleKind !== 'consultant') return;
+    if (roleKind !== 'consultant' || isSeniorConsultant) return;
     try {
       const [operations, availability] = await Promise.all([
         listFiteatsyConsultantOperations(),
@@ -6800,7 +6800,7 @@ function PlatformWorkspace({ forcedRole }) {
     } catch (error) {
       setConsultantOperationsError(error?.message || 'Consultant operations could not be loaded.');
     }
-  }, [roleKind]);
+  }, [isSeniorConsultant, roleKind]);
 
   useEffect(() => {
     refreshConsultantOperations();
@@ -7990,7 +7990,7 @@ function PlatformWorkspace({ forcedRole }) {
 
       <div className="mx-auto max-w-[1480px] px-4 py-5 md:px-6 lg:px-8">
         <main className="min-w-0 space-y-4">
-          {roleKind === 'consultant' && consultantOperationsError ? (
+          {roleKind === 'consultant' && !isSeniorConsultant && consultantOperationsError ? (
             <div role="alert" className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">
               {consultantOperationsError}
             </div>

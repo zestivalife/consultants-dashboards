@@ -67,3 +67,15 @@ test('Diet Plan Review does not auto-load the separate Food Proposal review work
   assert.match(reviewPage, /foodProposalReviewOpen \? <SeniorFoodProposalReviewPanel \/> : null/);
   assert.doesNotMatch(reviewPage, /^\s*<SeniorFoodProposalReviewPanel \/>\s*$/m);
 });
+
+test('Senior review full workspace mount does not run or render Consultant-only operations bootstrap', () => {
+  const workspaceStart = workspace.indexOf('function PlatformWorkspace({ forcedRole })');
+  const workspacePage = workspace.slice(workspaceStart);
+
+  assert.ok(workspaceStart > -1);
+  assert.match(workspacePage, /const isSeniorConsultant = String\(resolvedRole\)\.toLowerCase\(\) === 'senior_consultant'/);
+  assert.match(workspacePage, /if \(roleKind !== 'consultant' \|\| isSeniorConsultant\) return;[\s\S]*listFiteatsyConsultantOperations\(\)[\s\S]*getFiteatsyConsultantAvailability\(\)/);
+  assert.match(workspacePage, /\}, \[isSeniorConsultant, roleKind\]\);/);
+  assert.match(workspacePage, /roleKind === 'consultant' && !isSeniorConsultant && consultantOperationsError/);
+  assert.match(workspacePage, /isSeniorConsultant && nav === 'diet-plan-reviews'[\s\S]*<DietPlanReviewQueuePage \/>/);
+});
