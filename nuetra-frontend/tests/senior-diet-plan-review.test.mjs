@@ -56,3 +56,14 @@ test('Senior Consultant review actions remain separate from Consultant editing a
   assert.doesNotMatch(reviewPage, /publishFiteatsyConsultantDietPlan/);
   assert.doesNotMatch(reviewPage, /generateFiteatsyCommonFoodPlan/);
 });
+
+test('Diet Plan Review does not auto-load the separate Food Proposal review workflow', () => {
+  const reviewStart = workspace.indexOf('function DietPlanReviewQueuePage()');
+  const reviewEnd = workspace.indexOf('function ConsultantOperationalOverview', reviewStart);
+  const reviewPage = workspace.slice(reviewStart, reviewEnd);
+
+  assert.match(reviewPage, /const \[foodProposalReviewOpen, setFoodProposalReviewOpen\] = useState\(false\)/);
+  assert.match(reviewPage, /aria-expanded=\{foodProposalReviewOpen\}/);
+  assert.match(reviewPage, /foodProposalReviewOpen \? <SeniorFoodProposalReviewPanel \/> : null/);
+  assert.doesNotMatch(reviewPage, /^\s*<SeniorFoodProposalReviewPanel \/>\s*$/m);
+});

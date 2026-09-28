@@ -24,7 +24,9 @@ test('proposal API covers draft, edit, similarity, status, submit and governed S
 
 test('Senior review keeps food approval separate and exposes every backend decision',()=>{
   for(const value of ['Food Proposal Review','Food approval is separate from Diet Plan approval.','Approve as New','Reject as Duplicate','Use Existing Food Instead','Link as Alias','Request Changes','expectedRevision'])assert.ok(proposal.includes(value),value);
-  assert.match(workspace,/SeniorFoodProposalReviewPanel/);
+  assert.match(workspace,/foodProposalReviewOpen \? <SeniorFoodProposalReviewPanel \/> : null/);
+  assert.match(workspace,/Open Food Proposals/);
+  assert.doesNotMatch(workspace,/^\s*<SeniorFoodProposalReviewPanel \/>\s*$/m);
 });
 
 test('personalised plan context is compact, collapsed and backend-authored',()=>{

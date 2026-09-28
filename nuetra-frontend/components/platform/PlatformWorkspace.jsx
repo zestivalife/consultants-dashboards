@@ -5896,6 +5896,7 @@ function DietPlanReviewQueuePage() {
   const [reviews, setReviews] = useState([]);
   const [comments, setComments] = useState({});
   const [reviewScopes, setReviewScopes] = useState({});
+  const [foodProposalReviewOpen, setFoodProposalReviewOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -5945,7 +5946,23 @@ function DietPlanReviewQueuePage() {
         <h2 className="mt-2 text-[24px] font-semibold">Senior Consultant review queue</h2>
         <p className="mt-2 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Review submitted Consultant plans, request focused corrections, or approve the submitted version.</p>
       </Surface>
-      <SeniorFoodProposalReviewPanel />
+      <Surface className="border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-5" animated>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Food Proposal Review</p>
+            <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Food approval is separate from Diet Plan approval.</p>
+          </div>
+          <button
+            type="button"
+            aria-expanded={foodProposalReviewOpen}
+            onClick={() => setFoodProposalReviewOpen((current) => !current)}
+            className="rounded-full border border-[var(--fluent-color-neutral-stroke-1)] px-4 py-2.5 text-sm font-semibold"
+          >
+            {foodProposalReviewOpen ? 'Hide Food Proposals' : 'Open Food Proposals'}
+          </button>
+        </div>
+      </Surface>
+      {foodProposalReviewOpen ? <SeniorFoodProposalReviewPanel /> : null}
       {error ? <p className="rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-3 text-sm text-[var(--fluent-color-status-danger-foreground)]">{error}</p> : null}
       <Surface className="overflow-hidden border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)]" animated>
         {loading ? <p className="p-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading review queue...</p> : reviews.length ? (
