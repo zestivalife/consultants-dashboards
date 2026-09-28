@@ -571,7 +571,7 @@ function buildFiteatsyClientRecords(apiClients) {
 function getFiteatsyClientsErrorMessage(error) {
   if (!error) return null;
   if (error.status === 401) return 'Session expired';
-  if (error.status === 403) return 'Consultant access required';
+  if (error.status === 403) return 'An active client assignment is required';
   return error.message || 'Unable to load Fiteatsy clients.';
 }
 
@@ -1050,7 +1050,7 @@ function getHealthMetricStatusLabel(metric, fallback) {
 function getProfileErrorMessage(error) {
   if (!error) return null;
   if (error.status === 401) return 'Session expired';
-  if (error.status === 403) return 'Consultant access required';
+  if (error.status === 403) return 'An active client assignment is required';
   if (error.status === 404) return 'Client profile not found';
   return error.message || 'Unable to load client profile.';
 }
@@ -1438,7 +1438,6 @@ function RealClientProfileDrawer({
   const [clientHeaderCollapsed, setClientHeaderCollapsed] = useState(false);
   const [healthContextOpen, setHealthContextOpen] = useState(false);
   const message = getProfileErrorMessage(error);
-  const protectedAccessDenied = profile?.protectedAccess?.status === 'CONSENT_REQUIRED';
   const client = profile?.client;
   const onboarding = profile?.onboarding;
   const healthProfile = profile?.healthProfile;
@@ -1600,10 +1599,10 @@ function RealClientProfileDrawer({
   }, [onProfileRefresh, summaryClient?.id]);
 
   useEffect(() => {
-    if (!isOpen || protectedAccessDenied || activeWorkspaceTab !== 'Nutrition' || !summaryClient?.id) return undefined;
+    if (!isOpen || activeWorkspaceTab !== 'Nutrition' || !summaryClient?.id) return undefined;
     const intervalId = window.setInterval(() => { void refreshWorkspace(); }, 15000);
     return () => window.clearInterval(intervalId);
-  }, [activeWorkspaceTab, isOpen, protectedAccessDenied, refreshWorkspace, summaryClient?.id]);
+  }, [activeWorkspaceTab, isOpen, refreshWorkspace, summaryClient?.id]);
 
   const syncNutritionSurfaces = useCallback(async () => {
     if (!summaryClient?.id) return;
@@ -1643,9 +1642,9 @@ function RealClientProfileDrawer({
   }, [profile?.dietPlan, profile?.nutritionIntelligence, summaryClient?.id]);
 
   useEffect(() => {
-    if (!isOpen || protectedAccessDenied || !summaryClient?.id) return;
+    if (!isOpen || !summaryClient?.id) return;
     void syncNutritionSurfaces();
-  }, [isOpen, protectedAccessDenied, summaryClient?.id, syncNutritionSurfaces]);
+  }, [isOpen, summaryClient?.id, syncNutritionSurfaces]);
 
   const handleGenerateDietPlan = useCallback(async () => {
     if (!summaryClient?.id || nutritionActionLoading) return;
@@ -2555,94 +2554,18 @@ function RealClientProfileDrawer({
     </Surface>
   );
 
-  const renderCare = () => <Client360CareWorkspace clientId={summaryClient?.id || client?.id} clientName={client?.name || summaryClient?.name} protectedAccessDenied={protectedAccessDenied} />;
-
-  const renderAssignmentSafeOverview = () => (
-    <Surface className="p-5" animated>
-      <h3 className={drawerSectionTitleClass}>Client overview</h3>
-      <p className="mt-2 max-w-[720px] text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
-        This client is actively assigned to your workspace. Health, clinical, nutrition, report,
-        biomarker, and wearable information remains protected until the client grants consultant access.
-      </p>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <DetailField label="Client" value={summaryClient?.name || 'Assigned client'} />
-        <DetailField label="Assignment" value="Active" />
-      </div>
-    </Surface>
-  );
-
-  const renderAssignmentSafeProfile = () => (
-    <div className="space-y-4">
-      <Surface className="p-5" animated>
-        <h3 className={drawerSectionTitleClass}>Profile</h3>
-        <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
-          Assignment-safe identity is available below. Personal health, measurements, medical history,
-          medications, and lifestyle details remain protected until consultant access is granted.
-        </p>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <DetailField label="Client" value={summaryClient?.name || 'Assigned client'} />
-          <DetailField label="Programme" value={summaryClient?.program || 'Not assigned'} />
-          <DetailField label="Assignment" value="Active" />
-        </div>
-      </Surface>
-      {renderProtectedAccessGate()}
-    </div>
-  );
-
-  const renderAssignmentSafeDietPlan = () => (
-    <div className="space-y-4">
-      <Surface className="p-5" animated>
-        <h3 className={drawerSectionTitleClass}>Diet Plan workflow</h3>
-        <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
-          The assigned-client workflow is available. Nutrition targets, meal content, clinical restrictions,
-          plan versions, and authoring actions remain protected until consultant access is granted.
-        </p>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <DetailField label="Client" value={summaryClient?.name || 'Assigned client'} />
-          <DetailField label="Access" value="Awaiting consultant consent" />
-        </div>
-      </Surface>
-      {renderProtectedAccessGate()}
-    </div>
-  );
-
-  const renderAssignmentSafeTimeline = () => (
-    <div className="space-y-4">
-      <Surface className="p-5" animated>
-        <h3 className={drawerSectionTitleClass}>Timeline</h3>
-        <div className="mt-4 rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] px-4 py-3">
-          <p className="text-sm font-medium text-[var(--fluent-color-neutral-foreground-1)]">Active consultant assignment</p>
-          <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">
-            {summaryClient?.name || 'This client'} is assigned to your workspace. Protected health and clinical events remain hidden until consent is granted.
-          </p>
-        </div>
-      </Surface>
-      {renderProtectedAccessGate()}
-    </div>
-  );
-
-  const renderProtectedAccessGate = () => (
-    <Surface className="border-[var(--fluent-color-status-warning-foreground)] bg-[var(--fluent-color-status-warning-background)] p-5">
-      <h3 className="text-base font-semibold text-[var(--fluent-color-status-warning-foreground)]">Consultant access required</h3>
-      <p className="mt-2 text-sm leading-6 text-[var(--fluent-color-neutral-foreground-2)]">
-        The client shell remains available because this client is assigned to you. This protected section
-        will unlock only after the client grants consultant access.
-      </p>
-    </Surface>
-  );
-
-  const renderProtectedTab = (renderer) => (protectedAccessDenied ? renderProtectedAccessGate : renderer);
+  const renderCare = () => <Client360CareWorkspace clientId={summaryClient?.id || client?.id} clientName={client?.name || summaryClient?.name} />;
 
   const tabContent = {
-    Overview: protectedAccessDenied ? renderAssignmentSafeOverview : renderOverview,
-    Profile: protectedAccessDenied ? renderAssignmentSafeProfile : renderProfile,
-    Health: renderProtectedTab(renderHealth),
-    Nutrition: renderProtectedTab(renderNutritionSummary),
-    'Diet Plan': protectedAccessDenied ? renderAssignmentSafeDietPlan : renderNutrition,
-    Reports: renderProtectedTab(renderReports),
+    Overview: renderOverview,
+    Profile: renderProfile,
+    Health: renderHealth,
+    Nutrition: renderNutritionSummary,
+    'Diet Plan': renderNutrition,
+    Reports: renderReports,
     Care: renderCare,
-    Timeline: protectedAccessDenied ? renderAssignmentSafeTimeline : renderTimeline,
-  }[activeWorkspaceTab] || (protectedAccessDenied ? renderAssignmentSafeOverview : renderOverview);
+    Timeline: renderTimeline,
+  }[activeWorkspaceTab] || renderOverview;
 
   return (
     <AnimatePresence>
@@ -2669,16 +2592,10 @@ function RealClientProfileDrawer({
                     <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                       <h2 className={`${clientHeaderCollapsed ? 'text-base' : 'text-[24px]'} font-semibold leading-tight text-[var(--fluent-color-neutral-foreground-1)]`}>{client?.name || summaryClient?.name || 'Client'}</h2>
                       {!clientHeaderCollapsed ? <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--fluent-color-neutral-foreground-3)]">Client Command Center</span> : null}
-                      {clientHeaderCollapsed && !protectedAccessDenied && publishedPlanVersionNumber != null ? <span className="text-xs font-semibold text-[var(--fluent-color-status-success-foreground)]">· Active v{publishedPlanVersionNumber}</span> : null}
-                      {clientHeaderCollapsed && !protectedAccessDenied && editablePlanVersionNumber != null ? <span className="text-xs font-semibold text-[var(--fluent-color-neutral-foreground-2)]">· Draft v{editablePlanVersionNumber}</span> : null}
+                      {clientHeaderCollapsed && publishedPlanVersionNumber != null ? <span className="text-xs font-semibold text-[var(--fluent-color-status-success-foreground)]">· Active v{publishedPlanVersionNumber}</span> : null}
+                      {clientHeaderCollapsed && editablePlanVersionNumber != null ? <span className="text-xs font-semibold text-[var(--fluent-color-neutral-foreground-2)]">· Draft v{editablePlanVersionNumber}</span> : null}
                     </div>
-                    {!clientHeaderCollapsed && protectedAccessDenied ? (
-                      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
-                        <span className="text-sm font-medium">{summaryClient?.program || 'Programme not assigned'}</span><span aria-hidden="true">·</span>
-                        <span className="rounded-full bg-[var(--fluent-color-status-success-background)] px-2.5 py-1 font-semibold text-[var(--fluent-color-status-success-foreground)]">Active assignment</span><span aria-hidden="true">·</span>
-                        <span className="rounded-full bg-[var(--fluent-color-status-warning-background)] px-2.5 py-1 font-semibold text-[var(--fluent-color-status-warning-foreground)]">Protected data requires consent</span>
-                      </div>
-                    ) : !clientHeaderCollapsed ? <>
+                    {!clientHeaderCollapsed ? <>
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">
                         <span className="text-sm font-medium">{clientPhoneIdentity} · {goalLabel === 'Not assigned' ? 'Recovery Program not assigned' : `${goalLabel} Recovery Program`}</span><span aria-hidden="true">·</span>
                         <span>{healthStatus.label}</span><span aria-hidden="true">·</span>

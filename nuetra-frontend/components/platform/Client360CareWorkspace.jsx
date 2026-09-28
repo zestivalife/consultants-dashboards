@@ -22,7 +22,7 @@ function toIso(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-export default function Client360CareWorkspace({ clientId, clientName, protectedAccessDenied = false }) {
+export default function Client360CareWorkspace({ clientId, clientName }) {
   const [operations, setOperations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -35,31 +35,19 @@ export default function Client360CareWorkspace({ clientId, clientName, protected
     setLoading(true);
     setError(null);
     try {
-      const nextOperations = protectedAccessDenied
-        ? (await Promise.all(
-            TYPES
-              .filter(([type]) => type !== 'NOTE')
-              .map(([type]) => listFiteatsyClientOperations(clientId, type))
-          )).flat()
-        : await listFiteatsyClientOperations(clientId);
+      const nextOperations = await listFiteatsyClientOperations(clientId);
       setOperations(nextOperations);
     } catch (nextError) {
       setError(nextError?.message || 'Care operations could not be loaded.');
     } finally {
       setLoading(false);
     }
-  }, [clientId, protectedAccessDenied]);
+  }, [clientId]);
 
   useEffect(() => { void load(); }, [load]);
 
-  const visibleTypes = useMemo(
-    () => TYPES.filter(([key]) => !protectedAccessDenied || key !== 'NOTE'),
-    [protectedAccessDenied]
-  );
-  const visibleOperations = useMemo(
-    () => operations.filter((item) => !protectedAccessDenied || item.operationType !== 'NOTE'),
-    [operations, protectedAccessDenied]
-  );
+  const visibleTypes = TYPES;
+  const visibleOperations = operations;
   const grouped = useMemo(
     () => Object.fromEntries(visibleTypes.map(([key]) => [key, visibleOperations.filter((item) => item.operationType === key)])),
     [visibleOperations, visibleTypes]
@@ -104,7 +92,7 @@ export default function Client360CareWorkspace({ clientId, clientName, protected
     <div className="space-y-4">
       <section className="rounded-[22px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)] p-5 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div><h3 className="text-lg font-semibold">Care workspace</h3><p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Backend-owned consultations, follow-ups, goals, and tasks for {clientName || 'this client'}{protectedAccessDenied ? '. Clinical notes remain protected until consultant access is granted.' : ', including consent-protected clinical notes.'}</p></div>
+          <div><h3 className="text-lg font-semibold">Care workspace</h3><p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Backend-owned consultations, follow-ups, goals, tasks, and notes for {clientName || 'this client'}.</p></div>
           <button type="button" onClick={() => setPanelOpen(true)} className="inline-flex min-h-10 items-center gap-2 rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-sm font-semibold text-[var(--fluent-color-brand-foreground)]"><Plus size={16} />Add care item</button>
         </div>
         {error ? <div role="alert" className="mt-4 rounded-[14px] bg-[var(--fluent-color-status-danger-background)] px-4 py-3 text-sm text-[var(--fluent-color-status-danger-foreground)]">{error}</div> : null}

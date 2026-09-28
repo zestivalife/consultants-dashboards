@@ -351,26 +351,7 @@ export async function revokeFiteatsyProfessionalAssignment(assignmentId, reason)
 
 export async function getFiteatsyConsultantClientProfile(clientId) {
   const encodedClientId = encodeURIComponent(clientId);
-  let body;
-
-  try {
-    body = await requestFiteatsyJson(`/v1/consultants/clients/${encodedClientId}/workspace`);
-  } catch (error) {
-    const errorCode = error?.data?.error || error?.data?.code;
-    if (error?.status !== 403 || errorCode !== 'CONSULTANT_ACCESS_CONSENT_REQUIRED') {
-      throw error;
-    }
-
-    return {
-      protectedAccess: {
-        status: 'CONSENT_REQUIRED',
-        errorCode,
-      },
-      reports: [],
-      recommendations: [],
-      timeline: [],
-    };
-  }
+  const body = await requestFiteatsyJson(`/v1/consultants/clients/${encodedClientId}/workspace`);
 
   return {
     contract: body?.contract || null,

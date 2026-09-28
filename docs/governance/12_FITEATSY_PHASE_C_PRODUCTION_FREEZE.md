@@ -23,9 +23,9 @@ Future Consultant or Senior Consultant work must preserve:
 - Consultant Publish, `ACTIVE_PUBLISHED`, and Client Nutrition receipt;
 - transient-failure preservation;
 - Optional Guidance V2.
-- assigned clients remain visible in the roster before health-data consent is granted;
-- the assigned-client Client 360 shell and assignment-safe Overview remain available without consent;
-- Health, clinical, protected Nutrition, Reports, Biomarkers, and wearable Activity remain consent-gated by section;
+- active assignment, allowed role, and domain permission are the Consultant workspace authority;
+- assigned clients remain visible and all assigned-client Client 360 sections remain available without a second Consultant-access consent gate;
+- `CONSULTANT_ACCESS_V1` remains historical/audit data only and cannot authorize or deny workspace access;
 - unassigned clients remain hidden and denied;
 - roster/API failures render an explicit error state and never a fabricated zero-client count;
 - frontend and backend runtime SHA metadata must match the exact accepted release candidate before production verification.

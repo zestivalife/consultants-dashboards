@@ -39,55 +39,42 @@ test('real client directory queries remain server-side and bounded', () => {
   assert.match(workspace, /listFiteatsyConsultantClients\(\{[\s\S]*pageSize: 100/);
 });
 
-test('assigned clients without consent retain the Client 360 shell while protected tabs stay gated', () => {
-  assert.match(api, /errorCode !== 'CONSULTANT_ACCESS_CONSENT_REQUIRED'/);
-  assert.match(api, /status: 'CONSENT_REQUIRED'/);
+test('active assignment opens the canonical Client 360 workspace without a consent interception layer', () => {
+  assert.doesNotMatch(api, /CONSULTANT_ACCESS_CONSENT_REQUIRED|protectedAccess/);
   assert.doesNotMatch(
     api.match(/export async function getFiteatsyConsultantClientProfile[\s\S]*?\n}/)?.[0] || '',
     /Promise\.all|nutrition-intelligence/,
-    'opening Client 360 must not eagerly request a second protected nutrition endpoint'
+    'opening Client 360 must remain a single canonical workspace request'
   );
-  assert.match(workspace, /protectedAccessDenied = profile\?\.protectedAccess\?\.status === 'CONSENT_REQUIRED'/);
-  assert.match(workspace, /Overview: protectedAccessDenied \? renderAssignmentSafeOverview : renderOverview/);
-  assert.match(workspace, /Profile: protectedAccessDenied \? renderAssignmentSafeProfile : renderProfile/);
-  assert.match(workspace, /Health: renderProtectedTab\(renderHealth\)/);
-  assert.match(workspace, /Nutrition: renderProtectedTab\(renderNutritionSummary\)/);
-  assert.match(workspace, /'Diet Plan': protectedAccessDenied \? renderAssignmentSafeDietPlan : renderNutrition/);
-  assert.match(workspace, /Reports: renderProtectedTab\(renderReports\)/);
+  assert.doesNotMatch(workspace, /protectedAccessDenied|renderProtectedAccessGate|renderAssignmentSafe/);
+  assert.match(workspace, /Overview: renderOverview/);
+  assert.match(workspace, /Profile: renderProfile/);
+  assert.match(workspace, /Health: renderHealth/);
+  assert.match(workspace, /Nutrition: renderNutritionSummary/);
+  assert.match(workspace, /'Diet Plan': renderNutrition/);
+  assert.match(workspace, /Reports: renderReports/);
   assert.match(workspace, /Care: renderCare/);
-  assert.match(workspace, /Timeline: protectedAccessDenied \? renderAssignmentSafeTimeline : renderTimeline/);
-  assert.match(workspace, /The client shell remains available because this client is assigned to you\./);
-  assert.match(workspace, /if \(!isOpen \|\| protectedAccessDenied \|\| !summaryClient\?\.id\) return;/);
+  assert.match(workspace, /Timeline: renderTimeline/);
+  assert.doesNotMatch(workspace, /if \(!isOpen \|\| protectedAccessDenied/);
 });
 
-test('assigned clients without consent see only assignment-safe identity and operational fields', () => {
-  assert.match(workspace, /renderAssignmentSafeProfile/);
-  assert.match(workspace, /Personal health, measurements, medical history,[\s\S]*medications, and lifestyle details remain protected/);
-  assert.match(workspace, /renderAssignmentSafeDietPlan/);
-  assert.match(workspace, /Nutrition targets, meal content, clinical restrictions,[\s\S]*plan versions, and authoring actions remain protected/);
-  assert.match(workspace, /renderAssignmentSafeTimeline/);
-  assert.match(workspace, /Protected health and clinical events remain hidden until consent is granted/);
-  assert.match(workspace, /Protected data requires consent/);
-  assert.match(workspace, /clientHeaderCollapsed && !protectedAccessDenied && publishedPlanVersionNumber/);
-  assert.match(workspace, /clientHeaderCollapsed && !protectedAccessDenied && editablePlanVersionNumber/);
-  assert.doesNotMatch(
-    workspace.match(/!clientHeaderCollapsed && protectedAccessDenied \? \([\s\S]*?\) : !clientHeaderCollapsed \? <>/)?.[0] || '',
-    /clientPhoneIdentity|healthStatus|profileStrength|lastSynced|publishedPlanVersionNumber/,
-    'the no-consent header must not disclose protected contact, health, sync, or plan data'
-  );
+test('the assigned-client header exposes the canonical workspace status without consent branches', () => {
+  assert.match(workspace, /clientHeaderCollapsed && publishedPlanVersionNumber/);
+  assert.match(workspace, /clientHeaderCollapsed && editablePlanVersionNumber/);
+  assert.match(workspace, /clientPhoneIdentity/);
+  assert.match(workspace, /healthStatus/);
+  assert.match(workspace, /profileStrength/);
+  assert.doesNotMatch(workspace, /Protected data requires consent|Awaiting consultant consent/);
 });
 
-test('Care keeps assignment-safe operations visible while consent-protected notes remain hidden', () => {
-  assert.match(care, /protectedAccessDenied = false/);
-  assert.match(care, /protectedAccessDenied[\s\S]*?type !== 'NOTE'[\s\S]*?listFiteatsyClientOperations\(clientId, type\)/);
-  assert.match(care, /key !== 'NOTE'/);
-  assert.match(care, /item\.operationType !== 'NOTE'/);
-  assert.match(care, /Clinical notes remain protected until consultant access is granted/);
+test('Care exposes the complete assigned-client operation set through one backend request', () => {
+  assert.doesNotMatch(care, /protectedAccessDenied|type !== 'NOTE'|key !== 'NOTE'/);
+  assert.match(care, /await listFiteatsyClientOperations\(clientId\)/);
+  assert.match(care, /consultations, follow-ups, goals, tasks, and notes/);
   assert.match(care, /visibleTypes\.map/);
-  assert.match(workspace, /protectedAccessDenied=\{protectedAccessDenied\}/);
 });
 
-test('non-consent authorization failures remain global and fail closed', () => {
-  assert.match(api, /if \(error\?\.status !== 403 \|\| errorCode !== 'CONSULTANT_ACCESS_CONSENT_REQUIRED'\) \{\s*throw error;/);
-  assert.match(workspace, /if \(error\.status === 403\) return 'Consultant access required';/);
+test('assignment authorization failures remain global and fail closed', () => {
+  assert.match(api, /requestFiteatsyJson\(`\/v1\/consultants\/clients\/\$\{encodedClientId\}\/workspace`\)/);
+  assert.match(workspace, /if \(error\.status === 403\) return 'An active client assignment is required';/);
 });
