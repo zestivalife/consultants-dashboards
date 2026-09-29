@@ -446,6 +446,20 @@ export async function listFiteatsyDietPlanReviews() {
   return Array.isArray(body?.reviews) ? body.reviews : [];
 }
 
+export async function approveFiteatsySeniorDietPlanReview(dietPlanId, versionId) {
+  return requestFiteatsy(`/v1/consultants/diet-plan-reviews/${encodeURIComponent(dietPlanId)}/approve`, {
+    method: 'POST',
+    body: { versionId },
+  });
+}
+
+export async function requestFiteatsySeniorDietPlanReviewChanges(dietPlanId, versionId, comment) {
+  return requestFiteatsy(`/v1/consultants/diet-plan-reviews/${encodeURIComponent(dietPlanId)}/request-changes`, {
+    method: 'POST',
+    body: { versionId, comment },
+  });
+}
+
 export async function publishFiteatsyConsultantDietPlan(clientId, dietPlanId, approvedVersionId) {
   return requestFiteatsy(`/v1/consultants/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(dietPlanId)}/publish`, {
     method: 'POST',

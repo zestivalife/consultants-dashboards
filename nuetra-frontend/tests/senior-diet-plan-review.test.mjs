@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const editor = await readFile(new URL('../components/platform/CommonFoodPlanEditor.jsx', import.meta.url), 'utf8');
 const workspace = await readFile(new URL('../components/platform/PlatformWorkspace.jsx', import.meta.url), 'utf8');
+const api = await readFile(new URL('../lib/fiteatsyConsultantsApi.js', import.meta.url), 'utf8');
 
 test('Senior Consultant review renders the submitted version snapshot without authoring access', () => {
   const reviewStart = workspace.indexOf('function DietPlanReviewQueuePage()');
@@ -51,10 +52,13 @@ test('Senior Consultant review actions remain separate from Consultant editing a
   const reviewEnd = workspace.indexOf('function ConsultantOperationalOverview', reviewStart);
   const reviewPage = workspace.slice(reviewStart, reviewEnd);
 
-  assert.match(reviewPage, /approveFiteatsyConsultantDietPlan/);
-  assert.match(reviewPage, /requestFiteatsyConsultantDietPlanChanges/);
+  assert.match(reviewPage, /approveFiteatsySeniorDietPlanReview\(review\.dietPlanId, review\.version\.id\)/);
+  assert.match(reviewPage, /requestFiteatsySeniorDietPlanReviewChanges\(review\.dietPlanId, review\.version\.id/);
   assert.doesNotMatch(reviewPage, /publishFiteatsyConsultantDietPlan/);
   assert.doesNotMatch(reviewPage, /generateFiteatsyCommonFoodPlan/);
+  assert.doesNotMatch(reviewPage, /approveFiteatsyConsultantDietPlan\(/);
+  assert.match(api, /\/v1\/consultants\/diet-plan-reviews\/\$\{encodeURIComponent\(dietPlanId\)\}\/approve/);
+  assert.match(api, /body: \{ versionId \}/);
 });
 
 test('Senior review mutations are single-flight, clear stale errors, refetch, and expose completion state', () => {
@@ -65,8 +69,8 @@ test('Senior review mutations are single-flight, clear stale errors, refetch, an
   assert.match(reviewPage, /const \[pendingAction, setPendingAction\] = useState\(null\)/);
   assert.match(reviewPage, /if \(pendingAction\) return/);
   assert.match(reviewPage, /setError\(''\)/);
-  assert.match(reviewPage, /await approveFiteatsyConsultantDietPlan[\s\S]*await refresh\(\)[\s\S]*setSuccess\('Diet plan approved/);
-  assert.match(reviewPage, /await requestFiteatsyConsultantDietPlanChanges[\s\S]*await refresh\(\)[\s\S]*setSuccess\('Changes requested/);
+  assert.match(reviewPage, /await approveFiteatsySeniorDietPlanReview[\s\S]*await refresh\(\)[\s\S]*setSuccess\('Diet plan approved/);
+  assert.match(reviewPage, /await requestFiteatsySeniorDietPlanReviewChanges[\s\S]*await refresh\(\)[\s\S]*setSuccess\('Changes requested/);
   assert.match(reviewPage, /disabled=\{pendingAction !== null\}/);
   assert.match(reviewPage, /aria-busy=\{pendingAction === `approve:\$\{review\.dietPlanId\}`\}/);
   assert.match(reviewPage, /aria-busy=\{pendingAction === `changes:\$\{review\.dietPlanId\}`\}/);

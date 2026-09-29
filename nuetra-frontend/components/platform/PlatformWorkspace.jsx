@@ -42,6 +42,7 @@ import { useAuth } from '../../context/AuthContext';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
 import {
   approveFiteatsyConsultantDietPlan,
+  approveFiteatsySeniorDietPlanReview,
   downloadFiteatsyConsultantDietPlan,
   generateFiteatsyConsultantDietPlanDraft,
   generateFiteatsyConsultantOptionalGuidance,
@@ -61,6 +62,7 @@ import {
   revokeFiteatsyProfessionalAssignment,
   publishFiteatsyConsultantDietPlan,
   requestFiteatsyConsultantDietPlanChanges,
+  requestFiteatsySeniorDietPlanReviewChanges,
   submitFiteatsyConsultantDietPlanForReview,
   searchFiteatsyConsultantOptionalGuidance,
   updateFiteatsyConsultantDietPlanDraft,
@@ -5940,7 +5942,7 @@ function DietPlanReviewQueuePage() {
     setError('');
     setSuccess('');
     try {
-      await approveFiteatsyConsultantDietPlan(review.clientId || review.clientUserId, review.dietPlanId);
+      await approveFiteatsySeniorDietPlanReview(review.dietPlanId, review.version.id);
       await refresh();
       setSuccess('Diet plan approved. The submitted snapshot and review history were preserved.');
     } catch (nextError) {
@@ -5963,7 +5965,7 @@ function DietPlanReviewQueuePage() {
     setSuccess('');
     try {
       const scope = reviewScopes[review.dietPlanId] || 'Whole plan';
-      await requestFiteatsyConsultantDietPlanChanges(review.clientId || review.clientUserId, review.dietPlanId, `[${scope}] ${comment}`);
+      await requestFiteatsySeniorDietPlanReviewChanges(review.dietPlanId, review.version.id, `[${scope}] ${comment}`);
       setComments((current) => ({ ...current, [review.dietPlanId]: '' }));
       await refresh();
       setSuccess('Changes requested. The submitted snapshot and reviewer feedback were preserved.');
