@@ -1,6 +1,9 @@
 name: Frontend Exact-SHA CI
 
 on:
+  push:
+    branches:
+      - codex/senior-review-authority-v1
   workflow_dispatch:
     inputs:
       commit_sha:
@@ -17,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      REQUESTED_SHA: ${{ inputs.commit_sha }}
+      REQUESTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.commit_sha || github.sha }}
 
     steps:
       - name: Validate requested SHA
