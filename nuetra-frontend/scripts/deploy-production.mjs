@@ -14,6 +14,7 @@ const git = (...args) =>
 const commitSha = git('rev-parse', 'HEAD');
 const branch = git('branch', '--show-current');
 const status = git('status', '--short');
+const buildTimestamp = new Date().toISOString();
 
 if (!/^[0-9a-f]{40}$/.test(commitSha)) {
   throw new Error('Production deployment requires a full 40-character Git commit SHA.');
@@ -35,10 +36,16 @@ const result = spawnSync(
     '--yes',
     '--build-env',
     `NEXT_PUBLIC_BUILD_COMMIT_SHA=${commitSha}`,
+    '--env',
+    `NEXT_PUBLIC_BUILD_COMMIT_SHA=${commitSha}`,
     '--build-env',
     `NEXT_PUBLIC_BUILD_BRANCH=${branch}`,
+    '--env',
+    `NEXT_PUBLIC_BUILD_BRANCH=${branch}`,
     '--build-env',
-    `NEXT_PUBLIC_BUILD_TIMESTAMP=${new Date().toISOString()}`,
+    `NEXT_PUBLIC_BUILD_TIMESTAMP=${buildTimestamp}`,
+    '--env',
+    `NEXT_PUBLIC_BUILD_TIMESTAMP=${buildTimestamp}`,
   ],
   {
     cwd: repositoryDirectory,
