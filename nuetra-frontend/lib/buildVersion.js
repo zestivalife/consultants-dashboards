@@ -1,4 +1,18 @@
 const STARTED_AT = new Date().toISOString();
+const BUILD_COMMIT_SHA =
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.GIT_COMMIT_SHA ||
+  process.env.COMMIT_SHA ||
+  process.env.NEXT_PUBLIC_BUILD_COMMIT_SHA ||
+  process.env.NEXT_PUBLIC_GIT_COMMIT_SHA ||
+  'unknown';
+const BUILD_BRANCH =
+  process.env.VERCEL_GIT_COMMIT_REF ||
+  process.env.GIT_BRANCH ||
+  process.env.BRANCH ||
+  process.env.NEXT_PUBLIC_BUILD_BRANCH ||
+  process.env.NEXT_PUBLIC_GIT_BRANCH ||
+  'unknown';
 
 function firstEnv(...names) {
   for (const name of names) {
@@ -13,8 +27,8 @@ export function getFrontendVersion() {
     service: 'zestiva-consultant-frontend',
     app_version: process.env.npm_package_version || '1.0.0',
     environment: firstEnv('VERCEL_ENV', 'APP_ENV', 'NODE_ENV'),
-    commit_sha: firstEnv('VERCEL_GIT_COMMIT_SHA', 'GIT_COMMIT_SHA', 'COMMIT_SHA', 'NEXT_PUBLIC_BUILD_COMMIT_SHA', 'NEXT_PUBLIC_GIT_COMMIT_SHA'),
-    branch: firstEnv('VERCEL_GIT_COMMIT_REF', 'GIT_BRANCH', 'BRANCH', 'NEXT_PUBLIC_BUILD_BRANCH', 'NEXT_PUBLIC_GIT_BRANCH'),
+    commit_sha: BUILD_COMMIT_SHA,
+    branch: BUILD_BRANCH,
     build_timestamp:
       firstEnv('BUILD_TIMESTAMP', 'NEXT_PUBLIC_BUILD_TIMESTAMP', 'VERCEL_DEPLOYMENT_CREATED_AT', 'NEXT_PUBLIC_VERCEL_DEPLOYMENT_CREATED_AT') === 'unknown'
         ? STARTED_AT

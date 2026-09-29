@@ -10,7 +10,10 @@ test('runtime version endpoint exposes the deployed Vercel commit identity', asy
     readSource('../pages/api/version.js'),
   ]);
 
-  assert.match(versionSource, /commit_sha:\s*firstEnv\('VERCEL_GIT_COMMIT_SHA'/);
+  assert.match(versionSource, /const BUILD_COMMIT_SHA =\s*[\s\S]*process\.env\.VERCEL_GIT_COMMIT_SHA[\s\S]*process\.env\.NEXT_PUBLIC_BUILD_COMMIT_SHA/);
+  assert.match(versionSource, /commit_sha:\s*BUILD_COMMIT_SHA/);
+  assert.match(versionSource, /branch:\s*BUILD_BRANCH/);
+  assert.doesNotMatch(versionSource, /commit_sha:\s*firstEnv\(/);
   assert.match(endpointSource, /getFrontendVersion\(\)/);
   assert.match(endpointSource, /res\.status\(200\)\.json/);
 });
