@@ -26,3 +26,18 @@ test('production UI visibly reports the exact browser bundle commit', async () =
   assert.match(badgeSource, /Browser bundle commit:/);
   assert.match(appSource, /<ProductionVersionBadge\s*\/>/);
 });
+
+test('CLI production deployment injects exact clean-worktree Git identity into the build', async () => {
+  const [deploySource, packageSource] = await Promise.all([
+    readSource('../scripts/deploy-production.mjs'),
+    readSource('../package.json'),
+  ]);
+
+  assert.match(deploySource, /git\('rev-parse', 'HEAD'\)/);
+  assert.match(deploySource, /git\('branch', '--show-current'\)/);
+  assert.match(deploySource, /git\('status', '--short'\)/);
+  assert.match(deploySource, /NEXT_PUBLIC_BUILD_COMMIT_SHA=\$\{commitSha\}/);
+  assert.match(deploySource, /NEXT_PUBLIC_BUILD_BRANCH=\$\{branch\}/);
+  assert.match(deploySource, /Production deployment requires a clean Git worktree/);
+  assert.match(packageSource, /"deploy:production":\s*"node scripts\/deploy-production\.mjs"/);
+});

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "deploy:production": "node scripts/deploy-production.mjs",
     "start": "next start",
     "lint": "next lint",
     "test:client-allocation": "node --test tests/client-allocation-pagination.test.mjs",
