@@ -5899,6 +5899,8 @@ function DietPlanReviewQueuePage() {
   const [foodProposalReviewOpen, setFoodProposalReviewOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [pendingAction, setPendingAction] = useState(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -5915,11 +5917,19 @@ function DietPlanReviewQueuePage() {
   useEffect(() => { void refresh(); }, [refresh]);
 
   const approve = async (review) => {
+    if (pendingAction) return;
+    const actionKey = `approve:${review.dietPlanId}`;
+    setPendingAction(actionKey);
+    setError('');
+    setSuccess('');
     try {
       await approveFiteatsyConsultantDietPlan(review.clientId || review.clientUserId, review.dietPlanId);
       await refresh();
+      setSuccess('Diet plan approved. The submitted snapshot and review history were preserved.');
     } catch (nextError) {
       setError(nextError.message || 'Unable to approve this diet plan.');
+    } finally {
+      setPendingAction(null);
     }
   };
 
@@ -5929,13 +5939,21 @@ function DietPlanReviewQueuePage() {
       setError('A review comment is required when requesting changes.');
       return;
     }
+    if (pendingAction) return;
+    const actionKey = `changes:${review.dietPlanId}`;
+    setPendingAction(actionKey);
+    setError('');
+    setSuccess('');
     try {
       const scope = reviewScopes[review.dietPlanId] || 'Whole plan';
       await requestFiteatsyConsultantDietPlanChanges(review.clientId || review.clientUserId, review.dietPlanId, `[${scope}] ${comment}`);
       setComments((current) => ({ ...current, [review.dietPlanId]: '' }));
       await refresh();
+      setSuccess('Changes requested. The submitted snapshot and reviewer feedback were preserved.');
     } catch (nextError) {
       setError(nextError.message || 'Unable to request changes.');
+    } finally {
+      setPendingAction(null);
     }
   };
 
@@ -5964,6 +5982,7 @@ function DietPlanReviewQueuePage() {
       </Surface>
       {foodProposalReviewOpen ? <SeniorFoodProposalReviewPanel /> : null}
       {error ? <p className="rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-3 text-sm text-[var(--fluent-color-status-danger-foreground)]">{error}</p> : null}
+      {success ? <p role="status" className="rounded-[16px] bg-[var(--fluent-color-status-success-background)] px-4 py-3 text-sm text-[var(--fluent-color-status-success-foreground)]">{success}</p> : null}
       <Surface className="overflow-hidden border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)]" animated>
         {loading ? <p className="p-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading review queue...</p> : reviews.length ? (
           <div className="divide-y divide-[var(--fluent-color-neutral-stroke-1)]">
@@ -6001,8 +6020,8 @@ function DietPlanReviewQueuePage() {
                 <div className="rounded-[18px] bg-[var(--fluent-color-neutral-background-2)] p-4"><p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Optional Nutrition Guidance</p><OptionalGuidanceEditor guidance={review.version?.content?.optionalGuidance} readOnly onItemsChange={() => undefined} onSearch={async () => []} /></div>
                 <div className="grid gap-2 sm:grid-cols-[180px_1fr]"><label className="text-xs font-semibold">Feedback applies to<select value={reviewScopes[review.dietPlanId] || 'Whole plan'} onChange={(event) => setReviewScopes((current) => ({ ...current, [review.dietPlanId]: event.target.value }))} className="mt-1 w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm"><option>Whole plan</option>{COMMON_FOOD_MEALS.map(([, label]) => <option key={label}>{label}</option>)}</select></label><label className="text-xs font-semibold">Change requested<textarea value={comments[review.dietPlanId] || ''} onChange={(event) => setComments((current) => ({ ...current, [review.dietPlanId]: event.target.value }))} placeholder="Explain the specific correction required" className="mt-1 min-h-[84px] w-full rounded-[12px] border border-[var(--fluent-color-neutral-stroke-1)] bg-transparent px-3 py-2 text-sm" /></label></div>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => void requestChanges(review)} className="rounded-full border border-[var(--fluent-color-status-danger-border)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-status-danger-foreground)]">Request Changes</button>
-                  <button type="button" onClick={() => void approve(review)} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)]">Approve</button>
+                  <button type="button" disabled={pendingAction !== null} aria-busy={pendingAction === `changes:${review.dietPlanId}`} onClick={() => void requestChanges(review)} className="rounded-full border border-[var(--fluent-color-status-danger-border)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-status-danger-foreground)] disabled:cursor-not-allowed disabled:opacity-50">{pendingAction === `changes:${review.dietPlanId}` ? 'Requesting Changes…' : 'Request Changes'}</button>
+                  <button type="button" disabled={pendingAction !== null} aria-busy={pendingAction === `approve:${review.dietPlanId}`} onClick={() => void approve(review)} className="rounded-full bg-[var(--fluent-color-brand-background)] px-4 py-2 text-xs font-semibold text-[var(--fluent-color-brand-foreground)] disabled:cursor-not-allowed disabled:opacity-50">{pendingAction === `approve:${review.dietPlanId}` ? 'Approving…' : 'Approve'}</button>
                 </div>
               </div>
             ))}

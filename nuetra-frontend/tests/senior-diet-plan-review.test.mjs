@@ -31,8 +31,8 @@ test('Senior review mode suppresses Consultant authoring controls and permission
   assert.doesNotMatch(reviewPage, />Save</);
   assert.doesNotMatch(reviewPage, />Edit</);
   assert.doesNotMatch(reviewPage, />Publish</);
-  assert.match(reviewPage, />Request Changes</);
-  assert.match(reviewPage, />Approve</);
+  assert.match(reviewPage, /'Request Changes'/);
+  assert.match(reviewPage, /'Approve'/);
 });
 
 test('read-only submitted snapshots never reload through the Consultant authoring endpoint', () => {
@@ -55,6 +55,22 @@ test('Senior Consultant review actions remain separate from Consultant editing a
   assert.match(reviewPage, /requestFiteatsyConsultantDietPlanChanges/);
   assert.doesNotMatch(reviewPage, /publishFiteatsyConsultantDietPlan/);
   assert.doesNotMatch(reviewPage, /generateFiteatsyCommonFoodPlan/);
+});
+
+test('Senior review mutations are single-flight, clear stale errors, refetch, and expose completion state', () => {
+  const reviewStart = workspace.indexOf('function DietPlanReviewQueuePage()');
+  const reviewEnd = workspace.indexOf('function ConsultantOperationalOverview', reviewStart);
+  const reviewPage = workspace.slice(reviewStart, reviewEnd);
+
+  assert.match(reviewPage, /const \[pendingAction, setPendingAction\] = useState\(null\)/);
+  assert.match(reviewPage, /if \(pendingAction\) return/);
+  assert.match(reviewPage, /setError\(''\)/);
+  assert.match(reviewPage, /await approveFiteatsyConsultantDietPlan[\s\S]*await refresh\(\)[\s\S]*setSuccess\('Diet plan approved/);
+  assert.match(reviewPage, /await requestFiteatsyConsultantDietPlanChanges[\s\S]*await refresh\(\)[\s\S]*setSuccess\('Changes requested/);
+  assert.match(reviewPage, /disabled=\{pendingAction !== null\}/);
+  assert.match(reviewPage, /aria-busy=\{pendingAction === `approve:\$\{review\.dietPlanId\}`\}/);
+  assert.match(reviewPage, /aria-busy=\{pendingAction === `changes:\$\{review\.dietPlanId\}`\}/);
+  assert.match(reviewPage, /role="status"/);
 });
 
 test('Diet Plan Review does not auto-load the separate Food Proposal review workflow', () => {
