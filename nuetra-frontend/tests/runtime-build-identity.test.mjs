@@ -5,9 +5,10 @@ import test from 'node:test';
 const readSource = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
 test('runtime version endpoint exposes the deployed Vercel commit identity', async () => {
-  const [versionSource, endpointSource] = await Promise.all([
+  const [versionSource, endpointSource, configSource] = await Promise.all([
     readSource('../lib/buildVersion.js'),
     readSource('../pages/api/version.js'),
+    readSource('../next.config.js'),
   ]);
 
   assert.match(versionSource, /const BUILD_COMMIT_SHA =\s*[\s\S]*process\.env\.VERCEL_GIT_COMMIT_SHA[\s\S]*process\.env\.NEXT_PUBLIC_BUILD_COMMIT_SHA/);
@@ -16,6 +17,8 @@ test('runtime version endpoint exposes the deployed Vercel commit identity', asy
   assert.doesNotMatch(versionSource, /commit_sha:\s*firstEnv\(/);
   assert.match(endpointSource, /getFrontendVersion\(\)/);
   assert.match(endpointSource, /res\.status\(200\)\.json/);
+  assert.match(configSource, /process\.env\.COMMIT_SHA \|\|\s*process\.env\.NEXT_PUBLIC_BUILD_COMMIT_SHA/);
+  assert.match(configSource, /process\.env\.BRANCH \|\|\s*process\.env\.NEXT_PUBLIC_BUILD_BRANCH/);
 });
 
 test('production UI visibly reports the exact browser bundle commit', async () => {
