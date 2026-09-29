@@ -1,30 +1,46 @@
 # Release freeze manifest
 
-Status: `PENDING_FINAL_ACCEPTANCE`
+Status: `ACTIVE`
 
-This manifest becomes `ACTIVE` only after local validation, exact-SHA CI, deployment, runtime-SHA parity, and authenticated production acceptance all pass. Its presence does not itself authorize deployment or seal an unverified candidate.
+Engineering seal: `ACTIVE`
 
-## Protected contracts
+Seal document: [Consultant Diet Plan Engineering Seal](./CONSULTANT_DIET_PLAN_ENGINEERING_SEAL.md)
 
-1. `CONSULTANT_ASSIGNMENT_ACCESS` — authenticated allowed role + active assignment + domain permission is the access authority.
-2. `CONSULTANT_ROSTER` — every visible client satisfies the same canonical assignment model used by Client 360.
-3. `CLIENT360_FULL_ASSIGNED_ACCESS` — all assigned-client tabs are available without `CONSULTANT_ACCESS_V1`.
-4. `CROSS_CLIENT_ISOLATION` — unassigned, inactive, ended, revoked, or cross-consultant access is denied.
-5. `FALSE_ZERO_HANDLING` — failures render explicit errors, never a fabricated zero-client success state.
-6. `DIET_DRAFT_LIFECYCLE` — draft and revision work never alter the published client version.
-7. `SENIOR_REVIEW` — Senior Consultant review produces a change request or exact-version approval.
-8. `EXACT_VERSION_APPROVAL` — approval applies only to the reviewed immutable version.
-9. `CONSULTANT_EXPLICIT_PUBLISH` — approval never auto-publishes; publication is a separate explicit action.
-10. `CLIENT_PUBLISHED_VERSION` — clients receive only the exact explicitly published version.
-11. `RUNTIME_PARITY` — production acceptance requires deployed frontend/backend identities to match accepted SHAs.
+## Accepted production implementation
 
-## Activation gates
+- Backend SHA: `0fc45e318216b19487f580c34d14092aef3b71b0`
+- Frontend SHA: `587179495c63ed23504bcb637964350ef7327efa`
+- Production acceptance: `PASS`
+- Exact-SHA CI: `PASS`
+- Backend runtime parity: `PASS`
+- Frontend runtime parity: `PASS`
 
-- Focused authorization and diet-lifecycle tests pass.
-- Full relevant regressions pass twice.
-- Backend and frontend builds pass.
-- Exact-SHA governed CI passes.
-- Backend and frontend deployments report exact runtime parity.
-- Authenticated production roster, Client 360 tabs, isolation, false-zero behavior, and diet lifecycle pass.
+Governance commits created after acceptance document the freeze only. They do not replace or change the accepted production implementation SHAs above.
 
-Until every gate passes, engineering seal status remains `NOT_ACTIVE`.
+## Frozen protected features
+
+| Feature ID | Status | Permanent regression ownership |
+| --- | --- | --- |
+| `CONSULTANT_ASSIGNMENT_ACCESS` | `FROZEN_PROTECTED` | [`client360-contract.test.mjs`](../../nuetra-frontend/tests/client360-contract.test.mjs) |
+| `CONSULTANT_ROSTER` | `FROZEN_PROTECTED` | [`client-roster-failure-contract.test.mjs`](../../nuetra-frontend/tests/client-roster-failure-contract.test.mjs), [`client360-contract.test.mjs`](../../nuetra-frontend/tests/client360-contract.test.mjs) |
+| `CLIENT360_ASSIGNED_ACCESS` | `FROZEN_PROTECTED` | [`client360-contract.test.mjs`](../../nuetra-frontend/tests/client360-contract.test.mjs) |
+| `CROSS_CLIENT_ISOLATION` | `FROZEN_PROTECTED` | [`client360-contract.test.mjs`](../../nuetra-frontend/tests/client360-contract.test.mjs), backend authorization suites |
+| `FALSE_ZERO_HANDLING` | `FROZEN_PROTECTED` | [`client-roster-failure-contract.test.mjs`](../../nuetra-frontend/tests/client-roster-failure-contract.test.mjs) |
+| `DIET_PLAN_DRAFT` | `FROZEN_PROTECTED` | [`diet-builder-ux-repair.test.mjs`](../../nuetra-frontend/tests/diet-builder-ux-repair.test.mjs), backend lifecycle suites |
+| `DIET_PLAN_SAVE_RELOAD` | `FROZEN_PROTECTED` | [`diet-builder-ux-repair.test.mjs`](../../nuetra-frontend/tests/diet-builder-ux-repair.test.mjs), backend lifecycle suites |
+| `DIET_PLAN_SUBMIT` | `FROZEN_PROTECTED` | [`senior-diet-plan-review.test.mjs`](../../nuetra-frontend/tests/senior-diet-plan-review.test.mjs), backend lifecycle suites |
+| `SENIOR_REVIEW_QUEUE` | `FROZEN_PROTECTED` | [`senior-diet-plan-review.test.mjs`](../../nuetra-frontend/tests/senior-diet-plan-review.test.mjs) |
+| `SENIOR_REVIEW_AUTHORITY` | `FROZEN_PROTECTED` | [`senior-diet-plan-review.test.mjs`](../../nuetra-frontend/tests/senior-diet-plan-review.test.mjs) |
+| `CHANGE_REQUEST_LIFECYCLE` | `FROZEN_PROTECTED` | [`senior-diet-plan-review.test.mjs`](../../nuetra-frontend/tests/senior-diet-plan-review.test.mjs), backend lifecycle suites |
+| `DIET_PLAN_REVISION` | `FROZEN_PROTECTED` | [`diet-builder-ux-repair.test.mjs`](../../nuetra-frontend/tests/diet-builder-ux-repair.test.mjs), backend lifecycle suites |
+| `DIET_PLAN_RESUBMISSION` | `FROZEN_PROTECTED` | [`senior-diet-plan-review.test.mjs`](../../nuetra-frontend/tests/senior-diet-plan-review.test.mjs), backend lifecycle suites |
+| `EXACT_VERSION_APPROVAL` | `FROZEN_PROTECTED` | [`senior-diet-plan-review.test.mjs`](../../nuetra-frontend/tests/senior-diet-plan-review.test.mjs), backend approval suites |
+| `APPROVAL_NOT_PUBLICATION` | `FROZEN_PROTECTED` | [`senior-diet-plan-review.test.mjs`](../../nuetra-frontend/tests/senior-diet-plan-review.test.mjs), backend approval suites |
+| `CONSULTANT_EXPLICIT_PUBLISH` | `FROZEN_PROTECTED` | [`senior-diet-plan-review.test.mjs`](../../nuetra-frontend/tests/senior-diet-plan-review.test.mjs), backend publication suites |
+| `CLIENT_PUBLISHED_VERSION` | `FROZEN_PROTECTED` | [`client360-contract.test.mjs`](../../nuetra-frontend/tests/client360-contract.test.mjs), backend publication suites |
+| `BACKEND_RUNTIME_SHA_PARITY` | `FROZEN_PROTECTED` | Exact-SHA CI and production `/v1/version` acceptance evidence |
+| `FRONTEND_RUNTIME_SHA_PARITY` | `FROZEN_PROTECTED` | [`runtime-build-identity.test.mjs`](../../nuetra-frontend/tests/runtime-build-identity.test.mjs) |
+
+## Change control
+
+Any change to a frozen feature requires all twelve steps in the [engineering seal](./CONSULTANT_DIET_PLAN_ENGINEERING_SEAL.md#mandatory-future-change-policy). No test, fixture, migration, historical implementation, or deployment may silently redefine this flow.
