@@ -5901,20 +5901,37 @@ function DietPlanReviewQueuePage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [pendingAction, setPendingAction] = useState(null);
+  const initialRefreshStartedRef = useRef(false);
+  const refreshInFlightRef = useRef(null);
 
   const refresh = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      setReviews(await listFiteatsyDietPlanReviews());
-    } catch (nextError) {
-      setError(nextError.message || 'Unable to load diet plan reviews.');
-    } finally {
-      setLoading(false);
-    }
+    if (refreshInFlightRef.current) return refreshInFlightRef.current;
+
+    const request = (async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const nextReviews = await listFiteatsyDietPlanReviews();
+        setReviews(nextReviews);
+        return nextReviews;
+      } catch (nextError) {
+        setError(nextError.message || 'Unable to load diet plan reviews.');
+        throw nextError;
+      } finally {
+        setLoading(false);
+        refreshInFlightRef.current = null;
+      }
+    })();
+
+    refreshInFlightRef.current = request;
+    return request;
   }, []);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    if (initialRefreshStartedRef.current) return;
+    initialRefreshStartedRef.current = true;
+    void refresh().catch(() => undefined);
+  }, [refresh]);
 
   const approve = async (review) => {
     if (pendingAction) return;

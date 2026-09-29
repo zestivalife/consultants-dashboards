@@ -95,3 +95,19 @@ test('Senior review full workspace mount does not run or render Consultant-only 
   assert.match(workspacePage, /roleKind === 'consultant' && !isSeniorConsultant && consultantOperationsError/);
   assert.match(workspacePage, /isSeniorConsultant && nav === 'diet-plan-reviews'[\s\S]*<DietPlanReviewQueuePage \/>/);
 });
+
+test('Senior review page load is single-flight under Strict Mode and cannot retain a competing assignment error', () => {
+  const reviewStart = workspace.indexOf('function DietPlanReviewQueuePage()');
+  const reviewEnd = workspace.indexOf('function ConsultantOperationalOverview', reviewStart);
+  const reviewPage = workspace.slice(reviewStart, reviewEnd);
+
+  assert.match(reviewPage, /const initialRefreshStartedRef = useRef\(false\)/);
+  assert.match(reviewPage, /const refreshInFlightRef = useRef\(null\)/);
+  assert.match(reviewPage, /if \(refreshInFlightRef\.current\) return refreshInFlightRef\.current/);
+  assert.match(reviewPage, /refreshInFlightRef\.current = request/);
+  assert.match(reviewPage, /refreshInFlightRef\.current = null/);
+  assert.match(reviewPage, /if \(initialRefreshStartedRef\.current\) return/);
+  assert.match(reviewPage, /initialRefreshStartedRef\.current = true/);
+  assert.match(reviewPage, /void refresh\(\)\.catch\(\(\) => undefined\)/);
+  assert.doesNotMatch(reviewPage, /useEffect\(\(\) => \{ void refresh\(\); \}, \[refresh\]\)/);
+});
