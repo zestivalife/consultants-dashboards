@@ -1,5 +1,6 @@
 import '../styles/globals.css';
 import { AuthProvider } from '../context/AuthContext';
+import { TenantProvider } from '../context/TenantContext';
 import { AnimatePresence, motion } from 'framer-motion';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
@@ -10,6 +11,7 @@ function MyApp({ Component, pageProps }) {
 
   return (
     <AuthProvider>
+      <TenantProvider>
       <Head>
         <link rel="icon" href="/zestiva-logo.png" type="image/png" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -31,6 +33,7 @@ function MyApp({ Component, pageProps }) {
         </motion.div>
       </AnimatePresence>
       <ProductionVersionBadge />
+      </TenantProvider>
     </AuthProvider>
   );
 }
