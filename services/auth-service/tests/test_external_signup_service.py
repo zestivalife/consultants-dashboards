@@ -2,10 +2,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.exceptions import AppException
 from app.db.models.external_signup import ExternalSignupChallenge, ExternalSignupProvisioning
+from app.db.models.owner_access import LoginSession
+from app.db.models.refresh_token import RefreshToken
 from app.db.models.role import Role
 from app.db.models.user import User
 from app.services import external_signup_service
@@ -16,9 +18,9 @@ async def _challenge(session, *, code="123456", expires_delta=timedelta(minutes=
     now = datetime.now(timezone.utc)
     challenge = ExternalSignupChallenge(
         id=challenge_id,
-        email_normalized=f"external-{challenge_id}@example.test",
+        mobile_normalized=f"+919{str(challenge_id.int)[-9:]}",
         otp_hash=external_signup_service._otp_digest(challenge_id, code),
-        status="PENDING",
+        status="OTP_PENDING",
         attempt_count=0,
         resend_count=0,
         expires_at=now + expires_delta,
@@ -80,8 +82,8 @@ async def test_wrong_otp_is_persisted_and_fails_closed(session):
             session,
             challenge_id=challenge.id,
             code="654321",
-            password="StrongPassword123!",
             name="External Owner",
+            email=None,
             account_type="INDEPENDENT_CONSULTANT",
             professional_title=None,
             speciality=None,
@@ -90,7 +92,7 @@ async def test_wrong_otp_is_persisted_and_fails_closed(session):
     assert error.value.status_code == 400
     await session.refresh(challenge)
     assert challenge.attempt_count == 1
-    assert challenge.status == "PENDING"
+    assert challenge.status == "OTP_PENDING"
 
 
 @pytest.mark.asyncio
@@ -101,8 +103,8 @@ async def test_expired_otp_is_single_use_and_fails_closed(session):
             session,
             challenge_id=challenge.id,
             code="123456",
-            password="StrongPassword123!",
             name="External Owner",
+            email=None,
             account_type="INDEPENDENT_CONSULTANT",
             professional_title=None,
             speciality=None,
@@ -110,11 +112,11 @@ async def test_expired_otp_is_single_use_and_fails_closed(session):
         )
     assert error.value.status_code == 400
     await session.refresh(challenge)
-    assert challenge.status == "EXPIRED"
+    assert challenge.status == "OTP_EXPIRED"
 
 
 @pytest.mark.asyncio
-async def test_successful_verify_is_idempotent_and_does_not_duplicate_identity(session, monkeypatch):
+async def test_successful_verify_is_single_use_and_does_not_duplicate_identity(session, monkeypatch):
     role = (await session.execute(select(Role).where(Role.name == "consultant"))).scalar_one_or_none()
     created_role = role is None
     if role is None:
@@ -140,22 +142,26 @@ async def test_successful_verify_is_idempotent_and_does_not_duplicate_identity(s
     kwargs = dict(
         challenge_id=challenge.id,
         code="123456",
-        password="StrongPassword123!",
         name="External Owner",
+        email=None,
         account_type="INDEPENDENT_CONSULTANT",
         professional_title="Dietitian",
         speciality="Nutrition",
         practice_name=None,
     )
     first = await external_signup_service.verify_and_provision(session, **kwargs)
-    second = await external_signup_service.verify_and_provision(session, **kwargs)
-    assert first == second
+    with pytest.raises(AppException) as replay:
+        await external_signup_service.verify_and_provision(session, **kwargs)
+    assert replay.value.status_code == 409
+    assert first["identity_type"] == "NEW_CONSULTANT"
     assert calls == 1
-    users = (await session.execute(select(User).where(User.email == challenge.email_normalized))).scalars().all()
+    users = (await session.execute(select(User).where(User.mobile == challenge.mobile_normalized))).scalars().all()
     provisions = (await session.execute(select(ExternalSignupProvisioning).where(ExternalSignupProvisioning.challenge_id == challenge.id))).scalars().all()
     assert len(users) == 1
     assert len(provisions) == 1
     assert challenge.status == "CONSUMED"
+    await session.execute(delete(LoginSession).where(LoginSession.user_id == users[0].id))
+    await session.execute(delete(RefreshToken).where(RefreshToken.user_id == users[0].id))
     await session.delete(provisions[0])
     await session.delete(users[0])
     await session.delete(challenge)

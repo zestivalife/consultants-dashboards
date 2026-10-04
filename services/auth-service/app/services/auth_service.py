@@ -434,6 +434,44 @@ async def login(
     return LoginResponse(tokens=tokens, user=user_data)
 
 
+async def issue_mobile_otp_session(
+    session: AsyncSession,
+    user: User,
+    *,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+) -> LoginResponse:
+    """Issue a normal governed session after successful mobile OTP proof."""
+    _ensure_authenticatable_user(user)
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    raw_refresh = generate_refresh_token()
+    refresh_record = RefreshToken(
+        user_id=user.id,
+        token_hash=hash_token(raw_refresh),
+        expires_at=now + timedelta(days=settings.jwt_refresh_expiry_days),
+    )
+    await RefreshTokenRepository(session).create(refresh_record)
+    await people_access_service.register_login_session(
+        session, user, refresh_record.id, ip_address, user_agent
+    )
+    await AuditLogRepository(session).create(
+        "MOBILE_OTP_LOGIN_SUCCESS",
+        user_id=user.id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+    permissions = await people_access_service.resolve_user_permissions(session, user)
+    products = await people_access_service.resolve_user_products(session, user)
+    user.last_login_at = now
+    user.last_login = now
+    await session.flush()
+    return LoginResponse(
+        tokens=_build_tokens(user, raw_refresh, permissions, products),
+        user=await _user_response(session, user, permissions),
+    )
+
+
 async def refresh(
     session: AsyncSession,
     raw_token: str,

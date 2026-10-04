@@ -28,8 +28,8 @@ def _client_ip(request: Request) -> str | None:
 
 @router.post("/external-signup/start", status_code=202)
 async def external_signup_start(body: ExternalSignupStartRequest, request: Request, session: AsyncSession = Depends(get_db)):
-    result = await external_signup_service.start(session, str(body.email), _client_ip(request))
-    return success_response(data=result, message="If eligible, a verification code has been sent.")
+    result = await external_signup_service.start(session, body.mobile_number, _client_ip(request))
+    return success_response(data=result, message="If eligible, an OTP has been sent.")
 
 
 @router.post("/external-signup/resend", status_code=202)
@@ -39,17 +39,19 @@ async def external_signup_resend(body: ExternalSignupResendRequest, request: Req
 
 
 @router.post("/external-signup/verify", status_code=201)
-async def external_signup_verify(body: ExternalSignupVerifyRequest, session: AsyncSession = Depends(get_db)):
+async def external_signup_verify(body: ExternalSignupVerifyRequest, request: Request, session: AsyncSession = Depends(get_db)):
     result = await external_signup_service.verify_and_provision(
         session,
         challenge_id=body.challenge_id,
         code=body.code,
-        password=body.password,
         name=body.name,
+        email=str(body.email) if body.email else None,
         account_type=body.account_type,
         professional_title=body.professional_title,
         speciality=body.speciality,
         practice_name=body.practice_name,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent"),
     )
     return success_response(data=result, message="Identity verified. Continue onboarding.")
 

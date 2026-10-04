@@ -10,16 +10,21 @@ test('public signup uses governed verification and resumable provisioning APIs',
   assert.match(page,/startExternalSignup/);
   assert.match(page,/verifyExternalSignup/);
   assert.match(page,/resendExternalSignup/);
+  assert.match(page,/Mobile number/);
+  assert.match(page,/Email \(optional\)/);
+  assert.doesNotMatch(page,/Professional email|new-password|Password<\/span>/);
   assert.match(page,/INDEPENDENT_CONSULTANT/);
   assert.match(page,/PRACTICE_OWNER/);
   assert.match(api,/\/auth\/external-signup\/start/);
   assert.match(api,/\/auth\/external-signup\/verify/);
+  assert.match(api,/mobile_number: mobileNumber/);
   assert.doesNotMatch(page,/localStorage|access_token|bearer/i);
 });
 
-test('login exposes signup without changing existing sign-in authority',()=>{
+test('login exposes canonical mobile OTP entry without changing existing internal sign-in authority',()=>{
   const login=read('pages/login.js');
   assert.match(login,/href="\/signup"/);
-  assert.match(login,/Create your workspace/);
+  assert.match(login,/Continue with mobile OTP/);
+  assert.match(login,/New and returning external consultants/);
   assert.match(login,/await login\(form\)/);
 });

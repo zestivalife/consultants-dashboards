@@ -8,9 +8,10 @@ from app.db.base import Base
 class ExternalSignupChallenge(Base):
     __tablename__ = "external_signup_challenges"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    email_normalized: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+    email_normalized: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
+    mobile_normalized: Mapped[str | None] = mapped_column(String(20), index=True, nullable=True)
     otp_hash: Mapped[str] = mapped_column(String(128), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), default="PENDING", index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="OTP_PENDING", index=True, nullable=False)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     resend_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

@@ -10,7 +10,7 @@ class LoginRequest(BaseModel):
 
 
 class ExternalSignupStartRequest(BaseModel):
-    email: EmailStr
+    mobile_number: str = Field(min_length=10, max_length=32)
 
 
 class ExternalSignupResendRequest(BaseModel):
@@ -20,8 +20,8 @@ class ExternalSignupResendRequest(BaseModel):
 class ExternalSignupVerifyRequest(BaseModel):
     challenge_id: uuid.UUID
     code: str = Field(pattern=r"^[0-9]{6}$")
-    password: str = Field(min_length=12, max_length=256)
     name: str = Field(min_length=2, max_length=120)
+    email: EmailStr | None = None
     account_type: str = Field(pattern=r"^(INDEPENDENT_CONSULTANT|PRACTICE_OWNER)$")
     professional_title: str | None = Field(default=None, max_length=120)
     speciality: str | None = Field(default=None, max_length=120)

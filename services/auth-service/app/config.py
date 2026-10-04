@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     # auto     = SendGrid if SENDGRID_API_KEY is present, else SMTP
     email_provider: str = "sendgrid"
 
+    # Canonical Fiteatsy WhatsApp OTP provider. Auth stores E.164 identities
+    # with a leading '+', while PingMate receives digits only.
+    pingmate_api_key: str | None = None
+    pingmate_base_url: str = "https://api.pingmate.app/api/v1"
+    pingmate_template: str = "auth_otp"
+    pingmate_language: str = "en"
+
     # Rate limiting
     login_rate_limit_max: int = 10
     login_rate_limit_window_seconds: int = 60

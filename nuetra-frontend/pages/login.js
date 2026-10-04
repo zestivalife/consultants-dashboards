@@ -161,12 +161,14 @@ export default function LoginPage() {
           </form>
 
           {isBackendAuthEnabled ? (
-            <p className="mt-5 text-center text-sm text-[#616161]">
-              New independent consultant or practice owner?{' '}
-              <Link href="/signup" className="font-medium text-[#0f6cbd] hover:underline">
-                Create your workspace
+            <div className="mt-5 rounded-[24px] border border-[#0f6cbd]/20 bg-[#0f6cbd]/5 p-4 text-center">
+              <p className="text-sm text-[#424242]">External consultant or practice owner?</p>
+              <Link href="/signup" className="mt-3 inline-flex items-center gap-2 font-medium text-[#0f6cbd] hover:underline">
+                Continue with mobile OTP
+                <ArrowRight className="h-4 w-4" />
               </Link>
-            </p>
+              <p className="mt-2 text-xs text-[#616161]">New and returning external consultants use the same verified mobile identity.</p>
+            </div>
           ) : null}
 
           {!isBackendAuthEnabled ? (

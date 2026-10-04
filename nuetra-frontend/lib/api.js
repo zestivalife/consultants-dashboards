@@ -85,6 +85,15 @@ export function setRefreshToken(token, remember = true) {
   }
 }
 
+export function persistAuthSession(session, remember = true) {
+  const tokens = session?.tokens;
+  if (!tokens?.access_token || !tokens?.refresh_token) {
+    throw new Error('Authentication session is incomplete.');
+  }
+  setToken(tokens.access_token, remember);
+  setRefreshToken(tokens.refresh_token, remember);
+}
+
 export function isRememberedAuthSession() {
   if (typeof window === 'undefined') return true;
   return Boolean(
@@ -327,10 +336,10 @@ export async function apiRequest(path, opts = {}) {
 // ── Auth endpoints ─────────────────────────────────────────────────
 
 export const authAPI = {
-  startExternalSignup(email) {
+  startExternalSignup(mobileNumber) {
     return apiRequest('/auth/external-signup/start', {
       method: 'POST',
-      body: { email },
+      body: { mobile_number: mobileNumber },
       skipAuthRefresh: true,
     });
   },
