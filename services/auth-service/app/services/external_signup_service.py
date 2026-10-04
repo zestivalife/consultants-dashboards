@@ -108,11 +108,12 @@ def _delegation_token(subject: uuid.UUID) -> str:
 
 async def _provision_fiteatsy(user: User, body: dict, idempotency_key: str) -> dict:
     settings = get_settings()
+    request_body = {key: value for key, value in body.items() if value is not None}
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
-            f"{settings.fiteatsy_backend_url.rstrip('/')}/v1/admin/delegated/external-consultant-signups/provision",
+            f"{settings.fiteatsy_backend_url.rstrip('/')}/v1/internal/delegated/external-consultant-signups/provision",
             headers={"x-zestiva-delegation": _delegation_token(user.id), "idempotency-key": idempotency_key},
-            json=body,
+            json=request_body,
         )
     if response.status_code not in (200, 201):
         raise AppException("Workspace provisioning is temporarily unavailable. Retry safely.", 503)

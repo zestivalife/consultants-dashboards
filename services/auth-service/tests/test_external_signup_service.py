@@ -30,6 +30,49 @@ async def _challenge(session, *, code="123456", expires_delta=timedelta(minutes=
 
 
 @pytest.mark.asyncio
+async def test_provisioning_uses_internal_delegated_authority_route(monkeypatch):
+    captured = {}
+
+    class Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"state": "ONBOARDING_IN_PROGRESS"}
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, **kwargs):
+            captured["url"] = url
+            captured["headers"] = kwargs["headers"]
+            captured["json"] = kwargs["json"]
+            return Response()
+
+    monkeypatch.setattr(external_signup_service.httpx, "AsyncClient", lambda **_kwargs: Client())
+    monkeypatch.setattr(external_signup_service, "_delegation_token", lambda _subject: "signed-token")
+
+    user = type("UserIdentity", (), {"id": uuid.uuid4()})()
+    result = await external_signup_service._provision_fiteatsy(
+        user,
+        {"name": "External Owner", "practiceName": None, "speciality": None},
+        "external-signup:challenge",
+    )
+
+    assert captured["url"].endswith("/v1/internal/delegated/external-consultant-signups/provision")
+    assert captured["headers"] == {
+        "x-zestiva-delegation": "signed-token",
+        "idempotency-key": "external-signup:challenge",
+    }
+    assert captured["json"] == {"name": "External Owner"}
+    assert result == {"state": "ONBOARDING_IN_PROGRESS"}
+
+
+@pytest.mark.asyncio
 async def test_wrong_otp_is_persisted_and_fails_closed(session):
     challenge = await _challenge(session)
     with pytest.raises(AppException) as error:

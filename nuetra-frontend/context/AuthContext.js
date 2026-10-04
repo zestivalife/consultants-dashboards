@@ -13,6 +13,22 @@ function getPostLoginPath(user) {
   return getPostAuthPathForUser(user);
 }
 
+async function getGovernedPostLoginPath(user) {
+  const role = String(user?.role || '').toLowerCase();
+  if (!['consultant', 'provider', 'dietician', 'dietitian'].includes(role)) return getPostLoginPath(user);
+  try {
+    const payload = await authAPI.getConsultantOnboarding();
+    const onboarding = payload?.onboarding || payload;
+    return onboarding?.workspaceReady && onboarding?.status === 'READY'
+      ? getPostLoginPath(user)
+      : '/onboarding/consultant';
+  } catch (error) {
+    // Existing internal/Zestiva consultants do not have an external onboarding record.
+    if (error?.status === 404) return getPostLoginPath(user);
+    throw error;
+  }
+}
+
 function readStoredSessionRecord() {
   if (typeof window === 'undefined') return null;
 
@@ -123,7 +139,7 @@ export function AuthProvider({ children }) {
         setIsLoading(false);
 
         if (redirect) {
-          window.location.replace(getPostLoginPath(nextUser));
+          window.location.replace(await getGovernedPostLoginPath(nextUser));
         }
 
         return { user: nextUser };
@@ -237,7 +253,7 @@ export function AuthProvider({ children }) {
           };
           setUser(nextUser);
           persistSession(session, rememberMe);
-          const postAuthPath = getPostAuthPathForUser(nextUser);
+          const postAuthPath = await getGovernedPostLoginPath(nextUser);
           if (
             postAuthPath
             && router.pathname !== postAuthPath

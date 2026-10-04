@@ -120,6 +120,19 @@ def upgrade() -> None:
             "updated_at = now()",
         ]
 
+        if "permissions" in users_columns:
+            insert_columns.append("permissions")
+            insert_values.append("'[]'::json")
+            update_assignments.append("permissions = COALESCE(users.permissions, '[]'::json)")
+        for boolean_column in ("mobile_verified", "remember_me", "mfa_enabled"):
+            if boolean_column in users_columns:
+                insert_columns.append(boolean_column)
+                insert_values.append("false")
+        for version_column in ("current_session_version", "refresh_token_version"):
+            if version_column in users_columns:
+                insert_columns.append(version_column)
+                insert_values.append("1")
+
         if "last_name" in users_columns:
             insert_columns.append("last_name")
             insert_values.append(":last_name")

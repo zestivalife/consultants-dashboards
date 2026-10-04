@@ -204,7 +204,7 @@ def upgrade() -> None:
     )
 
     owner_rows = bind.execute(
-        sa.text("SELECT id, email FROM users WHERE email = ANY(:emails)")
+        sa.text("SELECT id, email FROM users WHERE email IN :emails")
         .bindparams(sa.bindparam("emails", expanding=True)),
         {"emails": OWNER_EMAILS},
     ).fetchall()
@@ -501,12 +501,12 @@ def downgrade() -> None:
         emails.extend([row.email for row in rows])
     if emails:
         bind.execute(
-            sa.text("DELETE FROM users WHERE email = ANY(:emails)").bindparams(sa.bindparam("emails", expanding=True)),
+            sa.text("DELETE FROM users WHERE email IN :emails").bindparams(sa.bindparam("emails", expanding=True)),
             {"emails": emails},
         )
     bind.execute(
         sa.text(
-            "DELETE FROM organizations WHERE name = ANY(:names)"
+            "DELETE FROM organizations WHERE name IN :names"
         ).bindparams(sa.bindparam("names", expanding=True)),
         {"names": [item[0] for item in ORGANIZATIONS]},
     )
