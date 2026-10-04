@@ -13,4 +13,4 @@ def test_production_auth_revision_is_present_in_current_lineage():
     assert 'down_revision = "b0d2f6a8c401"' in migration
 
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["c1e2f3a4b5c6"]
+    assert script.get_heads() == ["c2d3e4f5a6b7"]

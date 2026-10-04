@@ -54,6 +54,18 @@ class Settings(BaseSettings):
     login_rate_limit_max: int = 10
     login_rate_limit_window_seconds: int = 60
 
+    # P0.2 external consultant signup. Credentials and verification remain here;
+    # Fiteatsy remains the canonical tenant/membership authority.
+    external_signup_otp_ttl_seconds: int = 300
+    external_signup_resend_cooldown_seconds: int = 30
+    external_signup_max_attempts: int = 5
+    external_signup_max_resends: int = 5
+    fiteatsy_backend_url: str = "http://localhost:8000"
+    fiteatsy_delegation_private_key: str | None = None
+    fiteatsy_delegation_key_id: str = "consultant-auth-v1"
+    fiteatsy_delegation_issuer: str = "consultant-auth-service"
+    fiteatsy_delegation_audience: str = "fiteatsy-backend"
+
     log_level: str = "INFO"
     log_format: str = "json"
 
@@ -80,6 +92,8 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET_KEY must be set in production")
         if self.app_env.lower() == "production" and self.frontend_url.startswith(("http://localhost", "http://127.0.0.1")):
             self.frontend_url = "https://consultant.nuetra.in"
+        if self.app_env.lower() == "production" and not self.fiteatsy_delegation_private_key:
+            raise ValueError("FITEATSY_DELEGATION_PRIVATE_KEY must be set in production")
         return self
 
 

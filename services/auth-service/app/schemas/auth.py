@@ -9,6 +9,25 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ExternalSignupStartRequest(BaseModel):
+    email: EmailStr
+
+
+class ExternalSignupResendRequest(BaseModel):
+    challenge_id: uuid.UUID
+
+
+class ExternalSignupVerifyRequest(BaseModel):
+    challenge_id: uuid.UUID
+    code: str = Field(pattern=r"^[0-9]{6}$")
+    password: str = Field(min_length=12, max_length=256)
+    name: str = Field(min_length=2, max_length=120)
+    account_type: str = Field(pattern=r"^(INDEPENDENT_CONSULTANT|PRACTICE_OWNER)$")
+    professional_title: str | None = Field(default=None, max_length=120)
+    speciality: str | None = Field(default=None, max_length=120)
+    practice_name: str | None = Field(default=None, max_length=160)
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 

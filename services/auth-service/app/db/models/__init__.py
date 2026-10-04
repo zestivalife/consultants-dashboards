@@ -40,6 +40,7 @@ from app.db.models.identity_profile import (
     PractitionerProfile,
 )
 from app.db.models.master_data import MasterDataCategory, MasterDataItem
+from app.db.models.external_signup import ExternalSignupChallenge, ExternalSignupProvisioning
 
 __all__ = [
     "Role",
@@ -84,4 +85,6 @@ __all__ = [
     "PractitionerProfile",
     "MasterDataCategory",
     "MasterDataItem",
+    "ExternalSignupChallenge",
+    "ExternalSignupProvisioning",
 ]

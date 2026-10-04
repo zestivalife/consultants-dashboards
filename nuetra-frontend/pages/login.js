@@ -160,6 +160,15 @@ export default function LoginPage() {
             </motion.button>
           </form>
 
+          {isBackendAuthEnabled ? (
+            <p className="mt-5 text-center text-sm text-[#616161]">
+              New independent consultant or practice owner?{' '}
+              <Link href="/signup" className="font-medium text-[#0f6cbd] hover:underline">
+                Create your workspace
+              </Link>
+            </p>
+          ) : null}
+
           {!isBackendAuthEnabled ? (
             <div className="fluent-card-subtle mt-8 rounded-[26px] p-5">
               <div className="flex items-center gap-2 text-sm text-[#0f6a0f]">

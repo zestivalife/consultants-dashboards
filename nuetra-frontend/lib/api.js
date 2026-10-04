@@ -327,6 +327,30 @@ export async function apiRequest(path, opts = {}) {
 // ── Auth endpoints ─────────────────────────────────────────────────
 
 export const authAPI = {
+  startExternalSignup(email) {
+    return apiRequest('/auth/external-signup/start', {
+      method: 'POST',
+      body: { email },
+      skipAuthRefresh: true,
+    });
+  },
+
+  resendExternalSignup(challengeId) {
+    return apiRequest('/auth/external-signup/resend', {
+      method: 'POST',
+      body: { challenge_id: challengeId },
+      skipAuthRefresh: true,
+    });
+  },
+
+  verifyExternalSignup(payload) {
+    return apiRequest('/auth/external-signup/verify', {
+      method: 'POST',
+      body: payload,
+      skipAuthRefresh: true,
+    });
+  },
+
   login(email, password) {
     return apiRequest('/auth/login', {
       method: 'POST',
