@@ -13,6 +13,7 @@ from app.core.exceptions import (
     UnauthorizedException,
 )
 from app.core.logging import get_logger
+from app.core.mobile_identity import canonical_mobile
 from app.core.password_policy import WeakPasswordException
 from app.core.rate_limit import check_rate_limit
 from app.core.security import (
@@ -21,6 +22,7 @@ from app.core.security import (
     hash_token,
 )
 from app.db.models.owner_access import UserStatusHistory
+from app.db.models.external_signup import ExternalSignupProvisioning
 from app.db.models.refresh_token import RefreshToken
 from app.db.models.user import PasswordHistory, User
 from app.repositories.audit_log_repository import AuditLogRepository
@@ -301,10 +303,39 @@ def _ensure_authenticatable_user(user: User, *, now: datetime | None = None) -> 
         )
 
 
+async def _is_authorized_direct_registration(session: AsyncSession, user: User) -> bool:
+    """Recognize only completely provisioned direct-registration identities."""
+    result = await session.execute(
+        select(ExternalSignupProvisioning).where(
+            ExternalSignupProvisioning.auth_user_id == user.id,
+            ExternalSignupProvisioning.status.in_({"ONBOARDING_IN_PROGRESS", "READY"}),
+            ExternalSignupProvisioning.fiteatsy_user_id.is_not(None),
+            ExternalSignupProvisioning.tenant_id.is_not(None),
+            ExternalSignupProvisioning.owner_membership_id.is_not(None),
+            ExternalSignupProvisioning.onboarding_id.is_not(None),
+        )
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def _ensure_session_access_user(
+    session: AsyncSession,
+    user: User,
+    *,
+    now: datetime | None = None,
+) -> None:
+    _ensure_account_access_user(user, now=now)
+    if user.is_verified or await _is_authorized_direct_registration(session, user):
+        return
+    logger.warning("auth_blocked_unverified", email=user.email, user_id=str(user.id))
+    raise ForbiddenException("Account is not verified. Please contact your administrator.")
+
+
 async def login(
     session: AsyncSession,
-    email: str,
+    email: str | None,
     password: str,
+    mobile_number: str | None = None,
     ip_address: str | None = None,
     user_agent: str | None = None,
 ) -> LoginResponse:
@@ -313,18 +344,19 @@ async def login(
     refresh_repo = RefreshTokenRepository(session)
     audit_repo = AuditLogRepository(session)
 
-    rate_key = f"login:{ip_address or 'unknown'}:{email}"
+    identifier = canonical_mobile(mobile_number) if mobile_number else str(email or "").strip().lower()
+    rate_key = f"login:{ip_address or 'unknown'}:{identifier}"
     if not await check_rate_limit(rate_key):
         raise AppException(message="Too many login attempts. Please try again later.", status_code=429)
 
-    user = await user_repo.get_by_email(email)
+    user = await user_repo.get_by_mobile(identifier) if mobile_number else await user_repo.get_by_email(identifier)
     if user is None:
         await audit_repo.create("LOGIN_FAILED", ip_address=ip_address, user_agent=user_agent)
         raise UnauthorizedException("Invalid credentials")
 
     now = datetime.now(timezone.utc)
     if user.deleted_at is not None or str(user.status or "").upper() == "DELETED":
-        logger.warning("login_blocked_deleted", email=email, user_id=str(user.id))
+        logger.warning("login_blocked_deleted", email=user.email, user_id=str(user.id))
         await audit_repo.create(
             "LOGIN_BLOCKED_DELETED", user_id=user.id, ip_address=ip_address, user_agent=user_agent,
         )
@@ -405,7 +437,7 @@ async def login(
         )
 
     # ── Enforce email verification ─────────────────────────────────
-    if not user.is_verified:
+    if not user.is_verified and not await _is_authorized_direct_registration(session, user):
         await audit_repo.create(
             "LOGIN_BLOCKED_UNVERIFIED", user_id=user.id, ip_address=ip_address, user_agent=user_agent,
         )
@@ -568,7 +600,7 @@ async def refresh(
         )
         _ensure_authenticatable_user(user, now=now)
 
-    if not user.is_verified:
+    if not user.is_verified and not await _is_authorized_direct_registration(session, user):
         await audit_repo.create(
             "TOKEN_REFRESH_BLOCKED_UNVERIFIED",
             user_id=user.id,
@@ -758,7 +790,7 @@ async def get_current_user(session: AsyncSession, user_id: uuid.UUID) -> UserRes
     user = await user_repo.get_by_id(user_id)
     if user is None:
         raise NotFoundException("User not found")
-    _ensure_authenticatable_user(user)
+    await _ensure_session_access_user(session, user)
     permissions = await people_access_service.resolve_user_permissions(session, user)
     return await _user_response(session, user, permissions)
 

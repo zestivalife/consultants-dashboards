@@ -207,11 +207,18 @@ async def test_direct_registration_provisions_unverified_identity_and_resumes_wi
         full_name="QA Consultant", mobile_number="+91 97620 06688", email="qa-direct@example.com",
         account_type="INDEPENDENT_CONSULTANT", professional_role="DIETITIAN_NUTRITIONIST",
         years_experience=5, active_client_range="0", qualification="MSc Nutrition",
+        password="QaDirect#2026Strong", confirm_password="QaDirect#2026Strong",
         specialisation="Clinical Nutrition", recaptcha_token="test-recaptcha-token",
     )
     with pytest.raises(AppException, match="temporary"):
         await external_signup_service.register_without_verification(session, body=body)
-    result = await external_signup_service.register_without_verification(session, body=body)
+    users = (await session.execute(select(User).where(User.mobile == "+919762006688"))).scalars().all()
+    original_password_hash = users[0].password_hash
+    retry_body = body.model_copy(update={
+        "password": "Different#2026Strong",
+        "confirm_password": "Different#2026Strong",
+    })
+    result = await external_signup_service.register_without_verification(session, body=retry_body)
     assert result["state"] == "ONBOARDING_IN_PROGRESS"
     users = (await session.execute(select(User).where(User.mobile == "+919762006688"))).scalars().all()
     provisions = (await session.execute(select(ExternalSignupProvisioning).where(ExternalSignupProvisioning.auth_user_id == users[0].id))).scalars().all()
@@ -220,6 +227,9 @@ async def test_direct_registration_provisions_unverified_identity_and_resumes_wi
     assert users[0].is_verified is False
     assert users[0].email_verified is False
     assert users[0].mobile_verified is False
+    assert users[0].password_hash == original_password_hash
+    assert external_signup_service.password_service.verify_password("QaDirect#2026Strong", users[0].password_hash)
+    assert not external_signup_service.password_service.verify_password("Different#2026Strong", users[0].password_hash)
     await session.delete(provisions[0])
     challenge = (await session.execute(select(ExternalSignupChallenge).where(ExternalSignupChallenge.id == provisions[0].challenge_id))).scalar_one()
     await session.delete(challenge)

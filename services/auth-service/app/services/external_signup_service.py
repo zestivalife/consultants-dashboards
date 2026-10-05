@@ -78,7 +78,7 @@ async def register_without_verification(
         )
         user = User(
             email=email, mobile=mobile, phone=mobile,
-            password_hash=password_service.hash_password(secrets.token_urlsafe(48)), role_id=role.id,
+            password_hash=password_service.hash_password(body.password), role_id=role.id,
             first_name=body.full_name.strip(), is_active=True, is_verified=False,
             email_verified=False, mobile_verified=False, status="ACTIVE",
         )

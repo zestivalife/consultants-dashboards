@@ -34,6 +34,15 @@ class UserRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_by_mobile(self, mobile: str) -> User | None:
+        stmt = (
+            select(User)
+            .options(selectinload(User.role))
+            .where(User.mobile == mobile)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def update(self, user: User) -> User:
         await self._session.flush()
         return user

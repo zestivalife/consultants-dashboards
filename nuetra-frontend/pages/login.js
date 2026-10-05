@@ -101,18 +101,18 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-4">
             <label className="block">
-              <span className="mb-2 block text-sm text-[#424242]">Email</span>
+              <span className="mb-2 block text-sm text-[#424242]">Email or mobile number</span>
               <div className="fluent-input flex items-center gap-3 rounded-[22px] px-4 py-3 focus-within:border-[#0f6cbd]">
                 <Mail className="h-4 w-4 text-[#616161]" />
                 <input
-                  type="email"
+                  type="text"
                   value={form.email}
                   onChange={(event) => {
                     clearError();
                     setForm((current) => ({ ...current, email: event.target.value }));
                   }}
                   className="w-full bg-transparent text-sm text-[#242424] outline-none placeholder:text-[#616161]"
-                  placeholder={isBackendAuthEnabled ? 'admin@company.com' : 'name@nuetra.in'}
+                  placeholder={isBackendAuthEnabled ? 'name@company.com or +91 mobile' : 'name@nuetra.in'}
                 />
               </div>
             </label>
@@ -164,10 +164,10 @@ export default function LoginPage() {
             <div className="mt-5 rounded-[24px] border border-[#0f6cbd]/20 bg-[#0f6cbd]/5 p-4 text-center">
               <p className="text-sm text-[#424242]">External consultant or practice owner?</p>
               <Link href="/signup" className="mt-3 inline-flex items-center gap-2 font-medium text-[#0f6cbd] hover:underline">
-                Continue with mobile OTP
+                Create consultant workspace
                 <ArrowRight className="h-4 w-4" />
               </Link>
-              <p className="mt-2 text-xs text-[#616161]">New and returning external consultants use the same verified mobile identity.</p>
+              <p className="mt-2 text-xs text-[#616161]">New consultants create a password; returning consultants sign in with email or mobile and password.</p>
             </div>
           ) : null}
 

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ForbiddenException, NotFoundException, UnauthorizedException
 from app.core.security import decode_access_token, hash_password, verify_password
 from app.db.models.audit_log import AuthAuditLog
+from app.db.models.external_signup import ExternalSignupChallenge, ExternalSignupProvisioning
 from app.db.models.owner_access import Organization, OrganizationMembership, Product, UserProductAccess
 from app.db.models.refresh_token import RefreshToken
 from app.db.models.role import Role
@@ -93,6 +94,35 @@ async def _create_role_user(
     return user
 
 
+async def _provision_direct_registration(session: AsyncSession, user: User) -> None:
+    now = datetime.now(timezone.utc)
+    challenge = ExternalSignupChallenge(
+        id=uuid.uuid4(),
+        email_normalized=user.email,
+        mobile_normalized=user.mobile,
+        otp_hash="direct-registration-no-otp",
+        status="DIRECT_REGISTRATION",
+        expires_at=now + timedelta(minutes=5),
+        last_sent_at=now,
+    )
+    session.add(challenge)
+    await session.flush()
+    session.add(
+        ExternalSignupProvisioning(
+            challenge_id=challenge.id,
+            auth_user_id=user.id,
+            account_type="INDEPENDENT_CONSULTANT",
+            idempotency_key=f"direct:{user.id}",
+            status="ONBOARDING_IN_PROGRESS",
+            fiteatsy_user_id=f"ext_{user.id}",
+            tenant_id=str(uuid.uuid4()),
+            owner_membership_id=str(uuid.uuid4()),
+            onboarding_id=str(uuid.uuid4()),
+        )
+    )
+    await session.flush()
+
+
 @pytest.mark.asyncio
 async def test_direct_registration_issues_initial_session_for_active_unverified_user(session: AsyncSession):
     user = await _create_role_user(
@@ -109,6 +139,58 @@ async def test_direct_registration_issues_initial_session_for_active_unverified_
     assert user.is_verified is False
     assert user.email_verified is False
     assert user.mobile_verified is False
+
+
+@pytest.mark.asyncio
+async def test_fully_provisioned_direct_registration_can_use_me_and_mobile_password_login(session: AsyncSession):
+    password = "QaDirect#2026Strong"
+    user = await _create_role_user(
+        session, "consultant", email="direct-login@nuetra.test", password=password,
+        is_verified=False, status="ACTIVE",
+    )
+    user.mobile = "+919762006688"
+    user.email_verified = False
+    user.mobile_verified = False
+    await _provision_direct_registration(session, user)
+
+    current = await auth_service.get_current_user(session, user.id)
+    with _always_allow_rate():
+        result = await auth_service.login(
+            session, None, password, mobile_number="+91 97620 06688",
+        )
+
+    assert current.id == user.id
+    assert result.user.id == user.id
+    assert user.is_verified is False
+    assert user.email_verified is False
+    assert user.mobile_verified is False
+
+
+@pytest.mark.asyncio
+async def test_mobile_password_login_rejects_wrong_password_for_direct_registration(session: AsyncSession):
+    user = await _create_role_user(
+        session, "consultant", email="direct-wrong-password@nuetra.test",
+        password="QaDirect#2026Strong", is_verified=False, status="ACTIVE",
+    )
+    user.mobile = "+919762006689"
+    await _provision_direct_registration(session, user)
+
+    with _always_allow_rate():
+        with pytest.raises(UnauthorizedException, match="Invalid credentials"):
+            await auth_service.login(
+                session, None, "WrongPassword#2026", mobile_number="919762006689",
+            )
+
+
+@pytest.mark.asyncio
+async def test_incomplete_direct_registration_remains_denied(session: AsyncSession):
+    user = await _create_role_user(
+        session, "consultant", email="incomplete-direct@nuetra.test",
+        is_verified=False, status="ACTIVE",
+    )
+
+    with pytest.raises(ForbiddenException, match="Account is not verified"):
+        await auth_service.get_current_user(session, user.id)
 
 
 # ──────────────────────────────────────────────

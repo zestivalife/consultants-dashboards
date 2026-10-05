@@ -18,7 +18,7 @@ const ROLE_OPTIONS = [
 const initialForm = {
   fullName: '', mobileNumber: '', email: '', accountType: 'INDEPENDENT_CONSULTANT', professionalRole: '', yearsExperience: '',
   activeClientRange: '', practiceName: '', qualification: '', certification: '',
-  registrationNumber: '', specialization: '', expertise: '', mentorFocus: '', otherRole: '',
+  registrationNumber: '', specialization: '', expertise: '', mentorFocus: '', otherRole: '', password: '', confirmPassword: '',
 };
 
 const qualificationRoles = new Set(['DIETITIAN_NUTRITIONIST', 'PSYCHOLOGIST', 'COUNSELLOR_THERAPIST', 'PHYSIOTHERAPIST', 'DIABETES_EDUCATOR', 'WOMENS_HEALTH_PRACTITIONER', 'LIFESTYLE_MEDICINE_PRACTITIONER', 'DOCTOR_PHYSICIAN', 'OTHER_HEALTHCARE_PROFESSIONAL']);
@@ -42,6 +42,11 @@ function fieldError(form, field) {
   if (field === 'expertise' && expertiseRoles.has(form.professionalRole) && !form.expertise.trim()) return 'Enter your area of expertise.';
   if (field === 'mentorFocus' && form.professionalRole === 'MENTOR' && !form.mentorFocus.trim()) return 'Enter your mentoring domain.';
   if (field === 'otherRole' && form.professionalRole === 'OTHER_HEALTHCARE_PROFESSIONAL' && !form.otherRole.trim()) return 'Describe your professional role.';
+  if (field === 'password' && (
+    form.password.length < 12 || !/[A-Z]/.test(form.password) || !/[a-z]/.test(form.password)
+    || !/[0-9]/.test(form.password) || !/[^A-Za-z0-9]/.test(form.password)
+  )) return 'Use 12+ characters with uppercase, lowercase, a number, and a special character.';
+  if (field === 'confirmPassword' && form.confirmPassword !== form.password) return 'Passwords must match.';
   return '';
 }
 
@@ -93,6 +98,8 @@ export default function ExternalConsultantSignupPage() {
         area_of_expertise: form.expertise.trim() || null,
         mentoring_domain: form.mentorFocus.trim() || null,
         profession: form.otherRole.trim() || null,
+        password: form.password,
+        confirm_password: form.confirmPassword,
         recaptcha_token: captchaToken,
       });
       persistAuthSession(response.auth_session, true);
@@ -115,6 +122,8 @@ export default function ExternalConsultantSignupPage() {
         <InputField label="Full name" error={touched.fullName && errors.fullName}><input required value={form.fullName} onChange={update('fullName')} onBlur={blur('fullName')} className="fluent-input w-full rounded-[22px] px-4 py-3 text-sm" autoComplete="name" /></InputField>
         <InputField label="Mobile number" error={touched.mobileNumber && errors.mobileNumber}><div className="fluent-input flex items-center gap-3 rounded-[22px] px-4 py-3"><Phone className="h-4 w-4 text-[#616161]" /><input required type="tel" value={form.mobileNumber} onChange={update('mobileNumber')} onBlur={blur('mobileNumber')} placeholder="+91 97620 06688" className="w-full bg-transparent text-sm outline-none" autoComplete="tel" /></div></InputField>
         <InputField label="Email" error={touched.email && errors.email}><div className="fluent-input flex items-center gap-3 rounded-[22px] px-4 py-3"><Mail className="h-4 w-4 text-[#616161]" /><input required type="email" value={form.email} onChange={update('email')} onBlur={blur('email')} className="w-full bg-transparent text-sm outline-none" autoComplete="email" /></div></InputField>
+        <InputField label="Password" error={touched.password && errors.password}><input required type="password" value={form.password} onChange={update('password')} onBlur={blur('password')} className="fluent-input w-full rounded-[22px] px-4 py-3 text-sm" autoComplete="new-password" /></InputField>
+        <InputField label="Confirm password" error={touched.confirmPassword && errors.confirmPassword}><input required type="password" value={form.confirmPassword} onChange={update('confirmPassword')} onBlur={blur('confirmPassword')} className="fluent-input w-full rounded-[22px] px-4 py-3 text-sm" autoComplete="new-password" /></InputField>
         <InputField label="Professional role" error={touched.professionalRole && errors.professionalRole}><select required value={form.professionalRole} onChange={update('professionalRole')} onBlur={blur('professionalRole')} className="fluent-input w-full rounded-[22px] px-4 py-3 text-sm"><option value="">Select role</option>{ROLE_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></InputField>
         <InputField label="Account type"><select value={form.accountType} onChange={update('accountType')} className="fluent-input w-full rounded-[22px] px-4 py-3 text-sm"><option value="INDEPENDENT_CONSULTANT">Independent Consultant</option><option value="PRACTICE_OWNER">Practice Owner</option></select></InputField>
         <InputField label="Years of experience" error={touched.yearsExperience && errors.yearsExperience}><input required type="number" min="0" max="80" value={form.yearsExperience} onChange={update('yearsExperience')} onBlur={blur('yearsExperience')} className="fluent-input w-full rounded-[22px] px-4 py-3 text-sm" /></InputField>

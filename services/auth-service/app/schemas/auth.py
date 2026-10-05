@@ -16,8 +16,15 @@ ProfessionalRole = Literal[
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: EmailStr | None = None
+    mobile_number: str | None = Field(default=None, min_length=10, max_length=32)
     password: str
+
+    @model_validator(mode="after")
+    def validate_identifier(self):
+        if bool(self.email) == bool(self.mobile_number):
+            raise ValueError("Provide exactly one email or mobile number.")
+        return self
 
 
 class ExternalSignupStartRequest(BaseModel):
@@ -55,10 +62,14 @@ class ExternalConsultantRegisterRequest(BaseModel):
     area_of_expertise: str | None = Field(default=None, max_length=180)
     profession: str | None = Field(default=None, max_length=180)
     mentoring_domain: str | None = Field(default=None, max_length=180)
+    password: str = Field(min_length=12, max_length=256)
+    confirm_password: str = Field(min_length=12, max_length=256)
     recaptcha_token: str = Field(min_length=1, max_length=4096)
 
     @model_validator(mode="after")
     def validate_professional_fields(self):
+        if self.password != self.confirm_password:
+            raise ValueError("Password and confirmation must match.")
         role = self.professional_role
         qualification_roles = {
             "DIETITIAN_NUTRITIONIST", "PSYCHOLOGIST", "COUNSELLOR_THERAPIST",

@@ -13,10 +13,15 @@ test('public signup creates a governed workspace without verification-first UX',
   assert.match(page,/Professional role/);
   assert.match(page,/Years of experience/);
   assert.match(page,/Active clients/);
+  assert.match(page,/Password/);
+  assert.match(page,/Confirm password/);
+  assert.match(page,/password: form\.password/);
+  assert.match(page,/confirm_password: form\.confirmPassword/);
+  assert.match(page,/uppercase, lowercase, a number, and a special character/);
   assert.match(page,/Create Workspace/);
   assert.match(page,/RecaptchaCheckbox/);
   assert.match(page,/canonicalMobile/);
-  assert.doesNotMatch(page,/Professional email|new-password|Password<\/span>/);
+  assert.match(page,/autoComplete="new-password"/);
   assert.doesNotMatch(page,/Send OTP|Verify OTP|Resend OTP|startExternalSignup|verifyExternalSignup|resendExternalSignup/);
   assert.match(api,/\/auth\/external-signup\/register/);
   assert.doesNotMatch(page,/localStorage|access_token|bearer/i);
@@ -48,10 +53,14 @@ test('all governed mobile formatting variants resolve to one canonical identity'
   assert.equal(canonicalMobile('123'), null);
 });
 
-test('login exposes canonical mobile OTP entry without changing existing internal sign-in authority',()=>{
+test('login accepts governed email or canonical mobile password credentials',()=>{
   const login=read('pages/login.js');
+  const api=read('lib/api.js');
   assert.match(login,/href="\/signup"/);
-  assert.match(login,/Continue with mobile OTP/);
-  assert.match(login,/New and returning external consultants/);
+  assert.match(login,/Email or mobile number/);
+  assert.match(login,/Create consultant workspace/);
   assert.match(login,/await login\(form\)/);
+  assert.match(api,/mobile_number/);
+  assert.match(api,/password/);
+  assert.doesNotMatch(login,/OTP/);
 });
