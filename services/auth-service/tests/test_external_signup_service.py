@@ -236,3 +236,37 @@ async def test_direct_registration_provisions_unverified_identity_and_resumes_wi
     await session.delete(users[0])
     if created_role: await session.delete(role)
     await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_duplicate_direct_signup_cannot_replace_existing_identity_password(session, monkeypatch):
+    role = (await session.execute(select(Role).where(Role.name == "consultant"))).scalar_one_or_none()
+    if role is None:
+        role = Role(name="consultant", description="External Consultant")
+        session.add(role)
+        await session.flush()
+    original_hash = external_signup_service.password_service.hash_password("Original#2026Strong")
+    user = User(
+        email="existing-direct@example.com", mobile="+919762006687", phone="+919762006687",
+        password_hash=original_hash, role_id=role.id, first_name="Existing QA",
+        is_active=True, is_verified=False, email_verified=False, mobile_verified=False, status="ACTIVE",
+    )
+    session.add(user)
+    await session.flush()
+
+    async def allow_rate_limit(*_args, **_kwargs): return True
+    monkeypatch.setattr(external_signup_service, "check_rate_limit", allow_rate_limit)
+    body = ExternalConsultantRegisterRequest(
+        full_name="Existing QA", mobile_number="+91 97620 06687", email="existing-direct@example.com",
+        account_type="INDEPENDENT_CONSULTANT", professional_role="DIETITIAN_NUTRITIONIST",
+        years_experience=5, active_client_range="0", qualification="MSc Nutrition",
+        password="Replacement#2026Strong", confirm_password="Replacement#2026Strong",
+        recaptcha_token="test-recaptcha-token",
+    )
+
+    with pytest.raises(AppException, match="account already exists"):
+        await external_signup_service.register_without_verification(session, body=body)
+
+    assert user.password_hash == original_hash
+    assert external_signup_service.password_service.verify_password("Original#2026Strong", user.password_hash)
+    assert not external_signup_service.password_service.verify_password("Replacement#2026Strong", user.password_hash)

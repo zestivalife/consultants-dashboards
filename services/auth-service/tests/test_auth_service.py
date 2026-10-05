@@ -183,6 +183,15 @@ async def test_mobile_password_login_rejects_wrong_password_for_direct_registrat
 
 
 @pytest.mark.asyncio
+async def test_mobile_password_login_rejects_unknown_mobile(session: AsyncSession):
+    with _always_allow_rate():
+        with pytest.raises(UnauthorizedException, match="Invalid credentials"):
+            await auth_service.login(
+                session, None, "QaDirect#2026Strong", mobile_number="+919700000000",
+            )
+
+
+@pytest.mark.asyncio
 async def test_incomplete_direct_registration_remains_denied(session: AsyncSession):
     user = await _create_role_user(
         session, "consultant", email="incomplete-direct@nuetra.test",
