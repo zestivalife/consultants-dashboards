@@ -11,6 +11,7 @@ from app.db.models.refresh_token import RefreshToken
 from app.db.models.role import Role
 from app.db.models.user import User
 from app.services import external_signup_service
+from app.schemas.auth import ExternalConsultantRegisterRequest
 
 
 async def _challenge(session, *, code="123456", expires_delta=timedelta(minutes=5)):
@@ -167,4 +168,60 @@ async def test_successful_verify_is_single_use_and_does_not_duplicate_identity(s
     await session.delete(challenge)
     if created_role:
         await session.delete(role)
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_direct_registration_provisions_unverified_identity_and_resumes_without_duplicates(session, monkeypatch):
+    role = (await session.execute(select(Role).where(Role.name == "consultant"))).scalar_one_or_none()
+    created_role = role is None
+    if role is None:
+        role = Role(name="consultant", description="External Consultant")
+        session.add(role)
+        await session.flush()
+    calls = 0
+
+    async def provision(user, body, _idempotency_key):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise AppException("temporary", 503)
+        assert body["contactVerification"] == "UNVERIFIED_SIGNUP"
+        assert body["mobileNumber"] == "+919762006688"
+        return {
+            "state": "ONBOARDING_IN_PROGRESS", "userId": f"ext_{user.id}",
+            "tenantId": str(uuid.uuid4()), "ownerMembershipId": str(uuid.uuid4()),
+            "onboardingId": str(uuid.uuid4()), "workspaceReady": False,
+        }
+
+    class SessionResult:
+        def model_dump(self, **_kwargs):
+            return {"tokens": {"access_token": "redacted", "refresh_token": "redacted"}}
+
+    async def issue_session(*_args, **_kwargs): return SessionResult()
+    async def allow_rate_limit(*_args, **_kwargs): return True
+    monkeypatch.setattr(external_signup_service, "_provision_fiteatsy", provision)
+    monkeypatch.setattr(external_signup_service.auth_service, "issue_mobile_otp_session", issue_session)
+    monkeypatch.setattr(external_signup_service, "check_rate_limit", allow_rate_limit)
+    body = ExternalConsultantRegisterRequest(
+        full_name="QA Consultant", mobile_number="+91 97620 06688", email="qa-direct@example.com",
+        account_type="INDEPENDENT_CONSULTANT", professional_role="DIETITIAN_NUTRITIONIST",
+        years_experience=5, active_client_range="0", qualification="MSc Nutrition",
+        specialisation="Clinical Nutrition", recaptcha_token="test-recaptcha-token",
+    )
+    with pytest.raises(AppException):
+        await external_signup_service.register_without_verification(session, body=body)
+    result = await external_signup_service.register_without_verification(session, body=body)
+    assert result["state"] == "ONBOARDING_IN_PROGRESS"
+    users = (await session.execute(select(User).where(User.mobile == "+919762006688"))).scalars().all()
+    provisions = (await session.execute(select(ExternalSignupProvisioning).where(ExternalSignupProvisioning.auth_user_id == users[0].id))).scalars().all()
+    assert len(users) == 1
+    assert len(provisions) == 1
+    assert users[0].is_verified is False
+    assert users[0].mobile_verified is False
+    await session.delete(provisions[0])
+    challenge = (await session.execute(select(ExternalSignupChallenge).where(ExternalSignupChallenge.id == provisions[0].challenge_id))).scalar_one()
+    await session.delete(challenge)
+    await session.delete(users[0])
+    if created_role: await session.delete(role)
     await session.commit()

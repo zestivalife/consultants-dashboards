@@ -8,12 +8,14 @@ from app.schemas.auth import (
     ExternalSignupResendRequest,
     ExternalSignupStartRequest,
     ExternalSignupVerifyRequest,
+    ExternalConsultantRegisterRequest,
     LoginRequest,
     RefreshRequest,
     UserResponse,
 )
 from app.services import auth_service
 from app.services import external_signup_service
+from app.core.recaptcha import verify_recaptcha
 from app.api.v1.dependencies import get_current_user
 
 router = APIRouter(tags=["auth"])
@@ -24,6 +26,16 @@ def _client_ip(request: Request) -> str | None:
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else None
+
+
+@router.post("/external-signup/register", status_code=201)
+async def external_signup_register(body: ExternalConsultantRegisterRequest, request: Request, session: AsyncSession = Depends(get_db)):
+    client_ip = _client_ip(request)
+    await verify_recaptcha(body.recaptcha_token, client_ip)
+    result = await external_signup_service.register_without_verification(
+        session, body=body, ip_address=client_ip, user_agent=request.headers.get("User-Agent")
+    )
+    return success_response(data=result, message="Consultant workspace created. Continue onboarding.")
 
 
 @router.post("/external-signup/start", status_code=202)

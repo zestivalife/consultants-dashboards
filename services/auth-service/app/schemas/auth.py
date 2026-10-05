@@ -1,7 +1,18 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from typing import Literal
+
+from pydantic import BaseModel, EmailStr, Field, model_validator
+
+
+ProfessionalRole = Literal[
+    "DIETITIAN_NUTRITIONIST", "HEALTH_COACH", "WELLNESS_COACH", "PSYCHOLOGIST",
+    "COUNSELLOR_THERAPIST", "PHYSIOTHERAPIST", "FITNESS_TRAINER",
+    "YOGA_MEDITATION_COACH", "DIABETES_EDUCATOR", "WOMENS_HEALTH_PRACTITIONER",
+    "LIFESTYLE_MEDICINE_PRACTITIONER", "MENTOR", "DOCTOR_PHYSICIAN",
+    "OTHER_HEALTHCARE_PROFESSIONAL",
+]
 
 
 class LoginRequest(BaseModel):
@@ -26,6 +37,46 @@ class ExternalSignupVerifyRequest(BaseModel):
     professional_title: str | None = Field(default=None, max_length=120)
     speciality: str | None = Field(default=None, max_length=120)
     practice_name: str | None = Field(default=None, max_length=160)
+
+
+class ExternalConsultantRegisterRequest(BaseModel):
+    full_name: str = Field(min_length=2, max_length=120)
+    mobile_number: str = Field(min_length=10, max_length=32)
+    email: EmailStr
+    account_type: Literal["INDEPENDENT_CONSULTANT", "PRACTICE_OWNER"]
+    professional_role: ProfessionalRole
+    years_experience: int = Field(ge=0, le=80)
+    active_client_range: Literal["0", "1-10", "11-25", "26-50", "51-100", "100+"]
+    practice_name: str | None = Field(default=None, max_length=160)
+    qualification: str | None = Field(default=None, max_length=180)
+    specialisation: str | None = Field(default=None, max_length=180)
+    registration_number: str | None = Field(default=None, max_length=120)
+    certification: str | None = Field(default=None, max_length=180)
+    area_of_expertise: str | None = Field(default=None, max_length=180)
+    profession: str | None = Field(default=None, max_length=180)
+    mentoring_domain: str | None = Field(default=None, max_length=180)
+    recaptcha_token: str = Field(min_length=1, max_length=4096)
+
+    @model_validator(mode="after")
+    def validate_professional_fields(self):
+        role = self.professional_role
+        qualification_roles = {
+            "DIETITIAN_NUTRITIONIST", "PSYCHOLOGIST", "COUNSELLOR_THERAPIST",
+            "DOCTOR_PHYSICIAN", "PHYSIOTHERAPIST", "DIABETES_EDUCATOR",
+            "WOMENS_HEALTH_PRACTITIONER", "LIFESTYLE_MEDICINE_PRACTITIONER",
+        }
+        certification_roles = {"HEALTH_COACH", "WELLNESS_COACH", "FITNESS_TRAINER", "YOGA_MEDITATION_COACH"}
+        if role in qualification_roles and not self.qualification:
+            raise ValueError("Qualification is required for the selected professional role.")
+        if role in certification_roles and not self.certification:
+            raise ValueError("Certification is required for the selected professional role.")
+        if role == "MENTOR" and not self.mentoring_domain:
+            raise ValueError("Mentoring domain is required.")
+        if role == "OTHER_HEALTHCARE_PROFESSIONAL" and (not self.profession or not (self.qualification or self.certification)):
+            raise ValueError("Profession and qualification or certification are required.")
+        if self.account_type == "PRACTICE_OWNER" and not self.practice_name:
+            raise ValueError("Practice or organisation name is required for a Practice Owner.")
+        return self
 
 
 class RefreshRequest(BaseModel):

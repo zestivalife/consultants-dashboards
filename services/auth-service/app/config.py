@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     pingmate_template: str = "auth_otp"
     pingmate_language: str = "en"
 
+    # Public Consultant registration. The browser receives only the site key;
+    # this secret is used exclusively for server-side Google verification.
+    recaptcha_secret_key: str | None = None
+    recaptcha_verify_url: str = "https://www.google.com/recaptcha/api/siteverify"
+    recaptcha_expected_hostname: str | None = None
+
     # Rate limiting
     login_rate_limit_max: int = 10
     login_rate_limit_window_seconds: int = 60

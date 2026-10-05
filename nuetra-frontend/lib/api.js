@@ -336,6 +336,12 @@ export async function apiRequest(path, opts = {}) {
 // ── Auth endpoints ─────────────────────────────────────────────────
 
 export const authAPI = {
+  registerExternalConsultant(payload) {
+    return apiRequest('/auth/external-signup/register', {
+      method: 'POST', body: payload, skipAuthRefresh: true,
+    });
+  },
+
   startExternalSignup(mobileNumber) {
     return apiRequest('/auth/external-signup/start', {
       method: 'POST',

@@ -19,6 +19,7 @@ from app.db.models.role import Role
 from app.db.models.user import User
 from app.services import auth_service
 from app.services.password_service import password_service
+from app.schemas.auth import ExternalConsultantRegisterRequest
 
 
 def _otp_digest(challenge_id: uuid.UUID, code: str) -> str:
@@ -32,6 +33,105 @@ def _new_code() -> str:
 
 def _identity_email(mobile: str, supplied: str | None) -> str:
     return supplied.strip().lower() if supplied else f"mobile-{mobile.removeprefix('+')}@identity.invalid"
+
+
+async def register_without_verification(
+    session: AsyncSession, *, body: ExternalConsultantRegisterRequest,
+    ip_address: str | None = None, user_agent: str | None = None,
+) -> dict:
+    mobile = canonical_mobile(body.mobile_number)
+    email = str(body.email).strip().lower()
+    if not await check_rate_limit(f"external-signup-register:{ip_address or 'unknown'}:{mobile}"):
+        raise AppException("Too many registration requests. Please try again later.", 429)
+    existing_mobile = (await session.execute(select(User).where(User.mobile == mobile))).scalar_one_or_none()
+    existing_email = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    existing_user = existing_mobile or existing_email
+    if existing_mobile and existing_email and existing_mobile.id != existing_email.id:
+        raise ConflictException("An account already exists. Sign in to continue.")
+    if existing_user:
+        provisioning = (await session.execute(
+            select(ExternalSignupProvisioning).where(ExternalSignupProvisioning.auth_user_id == existing_user.id)
+        )).scalar_one_or_none()
+        resumable = (
+            provisioning is not None
+            and provisioning.status in {"REGISTRATION_ACCEPTED", "PROVISIONING_RETRY"}
+            and not existing_user.is_verified
+            and existing_user.mobile == mobile
+            and existing_user.email == email
+        )
+        if not resumable:
+            raise ConflictException("An account already exists. Sign in to continue.")
+        user = existing_user
+    else:
+        provisioning = None
+
+    role = (await session.execute(select(Role).where(Role.name == "consultant"))).scalar_one_or_none()
+    if role is None:
+        raise AppException("Consultant role is not configured.", 503)
+    now = datetime.now(timezone.utc)
+    if provisioning is None:
+        request_id = uuid.uuid4()
+        audit = ExternalSignupChallenge(
+            id=request_id, email_normalized=email, mobile_normalized=mobile,
+            otp_hash=_otp_digest(request_id, secrets.token_urlsafe(32)), status="REGISTRATION_ACCEPTED",
+            attempt_count=0, resend_count=0, expires_at=now, last_sent_at=now, consumed_at=now,
+        )
+        user = User(
+            email=email, mobile=mobile, phone=mobile,
+            password_hash=password_service.hash_password(secrets.token_urlsafe(48)), role_id=role.id,
+            first_name=body.full_name.strip(), is_active=True, is_verified=False,
+            email_verified=False, mobile_verified=False, status="ACTIVE",
+        )
+        session.add_all([audit, user])
+        await session.flush()
+        provisioning = ExternalSignupProvisioning(
+            challenge_id=audit.id, auth_user_id=user.id, account_type=body.account_type,
+            idempotency_key=f"external-signup-mobile:{mobile}", status="REGISTRATION_ACCEPTED",
+        )
+        session.add(provisioning)
+        await session.commit()
+
+    professional_details = {
+        "professionalRole": body.professional_role,
+        "yearsExperience": body.years_experience,
+        "activeClientRange": body.active_client_range,
+        "qualification": body.qualification,
+        "specialisation": body.specialisation,
+        "registrationNumber": body.registration_number,
+        "certification": body.certification,
+        "areaOfExpertise": body.area_of_expertise,
+        "profession": body.profession,
+        "mentoringDomain": body.mentoring_domain,
+    }
+    try:
+        result = await _provision_fiteatsy(
+            user,
+            {
+                "authIdentityId": str(user.id), "name": body.full_name.strip(), "email": email,
+                "mobileNumber": mobile, "accountType": body.account_type,
+                "professionalTitle": body.professional_role, "speciality": body.specialisation or body.area_of_expertise,
+                "practiceName": body.practice_name, "contactVerification": "UNVERIFIED_SIGNUP",
+                "professionalDetails": professional_details,
+            },
+            provisioning.idempotency_key,
+        )
+    except AppException:
+        provisioning.status = "PROVISIONING_RETRY"
+        provisioning.last_error_code = "FITEATSY_PROVISIONING_UNAVAILABLE"
+        await session.commit()
+        raise
+    provisioning.status = result["state"]
+    provisioning.fiteatsy_user_id = result.get("userId")
+    provisioning.tenant_id = result.get("tenantId")
+    provisioning.owner_membership_id = result.get("ownerMembershipId")
+    provisioning.onboarding_id = result.get("onboardingId")
+    login = await auth_service.issue_mobile_otp_session(session, user, ip_address=ip_address, user_agent=user_agent)
+    await session.commit()
+    return {
+        "state": provisioning.status, "tenant_id": provisioning.tenant_id,
+        "onboarding_id": provisioning.onboarding_id, "workspace_ready": provisioning.status == "READY",
+        "identity_type": "NEW_CONSULTANT", "auth_session": login.model_dump(mode="json"),
+    }
 
 
 async def start(session: AsyncSession, mobile_number: str, ip_address: str | None = None) -> dict:
