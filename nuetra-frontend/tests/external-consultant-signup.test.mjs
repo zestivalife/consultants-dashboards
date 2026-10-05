@@ -22,6 +22,14 @@ test('public signup creates a governed workspace without verification-first UX',
   assert.doesNotMatch(page,/localStorage|access_token|bearer/i);
 });
 
+test('reCAPTCHA waits for the explicit Google readiness callback before rendering',()=>{
+  const component=read('components/auth/RecaptchaCheckbox.jsx');
+  assert.match(component,/onload=\$\{READY_CALLBACK\}&render=explicit/);
+  assert.match(component,/typeof api\?\.render !== 'function'/);
+  assert.match(component,/onReady=\{render\}/);
+  assert.doesNotMatch(component,/!window\.grecaptcha \|\| widgetRef/);
+});
+
 test('signup includes the complete governed professional role catalogue and conditional practice data',()=>{
   const page=read('pages/signup.js');
   for (const role of ['DIETITIAN_NUTRITIONIST','HEALTH_COACH','WELLNESS_COACH','PSYCHOLOGIST','COUNSELLOR_THERAPIST','PHYSIOTHERAPIST','FITNESS_TRAINER','YOGA_MEDITATION_COACH','DIABETES_EDUCATOR','WOMENS_HEALTH_PRACTITIONER','LIFESTYLE_MEDICINE_PRACTITIONER','MENTOR','DOCTOR_PHYSICIAN','OTHER_HEALTHCARE_PROFESSIONAL']) {
