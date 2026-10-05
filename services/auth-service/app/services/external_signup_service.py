@@ -125,7 +125,11 @@ async def register_without_verification(
     provisioning.tenant_id = result.get("tenantId")
     provisioning.owner_membership_id = result.get("ownerMembershipId")
     provisioning.onboarding_id = result.get("onboardingId")
-    login = await auth_service.issue_mobile_otp_session(session, user, ip_address=ip_address, user_agent=user_agent)
+    if not all((provisioning.tenant_id, provisioning.owner_membership_id, provisioning.onboarding_id)):
+        raise AppException("Consultant workspace provisioning is incomplete.", 503)
+    login = await auth_service.issue_direct_registration_session(
+        session, user, ip_address=ip_address, user_agent=user_agent
+    )
     await session.commit()
     return {
         "state": provisioning.status, "tenant_id": provisioning.tenant_id,

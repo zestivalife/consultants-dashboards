@@ -30,6 +30,32 @@ def _always_allow_rate():
     return patch(RATE_LIMIT_PATCH, new_callable=AsyncMock, return_value=True)
 
 
+def test_direct_registration_account_access_does_not_falsify_contact_verification():
+    user = SimpleNamespace(
+        id=uuid.uuid4(), email="direct-signup@nuetra.test", status="ACTIVE",
+        deleted_at=None, credential_status="PERMANENT", lock_until=None,
+        is_active=True, is_verified=False, email_verified=False, mobile_verified=False,
+    )
+
+    auth_service._ensure_account_access_user(user)
+
+    assert user.is_verified is False
+    assert user.email_verified is False
+    assert user.mobile_verified is False
+
+
+@pytest.mark.parametrize("status", ["SUSPENDED", "DISABLED"])
+def test_direct_registration_account_access_denies_blocked_statuses(status: str):
+    user = SimpleNamespace(
+        id=uuid.uuid4(), email="blocked-signup@nuetra.test", status=status,
+        deleted_at=None, credential_status="PERMANENT", lock_until=None,
+        is_active=True, is_verified=False, email_verified=False, mobile_verified=False,
+    )
+
+    with pytest.raises(ForbiddenException, match="not allowed to sign in"):
+        auth_service._ensure_account_access_user(user)
+
+
 async def _create_role_user(
     session: AsyncSession,
     role_name: str,
@@ -65,6 +91,24 @@ async def _create_role_user(
     session.add(user)
     await session.flush()
     return user
+
+
+@pytest.mark.asyncio
+async def test_direct_registration_issues_initial_session_for_active_unverified_user(session: AsyncSession):
+    user = await _create_role_user(
+        session, "consultant", email="direct-session@nuetra.test", is_verified=False, status="ACTIVE"
+    )
+    user.email_verified = False
+    user.mobile_verified = False
+    user.role = await session.get(Role, user.role_id)
+
+    result = await auth_service.issue_direct_registration_session(session, user)
+
+    assert result.tokens.access_token
+    assert result.tokens.refresh_token
+    assert user.is_verified is False
+    assert user.email_verified is False
+    assert user.mobile_verified is False
 
 
 # ──────────────────────────────────────────────

@@ -201,7 +201,7 @@ async def test_direct_registration_provisions_unverified_identity_and_resumes_wi
     async def issue_session(*_args, **_kwargs): return SessionResult()
     async def allow_rate_limit(*_args, **_kwargs): return True
     monkeypatch.setattr(external_signup_service, "_provision_fiteatsy", provision)
-    monkeypatch.setattr(external_signup_service.auth_service, "issue_mobile_otp_session", issue_session)
+    monkeypatch.setattr(external_signup_service.auth_service, "issue_direct_registration_session", issue_session)
     monkeypatch.setattr(external_signup_service, "check_rate_limit", allow_rate_limit)
     body = ExternalConsultantRegisterRequest(
         full_name="QA Consultant", mobile_number="+91 97620 06688", email="qa-direct@example.com",
@@ -209,7 +209,7 @@ async def test_direct_registration_provisions_unverified_identity_and_resumes_wi
         years_experience=5, active_client_range="0", qualification="MSc Nutrition",
         specialisation="Clinical Nutrition", recaptcha_token="test-recaptcha-token",
     )
-    with pytest.raises(AppException):
+    with pytest.raises(AppException, match="temporary"):
         await external_signup_service.register_without_verification(session, body=body)
     result = await external_signup_service.register_without_verification(session, body=body)
     assert result["state"] == "ONBOARDING_IN_PROGRESS"
@@ -218,6 +218,7 @@ async def test_direct_registration_provisions_unverified_identity_and_resumes_wi
     assert len(users) == 1
     assert len(provisions) == 1
     assert users[0].is_verified is False
+    assert users[0].email_verified is False
     assert users[0].mobile_verified is False
     await session.delete(provisions[0])
     challenge = (await session.execute(select(ExternalSignupChallenge).where(ExternalSignupChallenge.id == provisions[0].challenge_id))).scalar_one()
