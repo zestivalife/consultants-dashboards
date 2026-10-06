@@ -159,6 +159,33 @@ export function updateExternalClient(clientId, payload) {
   return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}`, { method: 'PATCH', body: payload });
 }
 
+export function getExternalClient360(clientId) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/360`, { method: 'GET' });
+}
+
+export function updateExternalClient360(clientId, section, values) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/profile`, { method: 'PATCH', body: { section, values } });
+}
+
+export function getExternalClientTimeline(clientId) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/timeline`, { method: 'GET' });
+}
+
+export function getExternalClientDocuments(clientId) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/documents`, { method: 'GET' });
+}
+
+export async function downloadExternalClientDocument(clientId, documentId, fileName) {
+  const url = `${getFiteatsyApiBaseUrl()}/v1/external/clients/${encodeURIComponent(clientId)}/documents/${encodeURIComponent(documentId)}/download`;
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
+  if (!response.ok) throw new Error(`Document download failed (${response.status})`);
+  const anchor = document.createElement('a');
+  anchor.href = URL.createObjectURL(await response.blob());
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(anchor.href);
+}
+
 export function createExternalClientInvitation(clientId) {
   return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/invitations`, { method: 'POST' });
 }
