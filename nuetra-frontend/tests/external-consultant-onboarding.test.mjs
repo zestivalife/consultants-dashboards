@@ -7,14 +7,18 @@ const read = (path) => fs.readFileSync(new URL(`../${path}`, import.meta.url), '
 test('external Consultant login resumes governed onboarding before workspace access', () => {
   const auth = read('context/AuthContext.js');
   const api = read('lib/api.js');
+  const fiteatsyApi = read('lib/fiteatsyConsultantsApi.js');
   const canonicalPage = read('pages/onboarding/index.js');
   const page = read('pages/onboarding/consultant.js');
   assert.match(auth, /getGovernedPostLoginPath/);
-  assert.match(auth, /getConsultantOnboarding/);
+  assert.match(auth, /getFiteatsyConsultantOnboarding/);
   assert.match(auth, /: '\/onboarding';/);
-  assert.match(api, /\/consultants\/onboarding/);
+  assert.match(fiteatsyApi, /getFiteatsyConsultantOnboarding/);
+  assert.match(fiteatsyApi, /requestFiteatsy\('\/v1\/consultants\/onboarding'/);
+  assert.match(fiteatsyApi, /requestFiteatsy\('\/v1\/consultants\/onboarding\/complete'/);
+  assert.doesNotMatch(api, /apiRequest\('\/consultants\/onboarding/);
   assert.match(canonicalPage, /export \{ default \} from '\.\/consultant';/);
-  assert.match(page, /completeConsultantOnboarding/);
+  assert.match(page, /completeFiteatsyConsultantOnboarding/);
   assert.match(page, /Client health intake is separate/);
 });
 

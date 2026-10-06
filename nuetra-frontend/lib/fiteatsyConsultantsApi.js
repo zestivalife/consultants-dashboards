@@ -139,6 +139,21 @@ async function requestFiteatsy(path, options = {}) {
   return body;
 }
 
+export function getFiteatsyConsultantOnboarding() {
+  return requestFiteatsy('/v1/consultants/onboarding', { method: 'GET' });
+}
+
+export function updateFiteatsyConsultantOnboarding(payload) {
+  return requestFiteatsy('/v1/consultants/onboarding', { method: 'PATCH', body: payload });
+}
+
+export function completeFiteatsyConsultantOnboarding(version) {
+  return requestFiteatsy('/v1/consultants/onboarding/complete', {
+    method: 'POST',
+    body: { version },
+  });
+}
+
 export async function listFoodAuthorisation(filters = {}, signal) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {

@@ -2,7 +2,11 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { authAPI } from '../../lib/api';
+import {
+  completeFiteatsyConsultantOnboarding,
+  getFiteatsyConsultantOnboarding,
+  updateFiteatsyConsultantOnboarding,
+} from '../../lib/fiteatsyConsultantsApi';
 
 const empty = { consultantName: '', professionalTitle: '', speciality: '', practiceName: '', country: 'IN', timezone: 'Asia/Kolkata', acceptTerms: false };
 
@@ -17,7 +21,7 @@ export default function ConsultantOnboardingPage() {
   useEffect(() => {
     if (isLoading) return;
     if (!user) { router.replace('/login'); return; }
-    authAPI.getConsultantOnboarding().then((payload) => {
+    getFiteatsyConsultantOnboarding().then((payload) => {
       const value = payload?.onboarding || payload;
       if (value?.workspaceReady) { router.replace('/dashboard/consultant'); return; }
       setOnboarding(value);
@@ -34,9 +38,9 @@ export default function ConsultantOnboardingPage() {
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError('');
     try {
-      const savedPayload = await authAPI.updateConsultantOnboarding({ ...form, version: onboarding.version });
+      const savedPayload = await updateFiteatsyConsultantOnboarding({ ...form, version: onboarding.version });
       const saved = savedPayload?.onboarding || savedPayload;
-      const completedPayload = await authAPI.completeConsultantOnboarding(saved.version);
+      const completedPayload = await completeFiteatsyConsultantOnboarding(saved.version);
       const completed = completedPayload?.onboarding || completedPayload;
       if (!completed?.workspaceReady) throw new Error('Workspace readiness was not confirmed.');
       router.replace('/dashboard/consultant?view=command-center');

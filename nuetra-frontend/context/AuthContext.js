@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import { findUserByCredentials, sampleUsers } from '../data/mockPlatformData';
 import { canAccessDashboardLocation, getDashboardPathForUser, getPostAuthPathForUser } from '../lib/roleRoutes';
 import { authAPI, clearTokens, getRefreshToken, getToken, isRememberedAuthSession, setRefreshToken, setToken } from '../lib/api';
+import { getFiteatsyConsultantOnboarding } from '../lib/fiteatsyConsultantsApi';
 
 const SESSION_KEY = 'nuetra_session';
 const BACKEND_AUTH_ENABLED = Boolean(process.env.NEXT_PUBLIC_API_URL);
@@ -17,7 +18,7 @@ async function getGovernedPostLoginPath(user) {
   const role = String(user?.role || '').toLowerCase();
   if (!['consultant', 'provider', 'dietician', 'dietitian'].includes(role)) return getPostLoginPath(user);
   try {
-    const payload = await authAPI.getConsultantOnboarding();
+    const payload = await getFiteatsyConsultantOnboarding();
     const onboarding = payload?.onboarding || payload;
     return onboarding?.workspaceReady && onboarding?.status === 'READY'
       ? getPostLoginPath(user)

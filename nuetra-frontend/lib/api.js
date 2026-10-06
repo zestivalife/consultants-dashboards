@@ -420,17 +420,6 @@ export const authAPI = {
     return apiRequest('/auth/roles');
   },
 
-  getConsultantOnboarding() {
-    return apiRequest('/consultants/onboarding');
-  },
-
-  updateConsultantOnboarding(payload) {
-    return apiRequest('/consultants/onboarding', { method: 'PATCH', body: payload });
-  },
-
-  completeConsultantOnboarding(version) {
-    return apiRequest('/consultants/onboarding/complete', { method: 'POST', body: { version } });
-  },
 };
 
 export const ownerPeopleAccessAPI = {
