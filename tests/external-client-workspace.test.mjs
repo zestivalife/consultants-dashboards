@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';import fs from 'node:fs';import test from 'node:test';
 const page=fs.readFileSync(new URL('../nuetra-frontend/pages/dashboard/consultant.js',import.meta.url),'utf8');const ui=fs.readFileSync(new URL('../nuetra-frontend/components/external/ExternalConsultantWorkspace.jsx',import.meta.url),'utf8');const api=fs.readFileSync(new URL('../nuetra-frontend/lib/fiteatsyConsultantsApi.js',import.meta.url),'utf8');
 test('external tenants use a dedicated workspace while Zestiva remains on frozen workspace',()=>{assert.match(page,/tenantType!=='ZESTIVA_INTERNAL'/);assert.match(page,/<ExternalConsultantWorkspace\/>:<ConsultantWorkspace\/>/);});
-test('external zero state offers manual creation and defers invitations',()=>{assert.match(ui,/Add your first client/);assert.match(ui,/Invite client · Coming next/);assert.match(ui,/Add client manually/);});
+test('external zero state offers manual creation before secure invitation',()=>{assert.match(ui,/Add your first client/);assert.match(ui,/generate a secure health-profile invitation/);assert.match(ui,/Add client manually/);});
 test('list errors are distinct from an authoritative zero state',()=>{assert.match(ui,/role="alert"/);assert.match(ui,/clients.length===0&&!query&&!status/);});
 test('external client API uses the governed tenant-scoped route family',()=>{assert.match(api,/\/v1\/external\/clients/);assert.match(api,/createExternalClient/);assert.match(api,/updateExternalClient/);});
 test('practice identity never hard-codes in-house brands',()=>{assert.doesNotMatch(ui,/Zestiva|Nuetra|Fiteatsy/);assert.match(ui,/tenantName\|\|user\?\.name/);});

@@ -159,6 +159,26 @@ export function updateExternalClient(clientId, payload) {
   return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}`, { method: 'PATCH', body: payload });
 }
 
+export function createExternalClientInvitation(clientId) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/invitations`, { method: 'POST' });
+}
+
+export function getCurrentExternalClientInvitation(clientId) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/invitations/current`, { method: 'GET' });
+}
+
+export function revokeExternalClientInvitation(clientId) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/invitations/revoke`, { method: 'POST' });
+}
+
+export function regenerateExternalClientInvitation(clientId) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/invitations/regenerate`, { method: 'POST' });
+}
+
+export function openExternalClientIntake(token) {
+  return requestFiteatsy(`/v1/external/intake/${encodeURIComponent(token)}`, { method: 'GET' });
+}
+
 export function getFiteatsyConsultantOnboarding() {
   return requestFiteatsy('/v1/consultants/onboarding', { method: 'GET' });
 }
