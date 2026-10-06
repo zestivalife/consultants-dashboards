@@ -21,7 +21,7 @@ async function getGovernedPostLoginPath(user) {
     const onboarding = payload?.onboarding || payload;
     return onboarding?.workspaceReady && onboarding?.status === 'READY'
       ? getPostLoginPath(user)
-      : '/onboarding/consultant';
+      : '/onboarding';
   } catch (error) {
     // Existing internal/Zestiva consultants do not have an external onboarding record.
     if (error?.status === 404) return getPostLoginPath(user);
