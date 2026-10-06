@@ -139,6 +139,26 @@ async function requestFiteatsy(path, options = {}) {
   return body;
 }
 
+export function listExternalClients(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+  });
+  return requestFiteatsy(`/v1/external/clients?${params}`, { method: 'GET' });
+}
+
+export function createExternalClient(payload) {
+  return requestFiteatsy('/v1/external/clients', { method: 'POST', body: payload });
+}
+
+export function getExternalClient(clientId) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}`, { method: 'GET' });
+}
+
+export function updateExternalClient(clientId, payload) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}`, { method: 'PATCH', body: payload });
+}
+
 export function getFiteatsyConsultantOnboarding() {
   return requestFiteatsy('/v1/consultants/onboarding', { method: 'GET' });
 }
