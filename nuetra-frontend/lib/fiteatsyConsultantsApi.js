@@ -179,6 +179,32 @@ export function openExternalClientIntake(token) {
   return requestFiteatsy(`/v1/external/intake/${encodeURIComponent(token)}`, { method: 'GET' });
 }
 
+export function getExternalClientIntakeProfile(token) {
+  return requestFiteatsy(`/v1/external/intake/${encodeURIComponent(token)}/profile`, { method: 'GET' });
+}
+
+export function saveExternalClientIntakeSection(token, section, data, currentSection) {
+  return requestFiteatsy(`/v1/external/intake/${encodeURIComponent(token)}/section/${encodeURIComponent(section)}`, { method: 'PATCH', body: { data, currentSection } });
+}
+
+export function getExternalClientIntakeReview(token) {
+  return requestFiteatsy(`/v1/external/intake/${encodeURIComponent(token)}/review`, { method: 'GET' });
+}
+
+export function submitExternalClientIntake(token) {
+  return requestFiteatsy(`/v1/external/intake/${encodeURIComponent(token)}/submit`, { method: 'POST', body: { consentAccepted: true, consentVersion: 'external-health-intake-v1' } });
+}
+
+export async function uploadExternalClientIntakeDocument(token, category, file) {
+  const data = new FormData();
+  data.append('category', category);
+  data.append('document', file);
+  const response = await fetch(`${getFiteatsyApiBaseUrl()}/v1/external/intake/${encodeURIComponent(token)}/documents`, { method: 'POST', body: data, headers: { Accept: 'application/json' } });
+  const body = await readJsonResponse(response);
+  if (!response.ok) { const error = new Error(body?.message || body?.error || `Upload failed (${response.status})`); error.status = response.status; error.data = body; throw error; }
+  return body;
+}
+
 export function getFiteatsyConsultantOnboarding() {
   return requestFiteatsy('/v1/consultants/onboarding', { method: 'GET' });
 }
