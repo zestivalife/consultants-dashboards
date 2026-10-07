@@ -175,6 +175,28 @@ export function getExternalClientDocuments(clientId) {
   return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/documents`, { method: 'GET' });
 }
 
+export async function uploadExternalClientDocument(clientId, payload) {
+  const data = new FormData();
+  data.append('document', payload.file);
+  data.append('category', payload.category);
+  if (payload.displayName) data.append('displayName', payload.displayName);
+  if (payload.documentDate) data.append('documentDate', payload.documentDate);
+  if (payload.providerName) data.append('providerName', payload.providerName);
+  if (payload.notes) data.append('notes', payload.notes);
+  const response = await fetch(`${getFiteatsyApiBaseUrl()}/v1/external/clients/${encodeURIComponent(clientId)}/documents`, { method: 'POST', body: data, headers: { Authorization: `Bearer ${getToken()}` } });
+  const body = await readJsonResponse(response);
+  if (!response.ok) throw new Error(body?.message || body?.error || `Upload failed (${response.status})`);
+  return body;
+}
+
+export function updateExternalClientDocument(clientId, documentId, payload) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/documents/${encodeURIComponent(documentId)}`, { method: 'PATCH', body: payload });
+}
+
+export function archiveExternalClientDocument(clientId, documentId) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/documents/${encodeURIComponent(documentId)}`, { method: 'DELETE' });
+}
+
 export async function downloadExternalClientDocument(clientId, documentId, fileName) {
   const url = `${getFiteatsyApiBaseUrl()}/v1/external/clients/${encodeURIComponent(clientId)}/documents/${encodeURIComponent(documentId)}/download`;
   const response = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
