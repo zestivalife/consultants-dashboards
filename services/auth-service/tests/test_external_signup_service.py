@@ -76,6 +76,32 @@ async def test_provisioning_uses_internal_delegated_authority_route(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_provisioning_maps_backend_identity_conflict_to_non_retryable_conflict(monkeypatch):
+    class Response:
+        status_code = 409
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr(external_signup_service.httpx, "AsyncClient", lambda **_kwargs: Client())
+    monkeypatch.setattr(external_signup_service, "_delegation_token", lambda _subject: "signed-token")
+
+    user = type("UserIdentity", (), {"id": uuid.uuid4()})()
+    with pytest.raises(AppException) as error:
+        await external_signup_service._provision_fiteatsy(user, {"name": "Existing Account"}, "signup-conflict")
+
+    assert error.value.status_code == 409
+    assert error.value.message == "An account already exists. Sign in to continue."
+
+
+@pytest.mark.asyncio
 async def test_wrong_otp_is_persisted_and_fails_closed(session):
     challenge = await _challenge(session)
     with pytest.raises(AppException) as error:

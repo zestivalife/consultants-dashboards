@@ -115,9 +115,13 @@ async def register_without_verification(
             },
             provisioning.idempotency_key,
         )
-    except AppException:
-        provisioning.status = "PROVISIONING_RETRY"
-        provisioning.last_error_code = "FITEATSY_PROVISIONING_UNAVAILABLE"
+    except AppException as exc:
+        if exc.status_code == 409:
+            provisioning.status = "IDENTITY_CONFLICT"
+            provisioning.last_error_code = "EXTERNAL_IDENTITY_ALREADY_EXISTS"
+        else:
+            provisioning.status = "PROVISIONING_RETRY"
+            provisioning.last_error_code = "FITEATSY_PROVISIONING_UNAVAILABLE"
         await session.commit()
         raise
     provisioning.status = result["state"]
@@ -207,6 +211,8 @@ async def _provision_fiteatsy(user: User, body: dict, idempotency_key: str) -> d
             json={k: v for k, v in body.items() if v is not None},
         )
     if response.status_code not in (200, 201):
+        if response.status_code == 409:
+            raise ConflictException("An account already exists. Sign in to continue.")
         raise AppException("Workspace provisioning is temporarily unavailable. Retry safely.", 503)
     return response.json()
 
