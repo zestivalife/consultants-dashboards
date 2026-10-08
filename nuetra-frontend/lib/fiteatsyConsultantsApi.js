@@ -258,6 +258,10 @@ export function getFiteatsyConsultantOnboarding() {
   return requestFiteatsy('/v1/consultants/onboarding', { method: 'GET' });
 }
 
+export function getFiteatsyTenantContext(signal) {
+  return requestFiteatsy('/v1/auth/me', { method: 'GET', signal });
+}
+
 export function updateFiteatsyConsultantOnboarding(payload) {
   return requestFiteatsy('/v1/consultants/onboarding', { method: 'PATCH', body: payload });
 }
