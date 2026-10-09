@@ -11,6 +11,7 @@ EXPECTED = {
 
 def test_complete_role_matrix_and_global_platform_authority():
     assert set(ROLE_MAP) == EXPECTED
+    assert ROLE_MAP["user"] == "member"
     assert ROLE_MAP["admin"] == "organization_admin"
     assert ROLE_MAP["super_admin"] == "platform_owner"
     assert TENANT_ROLE_MAP["platform_owner"] is None

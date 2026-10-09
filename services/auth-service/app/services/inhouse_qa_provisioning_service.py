@@ -19,7 +19,9 @@ from app.services.user_service import CreateUserCommand, user_service
 QA_CLASSIFICATION = "GOVERNED_QA_INHOUSE"
 CANONICAL_TENANT_ID = "00000000-0000-4000-8000-000000000001"
 ROLE_MAP = {
-    "user": "user",
+    # Canonical product "user" identities authenticate through the seeded
+    # Auth "member" role.  Auth has never seeded a role named "user".
+    "user": "member",
     "consultant": "consultant",
     "provider": "provider",
     "dietician": "dietician",
