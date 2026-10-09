@@ -54,6 +54,9 @@ class User(Base):
     )
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     credential_status: Mapped[str] = mapped_column(String(40), default="PERMANENT", nullable=False, index=True)
+    account_classification: Mapped[str] = mapped_column(
+        String(40), default="PRODUCTION_USER", nullable=False, index=True
+    )
     temporary_password_created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

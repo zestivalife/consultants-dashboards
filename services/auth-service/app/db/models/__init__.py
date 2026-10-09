@@ -41,6 +41,7 @@ from app.db.models.identity_profile import (
 )
 from app.db.models.master_data import MasterDataCategory, MasterDataItem
 from app.db.models.external_signup import ExternalSignupChallenge, ExternalSignupProvisioning
+from app.db.models.inhouse_qa import InhouseQaProvisioning
 
 __all__ = [
     "Role",
