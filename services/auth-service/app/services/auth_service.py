@@ -159,36 +159,67 @@ async def _access_profile(
 ) -> AccessProfile:
     detail = await PeopleAccessRepository(session).get_user_detail(user.id)
     access_user = detail or user
-    membership = _active_membership(access_user)
-    product_access = _active_product_access(access_user)
+
+    # Materialise ORM relationship values inside SQLAlchemy's async greenlet.
+    # Legacy in-house identities can otherwise trigger MissingGreenlet while a
+    # valid login response is being built.
+    def _materialize_access_snapshot(_sync_session):
+        membership = _active_membership(access_user)
+        product_access = _active_product_access(access_user)
+        organization = getattr(membership, "organization", None) if membership is not None else None
+        department = getattr(membership, "department", None) if membership is not None else None
+        product = getattr(product_access, "product", None) if product_access is not None else None
+        product_role = getattr(product_access, "role", None) if product_access is not None else None
+        user_role = getattr(access_user, "role", None)
+        return {
+            "membership": None if membership is None else {
+                "organization_id": membership.organization_id,
+                "organization_name": getattr(organization, "name", None),
+                "department_id": getattr(membership, "department_id", None),
+                "department_name": getattr(department, "name", None),
+                "status": getattr(membership, "status", "ACTIVE"),
+            },
+            "product": None if product_access is None else {
+                "product_id": product_access.product_id,
+                "product_name": getattr(product, "name", None),
+                "role_name": getattr(product_role, "name", None),
+                "status": getattr(product_access, "status", "ACTIVE"),
+                "is_primary": bool(getattr(product_access, "is_primary", False)),
+                "permissions": list(getattr(product_access, "permissions", []) or []),
+            },
+            "user_role_name": getattr(user_role, "name", None),
+        }
+
+    access_snapshot = await session.run_sync(_materialize_access_snapshot)
+    membership_snapshot = access_snapshot["membership"]
+    product_snapshot = access_snapshot["product"]
 
     active_organization = None
-    if membership is not None and getattr(membership, "organization", None) is not None:
+    if membership_snapshot is not None and membership_snapshot["organization_name"] is not None:
         active_organization = AccessOrganization(
-            id=membership.organization_id,
-            name=membership.organization.name,
-            department_id=getattr(membership, "department_id", None),
-            department=getattr(getattr(membership, "department", None), "name", None),
-            status=getattr(membership, "status", "ACTIVE"),
+            id=membership_snapshot["organization_id"],
+            name=membership_snapshot["organization_name"],
+            department_id=membership_snapshot["department_id"],
+            department=membership_snapshot["department_name"],
+            status=membership_snapshot["status"],
         )
 
     active_product = None
-    if product_access is not None and getattr(product_access, "product", None) is not None:
-        product_role = getattr(product_access, "role", None)
+    if product_snapshot is not None and product_snapshot["product_name"] is not None:
         active_product = AccessProduct(
-            id=product_access.product_id,
-            name=product_access.product.name,
-            role=getattr(product_role, "name", None),
-            status=getattr(product_access, "status", "ACTIVE"),
-            is_primary=bool(getattr(product_access, "is_primary", False)),
+            id=product_snapshot["product_id"],
+            name=product_snapshot["product_name"],
+            role=product_snapshot["role_name"],
+            status=product_snapshot["status"],
+            is_primary=product_snapshot["is_primary"],
         )
 
     role_name = (
-        getattr(getattr(product_access, "role", None), "name", None)
-        or getattr(getattr(access_user, "role", None), "name", None)
+        (product_snapshot or {}).get("role_name")
+        or access_snapshot["user_role_name"]
         or "member"
     )
-    capabilities = sorted(set(permissions or []) | set(getattr(product_access, "permissions", []) or []))
+    capabilities = sorted(set(permissions or []) | set((product_snapshot or {}).get("permissions", [])))
     workspace = _resolve_workspace(
         role=role_name,
         permissions=capabilities,

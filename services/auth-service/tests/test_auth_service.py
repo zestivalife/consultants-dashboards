@@ -427,6 +427,72 @@ async def test_login_resolves_workspace_from_people_access_context(session: Asyn
 
 
 @pytest.mark.asyncio
+async def test_access_profile_materializes_unloaded_legacy_relationships_without_missing_greenlet(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    user = await _create_role_user(
+        session,
+        "senior_consultant",
+        email="legacy.senior@zestiva.test",
+    )
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Zestiva Legacy Organization",
+        status="ACTIVE",
+    )
+    product = Product(
+        id=uuid.uuid4(),
+        key="fiteatsy-legacy",
+        name="FitEatsy Legacy",
+        status="ACTIVE",
+    )
+    session.add_all([organization, product])
+    await session.flush()
+    session.add_all(
+        [
+            OrganizationMembership(
+                user_id=user.id,
+                organization_id=organization.id,
+                primary_product_id=product.id,
+                status="ACTIVE",
+                is_verified=True,
+            ),
+            UserProductAccess(
+                user_id=user.id,
+                product_id=product.id,
+                organization_id=organization.id,
+                role_id=user.role_id,
+                status="ACTIVE",
+                is_primary=True,
+                permissions=["clients.read"],
+            ),
+        ]
+    )
+    await session.flush()
+
+    session.expire(user, ["organization_memberships", "product_access", "role"])
+
+    async def _return_unloaded_legacy_user(_repository, _user_id):
+        return None
+
+    monkeypatch.setattr(
+        auth_service.PeopleAccessRepository,
+        "get_user_detail",
+        _return_unloaded_legacy_user,
+    )
+
+    profile = await auth_service._access_profile(session, user, ["clients.read"])
+
+    assert profile.role == "senior_consultant"
+    assert profile.active_organization is not None
+    assert profile.active_organization.name == "Zestiva Legacy Organization"
+    assert profile.active_product is not None
+    assert profile.active_product.name == "FitEatsy Legacy"
+    assert profile.workspace.landing_page == "/dashboard/senior-consultant"
+
+
+@pytest.mark.asyncio
 async def test_temporary_password_login_transitions_invited_user_to_first_login(session: AsyncSession):
     user = await _create_role_user(
         session,
