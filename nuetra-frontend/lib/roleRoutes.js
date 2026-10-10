@@ -70,7 +70,7 @@ export const DELIVERY_ACCESS_POLICY = {
 };
 
 export const CONSULTANT_ACCESS_POLICY = {
-  roles: ['consultant', 'provider', 'dietician', 'senior_consultant'],
+  roles: ['consultant', 'provider', 'dietician', 'senior_consultant', 'practitioner'],
   personaMarkers: WORKSPACE_POLICIES.careDelivery.personaMarkers,
 };
 

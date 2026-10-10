@@ -27,6 +27,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        version_table="profile_service_alembic_version",
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -35,7 +36,11 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        version_table="profile_service_alembic_version",
+    )
     with context.begin_transaction():
         context.run_migrations()
 
