@@ -10,6 +10,7 @@ def test_railway_postgres_url_uses_asyncpg_driver() -> None:
     )
 
     assert settings.database_url.startswith("postgresql+asyncpg://")
+    assert settings.db_pool_timeout == 30
 
 
 def test_profile_service_uses_an_isolated_alembic_ledger() -> None:
