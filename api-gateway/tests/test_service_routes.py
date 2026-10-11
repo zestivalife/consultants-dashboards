@@ -43,7 +43,10 @@ class ServiceRoutesTest(unittest.TestCase):
         self.assertEqual(routes["/api/v1/owner/people-access"]["host_header"], "auth-service-production-ef64.up.railway.app")
         self.assertEqual(routes["/api/v1/auth"]["upstream"], "http://auth-service.railway.internal:8080")
         self.assertEqual(routes["/api/v1/auth"]["host_header"], "auth-service-production-ef64.up.railway.app")
-        self.assertEqual(routes["/api/v1/profile"]["upstream"], "http://profile-service.railway.internal:8002")
+        self.assertEqual(
+            routes["/api/v1/profile"]["upstream"],
+            "https://profile-service-production-abcd.up.railway.app",
+        )
         self.assertEqual(routes["/api/v1/assessments"]["upstream"], "http://assessment-service.railway.internal:8003")
         self.assertEqual(routes["/api/v1/scoring"]["upstream"], "http://scoring-engine-service.railway.internal:8004")
         self.assertEqual(routes["/api/v1/nutrition"]["upstream"], "http://nutrition-service.railway.internal:8005")

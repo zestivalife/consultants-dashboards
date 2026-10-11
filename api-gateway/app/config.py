@@ -104,6 +104,7 @@ class Settings(BaseSettings):
         configured_url: str,
         default_port: int,
         railway_port: int | None = None,
+        preserve_public_url: bool = False,
     ) -> str:
         """Prefer Railway private DNS over stale public deployment URLs in production."""
         normalized = self._normalize_service_url(configured_url, default_port)
@@ -112,6 +113,8 @@ class Settings(BaseSettings):
 
         parsed = urlsplit(normalized)
         hostname = parsed.hostname or ""
+        if preserve_public_url and hostname.endswith(".up.railway.app"):
+            return normalized
         if hostname.endswith(".railway.internal") and parsed.port == default_port and railway_port:
             return f"http://{hostname}:{railway_port}{parsed.path.rstrip('/')}"
         if not hostname.endswith(".up.railway.app"):
@@ -144,6 +147,7 @@ class Settings(BaseSettings):
                 "profile-service",
                 self.profile_service_url,
                 8002,
+                preserve_public_url=True,
             ),
             "assessment-service": self._railway_internal_url(
                 "assessment-service",
