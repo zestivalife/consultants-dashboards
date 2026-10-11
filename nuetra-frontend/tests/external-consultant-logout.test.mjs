@@ -8,11 +8,23 @@ const api = fs.readFileSync(new URL('../lib/api.js', import.meta.url), 'utf8');
 const withAuth = fs.readFileSync(new URL('../hocs/withAuth.js', import.meta.url), 'utf8');
 
 test('External Consultant account menu exposes one canonical logout control', () => {
+  assert.match(workspace, /data-testid="external-account-menu-trigger"/);
+  assert.match(workspace, />Account<\/span>/);
   assert.match(workspace, /aria-label="Account menu"/);
+  assert.match(workspace, /aria-controls="external-account-menu"/);
   assert.match(workspace, />Profile<\/Link>/);
   assert.match(workspace, />Practice Settings<\/Link>/);
+  assert.match(workspace, /data-testid="external-logout"/);
   assert.match(workspace, /loggingOut\?'Logging out…':'Log out'/);
   assert.match(workspace, /await logout\(\)/);
+});
+
+test('account and logout controls remain visible and tappable on mobile', () => {
+  assert.match(workspace, /min-h-11/);
+  assert.match(workspace, /fixed right-4 top-20/);
+  assert.match(workspace, /w-\[calc\(100vw-2rem\)\] max-w-64/);
+  assert.match(workspace, /sm:absolute sm:right-0/);
+  assert.doesNotMatch(workspace, /group-hover:[^"']*(block|visible|opacity-100)/);
 });
 
 test('logout revokes the refresh session then clears all browser authority', () => {
