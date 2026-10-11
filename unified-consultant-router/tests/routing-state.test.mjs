@@ -44,3 +44,10 @@ test('authenticated routes never fall back to either product without valid routi
   assert.match(middleware, /resolver\.pathname = '\/__router\/resolve'/);
   assert.doesNotMatch(middleware, /!productLine[^]*rewrite\(request, inHouseOrigin\)/);
 });
+
+test('public client intake stays on the unified domain and routes to the external origin', () => {
+  const middleware = fs.readFileSync(new URL('../middleware.js', import.meta.url), 'utf8');
+  assert.match(middleware, /pathname\.startsWith\('\/intake\/'\)/);
+  assert.match(middleware, /clearRoutingCookies|response\.cookies\.delete\(ROUTING_COOKIE\)/);
+  assert.match(middleware, /rewrite\(request, externalOrigin\)/);
+});

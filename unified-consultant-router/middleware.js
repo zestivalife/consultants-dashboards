@@ -50,6 +50,19 @@ export async function middleware(request) {
     return response;
   }
 
+  if (pathname.startsWith('/intake/')) {
+    const response = rewrite(request, externalOrigin);
+    response.cookies.set(PUBLIC_ORIGIN_COOKIE, 'EXTERNAL', {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60,
+    });
+    response.cookies.delete(ROUTING_COOKIE);
+    return response;
+  }
+
   if (pathname.startsWith('/api/')) return rewrite(request, inHouseOrigin);
 
   const productLine = await verifyRoutingState(
