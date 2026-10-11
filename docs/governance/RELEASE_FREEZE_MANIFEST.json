@@ -2,6 +2,18 @@
   "status": "ACTIVE",
   "seal": "ACTIVE",
   "sealDocument": "docs/governance/CONSULTANT_DIET_PLAN_ENGINEERING_SEAL.md",
+  "inHouseProductLine": {
+    "name": "ZESTIVA / NUETRA / FITEATSY",
+    "developmentState": "FROZEN",
+    "engineeringSeal": "ACTIVE",
+    "productionAcceptance": "PASS",
+    "governedQaClassification": "GOVERNED_QA_INHOUSE",
+    "acceptedRepairShas": {
+      "backend": "e868f9cf413c051c913682336b7b3d42d0b252cb",
+      "gateway": "4eb7829be5e32d7a200cc846fe72faf15ad682b7",
+      "profileService": "bb6ed2277c89174e00c7e0f8cef6d4ae255b2fcb"
+    }
+  },
   "acceptedImplementation": {
     "backendSha": "0fc45e318216b19487f580c34d14092aef3b71b0",
     "frontendSha": "587179495c63ed23504bcb637964350ef7327efa"
@@ -30,6 +42,12 @@
     { "id": "APPROVAL_NOT_PUBLICATION", "status": "FROZEN_PROTECTED" },
     { "id": "CONSULTANT_EXPLICIT_PUBLISH", "status": "FROZEN_PROTECTED" },
     { "id": "CLIENT_PUBLISHED_VERSION", "status": "FROZEN_PROTECTED" },
+    { "id": "CLIENT_PROFILE_ME", "status": "FROZEN_PROTECTED" },
+    { "id": "PRACTITIONER_WORKSPACE", "status": "FROZEN_PROTECTED" },
+    { "id": "PLATFORM_AUTHORITY_MATRIX", "status": "FROZEN_PROTECTED" },
+    { "id": "CROSS_TENANT_ISOLATION", "status": "FROZEN_PROTECTED" },
+    { "id": "ROLE_ESCALATION_DENIED", "status": "FROZEN_PROTECTED" },
+    { "id": "PERSONA_CONTEXT_CLEARING", "status": "FROZEN_PROTECTED" },
     { "id": "BACKEND_RUNTIME_SHA_PARITY", "status": "FROZEN_PROTECTED" },
     { "id": "FRONTEND_RUNTIME_SHA_PARITY", "status": "FROZEN_PROTECTED" }
   ],

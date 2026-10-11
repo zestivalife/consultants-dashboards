@@ -2,6 +2,10 @@
 
 `ENGINEERING_SEAL: ACTIVE`
 
+`IN_HOUSE_PRODUCT_LINE: ZESTIVA / NUETRA / FITEATSY`
+
+`DEVELOPMENT_STATE: FROZEN`
+
 ## Accepted production baseline
 
 - `BACKEND_ACCEPTED_SHA: 0fc45e318216b19487f580c34d14092aef3b71b0`
@@ -11,6 +15,8 @@
 - `RUNTIME_PARITY: PASS`
 
 This is a governance seal. It does not change the accepted production implementation or authorize a deployment.
+
+The final in-house recovery acceptance additionally seals authenticated Client profile access, exact published-plan read, Practitioner workspace routing, client role isolation, cross-tenant isolation, denied role escalation, persona logout/context clearing, and the Platform Authority Matrix. Required reusable production fixtures remain classified `GOVERNED_QA_INHOUSE`.
 
 ## Canonical sealed product flow
 
