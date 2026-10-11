@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import test from 'node:test';
+import { auditFields, sanitiseSection, toggleMulti, validateSection } from '../lib/externalIntakeV2.js';
+
+const ui=fs.readFileSync(new URL('../components/external/ExternalClientHealthIntake.jsx',import.meta.url),'utf8');
+const entry=fs.readFileSync(new URL('../pages/intake/[token].js',import.meta.url),'utf8');
+
+test('mobile intake uses focused progress, sticky navigation, autosave, and accessible controls',()=>{assert.match(ui,/min-h-\[100dvh\]/);assert.match(ui,/overflow-x-hidden/);assert.match(ui,/fixed inset-x-0 bottom-0/);assert.match(ui,/role="progressbar"/);assert.match(ui,/role=\{single\?'radio':'checkbox'\}/);assert.match(ui,/aria-checked=\{active\}/);assert.match(ui,/focus-visible:ring-2/);assert.match(ui,/min-h-11/);assert.match(ui,/Saving…/);assert.match(ui,/Saved ·/);});
+test('required policy permits zero reports but requires identity, contact, gender, goal and consent',()=>{const about={firstName:'QA',lastName:'Client',dateOfBirth:'1990-01-01',gender:'PREFER_NOT_TO_SAY',email:'qa@example.invalid'};assert.equal(validateSection('aboutYou',about),'');assert.match(validateSection('aboutYou',{...about,email:''}),/contact/);assert.equal(validateSection('goals',{goals:['GENERAL_WELLNESS'],primaryGoal:'GENERAL_WELLNESS'}),'');assert.match(ui,/Optional — you can continue without uploading a report/);assert.doesNotMatch(ui,/reportsDocuments.*required/i);});
+test('none is exclusive and hidden conditional state is cleared',()=>{assert.deepEqual(toggleMulti(['DIABETES'],'NONE'),['NONE']);assert.deepEqual(toggleMulti(['NONE'],'DIABETES'),['DIABETES']);assert.deepEqual(sanitiseSection('medicationsSupplements',{takesMedication:'NO',medications:[{name:'stale'}]}),{takesMedication:'NO'});assert.deepEqual(sanitiseSection('activityHydration',{intentionalExercise:'NO',exerciseTypes:['RUNNING']}),{intentionalExercise:'NO'});});
+test('resume experience exposes completion and continuation without losing documents',()=>{assert.match(entry,/Welcome back/);assert.match(entry,/Continue Health Profile/);assert.match(entry,/completionPercent/);assert.match(entry,/answers and uploaded reports are saved/);assert.match(ui,/initial\.documents/);assert.match(ui,/initial\.currentSection/);});
+test('field audit captures the governed conversion inventory',()=>{assert.equal(auditFields.OLD_REQUIRED,3);assert.equal(auditFields.NEW_REQUIRED,7);assert.equal(auditFields.FILE_UPLOAD,1);assert.ok(auditFields.PILL_SINGLE>=20);assert.ok(auditFields.PILL_MULTI>=15);assert.ok(auditFields.CONDITIONAL>=15);});
+test('all required mobile viewport contracts are represented by fluid layout primitives',()=>{for(const token of ['px-3','sm:px-6','flex-wrap','max-w-3xl','sm:grid-cols-2'])assert.match(ui,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));});
