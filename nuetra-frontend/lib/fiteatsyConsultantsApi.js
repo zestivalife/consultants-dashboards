@@ -210,7 +210,12 @@ export async function uploadExternalClientDocument(clientId, payload) {
   if (payload.notes) data.append('notes', payload.notes);
   const response = await fetch(`${getFiteatsyApiBaseUrl()}/v1/external/clients/${encodeURIComponent(clientId)}/documents`, { method: 'POST', body: data, headers: { Authorization: `Bearer ${getToken()}` } });
   const body = await readJsonResponse(response);
-  if (!response.ok) throw new Error(body?.message || body?.error || `Upload failed (${response.status})`);
+  if (!response.ok) {
+    const error = new Error(body?.safe_message || (response.status < 500 ? body?.message : null) || 'The report could not be uploaded. Please try again.');
+    error.status = response.status;
+    error.data = body;
+    throw error;
+  }
   return body;
 }
 
