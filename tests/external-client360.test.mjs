@@ -11,7 +11,7 @@ test('external workspace opens the canonical Client 360', () => {
   assert.match(component, /getExternalClient360/);
 });
 test('Client 360 exposes six professional tabs and partial states', () => {
-  for (const label of ['Overview', 'Health Profile', 'Nutrition', 'Measurements', 'Reports', 'Timeline', 'Not provided', 'Missing:']) assert.ok(component.includes(label));
+  for (const label of ['Overview', 'Health Profile', 'Nutrition', 'Measurements', 'Reports', 'Timeline', 'Not provided', 'Missing required information']) assert.ok(component.includes(label));
 });
 test('Client 360 presents provenance, completeness, women health, documents and timeline', () => {
   for (const contract of ['sourceLabel', 'profileCompleteness', "overview.gender === 'FEMALE'", 'downloadExternalClientDocument', 'Consent status', 'operational history']) assert.ok(component.includes(contract));
