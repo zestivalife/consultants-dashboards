@@ -191,6 +191,9 @@ export async function downloadExternalDietPlan(clientId) {
 export function updateExternalClient360(clientId, section, values) {
   return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/profile`, { method: 'PATCH', body: { section, values } });
 }
+export function updateExternalDietEligibility(clientId, values) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-eligibility`, { method: 'PATCH', body: { values } });
+}
 
 export function getExternalClientTimeline(clientId) {
   return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/timeline`, { method: 'GET' });
