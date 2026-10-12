@@ -209,6 +209,11 @@ export function getExternalClientBiomarkers(clientId) {
   return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/biomarkers`, { method: 'GET' });
 }
 
+export function getExternalDietPlan(clientId) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan`, { method: 'GET' }); }
+export function generateExternalDietPlan(clientId, targets) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan/generate`, { method: 'POST', body: targets }); }
+export function saveExternalDietPlan(clientId, options) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan/draft`, { method: 'PUT', body: { options } }); }
+export function publishExternalDietPlan(clientId) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan/publish`, { method: 'POST', body: {} }); }
+
 export function getExternalBiomarkerHistory(clientId, biomarkerId) {
   return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/biomarkers/${encodeURIComponent(biomarkerId)}/history`, { method: 'GET' });
 }

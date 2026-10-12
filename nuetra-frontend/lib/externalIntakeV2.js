@@ -24,6 +24,7 @@ export const choices = {
   goals:['LOSE_WEIGHT','GAIN_WEIGHT','GAIN_MUSCLE','MAINTAIN_WEIGHT','BLOOD_SUGAR','PCOS','THYROID','CHOLESTEROL','BLOOD_PRESSURE','DIGESTIVE_HEALTH','MORE_ENERGY','BETTER_SLEEP','BETTER_FITNESS','BETTER_EATING_HABITS','GENERAL_WELLNESS'],
   menstrualStatus:['REGULAR_PERIODS','IRREGULAR_PERIODS','PERIODS_STOPPED','PREGNANT','BREASTFEEDING','PERIMENOPAUSE','MENOPAUSE','PREFER_NOT_TO_ANSWER'], cycleLength:['LESS_THAN_21','21_24','25_28','29_32','33_35','MORE_THAN_35','NOT_SURE'], periodSymptoms:['PAIN','HEAVY_BLEEDING','MOOD_CHANGES','BLOATING','HEADACHE','CRAVINGS','NONE'],
   medicationFrequency:['ONCE_DAILY','TWICE_DAILY','THREE_TIMES_DAILY','WEEKLY','AS_NEEDED','OTHER'],
+  treatments:['DIABETES_TREATMENT','THYROID_TREATMENT','BLOOD_PRESSURE_TREATMENT','CHOLESTEROL_TREATMENT','PCOS_TREATMENT','FERTILITY_TREATMENT','PREGNANCY_RELATED_CARE','MENTAL_HEALTH_TREATMENT','PHYSIOTHERAPY','POST_SURGERY_RECOVERY','PAIN_MANAGEMENT','DIGESTIVE_GASTRO_TREATMENT','KIDNEY_TREATMENT','LIVER_TREATMENT','CARDIAC_TREATMENT','RESPIRATORY_TREATMENT','CANCER_TREATMENT','HORMONAL_TREATMENT','OTHER'],
 };
 
 export const labelFor=(value)=>String(value).toLowerCase().replaceAll('_',' ').replace(/(^|\s)\S/g,char=>char.toUpperCase()).replace('One Two','1–2').replace('Three Four','3–4').replace('Five Six','5–6').replace('4 Plus','4+').replace('5 Plus','5+');
@@ -37,12 +38,38 @@ export const toggleMulti=(current,next)=>{
   return withoutExclusive.includes(next)?withoutExclusive.filter(value=>value!==next):[...withoutExclusive,next];
 };
 
+export const resolveNutritionCompatibility=(diet,restrictions=[])=>{
+  const clean=[...new Set(restrictions)];
+  const conflict=clean.includes('JAIN')&&['NON_VEGETARIAN','EGGITARIAN'].includes(diet);
+  return {diet,restrictions:clean,conflict,canChangeToVegetarian:conflict};
+};
+
+const LOCATION_MEALS={
+  INDIA:{breakfast:['Poha','Upma','Idli','Dosa','Paratha','Oats','Eggs','Bread / Toast'],lunch:['Chapati + Sabzi','Dal + Rice','Khichdi','Vegetable Pulao','Curd Rice','Rajma + Rice','Chole + Rice','Home-style Thali'],dinner:['Chapati + Sabzi','Dal + Rice','Khichdi','Soup + Roti','Vegetable Pulao','Dosa','Grilled Paneer','Light Home Meal'],snacks:['Fruit','Nuts','Tea + Biscuits','Roasted Chana','Makhana','Sandwich','Sprouts','Yoghurt / Curd']},
+  MAHARASHTRA:{breakfast:['Poha','Upma','Idli','Dosa','Paratha','Thalipeeth','Sabudana Khichdi','Eggs','Bread / Toast','Oats'],lunch:['Chapati + Sabzi','Dal + Rice','Khichdi','Vegetable Pulao','Curd Rice','Rajma + Rice','Chole + Rice','Non-veg Curry + Rice / Chapati','Salad + Roti','Home-style Thali'],dinner:['Chapati + Sabzi','Dal + Rice','Khichdi','Soup + Roti','Vegetable Pulao','Dosa','Grilled Paneer','Egg preparation','Chicken / Fish + Roti / Rice','Light Home Meal'],snacks:['Fruit','Nuts','Tea + Biscuits','Roasted Chana','Makhana','Chivda','Sandwich','Sprouts','Yoghurt / Curd','Protein Snack']},
+};
+const TAGS={
+  'Eggs':['EGG'],'Egg preparation':['EGG'],'Non-veg Curry + Rice / Chapati':['MEAT'],'Chicken / Fish + Roti / Rice':['MEAT'],
+  'Curd Rice':['DAIRY'],'Grilled Paneer':['DAIRY'],'Yoghurt / Curd':['DAIRY'],'Tea + Biscuits':['DAIRY','GLUTEN_WHEAT'],'Bread / Toast':['GLUTEN_WHEAT'],'Paratha':['GLUTEN_WHEAT'],'Chapati + Sabzi':['GLUTEN_WHEAT'],'Salad + Roti':['GLUTEN_WHEAT'],'Soup + Roti':['GLUTEN_WHEAT'],'Fruit':[],'Nuts':['NUTS'],'Makhana':[],
+  'Sabudana Khichdi':['ROOT_VEGETABLE'],'Vegetable Pulao':['ONION_GARLIC'],'Dal + Rice':['ONION_GARLIC'],'Khichdi':['ONION_GARLIC'],'Home-style Thali':['ONION_GARLIC'],'Light Home Meal':['ONION_GARLIC'],
+};
+export const getTypicalMealSuggestions=({meal,location='',dietPreference='',restrictions=[],allergies=[],intolerances=[]})=>{
+  const regional=/pune|maharashtra/i.test(location)?LOCATION_MEALS.MAHARASHTRA:LOCATION_MEALS.INDIA;
+  const blocked=new Set([...(allergies||[]),...(intolerances||[])]);
+  if(dietPreference==='VEGETARIAN'){blocked.add('MEAT');blocked.add('EGG');}
+  if(dietPreference==='EGGITARIAN')blocked.add('MEAT');
+  if(dietPreference==='VEGAN'){blocked.add('MEAT');blocked.add('EGG');blocked.add('DAIRY');}
+  if(restrictions.includes('JAIN')){blocked.add('MEAT');blocked.add('EGG');blocked.add('ONION_GARLIC');blocked.add('ROOT_VEGETABLE');}
+  if(restrictions.includes('NO_ONION_GARLIC'))blocked.add('ONION_GARLIC');
+  return (regional[meal]||[]).filter(name=>!(TAGS[name]||[]).some(tag=>blocked.has(tag))).slice(0,10);
+};
+
 export const sanitiseSection=(section,data)=>{
   const value=structuredClone(data||{});
   if(section==='medicalHistory'){
     if(value.hadSurgery!=='YES')delete value.surgeryProcedure;
     if(value.hospitalised!=='YES')delete value.hospitalisationReason;
-    if(value.underTreatment!=='YES')delete value.treatmentDetails;
+    if(value.underTreatment!=='YES'){delete value.treatments;delete value.otherTreatment;delete value.treatmentNote;delete value.treatmentDetails;}
   }
   if(section==='allergiesFamilyHistory'&&value.hasAllergies!=='YES')for(const key of ['allergyTypes','foodAllergies','medicationAllergies','environmentalAllergies','otherAllergy'])delete value[key];
   if(section==='medicationsSupplements'){
@@ -59,11 +86,12 @@ export const sanitiseSection=(section,data)=>{
 
 export const validateSection=(section,data,allAnswers={})=>{
   if(section==='aboutYou'){
-    if(!data.firstName?.trim()||!data.lastName?.trim()||!data.dateOfBirth||!data.gender)return 'First name, last name, date of birth, and gender are required.';
+    if(!data.firstName?.trim()||!data.lastName?.trim()||!data.gender)return 'First name, last name, and gender are required.';
     if(!data.mobile?.trim()&&!data.email?.trim())return 'Add at least one contact method.';
   }
   if(section==='allergiesFamilyHistory'&&data.hasAllergies==='YES'&&!(data.allergyTypes?.length))return 'Choose at least one allergy type.';
   if(section==='medicationsSupplements'&&data.takesMedication==='YES'&&!(data.medications||[]).some(row=>row.name?.trim()))return 'Add the name of each prescribed medicine.';
+  if(section==='nutrition'&&resolveNutritionCompatibility(data.dietPreference,data.restrictions).conflict)return 'Resolve the Jain and primary diet selection before continuing.';
   if(section==='goals'&&(!data.goals?.length||!data.primaryGoal))return 'Choose at least one goal and your main priority.';
   if(section==='consent'&&!allAnswers.consent)return 'Please provide consent before submitting.';
   return '';
