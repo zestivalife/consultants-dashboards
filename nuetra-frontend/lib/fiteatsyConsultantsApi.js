@@ -197,6 +197,34 @@ export function archiveExternalClientDocument(clientId, documentId) {
   return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/documents/${encodeURIComponent(documentId)}`, { method: 'DELETE' });
 }
 
+export function processExternalClientReport(clientId, documentId) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/documents/${encodeURIComponent(documentId)}/process`, { method: 'POST' });
+}
+
+export function getExternalReportExtraction(clientId, documentId) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/documents/${encodeURIComponent(documentId)}/extraction`, { method: 'GET' });
+}
+
+export function getExternalClientBiomarkers(clientId) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/biomarkers`, { method: 'GET' });
+}
+
+export function getExternalBiomarkerHistory(clientId, biomarkerId) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/biomarkers/${encodeURIComponent(biomarkerId)}/history`, { method: 'GET' });
+}
+
+export function confirmExternalBiomarker(clientId, observationId) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/biomarker-observations/${encodeURIComponent(observationId)}/confirm`, { method: 'POST' });
+}
+
+export function correctExternalBiomarker(clientId, observationId, correction) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/biomarker-observations/${encodeURIComponent(observationId)}`, { method: 'PATCH', body: correction });
+}
+
+export function rejectExternalBiomarker(clientId, observationId) {
+  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/biomarker-observations/${encodeURIComponent(observationId)}/reject`, { method: 'POST' });
+}
+
 export async function downloadExternalClientDocument(clientId, documentId, fileName) {
   const url = `${getFiteatsyApiBaseUrl()}/v1/external/clients/${encodeURIComponent(clientId)}/documents/${encodeURIComponent(documentId)}/download`;
   const response = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });

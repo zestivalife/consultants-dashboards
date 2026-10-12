@@ -6,6 +6,8 @@ import { authAPI, clearTokens, getRefreshToken, getToken, isRememberedAuthSessio
 import { getFiteatsyConsultantOnboarding } from '../lib/fiteatsyConsultantsApi';
 
 const SESSION_KEY = 'nuetra_session';
+const LOGOUT_EVENT_KEY = 'nuetra_logout_event';
+const EXTERNAL_WORKSPACE_CACHE_PREFIXES = ['external-consultant:', 'external-client:', 'nuetra-external:'];
 const BACKEND_AUTH_ENABLED = Boolean(process.env.NEXT_PUBLIC_API_URL);
 
 const AuthContext = createContext(null);
@@ -71,6 +73,24 @@ function clearStoredSession() {
   sessionStorage.removeItem(SESSION_KEY);
 }
 
+function clearExternalWorkspaceCaches() {
+  if (typeof window === 'undefined') return;
+  for (const storage of [localStorage, sessionStorage]) {
+    for (let index = storage.length - 1; index >= 0; index -= 1) {
+      const key = storage.key(index);
+      if (key && EXTERNAL_WORKSPACE_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+        storage.removeItem(key);
+      }
+    }
+  }
+}
+
+function clearBrowserSessionState() {
+  clearTokens();
+  clearStoredSession();
+  clearExternalWorkspaceCaches();
+}
+
 export function AuthProvider({ children }) {
   const router = useRouter();
   const [user, setUser] = useState(null);
@@ -105,6 +125,17 @@ export function AuthProvider({ children }) {
       })
       .catch(() => null)
       .finally(() => setIsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const handleRemoteLogout = (event) => {
+      if (event.key !== LOGOUT_EVENT_KEY || !event.newValue) return;
+      clearBrowserSessionState();
+      setUser(null);
+      if (window.location.pathname !== '/login') window.location.replace('/login');
+    };
+    window.addEventListener('storage', handleRemoteLogout);
+    return () => window.removeEventListener('storage', handleRemoteLogout);
   }, []);
 
   const clearError = () => setError(null);
@@ -191,11 +222,11 @@ export function AuthProvider({ children }) {
           // Best effort logout; always clear client-side state.
         }
       }
-      clearTokens();
     }
-    clearStoredSession();
+    clearBrowserSessionState();
     setUser(null);
-    router.replace('/login');
+    localStorage.setItem(LOGOUT_EVENT_KEY, `${Date.now()}:${globalThis.crypto?.randomUUID?.() || Math.random()}`);
+    window.location.replace('/login');
   }
 
   async function completeTemporaryPasswordChange({ currentPassword, newPassword, confirmPassword }) {
@@ -266,8 +297,7 @@ export function AuthProvider({ children }) {
           return true;
         }
       } catch {
-        clearStoredSession();
-        clearTokens();
+        clearBrowserSessionState();
         setUser(null);
       }
       return false;
