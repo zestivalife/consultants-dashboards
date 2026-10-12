@@ -163,6 +163,31 @@ export function getExternalClient360(clientId) {
   return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/360`, { method: 'GET' });
 }
 
+export async function downloadExternalDietPlan(clientId) {
+  const token = getToken();
+  const url = `${getFiteatsyApiBaseUrl()}/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan/download`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+
+  if (!response.ok) {
+    const body = await readJsonResponse(response);
+    const error = new Error(body?.message || body?.error || `Fiteatsy request failed (${response.status})`);
+    error.status = response.status;
+    error.data = body;
+    throw error;
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get('content-disposition') || '';
+  const match = disposition.match(/filename=\"?([^\";]+)\"?/i);
+  return { blob, filename: match?.[1] || 'external-consultant-diet-plan.docx' };
+}
+
 export function updateExternalClient360(clientId, section, values) {
   return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/profile`, { method: 'PATCH', body: { section, values } });
 }
