@@ -3,6 +3,16 @@ from pathlib import Path
 ROOT=Path(__file__).parents[1]
 
 
+def test_runtime_image_contains_an_executable_migration_toolchain():
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    requirements = (ROOT / "requirements.txt").read_text()
+    alembic_env = (ROOT / "alembic" / "env.py").read_text()
+    assert "COPY alembic ./alembic" in dockerfile
+    assert "COPY alembic.ini ." in dockerfile
+    assert "psycopg[binary]" in requirements
+    assert 'replace("+asyncpg","+psycopg")' in alembic_env
+
+
 def test_tenant_scoped_tables_and_outbox():
     migration=(ROOT/"alembic/versions/0001_practice_operations.py").read_text()
     assert 'TABLES=("practice_consultations","practice_follow_ups","practice_goals","practice_tasks","practice_checkins","practice_adherence_entries","practice_client_notes")' in migration
