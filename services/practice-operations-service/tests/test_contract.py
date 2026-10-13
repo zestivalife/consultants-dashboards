@@ -11,6 +11,7 @@ def test_runtime_image_contains_an_executable_migration_toolchain():
     assert "COPY alembic.ini ." in dockerfile
     assert "psycopg[binary]" in requirements
     assert 'replace("+asyncpg","+psycopg")' in alembic_env
+    assert "fileConfig" not in alembic_env
 
 
 def test_tenant_scoped_tables_and_outbox():

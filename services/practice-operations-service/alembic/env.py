@@ -1,10 +1,8 @@
-from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 from app.config import get_settings
 
 config=context.config
-if config.config_file_name: fileConfig(config.config_file_name)
 config.set_main_option("sqlalchemy.url",get_settings().database_url.replace("+asyncpg","+psycopg"))
 target_metadata=None
 
