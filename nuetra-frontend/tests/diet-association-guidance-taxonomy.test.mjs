@@ -17,8 +17,10 @@ test('Diet foods retain exact meal, option, component, food and serving associat
 
 test('Apply This, Selected and All 5 retain independent mutation paths', () => {
   for (const label of ['This option', 'Selected options', 'All 5 options', 'Edit quantity']) assert.ok(editor.includes(label), label);
-  assert.match(editor, /addFiteatsyCommonFoodComponent\(clientId, dietPlanId, optionId/);
-  assert.match(editor, /updateFiteatsyCommonFoodServing\(clientId, dietPlanId, explorer\.option\.combinationId/);
+  assert.match(editor, /authoringApi\.addComponent\(clientId, dietPlanId, optionId/);
+  assert.match(editor, /authoringApi\.updateServing\(clientId, dietPlanId, explorer\.option\.combinationId/);
+  assert.match(editor, /addComponent: addDefaultComponent/);
+  assert.match(editor, /updateServing: updateDefaultServing/);
 });
 
 test('all three guidance sections and governed categories remain first-class', () => {
