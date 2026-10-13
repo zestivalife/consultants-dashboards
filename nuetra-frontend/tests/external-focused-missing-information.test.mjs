@@ -27,3 +27,11 @@ test('returning client enters missing-only flow while first-time intake remains 
   assert.match(intake,/Completed sections are skipped/);
   assert.match(intake,/missingFields\.filter\(field=>field\.clientCanEdit\)/);
 });
+
+test('canonical eligibility reasons are separated from target validation',()=>{
+  assert.match(client360,/dietPlanEligibilityReasons/);
+  assert.match(client360,/Client consent is required/);
+  assert.match(client360,/overview\.dietPlanEligible &&/);
+  assert.match(client360,/Enter daily calorie and protein targets to generate the plan/);
+  assert.doesNotMatch(client360,/overview\.intakeStatus='REQUIRED_INFORMATION_MISSING'/);
+});
