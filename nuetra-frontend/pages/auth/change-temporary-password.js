@@ -4,6 +4,11 @@ import { Eye, EyeOff, KeyRound, ShieldCheck } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
 import { getAccountActionRoute } from '../../lib/roleRoutes';
+import {
+  getTemporaryPasswordBootstrapView,
+  TEMPORARY_PASSWORD_BOOTSTRAP_TIMEOUT_MS,
+  TEMPORARY_PASSWORD_BOOTSTRAP_VIEW,
+} from '../../lib/temporaryPasswordBootstrap';
 
 const PASSWORD_RULES = [
   { id: 'length', label: 'At least 12 characters', test: (value) => value.length >= 12 },
@@ -46,6 +51,7 @@ export default function ChangeTemporaryPasswordPage() {
   const [visible, setVisible] = useState({ current: false, next: false, confirm: false });
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [bootstrapTimedOut, setBootstrapTimedOut] = useState(false);
 
   const ruleState = useMemo(
     () => PASSWORD_RULES.map((rule) => ({ ...rule, passed: rule.test(newPassword) })),
@@ -60,6 +66,19 @@ export default function ChangeTemporaryPasswordPage() {
     if (!isLoading && user && requiredRoute !== '/auth/change-temporary-password') {
       window.location.replace('/dashboard');
     }
+  }, [isLoading, user]);
+
+  useEffect(() => {
+    if (user || !isLoading) {
+      setBootstrapTimedOut(false);
+      return undefined;
+    }
+
+    const timeout = window.setTimeout(
+      () => setBootstrapTimedOut(true),
+      TEMPORARY_PASSWORD_BOOTSTRAP_TIMEOUT_MS
+    );
+    return () => window.clearTimeout(timeout);
   }, [isLoading, user]);
 
   async function handleSubmit(event) {
@@ -83,10 +102,48 @@ export default function ChangeTemporaryPasswordPage() {
     }
   }
 
-  if (isLoading || !user) {
+  const bootstrapView = getTemporaryPasswordBootstrapView({
+    user,
+    isLoading,
+    timedOut: bootstrapTimedOut,
+  });
+
+  if (bootstrapView === TEMPORARY_PASSWORD_BOOTSTRAP_VIEW.LOADING) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
         <p className="text-sm font-bold text-slate-500">Preparing secure password setup...</p>
+      </main>
+    );
+  }
+
+  if (bootstrapView === TEMPORARY_PASSWORD_BOOTSTRAP_VIEW.ERROR) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
+        <section className="w-full max-w-lg rounded-[32px] border border-slate-200 bg-white p-8 text-center shadow-2xl shadow-slate-200/70">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-50 text-amber-700">
+            <KeyRound className="h-7 w-7" />
+          </div>
+          <h1 className="mt-6 text-2xl font-black text-slate-950">Password setup could not be prepared</h1>
+          <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
+            Your temporary sign-in may have expired or the authentication service is temporarily unavailable. Retry safely or return to sign in.
+          </p>
+          <div className="mt-7 flex flex-wrap justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="rounded-2xl bg-[#237afc] px-6 py-3 text-sm font-black text-white transition hover:bg-[#0f6cbd]"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={logout}
+              className="rounded-2xl border border-slate-200 bg-white px-6 py-3 text-sm font-black text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+            >
+              Back to login
+            </button>
+          </div>
+        </section>
       </main>
     );
   }
