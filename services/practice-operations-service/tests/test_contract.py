@@ -13,6 +13,7 @@ def test_runtime_image_contains_an_executable_migration_toolchain():
     assert "psycopg[binary]" in requirements
     assert 'replace("+asyncpg","+psycopg")' in alembic_env
     assert "fileConfig" not in alembic_env
+    assert alembic_env.count('version_table="practice_operations_alembic_version"') == 2
 
 
 def test_alembic_revision_identifiers_fit_the_version_table_contract():
