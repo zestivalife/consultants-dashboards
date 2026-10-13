@@ -31,8 +31,8 @@ function SectionCard({ section, values, provenance, onEdit }) {
   return <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h3 className="font-semibold">{title(section)}</h3><button onClick={() => onEdit(section, values)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold"><Pencil size={13}/>Edit</button></div>{!values || Object.keys(values).length === 0 ? <p className="mt-4 text-sm text-slate-500">Not provided</p> : <dl className="mt-4 grid gap-3 sm:grid-cols-2">{Object.entries(values).map(([key, value]) => <div key={key} className="rounded-xl bg-slate-50 p-3"><dt className="text-xs font-medium text-slate-500">{title(key)}<Provenance value={provenance?.[key]?.sourceLabel || provenance?.sourceLabel}/></dt><dd className="mt-1 break-words text-sm font-medium">{show(value)}</dd></div>)}</dl>}</section>;
 }
 
-export function ExternalClient360({ client, practiceName, onBack, onStatus }) {
-  const [data, setData] = useState(null); const [active, setActive] = useState('Overview'); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [editing, setEditing] = useState(null);
+export function ExternalClient360({ client, practiceName, onBack, onStatus, initialTab='Overview' }) {
+  const [data, setData] = useState(null); const [active, setActive] = useState(initialTab); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [editing, setEditing] = useState(null);
   const [invitation, setInvitation] = useState(null); const [shareUrl, setShareUrl] = useState('');
   const [documentDialog, setDocumentDialog] = useState(null);
   const [biomarkers, setBiomarkers] = useState({ latest: [], pendingReviewCount: 0 }); const [history, setHistory] = useState(null); const [correction, setCorrection] = useState(null); const [processing, setProcessing] = useState('');
