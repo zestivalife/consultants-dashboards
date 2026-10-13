@@ -1,7 +1,7 @@
 """Complete external practice operations projections without duplicating media storage."""
 from alembic import op
 
-revision = "0002_practice_operations_completion"
+revision = "0002_practice_completion"
 down_revision = "0001_practice_operations"
 branch_labels = None
 depends_on = None

@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 ROOT=Path(__file__).parents[1]
 
@@ -12,6 +13,13 @@ def test_runtime_image_contains_an_executable_migration_toolchain():
     assert "psycopg[binary]" in requirements
     assert 'replace("+asyncpg","+psycopg")' in alembic_env
     assert "fileConfig" not in alembic_env
+
+
+def test_alembic_revision_identifiers_fit_the_version_table_contract():
+    for migration in (ROOT / "alembic" / "versions").glob("*.py"):
+        match = re.search(r'^revision\s*=\s*["\']([^"\']+)["\']', migration.read_text(), re.MULTILINE)
+        assert match is not None
+        assert len(match.group(1)) <= 32
 
 
 def test_tenant_scoped_tables_and_outbox():
