@@ -246,6 +246,17 @@ export function getExternalDietPlan(clientId) { return requestFiteatsy(`/v1/exte
 export function generateExternalDietPlan(clientId, targets) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan/generate`, { method: 'POST', body: targets }); }
 export function saveExternalDietPlan(clientId, options) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan/draft`, { method: 'PUT', body: { options } }); }
 export function publishExternalDietPlan(clientId) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan/publish`, { method: 'POST', body: {} }); }
+export function getExternalDietPlanHistory(clientId) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan/history`, { method: 'GET' }); }
+export function getExternalDietPlanVersion(clientId, versionId) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan/versions/${encodeURIComponent(versionId)}`, { method: 'GET' }); }
+export function compareExternalDietPlanVersions(clientId, fromVersionId, toVersionId) { const params=new URLSearchParams({fromVersionId,toVersionId}); return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan/compare?${params}`, { method: 'GET' }); }
+export function duplicateExternalDietPlanVersion(clientId, versionId) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan/versions/${encodeURIComponent(versionId)}/duplicate`, { method: 'POST', body: {} }); }
+export async function downloadExternalDietPlanVersion(clientId, versionId) {
+  const token=getToken();
+  const response=await fetch(`${getFiteatsyApiBaseUrl()}/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan/versions/${encodeURIComponent(versionId)}/download`,{headers:{Accept:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',...(token?{Authorization:`Bearer ${token}`}:{})}});
+  if(!response.ok){const body=await readJsonResponse(response);throw Object.assign(new Error(body?.message||body?.error||`Fiteatsy request failed (${response.status})`),{status:response.status,data:body});}
+  const disposition=response.headers.get('content-disposition')||'';const match=disposition.match(/filename="?([^";]+)"?/i);
+  return{blob:await response.blob(),filename:match?.[1]||'external-consultant-diet-plan-history.docx'};
+}
 const externalCommonFoodPath = (clientId, planId, suffix = '') => `/v1/external/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(planId)}/common-food${suffix}`;
 export function searchExternalCommonFoods(clientId, filters = {}, signal) { const params=new URLSearchParams();Object.entries(filters).forEach(([key,value])=>{if(value!==undefined&&value!==null&&value!=='')params.set(key,String(value));});return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/common-foods?${params}`,{method:'GET',signal}); }
 export async function generateExternalCommonFoodCandidates(clientId, planId) { const response=await requestFiteatsy(externalCommonFoodPath(clientId,planId,'/options'));const grouped=new Map();for(const option of response.options||[]){const rows=grouped.get(option.mealHead)||[];rows.push(option);grouped.set(option.mealHead,rows);}return{planVersionId:response.planVersionId,meals:[...grouped].map(([mealHead,options])=>({mealHead,options}))}; }

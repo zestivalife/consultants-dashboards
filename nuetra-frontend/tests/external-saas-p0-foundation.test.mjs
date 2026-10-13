@@ -30,6 +30,13 @@ test('responsive and accessible controls remain available without hover-only act
   assert.match(account, /data-testid="external-logout"/);
 });
 
+test('secondary modules and notifications use controlled, non-dead capability states',()=>{
+  for(const label of ['Consultations','Follow-ups','Tasks','Templates','Analytics','Settings & Branding','Notifications'])assert.match(shell,new RegExp(label));
+  assert.match(shell,/controlled empty state/);
+  assert.match(shell,/aria-expanded=\{notificationsOpen\}/);
+  assert.match(shell,/NotificationsDrawer/);
+});
+
 test('Client 360 accepts contextual deep links while retaining all P0 tabs', () => {
   assert.match(client360, /initialTab='Overview'/);
   for (const tab of ['Overview', 'Health Profile', 'Nutrition', 'Diet Plan', 'Measurements', 'Reports', 'Biomarkers', 'Timeline']) {
