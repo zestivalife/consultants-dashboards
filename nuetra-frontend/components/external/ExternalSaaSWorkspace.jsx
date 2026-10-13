@@ -9,6 +9,7 @@ import { useTenant } from '../../context/TenantContext';
 import { createExternalClient, listExternalClients } from '../../lib/fiteatsyConsultantsApi';
 import { ExternalClient360 } from './ExternalClient360';
 import { ExternalAccountMenu } from './ExternalAccountMenu';
+import { ExternalPracticeModule, PRACTICE_NAV } from './ExternalPracticeOperatingSystem';
 
 const NAV = [
   ['dashboard', 'Dashboard', LayoutDashboard],
@@ -16,7 +17,7 @@ const NAV = [
   ['plans', 'Diet Plans', ClipboardList],
   ['reports', 'Reports', FileText],
 ];
-const SECONDARY_NAV=[['consultations','Consultations',CalendarDays],['followups','Follow-ups',FileClock],['tasks','Tasks',ClipboardList],['templates','Templates',Sparkles],['analytics','Analytics',Activity],['settings','Settings',Settings]];
+const SECONDARY_NAV=PRACTICE_NAV;
 const FILTERS = ['All', 'New', 'Intake Pending', 'Active', 'Follow-up Due', 'Diet Plan Pending', 'Inactive'];
 const STATUS_LABEL = { ACTIVE: 'Active', INACTIVE: 'Inactive', INVITED: 'New', INTAKE_STARTED: 'Intake Pending', INTAKE_COMPLETED: 'Intake Complete' };
 
@@ -67,7 +68,7 @@ export function ExternalSaaSWorkspace(){
       <header className="sticky top-0 z-30 flex min-h-[72px] items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6 xl:px-10"><div className="flex min-w-0 items-center gap-3"><button onClick={()=>setMobileNav(true)} aria-label="Open navigation" className="grid h-11 w-11 place-items-center rounded-xl border border-slate-200 lg:hidden"><Menu size={20}/></button><div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-[.14em] text-blue-700">{selected?'Client workspace':[...NAV,...SECONDARY_NAV].find(item=>item[0]===view)?.[1]}</p><p className="truncate text-sm text-slate-500">{selected?.displayName||practiceName}</p></div></div><div className="flex items-center gap-2"><button aria-label="Search" onClick={()=>navigate('clients')} className="grid h-11 w-11 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600"><Search size={18}/></button><button aria-label="Notifications" aria-expanded={notificationsOpen} onClick={()=>setNotificationsOpen(true)} className="relative grid h-11 w-11 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600"><Bell size={18}/><span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-blue-600"/></button><ExternalAccountMenu compact/></div></header>
       <main id="external-main" className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 xl:px-10 xl:py-9">
         {error&&<div role="alert" className="mb-5 flex items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"><span>{error}</span><button onClick={load} className="min-h-10 rounded-lg border border-red-300 px-3 font-semibold">Retry</button></div>}
-        {selected?<ExternalClient360 client={selected} practiceName={practiceName} initialTab={initialTab} onBack={()=>setSelected(null)} onStatus={async()=>{await load();}}/>:loading?<SkeletonCards/>:view==='dashboard'?<Dashboard clients={clients} user={user} onAdd={()=>setAddOpen(true)} onNavigate={navigate} onOpen={openClient}/>:view==='clients'?<Clients clients={visible} allClients={clients} query={query} setQuery={setQuery} filter={filter} setFilter={setFilter} onAdd={()=>setAddOpen(true)} onOpen={openClient}/>:view==='plans'?<PlanHistory clients={clients} onOpen={client=>openClient(client,'Diet Plan')}/>:view==='reports'?<Reports clients={clients} onOpen={client=>openClient(client,'Reports')}/>:<CapabilityShell view={view}/>} {/* external-only workspace boundary */}
+        {selected?<ExternalClient360 client={selected} practiceName={practiceName} initialTab={initialTab} onBack={()=>setSelected(null)} onStatus={async()=>{await load();}}/>:loading?<SkeletonCards/>:view==='dashboard'?<Dashboard clients={clients} user={user} onAdd={()=>setAddOpen(true)} onNavigate={navigate} onOpen={openClient}/>:view==='clients'?<Clients clients={visible} allClients={clients} query={query} setQuery={setQuery} filter={filter} setFilter={setFilter} onAdd={()=>setAddOpen(true)} onOpen={openClient}/>:view==='plans'?<PlanHistory clients={clients} onOpen={client=>openClient(client,'Diet Plan')}/>:view==='reports'?<Reports clients={clients} onOpen={client=>openClient(client,'Reports')}/>:<ExternalPracticeModule view={view} clients={clients}/>} {/* external-only workspace boundary */}
       </main>
     </div>
     {addOpen&&<AddClientSheet onClose={()=>setAddOpen(false)} onCreated={async client=>{setAddOpen(false);await load();openClient(toClientVM(client));}}/>}
