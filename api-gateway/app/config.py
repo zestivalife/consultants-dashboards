@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     assessment_service_url: str = "http://assessment-service:8003"
     scoring_service_url: str = "http://scoring-engine-service:8004"
     nutrition_service_url: str = "http://nutrition-service:8005"
+    practice_operations_service_url: str = "http://practice-operations-service:8006"
 
     model_config = {"env_file": ".env", "case_sensitive": False}
 
@@ -164,6 +165,11 @@ class Settings(BaseSettings):
                 self.nutrition_service_url,
                 8005,
             ),
+            "practice-operations-service": self._railway_internal_url(
+                "practice-operations-service",
+                self.practice_operations_service_url,
+                8006,
+            ),
         }
 
     def get_service_routes(self) -> list[dict]:
@@ -173,6 +179,7 @@ class Settings(BaseSettings):
         assessment_service_url = upstreams["assessment-service"]
         scoring_service_url = upstreams["scoring-engine-service"]
         nutrition_service_url = upstreams["nutrition-service"]
+        practice_operations_service_url = upstreams["practice-operations-service"]
 
         return [
             {
@@ -214,6 +221,7 @@ class Settings(BaseSettings):
             {"prefix": "/api/v1/assessments", "upstream": assessment_service_url},
             {"prefix": "/api/v1/scoring", "upstream": scoring_service_url},
             {"prefix": "/api/v1/nutrition", "upstream": nutrition_service_url},
+            {"prefix": "/api/v1/practice-operations", "upstream": practice_operations_service_url},
         ]
 
 

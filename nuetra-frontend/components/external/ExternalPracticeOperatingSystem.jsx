@@ -49,17 +49,8 @@ export const EXTERNAL_MODULES = {
 export const PRACTICE_NAV = [
   ['consultations','Consultations',CalendarDays], ['followups','Follow-ups',ClipboardList],
   ['goals','Goals & Progress',Activity], ['tasks','Tasks',ClipboardList],
-  ['checkins','Check-ins',Activity], ['communication','Communication',FileText],
-  ['templates','Templates',Sparkles], ['calendar','Calendar',CalendarDays],
-  ['team','Practice / Team',UsersRound], ['billing','Billing',FileText],
-  ['analytics','Analytics',Activity], ['settings','Settings',Settings],
-  ['communication','Communication',FileText], ['referrals','Referrals',UsersRound],
-  ['notes','Client Notes',FileText], ['assessments','Assessments',ClipboardList],
-  ['segments','Tags & Segments',UsersRound], ['audit','Practice Audit',FileText],
-  ['exports','Data Export',FileText], ['progressReports','Progress Reports',Activity],
-  ['preconsult','Pre-consult Summary',Activity], ['reportCompare','Report Comparison',FileText],
-  ['attention','Attention Rules',Sparkles], ['clientPortal','Client Portal',UsersRound],
-  ['teleconsultation','Tele-consultation',CalendarDays], ['renewals','Package Renewals',FileText],
+  ['calendar','Calendar',CalendarDays], ['templates','Templates',Sparkles],
+  ['team','Practice / Team',UsersRound], ['analytics','Analytics',Activity],
 ];
 
 function StatePanel({ title, body, icon:Icon=Sparkles }) {
