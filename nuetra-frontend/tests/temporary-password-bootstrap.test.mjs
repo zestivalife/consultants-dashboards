@@ -48,6 +48,16 @@ test('temporary password setup does not depend on tenant, assignment, or workspa
     );
   }
   assert.doesNotMatch(pageSource, /tenant|assignment|workspaceReady|getFiteatsyConsultantOnboarding/);
+  assert.match(authSource, /const accountActionRoute = getAccountActionRoute\(user\);/);
+  assert.match(authSource, /if \(accountActionRoute\) return accountActionRoute;/);
+});
+
+test('a downstream onboarding failure preserves authentication and routes fail-closed', () => {
+  assert.match(authSource, /return '\/onboarding';/);
+  assert.doesNotMatch(
+    authSource,
+    /if \(error\?\.status === 404\) return getPostLoginPath\(user\);\s*throw error;/
+  );
 });
 
 test('controlled failure exposes retry and return-to-login actions', () => {

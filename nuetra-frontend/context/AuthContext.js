@@ -17,6 +17,12 @@ function getPostLoginPath(user) {
 }
 
 async function getGovernedPostLoginPath(user) {
+  // Account-security actions are authoritative and must never depend on
+  // workspace/onboarding availability. In particular, a temporary-password
+  // session must remain usable while the password is being replaced.
+  const accountActionRoute = getAccountActionRoute(user);
+  if (accountActionRoute) return accountActionRoute;
+
   const role = String(user?.role || '').toLowerCase();
   if (!['consultant', 'provider', 'dietician', 'dietitian'].includes(role)) return getPostLoginPath(user);
   try {
@@ -28,7 +34,10 @@ async function getGovernedPostLoginPath(user) {
   } catch (error) {
     // Existing internal/Zestiva consultants do not have an external onboarding record.
     if (error?.status === 404) return getPostLoginPath(user);
-    throw error;
+    // Onboarding is a downstream routing dependency, not an authentication
+    // dependency. Keep the valid session and fail closed into onboarding rather
+    // than reporting a false login failure or clearing credentials.
+    return '/onboarding';
   }
 }
 
@@ -170,9 +179,7 @@ export function AuthProvider({ children }) {
         persistSession(session, rememberMe);
         setIsLoading(false);
 
-        if (redirect) {
-          window.location.replace(await getGovernedPostLoginPath(nextUser));
-        }
+        if (redirect) window.location.replace(await getGovernedPostLoginPath(nextUser));
 
         return { user: nextUser };
       } catch (nextError) {
@@ -297,6 +304,8 @@ export function AuthProvider({ children }) {
           return true;
         }
       } catch {
+        // Only /auth/me failure invalidates authentication. Governed routing
+        // resolves fail-closed and does not throw from getGovernedPostLoginPath.
         clearBrowserSessionState();
         setUser(null);
       }
