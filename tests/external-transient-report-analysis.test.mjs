@@ -14,6 +14,18 @@ test('report UX exposes a staged transient analysis flow',()=>{
   assert.match(component,/Confirm/);
   assert.match(component,/Correct/);
   assert.match(component,/Reject/);
+  assert.match(component,/decision:'PENDING'/);
+  assert.match(component,/Confirm marker/);
+  assert.match(component,/markers reviewed/);
+  assert.match(component,/Save biomarkers to client profile/);
+  assert.match(component,/Biomarkers were not saved/);
+});
+
+test('saving is gated until every extracted marker has an explicit review decision',()=>{
+  assert.match(component,/reviewedCount=items\.filter\(item=>item\.decision!=='PENDING'\)\.length/);
+  assert.match(component,/reviewComplete=items\.length>0&&reviewedCount===items\.length/);
+  assert.match(component,/disabled=\{busy\|\|!reviewComplete\|\|correctionIncomplete\}/);
+  assert.doesNotMatch(component,/decision:'CONFIRMED',correction:null/);
 });
 
 test('new lab reports use report-analyses and save structured review output',()=>{
