@@ -5861,7 +5861,9 @@ function SeniorConsultantClientAllocationPage({ currentUserId, currentUserName =
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--fluent-color-neutral-foreground-3)]">Client Pool</p>
             <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Select a client to manage allocation.</p>
           </div>
-          {loading ? <p className="p-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading Client Pool...</p> : clients.length ? (
+          {loading ? <p className="p-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading Client Pool...</p> : error ? (
+            <p className="p-5 text-sm font-medium text-[var(--fluent-color-status-danger-foreground)]">Client Pool availability could not be confirmed. Retry safely.</p>
+          ) : clients.length ? (
             <div className="divide-y divide-[var(--fluent-color-neutral-stroke-1)]">
               {clients.map((client) => {
                 const isSelected = selectedClient?.userId === client.userId;
@@ -6003,7 +6005,9 @@ function DietPlanReviewQueuePage() {
       {error ? <p className="rounded-[16px] bg-[var(--fluent-color-status-danger-background)] px-4 py-3 text-sm text-[var(--fluent-color-status-danger-foreground)]">{error}</p> : null}
       {success ? <p role="status" className="rounded-[16px] bg-[var(--fluent-color-status-success-background)] px-4 py-3 text-sm text-[var(--fluent-color-status-success-foreground)]">{success}</p> : null}
       <Surface className="overflow-hidden border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-1)]" animated>
-        {loading ? <p className="p-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading review queue...</p> : reviews.length ? (
+        {loading ? <p className="p-5 text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading review queue...</p> : error ? (
+          <p className="p-5 text-sm font-medium text-[var(--fluent-color-status-danger-foreground)]">Review queue availability could not be confirmed. Retry safely.</p>
+        ) : reviews.length ? (
           <div className="divide-y divide-[var(--fluent-color-neutral-stroke-1)]">
             {reviews.map((review) => (
               <div key={review.dietPlanId} className="space-y-3 p-5">
