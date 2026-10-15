@@ -48,3 +48,9 @@ test('all three report entry points converge on the transient analysis contract'
   assert.match(workspace,/ExternalTransientReportAnalyzer/);
   assert.match(api,/getPendingExternalReportAnalyses/);
 });
+
+test('confirmed transient biomarkers remain visible when the legacy source fails',()=>{
+  assert.match(client360,/Promise\.allSettled\(\[getExternalClientBiomarkers\(client\.id\),getExternalTransientBiomarkers\(client\.id\)\]\)/);
+  assert.match(client360,/legacyResult\.status==='rejected'&&transientResult\.status==='rejected'/);
+  assert.match(client360,/transientResult\.status==='fulfilled'\?transientResult\.value:\{latest:\[\],pendingReviewCount:0\}/);
+});
