@@ -4,9 +4,11 @@ import test from 'node:test';
 
 const workspace=readFileSync(new URL('../components/external/ExternalSaaSWorkspace.jsx',import.meta.url),'utf8');
 const client360=readFileSync(new URL('../components/external/ExternalClient360.jsx',import.meta.url),'utf8');
-const api=readFileSync(new URL('../lib/fiteatsyConsultantsApi.js',import.meta.url),'utf8');
+const intake=readFileSync(new URL('../components/external/ExternalClientHealthIntake.jsx',import.meta.url),'utf8');
+const analyzer=readFileSync(new URL('../components/external/ExternalTransientReportAnalyzer.jsx',import.meta.url),'utf8');
+const api=readFileSync(new URL('../lib/externalTransientReportApi.js',import.meta.url),'utf8');
 
-test('global Reports requires an authorised client before upload',()=>{assert.match(workspace,/Select the authorised client before choosing/);assert.match(workspace,/required aria-label="Select client for report"/);assert.match(workspace,/disabled=\{busy\|\|!selected\|\|!file\}/);});
-test('global Reports and Client 360 use the same canonical upload API',()=>{assert.match(workspace,/uploadExternalClientDocument\(selected\.id/);assert.match(client360,/uploadExternalClientDocument\(client\.id/);assert.equal((api.match(/export async function uploadExternalClientDocument/g)||[]).length,1);});
-test('duplicate report response uses controlled product copy',()=>{assert.match(workspace,/This report has already been uploaded for this client\./);assert.match(workspace,/DOCUMENT_DUPLICATE/);});
-test('reports remain joined to Client 360 and biomarker history',()=>{assert.match(workspace,/same secure repository, extraction pipeline, and biomarker history/);assert.match(workspace,/Open Client 360/);assert.match(client360,/getExternalClientBiomarkers/);assert.match(client360,/getExternalBiomarkerHistory/);});
+test('global Reports requires an authorised client before analysis',()=>{assert.match(workspace,/Select an authorised client, analyze the report transiently/);assert.match(workspace,/required aria-label="Select client for report"/);assert.match(workspace,/Choose a client first/);assert.match(workspace,/Report analysis is always scoped to one authorised External client/);});
+test('all report entry points converge on the external transient analysis API',()=>{assert.match(workspace,/ExternalTransientReportAnalyzer clientId=\{selected\.id\}/);assert.match(client360,/ExternalTransientReportAnalyzer clientId=\{client\.id\}/);assert.match(intake,/analyzeExternalClientIntakeReport\(token,file\)/);assert.equal((api.match(/export const analyzeExternalClientReport=/g)||[]).length,1);assert.equal((api.match(/export const analyzeExternalClientIntakeReport=/g)||[]).length,1);});
+test('duplicate handling is owned by the single transient backend contract',()=>{assert.match(api,/\/report-analyses/);assert.match(analyzer,/onError\(error\.message\|\|/);assert.doesNotMatch(analyzer,/uploadExternalClientDocument/);});
+test('reviewed results remain joined to Client 360 biomarker history without retaining source files',()=>{assert.match(workspace,/Open Client 360/);assert.match(client360,/getExternalTransientBiomarkers/);assert.match(client360,/getExternalTransientBiomarkerHistory/);assert.match(analyzer,/source file was not retained/);assert.match(analyzer,/Save reviewed biomarkers/);});
