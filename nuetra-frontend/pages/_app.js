@@ -5,13 +5,15 @@ import { AnimatePresence, motion } from 'framer-motion';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import ProductionVersionBadge from '../components/ProductionVersionBadge';
+import FrontendBuildGate from '../components/FrontendBuildGate';
 
 function MyApp({ Component, pageProps }) {
   const router = useRouter();
 
   return (
-    <AuthProvider>
-      <TenantProvider>
+    <FrontendBuildGate>
+      <AuthProvider>
+        <TenantProvider>
       <Head>
         <link rel="icon" href="/zestiva-logo.png" type="image/png" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -33,8 +35,9 @@ function MyApp({ Component, pageProps }) {
         </motion.div>
       </AnimatePresence>
       <ProductionVersionBadge />
-      </TenantProvider>
-    </AuthProvider>
+        </TenantProvider>
+      </AuthProvider>
+    </FrontendBuildGate>
   );
 }
 
