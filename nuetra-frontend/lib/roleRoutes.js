@@ -52,6 +52,7 @@ const PROFESSIONAL_ROUTE_MAP = {
 };
 
 export const OWNER_ACCESS_POLICY = {
+  roles: ['superuser', 'super_admin', 'platform_owner'],
   workspaces: ['platform-operations'],
   permissionsAny: WORKSPACE_POLICIES.platformOperations.permissionsAny,
 };
