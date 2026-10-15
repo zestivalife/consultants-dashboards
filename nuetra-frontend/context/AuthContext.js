@@ -1,7 +1,12 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { findUserByCredentials, sampleUsers } from '../data/mockPlatformData';
-import { canAccessDashboardLocation, getDashboardPathForUser, getPostAuthPathForUser } from '../lib/roleRoutes';
+import {
+  canAccessDashboardLocation,
+  getAccountActionRoute,
+  getDashboardPathForUser,
+  getPostAuthPathForUser,
+} from '../lib/roleRoutes';
 import { authAPI, clearTokens, getRefreshToken, getToken, isRememberedAuthSession, setRefreshToken, setToken } from '../lib/api';
 import { getFiteatsyConsultantOnboarding } from '../lib/fiteatsyConsultantsApi';
 
