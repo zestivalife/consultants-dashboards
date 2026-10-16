@@ -83,6 +83,11 @@ class CommunicationTemplateCreate(BaseModel):
 
 class WhatsAppOpenCreate(BaseModel):
     client_id: str
+    intent: Literal[
+        "GENERAL_MESSAGE", "SHARE_ONBOARDING_LINK", "SHARE_PUBLISHED_PLAN",
+        "APPOINTMENT_REMINDER", "FOLLOW_UP_REMINDER", "ASSESSMENT_LINK",
+        "PROGRESS_UPDATE", "CUSTOM_MESSAGE",
+    ] = "CUSTOM_MESSAGE"
     template_code: str | None = Field(default=None, max_length=80)
     purpose: str = Field(min_length=1, max_length=120)
     phone: str = Field(min_length=8, max_length=24)

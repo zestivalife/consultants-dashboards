@@ -37,6 +37,21 @@ def test_whatsapp_activity_never_claims_delivery():
     assert "MESSAGE_SENT" not in source
     assert "DELIVERED" not in source
     assert "DRAFT_NOT_SHAREABLE" in source
+    assert 'body.phone.strip().startswith("+")' in source
+    assert '"intent":body.intent' in source
+
+
+def test_whatsapp_intents_are_distinct_and_only_published_plans_are_shareable():
+    contracts = (ROOT / "app/contracts.py").read_text()
+    source = (ROOT / "app/main.py").read_text()
+    for intent in (
+        "GENERAL_MESSAGE", "SHARE_ONBOARDING_LINK", "SHARE_PUBLISHED_PLAN",
+        "APPOINTMENT_REMINDER", "FOLLOW_UP_REMINDER", "ASSESSMENT_LINK",
+        "PROGRESS_UPDATE", "CUSTOM_MESSAGE",
+    ):
+        assert intent in contracts
+    assert 'body.intent == "SHARE_PUBLISHED_PLAN"' in source
+    assert 'body.shareable_type != "PUBLISHED_DIET_PLAN"' in source
 
 
 def test_onboarding_notification_and_timeline_are_idempotent():

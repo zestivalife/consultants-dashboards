@@ -352,10 +352,10 @@ async def whatsapp_opened(request: Request, body: WhatsAppOpenCreate, ctx=Depend
     capability_denied = await require_capability(request, db, ctx, "WHATSAPP_SHARING")
     if capability_denied: return capability_denied
     digits = "".join(ch for ch in body.phone if ch.isdigit())
-    if len(digits) < 10 or len(digits) > 15: return error(request, 400, "INVALID_PHONE", "Enter a valid mobile number with country code")
-    if body.shareable_type == "DIET_PLAN_DRAFT": return error(request, 409, "DRAFT_NOT_SHAREABLE", "Publish the plan before sharing")
+    if not body.phone.strip().startswith("+") or len(digits) < 10 or len(digits) > 15: return error(request, 400, "INVALID_PHONE", "Enter a valid mobile number with explicit country code")
+    if body.shareable_type == "DIET_PLAN_DRAFT" or (body.intent == "SHARE_PUBLISHED_PLAN" and body.shareable_type != "PUBLISHED_DIET_PLAN"): return error(request, 409, "DRAFT_NOT_SHAREABLE", "Publish the plan before sharing")
     item_id, now = uuid4(), datetime.now(timezone.utc)
-    metadata = {"phone_last4":digits[-4:],"shareable_type":body.shareable_type,"shareable_id":body.shareable_id}
+    metadata = {"phone_last4":digits[-4:],"intent":body.intent,"shareable_type":body.shareable_type,"shareable_id":body.shareable_id}
     await db.execute(text("""INSERT INTO practice_communication_activity
       (id,tenant_id,client_id,channel,event_type,template_code,purpose,metadata,created_by,created_at)
       VALUES (:id,:tenant_id,:client_id,'WHATSAPP','WHATSAPP_OPENED',:template_code,:purpose,CAST(:metadata AS jsonb),:actor,:now)"""), {"id":item_id,"tenant_id":ctx["tenant_id"],"client_id":body.client_id,"template_code":body.template_code,"purpose":body.purpose,"metadata":json.dumps(metadata),"actor":ctx["user_id"],"now":now})
@@ -363,7 +363,7 @@ async def whatsapp_opened(request: Request, body: WhatsAppOpenCreate, ctx=Depend
       (id,tenant_id,client_id,event_type,source_type,source_id,summary,metadata,occurred_at)
       VALUES (:id,:tenant_id,:client_id,'WHATSAPP_OPENED','COMMUNICATION',:source_id,:summary,CAST(:metadata AS jsonb),:now)
       ON CONFLICT (tenant_id,event_type,source_type,source_id) DO NOTHING"""), {"id":uuid4(),"tenant_id":ctx["tenant_id"],"client_id":body.client_id,"source_id":str(item_id),"summary":f"WhatsApp opened for {body.purpose}","metadata":json.dumps({"template_code":body.template_code}),"now":now})
-    return {"success": True, "data": {"id":str(item_id),"event_type":"WHATSAPP_OPENED","phone":digits,"message":body.message}, "error": None, "request_id": request.state.correlation_id}
+    return {"success": True, "data": {"id":str(item_id),"event_type":"WHATSAPP_OPENED","intent":body.intent,"phone":digits,"message":body.message}, "error": None, "request_id": request.state.correlation_id}
 
 
 @app.get("/api/v1/practice-operations/communication/activity")
