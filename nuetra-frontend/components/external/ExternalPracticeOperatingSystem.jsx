@@ -51,6 +51,7 @@ export const PRACTICE_NAV = [
   ['goals','Goals & Progress',Activity], ['tasks','Tasks',ClipboardList],
   ['calendar','Calendar',CalendarDays], ['templates','Templates',Sparkles],
   ['team','Practice / Team',UsersRound], ['analytics','Analytics',Activity],
+  ['settings','Practice settings',Settings],
 ];
 
 function StatePanel({ title, body, icon:Icon=Sparkles }) {

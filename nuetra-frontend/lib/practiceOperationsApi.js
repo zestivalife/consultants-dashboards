@@ -13,3 +13,18 @@ export function listPracticeResources(resource,{clientId,status,cursor,limit=25}
 }
 export function createPracticeResource(resource,payload){return request(`/${resource}`,{method:'POST',headers:{'Idempotency-Key':crypto.randomUUID()},body:JSON.stringify(payload)});}
 export function updatePracticeResource(resource,id,payload){return request(`/${resource}/${id}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function getPracticeConfiguration(){return request('/configuration');}
+export function updatePracticeConfiguration(payload){return request('/configuration',{method:'PUT',body:JSON.stringify(payload)});}
+export function listCommunicationTemplates(){return request('/communication/templates');}
+export function saveCommunicationTemplate(payload){return request('/communication/templates',{method:'POST',body:JSON.stringify(payload)});}
+export function listCommunicationActivity(clientId){const query=clientId?`?client_id=${encodeURIComponent(clientId)}`:'';return request(`/communication/activity${query}`);}
+export function listPracticeNotifications({unreadOnly=false}={}){return request(`/notifications?unread_only=${unreadOnly?'true':'false'}`);}
+export function recordOnboardingCompleted(payload){return request('/events/onboarding-completed',{method:'POST',body:JSON.stringify(payload)});}
+export function listClientTimeline(clientId){return request(`/clients/${encodeURIComponent(clientId)}/timeline`);}
+export function listPracticeCalendar({view='AGENDA',anchor,clientId}={}){const query=new URLSearchParams({view});if(anchor)query.set('anchor',anchor);if(clientId)query.set('client_id',clientId);return request(`/calendar/events?${query}`);}
+export async function openWhatsApp(payload){
+  const result=await request('/communication/whatsapp-opened',{method:'POST',body:JSON.stringify(payload)});
+  const url=`https://wa.me/${result.phone}?text=${encodeURIComponent(result.message)}`;
+  window.open(url,'_blank','noopener,noreferrer');
+  return result;
+}

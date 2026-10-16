@@ -63,3 +63,35 @@ class MediaReferenceCreate(BaseModel):
 class OutboxDelivery(BaseModel):
     consumer_name: str = Field(min_length=1, max_length=120)
     event_id: UUID
+
+
+class PracticeConfigurationUpdate(BaseModel):
+    profession: Literal[
+        "DIETITIAN", "NUTRITIONIST", "PSYCHOLOGIST", "COUNSELLOR",
+        "PHYSIOTHERAPIST", "HEALTH_COACH", "DIABETES_EDUCATOR",
+        "WELLNESS_CONSULTANT", "OTHER",
+    ]
+    capabilities: list[str] = Field(default_factory=list, max_length=64)
+    profile: dict[str, Any] = Field(default_factory=dict)
+
+
+class CommunicationTemplateCreate(BaseModel):
+    code: str = Field(min_length=2, max_length=80, pattern=r"^[A-Z0-9_]+$")
+    label: str = Field(min_length=1, max_length=120)
+    body: str = Field(min_length=1, max_length=2000)
+
+
+class WhatsAppOpenCreate(BaseModel):
+    client_id: str
+    template_code: str | None = Field(default=None, max_length=80)
+    purpose: str = Field(min_length=1, max_length=120)
+    phone: str = Field(min_length=8, max_length=24)
+    message: str = Field(min_length=1, max_length=2000)
+    shareable_type: str | None = Field(default=None, max_length=80)
+    shareable_id: str | None = Field(default=None, max_length=160)
+
+
+class OnboardingCompletedCreate(BaseModel):
+    client_id: str
+    client_name: str = Field(min_length=1, max_length=200)
+    completed_at: datetime

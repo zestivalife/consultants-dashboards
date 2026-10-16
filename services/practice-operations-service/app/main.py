@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            MediaReferenceCreate, OutboxDelivery, ResourceCreate,
-                           ResourceUpdate)
+                           ResourceUpdate, PracticeConfigurationUpdate,
+                           CommunicationTemplateCreate, WhatsAppOpenCreate,
+                           OnboardingCompletedCreate)
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
 
@@ -32,6 +34,46 @@ NOTIFICATION_EVENTS = {
 }
 CREATE_EVENTS = {"consultations": "CONSULTATION_SCHEDULED", "follow-ups": "FOLLOWUP_CREATED", "tasks": "TASK_CREATED", "check-ins": "CHECKIN_SUBMITTED"}
 COMPLETE_EVENTS = {"consultations": "CONSULTATION_COMPLETED", "follow-ups": "FOLLOWUP_COMPLETED", "tasks": "TASK_COMPLETED"}
+
+ALL_CAPABILITIES = {
+    "CLIENT_CRM", "CLIENT_ONBOARDING", "CONSULTATIONS", "SESSION_NOTES",
+    "FOLLOW_UPS", "GOALS_PROGRESS", "TASKS", "CALENDAR", "COMMUNICATION",
+    "WHATSAPP_SHARING", "ASSESSMENTS", "FORM_BUILDER", "DIET_PLAN",
+    "CARE_PLAN", "THERAPY_PLAN", "BEHAVIOURAL_PLAN", "EXERCISE_PLAN",
+    "REHAB_PLAN", "HABIT_PLAN", "LAB_ANALYSIS", "BIOMARKERS", "MEASUREMENTS",
+    "TEMPLATES", "PROGRESS_REPORTS", "PRACTICE_TEAM", "PACKAGES", "BILLING",
+    "RENEWALS", "ANALYTICS", "CLIENT_PORTAL",
+}
+RESOURCE_CAPABILITY = {"consultations":"CONSULTATIONS", "follow-ups":"FOLLOW_UPS", "goals":"GOALS_PROGRESS", "tasks":"TASKS"}
+PROFESSION_DEFAULTS = {
+    "DIETITIAN": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","DIET_PLAN","LAB_ANALYSIS","BIOMARKERS","MEASUREMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "NUTRITIONIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","DIET_PLAN","LAB_ANALYSIS","BIOMARKERS","MEASUREMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "PSYCHOLOGIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "COUNSELLOR": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "PHYSIOTHERAPIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","REHAB_PLAN","EXERCISE_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "HEALTH_COACH": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","HABIT_PLAN","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+}
+TERMINOLOGY = {
+    "DIETITIAN":{"consultation":"Consultation","plan":"Diet Plan","goal":"Nutrition Goal"},
+    "NUTRITIONIST":{"consultation":"Consultation","plan":"Nutrition Plan","goal":"Nutrition Goal"},
+    "PSYCHOLOGIST":{"consultation":"Session","plan":"Therapy Plan","goal":"Therapy Goal"},
+    "COUNSELLOR":{"consultation":"Session","plan":"Care Plan","goal":"Therapy Goal"},
+    "PHYSIOTHERAPIST":{"consultation":"Assessment","plan":"Rehab Plan","goal":"Exercise Goal"},
+    "HEALTH_COACH":{"consultation":"Coaching Session","plan":"Habit Plan","goal":"Lifestyle Goal"},
+}
+
+
+async def configuration(db: AsyncSession, ctx):
+    row = (await db.execute(text("SELECT profession,capabilities,terminology,profile,version FROM practice_tenant_configuration WHERE tenant_id=:tenant_id"), {"tenant_id":ctx["tenant_id"]})).mappings().first()
+    if row: return dict(row)
+    return {"profession":"OTHER","capabilities":["CLIENT_CRM","CLIENT_ONBOARDING","CONSULTATIONS","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","TEMPLATES"],"terminology":{"consultation":"Consultation","plan":"Care Plan","goal":"Goal"},"profile":{},"version":0}
+
+
+async def require_capability(request: Request, db: AsyncSession, ctx, capability: str):
+    config = await configuration(db, ctx)
+    if capability not in set(config["capabilities"]):
+        return error(request, 403, "CAPABILITY_NOT_ENABLED", f"{capability.replace('_',' ').title()} is not enabled for this practice")
+    return None
 
 
 def error(request: Request, status: int, code: str, message: str, retryable: bool = False):
@@ -88,8 +130,14 @@ async def version():
 async def list_resources(request: Request, resource: str, client_id: str | None = None, status: str | None = None, cursor: UUID | None = None, limit: int = Query(25, ge=1, le=100), ctx=Depends(context), db: AsyncSession=Depends(get_db)):
     denied=external_only(request,ctx)
     if denied: return denied
+    if resource == "configuration":
+        return {"success":True,"data":await configuration(db,ctx),"error":None,"request_id":request.state.correlation_id}
     table=RESOURCE_TABLES.get(resource)
     if not table: return error(request, 404, "RESOURCE_NOT_FOUND", "Practice resource not found")
+    capability = RESOURCE_CAPABILITY.get(resource)
+    if capability:
+        capability_denied = await require_capability(request, db, ctx, capability)
+        if capability_denied: return capability_denied
     clauses=["tenant_id = :tenant_id"]; params={"tenant_id":ctx["tenant_id"], "limit":limit+1}
     if client_id: clauses.append("client_id = :client_id"); params["client_id"]=client_id
     if status: clauses.append("status = :status"); params["status"]=status
@@ -106,12 +154,20 @@ async def create_resource(request: Request, resource: str, body: ResourceCreate,
     if not idempotency_key: return error(request,400,"IDEMPOTENCY_KEY_REQUIRED","Idempotency-Key is required")
     table=RESOURCE_TABLES.get(resource)
     if not table: return error(request,404,"RESOURCE_NOT_FOUND","Practice resource not found")
+    capability = RESOURCE_CAPABILITY.get(resource)
+    if capability:
+        capability_denied = await require_capability(request, db, ctx, capability)
+        if capability_denied: return capability_denied
     existing=(await db.execute(text(f"SELECT * FROM {table} WHERE tenant_id=:tenant_id AND idempotency_key=:key"),{"tenant_id":ctx["tenant_id"],"key":idempotency_key})).mappings().first()
     if existing: return {"success":True,"data":dict(existing),"error":None,"request_id":request.state.correlation_id}
     item_id=uuid4(); event_id=uuid4(); now=datetime.now(timezone.utc); event_type=CREATE_EVENTS.get(resource, f"{resource.rstrip('s').replace('-','_').upper()}_CREATED")
     params={"id":item_id,"tenant_id":ctx["tenant_id"],"client_id":body.client_id,"type":body.type,"title":body.title,"status":body.status,"due_at":body.due_at,"payload":json.dumps(body.payload),"actor":ctx["user_id"],"key":idempotency_key,"now":now}
     await db.execute(text(f"INSERT INTO {table} (id,tenant_id,client_id,type,title,status,due_at,payload,version,created_by,idempotency_key,created_at,updated_at) VALUES (:id,:tenant_id,:client_id,:type,:title,:status,:due_at,CAST(:payload AS jsonb),1,:actor,:key,:now,:now)"),params)
     await db.execute(text("INSERT INTO service_outbox_events (id,tenant_id,event_type,aggregate_type,aggregate_id,payload,status,created_at) VALUES (:id,:tenant_id,:event_type,:aggregate_type,:aggregate_id,CAST(:payload AS jsonb),'PENDING',:now)"),{"id":event_id,"tenant_id":ctx["tenant_id"],"event_type":event_type,"aggregate_type":resource,"aggregate_id":item_id,"payload":json.dumps({"client_id":body.client_id}),"now":now})
+    await db.execute(text("""INSERT INTO practice_timeline_events
+      (id,tenant_id,client_id,event_type,source_type,source_id,summary,metadata,occurred_at)
+      VALUES (:timeline_id,:tenant_id,:client_id,:event_type,:source_type,:source_id,:summary,CAST(:metadata AS jsonb),:now)
+      ON CONFLICT (tenant_id,event_type,source_type,source_id) DO NOTHING"""), {"timeline_id":uuid4(),"tenant_id":ctx["tenant_id"],"client_id":body.client_id,"event_type":event_type,"source_type":resource.upper(),"source_id":str(item_id),"summary":body.title,"metadata":json.dumps({"status":body.status}),"now":now})
     return {"success":True,"data":{"id":str(item_id),**body.model_dump(),"version":1},"error":None,"request_id":request.state.correlation_id}
 
 
@@ -121,6 +177,10 @@ async def update_resource(request: Request, resource: str, item_id: UUID, body: 
     if denied: return denied
     table=RESOURCE_TABLES.get(resource)
     if not table: return error(request,404,"RESOURCE_NOT_FOUND","Practice resource not found")
+    capability = RESOURCE_CAPABILITY.get(resource)
+    if capability:
+        capability_denied = await require_capability(request, db, ctx, capability)
+        if capability_denied: return capability_denied
     values=body.model_dump(exclude_none=True); expected=values.pop("version"); values["updated_at"]=datetime.now(timezone.utc)
     if "payload" in values: values["payload"]=json.dumps(values["payload"])
     assignments=[]
@@ -132,6 +192,12 @@ async def update_resource(request: Request, resource: str, item_id: UUID, body: 
     event_type = COMPLETE_EVENTS.get(resource) if row["status"] == "COMPLETED" else None
     if event_type:
         await db.execute(text("INSERT INTO service_outbox_events (id,tenant_id,event_type,aggregate_type,aggregate_id,payload,status,created_at) VALUES (:event_id,:tenant_id,:event_type,:aggregate_type,:aggregate_id,CAST(:payload AS jsonb),'PENDING',:now)"), {"event_id": uuid4(), "tenant_id": ctx["tenant_id"], "event_type": event_type, "aggregate_type": resource, "aggregate_id": item_id, "payload": json.dumps({"status": row["status"]}), "now": datetime.now(timezone.utc)})
+        source = (await db.execute(text(f"SELECT client_id,title FROM {table} WHERE id=:id AND tenant_id=:tenant_id"), {"id":item_id,"tenant_id":ctx["tenant_id"]})).mappings().first()
+        if source:
+            await db.execute(text("""INSERT INTO practice_timeline_events
+              (id,tenant_id,client_id,event_type,source_type,source_id,summary,metadata,occurred_at)
+              VALUES (:timeline_id,:tenant_id,:client_id,:event_type,:source_type,:source_id,:summary,CAST(:metadata AS jsonb),:now)
+              ON CONFLICT (tenant_id,event_type,source_type,source_id) DO NOTHING"""), {"timeline_id":uuid4(),"tenant_id":ctx["tenant_id"],"client_id":source["client_id"],"event_type":event_type,"source_type":resource.upper(),"source_id":f"{item_id}:completed","summary":source["title"],"metadata":json.dumps({"status":row["status"]}),"now":datetime.now(timezone.utc)})
     return {"success":True,"data":dict(row),"error":None,"request_id":request.state.correlation_id}
 
 
@@ -223,6 +289,123 @@ async def preconsult_summary(request: Request, client_id: str, ctx=Depends(conte
     summary = factual_summary(parts)
     summary["unavailable_sources"] = ["latest_measurements", "recent_reports", "biomarker_changes", "latest_diet_plan"]
     return {"success": True, "data": summary, "error": None, "request_id": request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/configuration")
+async def get_configuration(request: Request, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied = external_only(request, ctx)
+    if denied: return denied
+    return {"success": True, "data": await configuration(db, ctx), "error": None, "request_id": request.state.correlation_id}
+
+
+@app.put("/api/v1/practice-operations/configuration")
+async def put_configuration(request: Request, body: PracticeConfigurationUpdate, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied = external_only(request, ctx)
+    if denied: return denied
+    if (ctx.get("role") or "").upper() not in {"OWNER", "ADMIN", "ORGANISATION_ADMIN"}:
+        return error(request, 403, "PRACTICE_ADMIN_REQUIRED", "Practice owner or administrator access is required")
+    requested = set(body.capabilities) or PROFESSION_DEFAULTS.get(body.profession, {"CLIENT_CRM","CLIENT_ONBOARDING","CONSULTATIONS","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","TEMPLATES"})
+    unknown = requested - ALL_CAPABILITIES
+    if unknown: return error(request, 400, "UNKNOWN_CAPABILITY", "One or more capabilities are not recognised")
+    terminology = TERMINOLOGY.get(body.profession, {"consultation":"Consultation","plan":"Care Plan","goal":"Goal"})
+    now = datetime.now(timezone.utc)
+    row = (await db.execute(text("""INSERT INTO practice_tenant_configuration
+      (tenant_id,profession,capabilities,terminology,profile,version,updated_by,updated_at)
+      VALUES (:tenant_id,:profession,CAST(:capabilities AS jsonb),CAST(:terminology AS jsonb),CAST(:profile AS jsonb),1,:actor,:now)
+      ON CONFLICT (tenant_id) DO UPDATE SET profession=EXCLUDED.profession,capabilities=EXCLUDED.capabilities,
+      terminology=EXCLUDED.terminology,profile=EXCLUDED.profile,version=practice_tenant_configuration.version+1,
+      updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at
+      RETURNING profession,capabilities,terminology,profile,version"""), {"tenant_id":ctx["tenant_id"],"profession":body.profession,"capabilities":json.dumps(sorted(requested)),"terminology":json.dumps(terminology),"profile":json.dumps(body.profile),"actor":ctx["user_id"],"now":now})).mappings().one()
+    return {"success": True, "data": dict(row), "error": None, "request_id": request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/communication/templates")
+async def list_templates(request: Request, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied = external_only(request, ctx)
+    if denied: return denied
+    capability_denied = await require_capability(request, db, ctx, "COMMUNICATION")
+    if capability_denied: return capability_denied
+    rows = (await db.execute(text("SELECT id,code,label,body,active,version FROM practice_communication_templates WHERE tenant_id=:tenant_id AND active=TRUE ORDER BY label"), {"tenant_id":ctx["tenant_id"]})).mappings().all()
+    return {"success": True, "data": {"items":[dict(row) for row in rows]}, "error": None, "request_id": request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/communication/templates", status_code=201)
+async def create_template(request: Request, body: CommunicationTemplateCreate, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied = external_only(request, ctx)
+    if denied: return denied
+    capability_denied = await require_capability(request, db, ctx, "COMMUNICATION")
+    if capability_denied: return capability_denied
+    item_id, now = uuid4(), datetime.now(timezone.utc)
+    row = (await db.execute(text("""INSERT INTO practice_communication_templates
+      (id,tenant_id,code,label,body,active,version,created_by,created_at,updated_at)
+      VALUES (:id,:tenant_id,:code,:label,:body,TRUE,1,:actor,:now,:now)
+      ON CONFLICT (tenant_id,code) DO UPDATE SET label=EXCLUDED.label,body=EXCLUDED.body,active=TRUE,
+      version=practice_communication_templates.version+1,updated_at=EXCLUDED.updated_at
+      RETURNING id,code,label,body,active,version"""), {"id":item_id,"tenant_id":ctx["tenant_id"],**body.model_dump(),"actor":ctx["user_id"],"now":now})).mappings().one()
+    return {"success": True, "data": dict(row), "error": None, "request_id": request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/communication/whatsapp-opened", status_code=201)
+async def whatsapp_opened(request: Request, body: WhatsAppOpenCreate, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied = external_only(request, ctx)
+    if denied: return denied
+    capability_denied = await require_capability(request, db, ctx, "WHATSAPP_SHARING")
+    if capability_denied: return capability_denied
+    digits = "".join(ch for ch in body.phone if ch.isdigit())
+    if len(digits) < 10 or len(digits) > 15: return error(request, 400, "INVALID_PHONE", "Enter a valid mobile number with country code")
+    if body.shareable_type == "DIET_PLAN_DRAFT": return error(request, 409, "DRAFT_NOT_SHAREABLE", "Publish the plan before sharing")
+    item_id, now = uuid4(), datetime.now(timezone.utc)
+    metadata = {"phone_last4":digits[-4:],"shareable_type":body.shareable_type,"shareable_id":body.shareable_id}
+    await db.execute(text("""INSERT INTO practice_communication_activity
+      (id,tenant_id,client_id,channel,event_type,template_code,purpose,metadata,created_by,created_at)
+      VALUES (:id,:tenant_id,:client_id,'WHATSAPP','WHATSAPP_OPENED',:template_code,:purpose,CAST(:metadata AS jsonb),:actor,:now)"""), {"id":item_id,"tenant_id":ctx["tenant_id"],"client_id":body.client_id,"template_code":body.template_code,"purpose":body.purpose,"metadata":json.dumps(metadata),"actor":ctx["user_id"],"now":now})
+    await db.execute(text("""INSERT INTO practice_timeline_events
+      (id,tenant_id,client_id,event_type,source_type,source_id,summary,metadata,occurred_at)
+      VALUES (:id,:tenant_id,:client_id,'WHATSAPP_OPENED','COMMUNICATION',:source_id,:summary,CAST(:metadata AS jsonb),:now)
+      ON CONFLICT (tenant_id,event_type,source_type,source_id) DO NOTHING"""), {"id":uuid4(),"tenant_id":ctx["tenant_id"],"client_id":body.client_id,"source_id":str(item_id),"summary":f"WhatsApp opened for {body.purpose}","metadata":json.dumps({"template_code":body.template_code}),"now":now})
+    return {"success": True, "data": {"id":str(item_id),"event_type":"WHATSAPP_OPENED","phone":digits,"message":body.message}, "error": None, "request_id": request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/communication/activity")
+async def communication_activity(request: Request, client_id: str | None=None, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied = external_only(request, ctx)
+    if denied: return denied
+    params={"tenant_id":ctx["tenant_id"],"client_id":client_id}
+    rows=(await db.execute(text("SELECT id,client_id,channel,event_type,template_code,purpose,metadata,created_at FROM practice_communication_activity WHERE tenant_id=:tenant_id AND (:client_id IS NULL OR client_id=:client_id) ORDER BY created_at DESC LIMIT 100"),params)).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/notifications")
+async def notifications(request: Request, unread_only: bool=False, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied = external_only(request, ctx)
+    if denied: return denied
+    rows=(await db.execute(text("SELECT id,client_id,event_type,title,payload,read_at,created_at FROM practice_notifications WHERE tenant_id=:tenant_id AND (:unread=FALSE OR read_at IS NULL) ORDER BY created_at DESC LIMIT 100"),{"tenant_id":ctx["tenant_id"],"unread":unread_only})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/events/onboarding-completed", status_code=201)
+async def onboarding_completed(request: Request, body: OnboardingCompletedCreate, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied = external_only(request, ctx)
+    if denied: return denied
+    row=(await db.execute(text("""INSERT INTO practice_notifications
+      (id,tenant_id,client_id,event_type,title,payload,created_at)
+      VALUES (:id,:tenant_id,:client_id,'ONBOARDING_COMPLETED',:title,CAST(:payload AS jsonb),:completed_at)
+      ON CONFLICT (tenant_id,event_type,client_id) WHERE event_type='ONBOARDING_COMPLETED'
+      DO UPDATE SET title=EXCLUDED.title,payload=EXCLUDED.payload,created_at=EXCLUDED.created_at
+      RETURNING id,client_id,event_type,title,payload,read_at,created_at"""), {"id":uuid4(),"tenant_id":ctx["tenant_id"],"client_id":body.client_id,"title":f"{body.client_name} completed onboarding","payload":json.dumps({"actions":["VIEW_CLIENT","WHATSAPP"]}),"completed_at":body.completed_at})).mappings().one()
+    await db.execute(text("""INSERT INTO practice_timeline_events
+      (id,tenant_id,client_id,event_type,source_type,source_id,summary,metadata,occurred_at)
+      VALUES (:id,:tenant_id,:client_id,'ONBOARDING_COMPLETED','ONBOARDING',:source_id,:summary,'{}'::jsonb,:occurred_at)
+      ON CONFLICT (tenant_id,event_type,source_type,source_id) DO NOTHING"""), {"id":uuid4(),"tenant_id":ctx["tenant_id"],"client_id":body.client_id,"source_id":body.client_id,"summary":f"{body.client_name} completed onboarding","occurred_at":body.completed_at})
+    return {"success":True,"data":dict(row),"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/timeline")
+async def client_timeline(request: Request, client_id: str, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied = external_only(request, ctx)
+    if denied: return denied
+    rows=(await db.execute(text("SELECT id,event_type,source_type,source_id,summary,metadata,occurred_at FROM practice_timeline_events WHERE tenant_id=:tenant_id AND client_id=:client_id ORDER BY occurred_at DESC,id DESC LIMIT 100"),{"tenant_id":ctx["tenant_id"],"client_id":client_id})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
 
 
 @app.get("/api/v1/practice-operations/outbox/pending")
