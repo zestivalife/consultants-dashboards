@@ -63,3 +63,9 @@ def test_completion_api_keeps_tenant_and_idempotency_guards():
     ):
         assert value in source
     assert "tenant_id=:tenant_id" in source
+
+
+def test_optional_client_filters_are_typed_for_asyncpg_null_binding():
+    source = (ROOT / "app/main.py").read_text()
+    assert source.count("CAST(:client_id AS text) IS NULL") == 4
+    assert "client_id=CAST(:client_id AS text)" in source
