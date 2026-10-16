@@ -17,6 +17,7 @@ import { ExternalCalendarWorkspace } from './ExternalCalendarWorkspace';
 import { ExternalPracticeSettings } from './ExternalPracticeSettings';
 import { ExternalIntelligentHome } from './ExternalIntelligentHome';
 import { getPracticeConfiguration,listPracticeNotifications,listPracticeResources } from '../../lib/practiceOperationsApi';
+import { externalWorkspaceClass } from './ui/ExternalUI';
 
 const NAV = [
   ['dashboard', 'Dashboard', LayoutDashboard],
@@ -69,7 +70,7 @@ export function ExternalSaaSWorkspace(){
   }),[clients,query,filter]);
   const openClient=(client,tab='Overview')=>{setSelected(client);setInitialTab(tab);setMobileNav(false);};
   const navigate=(next)=>{setSelected(null);setView(next);setMobileNav(false);};
-  return <div className="min-h-screen bg-[#f4f6f8] text-slate-950">
+  return <div className={`${externalWorkspaceClass} min-h-screen bg-[#f4f6f8] text-slate-950`}>
     <a href="#external-main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-white focus:px-4 focus:py-2">Skip to content</a>
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-slate-200 bg-[#0c1728] text-white lg:flex lg:flex-col">
       <div className="border-b border-white/10 px-5 py-6"><p className="text-[11px] font-semibold uppercase tracking-[.2em] text-blue-300">Consultant practice</p><h1 className="mt-2 truncate text-lg font-bold">{practiceName}</h1><p className="mt-1 truncate text-xs text-slate-400">{tenant.tenantType?.replaceAll('_',' ')}</p></div>
