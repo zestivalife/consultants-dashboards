@@ -6,6 +6,11 @@ from urllib.parse import urlsplit
 
 from app.config import get_settings
 from app.routers.owner_permissions import required_owner_permissions
+from app.routers.practice_tenant_resolver import (
+    PracticeTenantResolutionError,
+    is_practice_operations_path,
+    resolve_practice_tenant_authority,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -124,6 +129,35 @@ async def proxy(request: Request, path: str):
     body = await request.body()
 
     client = await get_http_client()
+
+    if is_practice_operations_path(full_path):
+        try:
+            authority = await resolve_practice_tenant_authority(
+                client,
+                fiteatsy_service_url=get_settings().fiteatsy_service_url,
+                authorization=request.headers.get("Authorization"),
+                authenticated_user_id=str(user_id) if user_id else None,
+            )
+        except PracticeTenantResolutionError as exc:
+            logger.warning(
+                "practice_tenant_resolution_denied",
+                path=full_path,
+                user_id=user_id,
+                reason=str(exc),
+            )
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "success": False,
+                    "message": "Active External Practice membership required",
+                    "data": None,
+                    "error": "Forbidden",
+                    "request_id": request_id,
+                },
+            )
+        headers["X-Tenant-Id"] = authority.tenant_id
+        headers["X-Tenant-Type"] = authority.tenant_type
+        headers["X-User-Role"] = authority.membership_role
 
     logger.info(
         "proxy_request",

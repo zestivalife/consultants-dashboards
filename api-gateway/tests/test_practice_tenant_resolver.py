@@ -1,0 +1,116 @@
+import asyncio
+
+import pytest
+
+from app.routers.practice_tenant_resolver import (
+    PracticeTenantResolutionError,
+    is_practice_operations_path,
+    parse_practice_tenant_authority,
+    resolve_practice_tenant_authority,
+)
+
+
+class FakeResponse:
+    def __init__(self, status_code=200, payload=None):
+        self.status_code = status_code
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+class FakeClient:
+    def __init__(self, response):
+        self.response = response
+        self.calls = []
+
+    async def get(self, url, headers):
+        self.calls.append((url, headers))
+        return self.response
+
+
+def tenant_payload(**overrides):
+    tenant = {
+        "tenantId": "external-tenant-1",
+        "tenantType": "INDEPENDENT_CONSULTANT",
+        "currentMembershipRole": "OWNER",
+        "resolutionPath": "MEMBERSHIP",
+        "membershipStatus": "ACTIVE",
+        "tenantStatus": "ACTIVE",
+    }
+    tenant.update(overrides)
+    return {"currentTenant": tenant}
+
+
+@pytest.mark.parametrize("tenant_type", ["INDEPENDENT_CONSULTANT", "PRACTICE", "CLINIC"])
+def test_accepts_active_external_membership_types(tenant_type):
+    authority = parse_practice_tenant_authority(tenant_payload(tenantType=tenant_type))
+    assert authority.tenant_id == "external-tenant-1"
+    assert authority.tenant_type == tenant_type
+    assert authority.membership_role == "OWNER"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        tenant_payload(membershipStatus="INACTIVE"),
+        tenant_payload(tenantStatus="INACTIVE"),
+        tenant_payload(tenantType="ZESTIVA_INTERNAL"),
+        tenant_payload(resolutionPath="CLIENT_SELECTED"),
+        tenant_payload(tenantId=""),
+    ],
+)
+def test_fails_closed_for_missing_inactive_internal_or_untrusted_authority(payload):
+    with pytest.raises(PracticeTenantResolutionError):
+        parse_practice_tenant_authority(payload)
+
+
+def test_resolver_uses_only_bearer_authenticated_server_context():
+    # Exercise the real response shape used by the frontend contract.
+    client = FakeClient(FakeResponse(payload={"data": tenant_payload()}))
+    authority = asyncio.run(
+        resolve_practice_tenant_authority(
+            client,
+            fiteatsy_service_url="https://fiteatsy.example/",
+            authorization="Bearer signed-token",
+            authenticated_user_id="user-1",
+        )
+    )
+    assert authority.tenant_id == "external-tenant-1"
+    assert client.calls == [
+        (
+            "https://fiteatsy.example/v1/auth/me",
+            {"Authorization": "Bearer signed-token", "Accept": "application/json"},
+        )
+    ]
+
+
+def test_resolver_denies_no_membership_and_missing_identity():
+    no_membership = FakeClient(FakeResponse(status_code=403, payload={}))
+    with pytest.raises(PracticeTenantResolutionError):
+        asyncio.run(
+            resolve_practice_tenant_authority(
+                no_membership,
+                fiteatsy_service_url="https://fiteatsy.example",
+                authorization="Bearer signed-token",
+                authenticated_user_id="user-1",
+            )
+        )
+    with pytest.raises(PracticeTenantResolutionError):
+        asyncio.run(
+            resolve_practice_tenant_authority(
+                no_membership,
+                fiteatsy_service_url="https://fiteatsy.example",
+                authorization=None,
+                authenticated_user_id="user-1",
+            )
+        )
+
+
+def test_scope_is_exactly_practice_operations_namespace():
+    assert is_practice_operations_path("/api/v1/practice-operations")
+    assert is_practice_operations_path("/api/v1/practice-operations/tasks")
+    assert not is_practice_operations_path("/api/v1/auth/me")
+    assert not is_practice_operations_path("/api/v1/profile")
+    assert not is_practice_operations_path("/api/v1/practice-operations-internal")
