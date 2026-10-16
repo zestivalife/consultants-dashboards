@@ -41,3 +41,10 @@ test('mobile surfaces use safe areas and avoid hover-only primary actions',()=>{
   assert.match(workspace,/Mobile primary/);
   assert.match(operations,/sm:hidden/);
 });
+
+test('practice operations forwards the consultant bearer token through the same-origin gateway proxy',()=>{
+  assert.match(api,/import \{getToken,refreshAccessToken\} from '\.\/api'/);
+  assert.match(api,/X-Nuetra-Authorization/);
+  assert.match(api,/response\.status===401/);
+  assert.match(api,/refreshAccessToken\(\)/);
+});

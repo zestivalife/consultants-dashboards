@@ -1,7 +1,11 @@
+import {getToken,refreshAccessToken} from './api';
+
 const BASE='/api/gateway/api/v1/practice-operations';
 
 async function request(path,options={}){
-  const response=await fetch(`${BASE}${path}`,{credentials:'include',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});
+  const send=token=>fetch(`${BASE}${path}`,{credentials:'include',...options,headers:{'Content-Type':'application/json',...(token?{'X-Nuetra-Authorization':`Bearer ${token}`}:{}),...(options.headers||{})}});
+  let response=await send(getToken());
+  if(response.status===401){const refreshedToken=await refreshAccessToken().catch(()=>null);if(refreshedToken)response=await send(refreshedToken);}
   const body=await response.json().catch(()=>null);
   if(!response.ok){const error=new Error(body?.error?.safe_message||'Practice operation could not be completed.');error.code=body?.error?.code||'PRACTICE_OPERATION_FAILED';error.retryable=Boolean(body?.error?.retryable);error.correlationId=body?.error?.correlation_id;throw error;}
   return body?.data;
