@@ -60,7 +60,9 @@ function buildForwardHeaders(req, bodyBuffer) {
     headers.set('content-length', String(bodyBuffer.length));
   }
   const qaToken = readQaSession(req);
-  if (qaToken) headers.set('authorization', `Bearer ${qaToken}`);
+  // The cookie is a fallback for cookie-only QA sessions. It must never
+  // replace the bearer supplied by a legitimately signed-in user.
+  if (qaToken && !headers.has('authorization')) headers.set('authorization', `Bearer ${qaToken}`);
 
   return headers;
 }
