@@ -15,7 +15,8 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            OnboardingCompletedCreate, ProfessionIntakeInvitationCreate,
                            ProfessionIntakeAnswerSave, ProfessionIntakeSubmit,
                            ProfessionTemplatePublish, ProfessionCustomQuestionCreate,
-                           ProfessionIntakeReviewCreate)
+                           ProfessionIntakeReviewCreate, AssessmentAssign,
+                           AssessmentAnswerSave, AssessmentComplete)
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
 from app.profession_intake import (FROZEN_PROFESSIONS, SUPPORTED_PROFESSIONS,
@@ -618,6 +619,83 @@ async def review_profession_intake(request: Request, client_id: str, body: Profe
     await db.execute(text("UPDATE external_client_intake_instances SET review_state=:state,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND client_id=:client"), {"state":review_state,"now":now,"id":instance["id"],"tenant":ctx["tenant_id"],"client":client_id})
     return {"success":True,"data":{"reviewState":review_state},"error":None,"request_id":request.state.correlation_id}
 
+
+async def _assessment_guard(request,db,ctx):
+    denied=external_only(request,ctx)
+    return denied or await require_capability(request,db,ctx,"ASSESSMENTS")
+
+@app.get("/api/v1/practice-operations/assessments/definitions")
+async def assessment_definitions(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _assessment_guard(request,db,ctx)
+    if denied:return denied
+    config=await configuration(db,ctx)
+    rows=(await db.execute(text("""SELECT d.id,d.code,d.title,d.description,d.profession_code,d.scope,v.id version_id,v.version
+      FROM external_assessment_definitions d JOIN external_assessment_versions v ON v.definition_id=d.id AND v.status='ACTIVE'
+      WHERE d.active=TRUE AND d.profession_code=:profession AND (d.tenant_id IS NULL OR d.tenant_id=:tenant_id)
+      ORDER BY d.scope,d.title"""),{"profession":config["profession"],"tenant_id":ctx["tenant_id"]})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/assessments",status_code=201)
+async def assign_assessment(request:Request,client_id:str,body:AssessmentAssign,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _assessment_guard(request,db,ctx)
+    if denied:return denied
+    definition=(await db.execute(text("""SELECT d.id,d.profession_code,v.id version_id FROM external_assessment_definitions d
+      JOIN external_assessment_versions v ON v.definition_id=d.id AND v.status='ACTIVE'
+      WHERE d.id=:id AND d.active=TRUE AND (d.tenant_id IS NULL OR d.tenant_id=:tenant_id)"""),{"id":body.definition_id,"tenant_id":ctx["tenant_id"]})).mappings().first()
+    if not definition:return error(request,404,"ASSESSMENT_DEFINITION_NOT_FOUND","Assessment definition not found")
+    item_id=uuid4();now=datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_assessment_instances
+      (id,tenant_id,client_id,definition_id,version_id,profession_code,status,assigned_by,assigned_at,due_at,updated_at)
+      VALUES (:id,:tenant,:client,:definition,:version,:profession,'ASSIGNED',:actor,:now,:due,:now)"""),{"id":item_id,"tenant":ctx["tenant_id"],"client":client_id,"definition":definition["id"],"version":definition["version_id"],"profession":definition["profession_code"],"actor":ctx["user_id"],"now":now,"due":body.due_at})
+    await db.commit();return {"success":True,"data":{"id":str(item_id),"status":"ASSIGNED"},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/assessments")
+async def client_assessments(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _assessment_guard(request,db,ctx)
+    if denied:return denied
+    rows=(await db.execute(text("""SELECT i.id,i.status,i.assigned_at,i.due_at,i.completed_at,d.title,d.code
+      FROM external_assessment_instances i JOIN external_assessment_definitions d ON d.id=i.definition_id
+      WHERE i.tenant_id=:tenant AND i.client_id=:client ORDER BY i.assigned_at DESC"""),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/assessments/{assessment_id}")
+async def assessment_detail(request:Request,assessment_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _assessment_guard(request,db,ctx)
+    if denied:return denied
+    instance=(await db.execute(text("SELECT id,tenant_id,client_id,definition_id,version_id,profession_code,status,assigned_by,assigned_at,due_at,completed_at,updated_at FROM external_assessment_instances WHERE id=:id AND tenant_id=:tenant"),{"id":assessment_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not instance:return error(request,404,"ASSESSMENT_NOT_FOUND","Assessment not found")
+    questions=(await db.execute(text("SELECT id,question_key,prompt,question_type,required,options,sort_order FROM external_assessment_questions WHERE version_id=:version ORDER BY sort_order"),{"version":instance["version_id"]})).mappings().all()
+    answers=(await db.execute(text("SELECT q.question_key,a.answer FROM external_assessment_answers a JOIN external_assessment_questions q ON q.id=a.question_id WHERE a.assessment_instance_id=:id"),{"id":assessment_id})).mappings().all()
+    return {"success":True,"data":{"instance":dict(instance),"questions":[dict(q) for q in questions],"answers":{a["question_key"]:a["answer"] for a in answers}},"error":None,"request_id":request.state.correlation_id}
+
+async def _save_assessment_answers(db,instance,answers,actor):
+    now=datetime.now(timezone.utc)
+    for key,value in answers.items():
+        await db.execute(text("""INSERT INTO external_assessment_answers(id,assessment_instance_id,tenant_id,client_id,question_id,answer,answered_by,answered_at)
+          SELECT :id,:instance,:tenant,:client,q.id,CAST(:answer AS jsonb),:actor,:now FROM external_assessment_questions q
+          WHERE q.version_id=:version AND q.question_key=:key
+          ON CONFLICT(assessment_instance_id,question_id) DO UPDATE SET answer=EXCLUDED.answer,answered_by=EXCLUDED.answered_by,answered_at=EXCLUDED.answered_at"""),{"id":uuid4(),"instance":instance["id"],"tenant":instance["tenant_id"],"client":instance["client_id"],"answer":json.dumps(value),"actor":actor,"now":now,"version":instance["version_id"],"key":key})
+
+@app.patch("/api/v1/practice-operations/assessments/{assessment_id}")
+async def save_assessment(request:Request,assessment_id:UUID,body:AssessmentAnswerSave,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _assessment_guard(request,db,ctx)
+    if denied:return denied
+    instance=(await db.execute(text("SELECT id,tenant_id,client_id,definition_id,version_id,profession_code,status,assigned_by,assigned_at,due_at,completed_at,updated_at FROM external_assessment_instances WHERE id=:id AND tenant_id=:tenant"),{"id":assessment_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not instance:return error(request,404,"ASSESSMENT_NOT_FOUND","Assessment not found")
+    await _save_assessment_answers(db,instance,body.answers,ctx["user_id"]);await db.execute(text("UPDATE external_assessment_instances SET status='IN_PROGRESS',updated_at=:now WHERE id=:id"),{"id":assessment_id,"now":datetime.now(timezone.utc)});await db.commit()
+    return {"success":True,"data":{"id":str(assessment_id),"status":"IN_PROGRESS"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/assessments/{assessment_id}/complete")
+async def complete_assessment(request:Request,assessment_id:UUID,body:AssessmentComplete,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _assessment_guard(request,db,ctx)
+    if denied:return denied
+    instance=(await db.execute(text("SELECT id,tenant_id,client_id,definition_id,version_id,profession_code,status,assigned_by,assigned_at,due_at,completed_at,updated_at FROM external_assessment_instances WHERE id=:id AND tenant_id=:tenant"),{"id":assessment_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not instance:return error(request,404,"ASSESSMENT_NOT_FOUND","Assessment not found")
+    await _save_assessment_answers(db,instance,body.answers,ctx["user_id"]);now=datetime.now(timezone.utc)
+    missing=(await db.execute(text("""SELECT COUNT(*) FROM external_assessment_questions q LEFT JOIN external_assessment_answers a ON a.question_id=q.id AND a.assessment_instance_id=:id WHERE q.version_id=:version AND q.required=TRUE AND a.id IS NULL"""),{"id":assessment_id,"version":instance["version_id"]})).scalar_one()
+    if missing:return error(request,409,"ASSESSMENT_REQUIRED_ANSWERS_MISSING","Complete all required assessment questions")
+    await db.execute(text("UPDATE external_assessment_instances SET status='COMPLETED',completed_at=:now,updated_at=:now WHERE id=:id"),{"id":assessment_id,"now":now});await db.execute(text("INSERT INTO external_assessment_review_events(id,assessment_instance_id,tenant_id,client_id,event_type,notes,actor_id,created_at) VALUES (:event,:id,:tenant,:client,'COMPLETED',:notes,:actor,:now)"),{"event":uuid4(),"id":assessment_id,"tenant":ctx["tenant_id"],"client":instance["client_id"],"notes":body.review_notes,"actor":ctx["user_id"],"now":now});await db.commit()
+    return {"success":True,"data":{"id":str(assessment_id),"status":"COMPLETED"},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/profession-intake/{token}")
 async def read_profession_intake(request: Request, token: str, db: AsyncSession=Depends(get_db)):

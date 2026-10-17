@@ -2,6 +2,7 @@ import {useEffect,useMemo,useState} from 'react';
 import {useRouter} from 'next/router';
 import {CheckCircle2,Loader2,ShieldCheck} from 'lucide-react';
 import {getProfessionIntake,saveProfessionIntakeAnswers,submitProfessionIntake} from '../../lib/professionIntakeApi';
+import {resolveProfessionExperience} from '../../lib/professionExperience';
 
 function Question({question,value,onChange}){
   const common={id:question.question_key,required:question.required,value:value??'',onChange:event=>onChange(question.question_key,event.target.type==='checkbox'?event.target.checked:event.target.value),className:'mt-2 min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3 py-2'};
@@ -16,6 +17,7 @@ export default function ProfessionIntakePage(){
   const [data,setData]=useState(null);const [answers,setAnswers]=useState({});const [state,setState]=useState('loading');const [error,setError]=useState('');
   useEffect(()=>{if(!token)return;getProfessionIntake(token).then(value=>{setData(value);setAnswers(Object.fromEntries(value.sections.flatMap(section=>section.questions.filter(q=>q.answer!==null).map(q=>[q.question_key,q.answer]))));setState(value.instance.status==='COMPLETED'?'complete':'ready');}).catch(reason=>{setError(reason.message);setState('error');});},[token]);
   const percent=useMemo(()=>data?.instance?.completionPercent||0,[data]);
+  const experience=useMemo(()=>resolveProfessionExperience(data?.instance?.professionCode),[data]);
   const change=(key,value)=>setAnswers(current=>({...current,[key]:value}));
   const save=async()=>{setState('saving');setError('');try{const result=await saveProfessionIntakeAnswers(token,answers);setData(current=>({...current,instance:{...current.instance,completionPercent:result.completionPercent}}));setState('ready');}catch(reason){setError(reason.message);setState('ready');}};
   const submit=async()=>{setState('submitting');setError('');try{await saveProfessionIntakeAnswers(token,answers);await submitProfessionIntake(token);setState('complete');}catch(reason){setError(reason.message);setState('ready');}};

@@ -48,6 +48,7 @@ export const EXTERNAL_MODULES = {
 
 export const PRACTICE_NAV = [
   ['consultations','Consultations',CalendarDays], ['followups','Follow-ups',ClipboardList],
+  ['assessments','Assessments',ClipboardList],
   ['goals','Goals & Progress',Activity], ['tasks','Tasks',ClipboardList],
   ['calendar','Calendar',CalendarDays], ['templates','Templates',Sparkles],
   ['team','Practice / Team',UsersRound], ['analytics','Analytics',Activity],

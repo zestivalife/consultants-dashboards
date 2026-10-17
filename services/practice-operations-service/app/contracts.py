@@ -144,3 +144,13 @@ class ProfessionCustomQuestionCreate(ProfessionTemplateQuestion):
 class ProfessionIntakeReviewCreate(BaseModel):
     event_type: Literal["REVIEW_STARTED", "APPROVED", "CHANGES_REQUESTED"]
     notes: str | None = Field(default=None, max_length=4000)
+
+class AssessmentAssign(BaseModel):
+    definition_id: UUID
+    due_at: datetime | None = None
+
+class AssessmentAnswerSave(BaseModel):
+    answers: dict[str, Any] = Field(default_factory=dict)
+
+class AssessmentComplete(AssessmentAnswerSave):
+    review_notes: str | None = Field(default=None, max_length=4000)
