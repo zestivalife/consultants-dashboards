@@ -193,6 +193,22 @@ async def version():
     settings=get_settings(); return {"service": settings.app_name, "version": settings.app_version, "commit_sha": settings.app_commit_sha}
 
 
+# Keep the literal collection route ahead of the generic ``/{resource}``
+# routes below. FastAPI resolves equal-method routes in registration order;
+# without this guard, ``GET /templates`` and ``POST /templates`` are consumed
+# by the generic practice-resource handlers and return RESOURCE_NOT_FOUND (or
+# validate against the wrong request contract) before the template library can
+# run. The implementation functions are resolved when the request is handled.
+@app.get("/api/v1/practice-operations/templates")
+async def template_collection_route(request:Request,scope:str|None=None,template_type:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    return await list_templates(request,scope,template_type,ctx,db)
+
+
+@app.post("/api/v1/practice-operations/templates",status_code=201)
+async def template_collection_create_route(request:Request,body:TemplateCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    return await create_template(request,body,ctx,db)
+
+
 @app.get("/api/v1/practice-operations/{resource}")
 async def list_resources(request: Request, resource: str, client_id: str | None = None, status: str | None = None, cursor: UUID | None = None, limit: int = Query(25, ge=1, le=100), ctx=Depends(context), db: AsyncSession=Depends(get_db)):
     denied=external_only(request,ctx)

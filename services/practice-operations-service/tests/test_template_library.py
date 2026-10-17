@@ -15,3 +15,12 @@ def test_p8_is_tenant_and_profession_scoped():
     source=(ROOT/'app/main.py').read_text()
     assert "profession_code=:profession" in source
     assert "tenant_id=:tenant" in source
+
+def test_template_collection_routes_precede_generic_resource_routes():
+    source=(ROOT/'app/main.py').read_text()
+    literal=source.index('@app.get("/api/v1/practice-operations/templates")')
+    generic=source.index('@app.get("/api/v1/practice-operations/{resource}")')
+    assert literal < generic
+    literal_post=source.index('@app.post("/api/v1/practice-operations/templates",status_code=201)')
+    generic_post=source.index('@app.post("/api/v1/practice-operations/{resource}", status_code=201)')
+    assert literal_post < generic_post
