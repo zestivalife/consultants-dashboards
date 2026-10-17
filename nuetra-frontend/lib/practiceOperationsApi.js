@@ -54,6 +54,10 @@ export function createTemplate(payload){return request('/templates',{method:'POS
 export function updateTemplate(templateId,payload){return request(`/templates/${encodeURIComponent(templateId)}`,{method:'PATCH',body:JSON.stringify(payload)});}
 export function duplicateTemplate(templateId){return request(`/templates/${encodeURIComponent(templateId)}/duplicate`,{method:'POST'});}
 export function archiveTemplate(templateId){return request(`/templates/${encodeURIComponent(templateId)}/archive`,{method:'POST'});}
+export function getSessionBriefing(clientId){return request(`/clients/${encodeURIComponent(clientId)}/session-briefing`);}
+export function listSessionSuggestions(clientId){return request(`/clients/${encodeURIComponent(clientId)}/session-assistant/suggestions`);}
+export function generateSessionSuggestions(sessionNoteId){return request('/session-assistant/suggestions',{method:'POST',body:JSON.stringify({session_note_id:sessionNoteId})});}
+export function decideSessionSuggestion(suggestionId,payload){return request(`/session-assistant/suggestions/${encodeURIComponent(suggestionId)}`,{method:'PATCH',body:JSON.stringify(payload)});}
 export function listProfessionIntakeProjections(){return request('/profession-intake/projections');}
 export function publishProfessionIntakeTemplate(payload){return request('/profession-intake/templates',{method:'POST',body:JSON.stringify(payload)});}
 export function listPracticeCalendar({view='AGENDA',anchor,clientId}={}){const query=new URLSearchParams({view});if(anchor)query.set('anchor',anchor);if(clientId)query.set('client_id',clientId);return request(`/calendar/events?${query}`);}

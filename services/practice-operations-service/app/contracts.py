@@ -254,3 +254,10 @@ class TemplateUpdate(BaseModel):
     title: str = Field(min_length=1,max_length=240)
     description: str | None = Field(default=None,max_length=4000)
     sections: list[TemplateSectionInput] = Field(default_factory=list,max_length=40)
+
+class SessionSuggestionGenerate(BaseModel):
+    session_note_id: UUID
+
+class SessionSuggestionDecision(BaseModel):
+    decision: Literal["ACCEPT","EDIT_AND_ACCEPT","DISMISS"]
+    proposed_payload: dict[str,Any] | None = None

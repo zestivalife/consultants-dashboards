@@ -23,7 +23,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            ProfessionPlanCreate, ProfessionPlanSave)
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
-from app.contracts import TemplateCreate, TemplateUpdate
+from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
 from app.profession_intake import (FROZEN_PROFESSIONS, SUPPORTED_PROFESSIONS,
@@ -1001,6 +1001,55 @@ async def archive_template(request:Request,template_id:UUID,ctx=Depends(context)
     result=await db.execute(text("UPDATE external_template_definitions SET active=FALSE,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND scope<>'SYSTEM' AND (scope='PRACTICE' OR owner_id=:actor)"),{"now":datetime.now(timezone.utc),"id":template_id,"tenant":ctx["tenant_id"],"actor":ctx["user_id"]})
     if result.rowcount!=1:return error(request,404,"EDITABLE_TEMPLATE_NOT_FOUND","Editable custom template not found")
     await db.commit();return {"success":True,"data":{"id":str(template_id),"archived":True},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/session-briefing")
+async def session_briefing(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    tenant=ctx["tenant_id"];params={"tenant":tenant,"client":client_id};summary=[];changed=[];outstanding=[];progress=[];refs=[]
+    async def latest(query):return (await db.execute(text(query),params)).mappings().first()
+    last_note=await latest("SELECT id,title,status,updated_at FROM external_session_notes WHERE tenant_id=:tenant AND client_id=:client AND status IN ('FINALISED','AMENDED') ORDER BY updated_at DESC LIMIT 1")
+    if last_note:summary.append({"text":f'Last completed session: {last_note["title"]}',"source_ref":f'session-note:{last_note["id"]}'});refs.append({"domain":"external_session_notes","id":str(last_note["id"])})
+    assessment=await latest("SELECT id,status,completed_at,updated_at FROM external_assessment_instances WHERE tenant_id=:tenant AND client_id=:client ORDER BY updated_at DESC LIMIT 1")
+    if assessment:changed.append({"text":f'Latest assessment status: {assessment["status"].replace("_"," ").lower()}',"source_ref":f'assessment:{assessment["id"]}'});refs.append({"domain":"external_assessment_instances","id":str(assessment["id"])})
+    for domain,table,label,target in (("task","practice_tasks","Open task","outstanding"),("followup","practice_follow_ups","Open follow-up","outstanding"),("goal","practice_goals","Active goal","progress")):
+        rows=(await db.execute(text(f"SELECT id,title,status,due_at,updated_at FROM {table} WHERE tenant_id=:tenant AND client_id=:client AND status NOT IN ('COMPLETED','CANCELLED','ARCHIVED') ORDER BY updated_at DESC LIMIT 5"),params)).mappings().all()
+        for row in rows:
+            item={"text":f'{label}: {row["title"]}',"source_ref":f'{domain}:{row["id"]}',"due_at":row["due_at"]};(outstanding if target=="outstanding" else progress).append(item);refs.append({"domain":table,"id":str(row["id"])})
+    plan=await latest("SELECT id,title,status,updated_at FROM external_profession_plans WHERE tenant_id=:tenant AND client_id=:client ORDER BY updated_at DESC LIMIT 1")
+    if plan:changed.append({"text":f'Latest plan: {plan["title"]} ({plan["status"].lower()})',"source_ref":f'profession-plan:{plan["id"]}'});refs.append({"domain":"external_profession_plans","id":str(plan["id"])})
+    observations=(await db.execute(text("SELECT id,numeric_value,text_value,observed_at FROM external_progress_observations WHERE tenant_id=:tenant AND client_id=:client ORDER BY observed_at DESC LIMIT 5"),params)).mappings().all()
+    for row in observations:progress.append({"text":f'Progress observation recorded: {row["numeric_value"] if row["numeric_value"] is not None else row["text_value"]}',"source_ref":f'progress:{row["id"]}'});refs.append({"domain":"external_progress_observations","id":str(row["id"])})
+    communication=await latest("SELECT id,purpose,created_at FROM practice_communication_activity WHERE tenant_id=:tenant AND client_id=:client ORDER BY created_at DESC LIMIT 1")
+    if communication:changed.append({"text":f'Latest communication: {communication["purpose"]}',"source_ref":f'communication:{communication["id"]}'});refs.append({"domain":"practice_communication_activity","id":str(communication["id"])})
+    return {"success":True,"data":{"client_summary":summary,"since_last_session":changed,"items_to_review":outstanding+progress,"outstanding_actions":outstanding,"recent_progress":progress,"source_refs":refs,"partial_data":not bool(last_note)},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/session-assistant/suggestions",status_code=201)
+async def generate_session_suggestions(request:Request,body:SessionSuggestionGenerate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    note=(await db.execute(text("SELECT id,client_id,title,status,current_version FROM external_session_notes WHERE id=:id AND tenant_id=:tenant"),{"id":body.session_note_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not note:return error(request,404,"SESSION_NOTE_NOT_FOUND","Session note not found")
+    if note["status"] not in {"FINALISED","AMENDED"}:return error(request,409,"COMPLETED_SESSION_REQUIRED","Post-session suggestions require a finalised structured session")
+    now=datetime.now(timezone.utc);suggestions=[("CREATE_FOLLOWUP","A finalised session is available for practitioner follow-up.",{"title":f'Follow up: {note["title"]}'}),("PREPARE_MESSAGE","Client communication may be prepared from the completed session.",{"purpose":"Post-session follow-up"})]
+    for suggestion_type,reason,payload in suggestions:await db.execute(text("INSERT INTO external_session_action_suggestions(id,tenant_id,client_id,session_note_id,suggestion_type,reason,source,proposed_payload,confidence,status,practitioner_id,created_at,updated_at) VALUES (:id,:tenant,:client,:note,:type,:reason,CAST(:source AS jsonb),CAST(:payload AS jsonb),'ELIGIBLE','PROPOSED',:actor,:now,:now) ON CONFLICT (tenant_id,session_note_id,suggestion_type) DO NOTHING"),{"id":uuid4(),"tenant":ctx["tenant_id"],"client":note["client_id"],"note":note["id"],"type":suggestion_type,"reason":reason,"source":json.dumps({"domain":"external_session_notes","id":str(note["id"]),"version":note["current_version"]}),"payload":json.dumps(payload),"actor":ctx["user_id"],"now":now})
+    await db.commit();return await list_session_suggestions(request,note["client_id"],ctx,db)
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/session-assistant/suggestions")
+async def list_session_suggestions(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    rows=(await db.execute(text("SELECT id,session_note_id,suggestion_type,reason,source,proposed_payload,confidence,status,confirmed_by,confirmed_at,created_at FROM external_session_action_suggestions WHERE tenant_id=:tenant AND client_id=:client ORDER BY created_at DESC"),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all();return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+@app.patch("/api/v1/practice-operations/session-assistant/suggestions/{suggestion_id}")
+async def decide_session_suggestion(request:Request,suggestion_id:UUID,body:SessionSuggestionDecision,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    row=(await db.execute(text("SELECT status,proposed_payload FROM external_session_action_suggestions WHERE id=:id AND tenant_id=:tenant"),{"id":suggestion_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"SUGGESTION_NOT_FOUND","Suggestion not found")
+    if row["status"]!="PROPOSED":return error(request,409,"SUGGESTION_ALREADY_DECIDED","Suggestion has already been decided")
+    status={"ACCEPT":"ACCEPTED","EDIT_AND_ACCEPT":"EDITED_ACCEPTED","DISMISS":"DISMISSED"}[body.decision];payload=body.proposed_payload if body.decision=="EDIT_AND_ACCEPT" else row["proposed_payload"];now=datetime.now(timezone.utc)
+    await db.execute(text("UPDATE external_session_action_suggestions SET status=:status,proposed_payload=CAST(:payload AS jsonb),confirmed_by=:actor,confirmed_at=:now,updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"status":status,"payload":json.dumps(payload),"actor":ctx["user_id"],"now":now,"id":suggestion_id,"tenant":ctx["tenant_id"]});await db.commit();return {"success":True,"data":{"id":str(suggestion_id),"status":status,"action_executed":False},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/practice-operations/clients/{client_id}/progress")
 async def client_progress(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
