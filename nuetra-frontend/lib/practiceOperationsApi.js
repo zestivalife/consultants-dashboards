@@ -25,6 +25,11 @@ export function listCommunicationActivity(clientId){const query=clientId?`?clien
 export function listPracticeNotifications({unreadOnly=false}={}){return request(`/notifications?unread_only=${unreadOnly?'true':'false'}`);}
 export function recordOnboardingCompleted(payload){return request('/events/onboarding-completed',{method:'POST',body:JSON.stringify(payload)});}
 export function listClientTimeline(clientId){return request(`/clients/${encodeURIComponent(clientId)}/timeline`);}
+export function createProfessionIntakeInvitation(clientId,payload={}){return request(`/clients/${encodeURIComponent(clientId)}/profession-intake-invitations`,{method:'POST',body:JSON.stringify(payload)});}
+export function revokeProfessionIntakeInvitation(clientId){return request(`/clients/${encodeURIComponent(clientId)}/profession-intake-invitations/revoke`,{method:'POST'});}
+export function getClientProfessionIntake(clientId){return request(`/clients/${encodeURIComponent(clientId)}/profession-intake`);}
+export function listProfessionIntakeProjections(){return request('/profession-intake/projections');}
+export function publishProfessionIntakeTemplate(payload){return request('/profession-intake/templates',{method:'POST',body:JSON.stringify(payload)});}
 export function listPracticeCalendar({view='AGENDA',anchor,clientId}={}){const query=new URLSearchParams({view});if(anchor)query.set('anchor',anchor);if(clientId)query.set('client_id',clientId);return request(`/calendar/events?${query}`);}
 export async function openWhatsApp(payload){
   const result=await request('/communication/whatsapp-opened',{method:'POST',body:JSON.stringify(payload)});

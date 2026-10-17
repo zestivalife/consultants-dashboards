@@ -69,7 +69,8 @@ class PracticeConfigurationUpdate(BaseModel):
     profession: Literal[
         "DIETITIAN", "NUTRITIONIST", "PSYCHOLOGIST", "COUNSELLOR",
         "PHYSIOTHERAPIST", "HEALTH_COACH", "DIABETES_EDUCATOR",
-        "WELLNESS_CONSULTANT", "OTHER",
+        "WELLNESS_CONSULTANT", "BEHAVIOURAL_THERAPIST", "OCCUPATIONAL_THERAPIST",
+        "MENTAL_WELLNESS_THERAPIST", "OTHER",
     ]
     capabilities: list[str] = Field(default_factory=list, max_length=64)
     profile: dict[str, Any] = Field(default_factory=dict)
@@ -100,3 +101,46 @@ class OnboardingCompletedCreate(BaseModel):
     client_id: str
     client_name: str = Field(min_length=1, max_length=200)
     completed_at: datetime
+
+
+class ProfessionIntakeInvitationCreate(BaseModel):
+    expires_in_hours: int = Field(default=168, ge=1, le=720)
+
+
+class ProfessionTemplateQuestion(BaseModel):
+    key: str = Field(min_length=1, max_length=100, pattern=r"^[a-z][a-z0-9_]*$")
+    prompt: str = Field(min_length=1, max_length=1000)
+    type: Literal["TEXT", "TEXTAREA", "NUMBER", "DATE", "BOOLEAN", "SINGLE_SELECT", "MULTI_SELECT"]
+    required: bool = False
+    options: list[str] = Field(default_factory=list, max_length=100)
+
+
+class ProfessionTemplateSection(BaseModel):
+    key: str = Field(min_length=1, max_length=80, pattern=r"^[a-z][a-z0-9_]*$")
+    title: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=1000)
+    questions: list[ProfessionTemplateQuestion] = Field(min_length=1, max_length=100)
+
+
+class ProfessionTemplatePublish(BaseModel):
+    profession_code: str = Field(min_length=2, max_length=80)
+    title: str = Field(min_length=1, max_length=200)
+    sections: list[ProfessionTemplateSection] = Field(min_length=1, max_length=30)
+
+
+class ProfessionIntakeAnswerSave(BaseModel):
+    answers: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProfessionIntakeSubmit(BaseModel):
+    consent_accepted: Literal[True]
+    consent_version: str = Field(min_length=1, max_length=80)
+
+
+class ProfessionCustomQuestionCreate(ProfessionTemplateQuestion):
+    pass
+
+
+class ProfessionIntakeReviewCreate(BaseModel):
+    event_type: Literal["REVIEW_STARTED", "APPROVED", "CHANGES_REQUESTED"]
+    notes: str | None = Field(default=None, max_length=4000)

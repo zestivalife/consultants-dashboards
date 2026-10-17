@@ -29,6 +29,7 @@ PUBLIC_PREFIXES: list[str] = [
     "/api/v1/auth/login",
     "/api/v1/auth/refresh",
     "/api/v1/auth/logout",
+    "/api/v1/profession-intake/",
 ]
 
 DELEGATED_AUTH_PREFIXES: list[str] = [

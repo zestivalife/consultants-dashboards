@@ -12,6 +12,8 @@ ProfessionalRole = Literal[
     "YOGA_MEDITATION_COACH", "DIABETES_EDUCATOR", "WOMENS_HEALTH_PRACTITIONER",
     "LIFESTYLE_MEDICINE_PRACTITIONER", "MENTOR", "DOCTOR_PHYSICIAN",
     "OTHER_HEALTHCARE_PROFESSIONAL",
+    "WELLNESS_CONSULTANT", "BEHAVIOURAL_THERAPIST", "OCCUPATIONAL_THERAPIST",
+    "MENTAL_WELLNESS_THERAPIST",
 ]
 
 
@@ -75,8 +77,9 @@ class ExternalConsultantRegisterRequest(BaseModel):
             "DIETITIAN_NUTRITIONIST", "PSYCHOLOGIST", "COUNSELLOR_THERAPIST",
             "DOCTOR_PHYSICIAN", "PHYSIOTHERAPIST", "DIABETES_EDUCATOR",
             "WOMENS_HEALTH_PRACTITIONER", "LIFESTYLE_MEDICINE_PRACTITIONER",
+            "BEHAVIOURAL_THERAPIST", "OCCUPATIONAL_THERAPIST", "MENTAL_WELLNESS_THERAPIST",
         }
-        certification_roles = {"HEALTH_COACH", "WELLNESS_COACH", "FITNESS_TRAINER", "YOGA_MEDITATION_COACH"}
+        certification_roles = {"HEALTH_COACH", "WELLNESS_COACH", "WELLNESS_CONSULTANT", "FITNESS_TRAINER", "YOGA_MEDITATION_COACH"}
         if role in qualification_roles and not self.qualification:
             raise ValueError("Qualification is required for the selected professional role.")
         if role in certification_roles and not self.certification:
