@@ -4,6 +4,8 @@ import { ArrowLeft, ArrowRight, CheckCircle2, Mail, Phone, ShieldCheck } from 'l
 import RecaptchaCheckbox from '../components/auth/RecaptchaCheckbox';
 import { authAPI, persistAuthSession } from '../lib/api';
 import { canonicalMobile } from '../lib/mobileIdentity.mjs';
+import PublicHeader from '../components/public-consultant/PublicHeader';
+import AuthStoryPanel from '../components/public-consultant/AuthStoryPanel';
 
 const ROLE_OPTIONS = [
   ['DIETITIAN_NUTRITIONIST', 'Dietitian / Nutritionist'], ['HEALTH_COACH', 'Health Coach'],
@@ -112,10 +114,13 @@ export default function ExternalConsultantSignupPage() {
 
   if (result) return <main className="fluent-page min-h-screen px-4 py-8 sm:px-6"><section className="fluent-card mx-auto max-w-2xl rounded-[36px] p-6 sm:p-10"><div className="rounded-[28px] border border-[#107c10]/20 bg-[#107c10]/10 p-6"><CheckCircle2 className="h-9 w-9 text-[#107c10]" /><h1 className="mt-4 text-3xl font-semibold text-[#242424]">Workspace created</h1><p className="mt-2 text-sm leading-6 text-[#424242]">Your account and workspace are ready. Complete onboarding to configure your practice.</p><Link href={result.workspace_ready ? '/dashboard/provider' : '/onboarding'} className="fluent-primary-button mt-6 inline-flex items-center gap-2 rounded-[22px] px-5 py-3 text-sm font-medium">Continue<ArrowRight className="h-4 w-4" /></Link></div></section></main>;
 
-  return <main className="fluent-page min-h-screen px-4 py-8 sm:px-6">
-    <section className="fluent-card mx-auto max-w-3xl rounded-[36px] p-6 sm:p-10">
+  return <main className="min-h-screen bg-[#f3f2ed] px-4 pb-10 pt-28 sm:px-6">
+    <PublicHeader action="login" />
+    <div className="mx-auto grid max-w-[1480px] gap-6 md:grid-cols-[0.82fr_1.18fr] lg:gap-8">
+    <div className="order-2 min-w-0 self-start md:order-1 md:sticky md:top-28"><AuthStoryPanel mode="signup" /></div>
+    <section className="fluent-card order-1 min-w-0 rounded-[36px] p-6 sm:p-10 md:order-2">
       <Link href="/login" className="inline-flex items-center gap-2 text-sm text-[#0f6cbd]"><ArrowLeft className="h-4 w-4" />Back to sign in</Link>
-      <p className="mt-8 text-xs uppercase tracking-[0.24em] text-[#0f6cbd]">Fiteatsy Consultant SaaS</p>
+      <p className="mt-8 text-xs uppercase tracking-[0.24em] text-[#0f6cbd]">Zestiva Consultant</p>
       <h1 className="mt-3 text-3xl font-semibold text-[#242424] sm:text-4xl">Create your consultant workspace</h1>
       <p className="mt-3 text-base leading-7 text-[#616161]">Tell us about your practice. You can complete the remaining setup after your workspace is created.</p>
       <form onSubmit={submit} className="mt-8 grid gap-5 sm:grid-cols-2" noValidate>
@@ -141,6 +146,6 @@ export default function ExternalConsultantSignupPage() {
       </form>
       {error ? <div role="alert" className="mt-5 rounded-[20px] border border-[#d13438]/20 bg-[#d13438]/10 px-4 py-3 text-sm text-[#b10e1c]">{error}</div> : null}
       <p className="mt-6 text-center text-sm text-[#616161]">Already have an account? <Link href="/login" className="font-medium text-[#0f6cbd]">Sign in</Link></p>
-    </section>
+    </section></div>
   </main>;
 }
