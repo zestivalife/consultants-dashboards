@@ -7,11 +7,20 @@ const login=read('../pages/login.js'),signup=read('../pages/signup.js'),landing=
 const header=read('../components/public-consultant/PublicHeader.jsx'),story=read('../components/public-consultant/AuthStoryPanel.jsx'),logo=read('../components/public-consultant/ZestivaLogo.jsx');
 
 test('root and auth surfaces share the exact approved Zestiva asset',()=>{
-  assert.match(logo,/src="\/zestiva-logo\.png"/);
+  assert.match(logo,/src="\/zestiva\.svg"/);
+  assert.match(logo,/width=\{336\} height=\{86\}/);
   assert.match(landing,/ZestivaLogo/);
   assert.match(header,/ZestivaLogo/);
   assert.match(login,/PublicHeader/);
   assert.match(signup,/PublicHeader/);
+});
+
+test('auth layouts preserve task-first mobile order and approved desktop ratios',()=>{
+  assert.match(login,/lg:grid-cols-\[minmax\(0,1\.35fr\)_minmax\(420px,0\.9fr\)\]/);
+  assert.match(login,/max-w-\[560px\]/);
+  assert.match(signup,/min-\[1200px\]:grid-cols-\[minmax\(360px,0\.82fr\)_minmax\(620px,1\.18fr\)\]/);
+  assert.match(login,/order-2 min-w-0 lg:order-1/);
+  assert.match(signup,/order-2 min-w-0 self-start min-\[1200px\]:order-1/);
 });
 
 test('auth header preserves exact public navigation and reciprocal actions',()=>{

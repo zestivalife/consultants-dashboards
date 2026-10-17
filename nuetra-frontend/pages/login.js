@@ -44,12 +44,12 @@ export default function LoginPage() {
         <div className="absolute bottom-[-12%] left-[24%] h-[320px] w-[320px] rounded-full bg-[#fef3c7] blur-3xl" />
       </div>
 
-      <div className="relative mx-auto grid min-h-screen max-w-[1480px] gap-6 px-4 pb-8 pt-28 md:grid-cols-[0.96fr_1.04fr] md:px-6 lg:px-8">
+      <div className="relative mx-auto grid min-h-screen max-w-[1480px] items-start gap-6 px-4 pb-8 pt-28 sm:px-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(420px,0.9fr)] lg:px-8">
         <motion.section
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.28, ease: 'easeOut' }}
-          className="order-2 min-w-0 md:order-1"
+          className="order-2 min-w-0 lg:order-1"
         >
           <AuthStoryPanel mode="login" />
         </motion.section>
@@ -58,7 +58,7 @@ export default function LoginPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, ease: 'easeOut', delay: 0.05 }}
-          className="fluent-card order-1 min-w-0 self-start rounded-[36px] p-6 backdrop-blur sm:p-8 md:order-2"
+          className="fluent-card order-1 w-full min-w-0 max-w-[560px] self-start justify-self-end rounded-[36px] p-6 backdrop-blur sm:p-8 lg:order-2"
         >
           <div className="flex items-center justify-between gap-3">
             <div>

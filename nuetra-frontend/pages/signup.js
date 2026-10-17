@@ -116,9 +116,9 @@ export default function ExternalConsultantSignupPage() {
 
   return <main className="min-h-screen bg-[#f3f2ed] px-4 pb-10 pt-28 sm:px-6">
     <PublicHeader action="login" />
-    <div className="mx-auto grid max-w-[1480px] gap-6 md:grid-cols-[0.82fr_1.18fr] lg:gap-8">
-    <div className="order-2 min-w-0 self-start md:order-1 md:sticky md:top-28"><AuthStoryPanel mode="signup" /></div>
-    <section className="fluent-card order-1 min-w-0 rounded-[36px] p-6 sm:p-10 md:order-2">
+    <div className="mx-auto grid max-w-[1480px] items-start gap-6 min-[1200px]:grid-cols-[minmax(360px,0.82fr)_minmax(620px,1.18fr)] min-[1200px]:gap-8">
+    <div className="order-2 min-w-0 self-start min-[1200px]:order-1 min-[1200px]:sticky min-[1200px]:top-28"><AuthStoryPanel mode="signup" /></div>
+    <section className="fluent-card order-1 min-w-0 rounded-[36px] p-6 sm:p-10 min-[1200px]:order-2">
       <Link href="/login" className="inline-flex items-center gap-2 text-sm text-[#0f6cbd]"><ArrowLeft className="h-4 w-4" />Back to sign in</Link>
       <p className="mt-8 text-xs uppercase tracking-[0.24em] text-[#0f6cbd]">Zestiva Consultant</p>
       <h1 className="mt-3 text-3xl font-semibold text-[#242424] sm:text-4xl">Create your consultant workspace</h1>
