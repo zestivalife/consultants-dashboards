@@ -2,6 +2,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 from app.schemas.people_access import ExternalQaPracticeCreateRequest
+from app.schemas.auth import LoginRequest
 from app.services.external_qa_practice_service import _fixture_key, _validate_qa
 
 PROFESSIONS = (
@@ -32,6 +33,21 @@ def test_non_qa_identity_or_tenant_fails_closed(email, tenant):
         _validate_qa(body(email=email, tenant=tenant))
 
 
+def test_governed_qa_identity_can_use_normal_login_contract():
+    request = LoginRequest(email="qa+psychologist@zestiva.test", password="temporary-secret")
+    assert request.email == "qa+psychologist@zestiva.test"
+
+
+@pytest.mark.parametrize("email", [
+    "real-user@zestiva.test",
+    "qa+psychologist@example.test",
+    "qa+@zestiva.test",
+])
+def test_login_does_not_broaden_reserved_domain_acceptance(email):
+    with pytest.raises(ValidationError):
+        LoginRequest(email=email, password="temporary-secret")
+
+
 def test_orchestration_uses_signed_exact_scope_and_no_credential_output():
     source = Path("app/services/external_qa_practice_service.py").read_text()
     assert '"purpose": "qa_external_practice"' in source
@@ -41,6 +57,13 @@ def test_orchestration_uses_signed_exact_scope_and_no_credential_output():
     assert "USE_GOVERNED_OWNER_PASSWORD_RESET" in source
     assert "plain_password" not in source
     assert "temporary_password" not in source
+
+
+def test_downstream_failure_uses_pre_rollback_ledger_identity():
+    source = Path("app/services/external_qa_practice_service.py").read_text()
+    assert "ledger_id = ledger.id" in source
+    assert "session.get(ExternalQaPracticeProvisioning, ledger_id)" in source
+    assert "session.get(ExternalQaPracticeProvisioning, ledger.id)" not in source
 
 
 def test_migration_is_additive_and_does_not_touch_normal_auth_semantics():

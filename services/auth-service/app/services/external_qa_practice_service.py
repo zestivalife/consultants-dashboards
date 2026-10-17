@@ -101,6 +101,9 @@ async def provision_external_qa_practice(session: AsyncSession, body: ExternalQa
     user = await session.get(User, ledger.auth_user_id)
     if user is None or user.account_classification != QA_CLASSIFICATION:
         raise ConflictException("The governed QA identity lineage is invalid.")
+    # Rollback expires ORM attributes. Preserve the scalar identity before any
+    # downstream call so failure bookkeeping never triggers implicit async IO.
+    ledger_id = ledger.id
     config = None
     try:
         if ledger.status == "PENDING":
@@ -116,7 +119,7 @@ async def provision_external_qa_practice(session: AsyncSession, body: ExternalQa
             await session.commit()
     except Exception:
         await session.rollback()
-        current = await session.get(ExternalQaPracticeProvisioning, ledger.id)
+        current = await session.get(ExternalQaPracticeProvisioning, ledger_id)
         if current:
             current.last_error_code = "DOWNSTREAM_PROVISIONING_FAILED"
             await session.commit()

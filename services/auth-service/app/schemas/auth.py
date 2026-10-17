@@ -1,9 +1,10 @@
 import uuid
+import re
 from datetime import datetime
 
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, TypeAdapter, model_validator
 
 
 ProfessionalRole = Literal[
@@ -18,7 +19,7 @@ ProfessionalRole = Literal[
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr | None = None
+    email: str | None = Field(default=None, min_length=3, max_length=320)
     mobile_number: str | None = Field(default=None, min_length=10, max_length=32)
     password: str
 
@@ -26,6 +27,15 @@ class LoginRequest(BaseModel):
     def validate_identifier(self):
         if bool(self.email) == bool(self.mobile_number):
             raise ValueError("Provide exactly one email or mobile number.")
+        if self.email:
+            normalized = self.email.strip().lower()
+            governed_qa = re.fullmatch(
+                r"qa(?:\+|-)[a-z0-9][a-z0-9._+-]*@zestiva\.test",
+                normalized,
+            )
+            if governed_qa is None:
+                normalized = str(TypeAdapter(EmailStr).validate_python(normalized))
+            self.email = normalized
         return self
 
 
