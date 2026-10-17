@@ -78,6 +78,8 @@ class Settings(BaseSettings):
     fiteatsy_delegation_key_id: str = "consultant-auth-v1"
     fiteatsy_delegation_issuer: str = "consultant-auth-service"
     fiteatsy_delegation_audience: str = "fiteatsy-backend"
+    practice_operations_service_url: str = "http://practice-operations-service:8006"
+    practice_qa_delegation_audience: str = "practice-operations-service"
 
     log_level: str = "INFO"
     log_format: str = "json"

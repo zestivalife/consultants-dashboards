@@ -29,6 +29,7 @@ from app.db import get_db, engine
 from app.profession_intake import (FROZEN_PROFESSIONS, SUPPORTED_PROFESSIONS,
                                    IntakeTokenError, issue_token, token_hash,
                                    validate_token)
+from app.qa_delegation import QaDelegation, QaDelegationError, require_qa_delegation
 
 logger = structlog.get_logger(__name__)
 RESOURCE_TABLES = {
@@ -143,6 +144,50 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Practice Operations Service", version=get_settings().app_version, lifespan=lifespan)
+
+
+@app.exception_handler(QaDelegationError)
+async def qa_delegation_error(_request: Request, exc: QaDelegationError):
+    return JSONResponse(status_code=403, content={"success": False, "error": {"code": "QA_DELEGATION_DENIED", "safe_message": str(exc)}})
+
+
+@app.put("/internal/qa/external-practice/configuration")
+async def configure_external_qa_practice(request: Request, body: PracticeConfigurationUpdate,
+    authority: QaDelegation = Depends(require_qa_delegation), db: AsyncSession = Depends(get_db)):
+    if body.profession != authority.profession_code or body.profession not in SUPPORTED_PROFESSIONS:
+        return error(request, 422, "QA_PROFESSION_SCOPE_MISMATCH", "The signed profession scope does not match the request")
+    requested = set(body.capabilities) or PROFESSION_DEFAULTS[body.profession]
+    if requested - ALL_CAPABILITIES:
+        return error(request, 400, "UNKNOWN_CAPABILITY", "One or more capabilities are not recognised")
+    terminology, now = TERMINOLOGY[body.profession], datetime.now(timezone.utc)
+    row = (await db.execute(text("""INSERT INTO practice_tenant_configuration
+      (tenant_id,profession,capabilities,terminology,profile,version,updated_by,updated_at)
+      VALUES (:tenant,:profession,CAST(:capabilities AS jsonb),CAST(:terminology AS jsonb),CAST(:profile AS jsonb),1,:actor,:now)
+      ON CONFLICT (tenant_id) DO UPDATE SET profession=EXCLUDED.profession,capabilities=EXCLUDED.capabilities,
+      terminology=EXCLUDED.terminology,profile=EXCLUDED.profile,version=practice_tenant_configuration.version+1,
+      updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at
+      RETURNING profession,capabilities,terminology,profile,version"""), {
+        "tenant": authority.tenant_id, "profession": body.profession, "capabilities": json.dumps(sorted(requested)),
+        "terminology": json.dumps(terminology), "profile": json.dumps(body.profile), "actor": authority.actor_id, "now": now,
+    })).mappings().one()
+    profile_id = (await db.execute(text("""INSERT INTO external_profession_profiles
+      (id,tenant_id,profession_code,display_name,terminology,active,version,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:profession,:display,CAST(:terminology AS jsonb),TRUE,1,:actor,:now,:now)
+      ON CONFLICT (tenant_id,profession_code) DO UPDATE SET terminology=EXCLUDED.terminology,active=TRUE,
+      version=external_profession_profiles.version+1,updated_at=EXCLUDED.updated_at RETURNING id"""), {
+        "id": uuid4(), "tenant": authority.tenant_id, "profession": body.profession,
+        "display": body.profession.replace("_", " ").title(), "terminology": json.dumps(terminology),
+        "actor": authority.actor_id, "now": now,
+    })).scalar_one()
+    await db.execute(text("DELETE FROM external_profession_capability_profiles WHERE tenant_id=:tenant AND profession_profile_id=:profile"), {"tenant": authority.tenant_id, "profile": profile_id})
+    for capability in sorted(requested):
+        await db.execute(text("""INSERT INTO external_profession_capability_profiles
+          (id,profession_profile_id,tenant_id,capability_code,enabled,created_at)
+          VALUES (:id,:profile,:tenant,:capability,TRUE,:now)"""), {
+            "id": uuid4(), "profile": profile_id, "tenant": authority.tenant_id, "capability": capability, "now": now,
+        })
+    await db.commit()
+    return {"success": True, "data": dict(row), "error": None, "request_id": request.state.correlation_id}
 
 
 def _profession_token_error(request: Request, exc: Exception):

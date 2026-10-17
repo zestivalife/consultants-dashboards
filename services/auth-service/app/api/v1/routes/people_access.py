@@ -23,11 +23,30 @@ from app.schemas.people_access import (
     UserProductAssignmentRequest,
     UserServiceAssignmentRequest,
     UserNoteCreateRequest,
+    ExternalQaPracticeCreateRequest,
+    ExternalQaPracticeDeactivateRequest,
 )
 from app.services import people_access_service
+from app.services.external_qa_practice_service import deactivate_external_qa_practice, provision_external_qa_practice
 
 
 router = APIRouter(tags=["people-access"])
+
+
+@router.post("/qa/external-practice")
+async def provision_qa_external_practice(body: ExternalQaPracticeCreateRequest,
+    session: AsyncSession = Depends(get_db), current_user: UserResponse = Depends(get_current_user)):
+    await _require_people_access(session, current_user, "qa.external_practice.provision")
+    result = await provision_external_qa_practice(session, body, current_user.id)
+    return success_response(data=result, message="Governed External QA practice provisioned", status_code=201)
+
+
+@router.post("/qa/external-practice/{profession_code}/deactivate")
+async def deactivate_qa_external_practice(profession_code: str, body: ExternalQaPracticeDeactivateRequest,
+    session: AsyncSession = Depends(get_db), current_user: UserResponse = Depends(get_current_user)):
+    await _require_people_access(session, current_user, "qa.external_practice.provision")
+    result = await deactivate_external_qa_practice(session, profession_code.upper(), body.reason, current_user.id)
+    return success_response(data=result, message="Governed External QA practice deactivated")
 
 
 async def _require_people_access(

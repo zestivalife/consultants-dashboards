@@ -1,7 +1,24 @@
 import uuid
+from typing import Any, Literal
 from datetime import date, datetime
 
 from pydantic import BaseModel, EmailStr, Field
+
+ExternalQaProfession = Literal["DIABETES_EDUCATOR","PSYCHOLOGIST","WELLNESS_CONSULTANT","HEALTH_COACH","BEHAVIOURAL_THERAPIST","OCCUPATIONAL_THERAPIST","PHYSIOTHERAPIST","MENTAL_WELLNESS_THERAPIST"]
+
+
+class ExternalQaPracticeCreateRequest(BaseModel):
+    profession_code: ExternalQaProfession
+    tenant_name: str = Field(min_length=3, max_length=160)
+    consultant_display_name: str = Field(min_length=2, max_length=120)
+    consultant_email: str = Field(min_length=6, max_length=180, pattern=r"^[^\s@]+@[^\s@]+$")
+    client_count: int = Field(default=1, ge=1, le=5)
+    specialisation: str | None = Field(default=None, max_length=120)
+    seed_profile: dict[str, Any] | None = None
+
+
+class ExternalQaPracticeDeactivateRequest(BaseModel):
+    reason: str = Field(min_length=3, max_length=240)
 
 
 class PeopleAccessSummaryMetric(BaseModel):

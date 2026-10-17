@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     profession_intake_secret: str = Field(default="development-profession-intake-secret", validation_alias=AliasChoices("PROFESSION_INTAKE_SECRET", "profession_intake_secret"))
     profession_intake_public_url: str = Field(default="http://localhost:3000/profession-intake", validation_alias=AliasChoices("PROFESSION_INTAKE_PUBLIC_URL", "profession_intake_public_url"))
     private_notes_encryption_key: str = Field(default="development-private-notes-key", validation_alias=AliasChoices("PRIVATE_NOTES_ENCRYPTION_KEY", "private_notes_encryption_key"))
+    qa_delegation_public_key: str | None = Field(default=None, validation_alias=AliasChoices("QA_DELEGATION_PUBLIC_KEY", "qa_delegation_public_key"))
+    qa_delegation_issuer: str = Field(default="consultant-auth-service", validation_alias=AliasChoices("QA_DELEGATION_ISSUER", "qa_delegation_issuer"))
+    qa_delegation_audience: str = Field(default="practice-operations-service", validation_alias=AliasChoices("QA_DELEGATION_AUDIENCE", "qa_delegation_audience"))
 
     model_config = {"env_file": ".env", "case_sensitive": False}
 
@@ -33,6 +36,8 @@ class Settings(BaseSettings):
             raise ValueError("PROFESSION_INTAKE_SECRET must be set in production")
         if self.app_env.lower() == "production" and self.private_notes_encryption_key == "development-private-notes-key":
             raise ValueError("PRIVATE_NOTES_ENCRYPTION_KEY must be set in production")
+        if self.app_env.lower() == "production" and not self.qa_delegation_public_key:
+            raise ValueError("QA_DELEGATION_PUBLIC_KEY must be set in production")
         return self
 
 

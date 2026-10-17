@@ -1,4 +1,5 @@
 OWNER_ACCESS_RULES: tuple[tuple[str, str, set[str]], ...] = (
+    ("/api/v1/owner/people-access/qa/external-practice", "POST", {"qa.external_practice.provision"}),
     ("/api/v1/owner/people-access/summary", "GET", {"users.read"}),
     ("/api/v1/owner/people-access/metadata", "GET", {"users.read"}),
     ("/api/v1/owner/people-access/roles", "POST", {"settings.manage"}),

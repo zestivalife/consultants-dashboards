@@ -42,6 +42,7 @@ from app.db.models.identity_profile import (
 from app.db.models.master_data import MasterDataCategory, MasterDataItem
 from app.db.models.external_signup import ExternalSignupChallenge, ExternalSignupProvisioning
 from app.db.models.inhouse_qa import InhouseQaProvisioning
+from app.db.models.external_qa import ExternalQaPracticeProvisioning
 
 __all__ = [
     "Role",
@@ -88,4 +89,5 @@ __all__ = [
     "MasterDataItem",
     "ExternalSignupChallenge",
     "ExternalSignupProvisioning",
+    "ExternalQaPracticeProvisioning",
 ]
