@@ -176,3 +176,29 @@ class ProfessionPlanSave(BaseModel):
     title: str = Field(min_length=1, max_length=240)
     expected_version: int = Field(ge=1)
     sections: list[ProfessionPlanSection] = Field(default_factory=list, max_length=40)
+
+class SessionNoteSection(BaseModel):
+    key: str = Field(min_length=1, max_length=100, pattern=r"^[a-z][a-z0-9_]*$")
+    title: str = Field(min_length=1, max_length=240)
+    content: dict[str, Any] = Field(default_factory=dict)
+    visibility: Literal["PRACTITIONER","CLIENT_INSTRUCTION"] = "PRACTITIONER"
+
+class SessionNoteCreate(BaseModel):
+    client_id: str
+    consultation_id: str | None = None
+    note_type: str = Field(min_length=1, max_length=60)
+    title: str = Field(min_length=1, max_length=240)
+    sections: list[SessionNoteSection] = Field(default_factory=list, max_length=40)
+
+class SessionNoteSave(BaseModel):
+    title: str = Field(min_length=1, max_length=240)
+    expected_version: int = Field(ge=1)
+    sections: list[SessionNoteSection] = Field(default_factory=list, max_length=40)
+
+class SessionNoteAmendment(BaseModel):
+    reason: str = Field(min_length=3, max_length=2000)
+    title: str = Field(min_length=1, max_length=240)
+    sections: list[SessionNoteSection] = Field(default_factory=list, max_length=40)
+
+class PrivateNoteCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=20000)

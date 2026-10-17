@@ -2,7 +2,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from uuid import UUID, uuid4
 import json
+import base64
+import hashlib
 import structlog
+from cryptography.fernet import Fernet
 from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -18,6 +21,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            ProfessionIntakeReviewCreate, AssessmentAssign,
                            AssessmentAnswerSave, AssessmentComplete,
                            ProfessionPlanCreate, ProfessionPlanSave)
+from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
 from app.profession_intake import (FROZEN_PROFESSIONS, SUPPORTED_PROFESSIONS,
@@ -44,7 +48,7 @@ CREATE_EVENTS = {"consultations": "CONSULTATION_SCHEDULED", "follow-ups": "FOLLO
 COMPLETE_EVENTS = {"consultations": "CONSULTATION_COMPLETED", "follow-ups": "FOLLOWUP_COMPLETED", "tasks": "TASK_COMPLETED"}
 
 ALL_CAPABILITIES = {
-    "CLIENT_CRM", "CLIENT_ONBOARDING", "CONSULTATIONS", "SESSION_NOTES",
+    "CLIENT_CRM", "CLIENT_ONBOARDING", "CONSULTATIONS", "SESSION_NOTES", "PRIVATE_NOTES",
     "FOLLOW_UPS", "GOALS_PROGRESS", "TASKS", "CALENDAR", "COMMUNICATION",
     "WHATSAPP_SHARING", "ASSESSMENTS", "FORM_BUILDER", "DIET_PLAN",
     "CARE_PLAN", "THERAPY_PLAN", "BEHAVIOURAL_PLAN", "EXERCISE_PLAN",
@@ -56,15 +60,15 @@ RESOURCE_CAPABILITY = {"consultations":"CONSULTATIONS", "follow-ups":"FOLLOW_UPS
 PROFESSION_DEFAULTS = {
     "DIETITIAN": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","DIET_PLAN","LAB_ANALYSIS","BIOMARKERS","MEASUREMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "NUTRITIONIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","DIET_PLAN","LAB_ANALYSIS","BIOMARKERS","MEASUREMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
-    "PSYCHOLOGIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "PSYCHOLOGIST": {"CONSULTATIONS","SESSION_NOTES","PRIVATE_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "COUNSELLOR": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "PHYSIOTHERAPIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","REHAB_PLAN","EXERCISE_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "HEALTH_COACH": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","HABIT_PLAN","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "DIABETES_EDUCATOR": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","CARE_PLAN","ASSESSMENTS","MEASUREMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "WELLNESS_CONSULTANT": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","CARE_PLAN","HABIT_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
-    "BEHAVIOURAL_THERAPIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","BEHAVIOURAL_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "BEHAVIOURAL_THERAPIST": {"CONSULTATIONS","SESSION_NOTES","PRIVATE_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","BEHAVIOURAL_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "OCCUPATIONAL_THERAPIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
-    "MENTAL_WELLNESS_THERAPIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "MENTAL_WELLNESS_THERAPIST": {"CONSULTATIONS","SESSION_NOTES","PRIVATE_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
 }
 TERMINOLOGY = {
     "DIETITIAN":{"consultation":"Consultation","plan":"Diet Plan","goal":"Nutrition Goal"},
@@ -747,7 +751,7 @@ async def profession_client360(request: Request, client_id: str, ctx=Depends(con
             projected.append({"label":label,"source":source,"state":"EXTERNAL_SOURCE","items":[]})
         else:
             projected.append({"label":label,"source":source,**records[source]})
-    return {"success":True,"data":{"profession":profession,"terminology":config["terminology"],"sections":projected},"error":None,"request_id":request.state.correlation_id}
+    return {"success":True,"data":{"profession":profession,"capabilities":config["capabilities"],"terminology":config["terminology"],"sections":projected},"error":None,"request_id":request.state.correlation_id}
 
 async def _write_plan_sections(db, tenant_id, version_id, sections):
     for section_order, section in enumerate(sections, 1):
@@ -816,6 +820,86 @@ async def publish_profession_plan(request:Request,plan_id:UUID,ctx=Depends(conte
     await db.execute(text("UPDATE external_profession_plans SET status='PUBLISHED',updated_at=:now WHERE id=:plan AND tenant_id=:tenant"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"]})
     await db.execute(text("INSERT INTO external_profession_plan_audit_events(id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,created_at) VALUES (:id,:plan,:version,:tenant,:client,'PUBLISHED',:actor,:now)"),{"id":uuid4(),"plan":plan_id,"version":version,"tenant":ctx["tenant_id"],"client":plan["client_id"],"actor":ctx["user_id"],"now":now});await db.commit()
     return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"]},"error":None,"request_id":request.state.correlation_id}
+
+async def _write_note_sections(db,tenant,version_id,sections):
+    for order,section in enumerate(sections,1):
+        await db.execute(text("INSERT INTO external_session_note_sections(id,note_version_id,tenant_id,section_key,title,content,visibility,sort_order) VALUES (:id,:version,:tenant,:key,:title,CAST(:content AS jsonb),:visibility,:sort)"),{"id":uuid4(),"version":version_id,"tenant":tenant,"key":section.key,"title":section.title,"content":json.dumps(section.content),"visibility":section.visibility,"sort":order})
+
+def _private_note_cipher():
+    secret=get_settings().private_notes_encryption_key.encode()
+    return Fernet(base64.urlsafe_b64encode(hashlib.sha256(secret).digest()))
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/session-notes")
+async def list_session_notes(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"SESSION_NOTES")
+    if denied:return denied
+    rows=(await db.execute(text("SELECT id,consultation_id,note_type,title,status,current_version,created_at,updated_at FROM external_session_notes WHERE tenant_id=:tenant AND client_id=:client ORDER BY updated_at DESC"),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/session-notes",status_code=201)
+async def create_session_note(request:Request,body:SessionNoteCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"SESSION_NOTES")
+    if denied:return denied
+    config=await configuration(db,ctx);note_id=uuid4();version_id=uuid4();now=datetime.now(timezone.utc)
+    await db.execute(text("INSERT INTO external_session_notes(id,tenant_id,client_id,profession_code,consultation_id,note_type,title,status,current_version,created_by,created_at,updated_at) VALUES (:id,:tenant,:client,:profession,:consultation,:type,:title,'DRAFT',1,:actor,:now,:now)"),{"id":note_id,"tenant":ctx["tenant_id"],"client":body.client_id,"profession":config["profession"],"consultation":body.consultation_id,"type":body.note_type,"title":body.title,"actor":ctx["user_id"],"now":now})
+    await db.execute(text("INSERT INTO external_session_note_versions(id,note_id,tenant_id,client_id,version,status,title,created_by,created_at) VALUES (:id,:note,:tenant,:client,1,'DRAFT',:title,:actor,:now)"),{"id":version_id,"note":note_id,"tenant":ctx["tenant_id"],"client":body.client_id,"title":body.title,"actor":ctx["user_id"],"now":now});await _write_note_sections(db,ctx["tenant_id"],version_id,body.sections);await db.commit()
+    return {"success":True,"data":{"id":str(note_id),"status":"DRAFT","version":1},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/session-notes/{note_id}")
+async def session_note_detail(request:Request,note_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"SESSION_NOTES")
+    if denied:return denied
+    note=(await db.execute(text("SELECT id,client_id,consultation_id,note_type,title,status,current_version,created_at,updated_at FROM external_session_notes WHERE id=:id AND tenant_id=:tenant"),{"id":note_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not note:return error(request,404,"SESSION_NOTE_NOT_FOUND","Session note not found")
+    versions=[dict(row) for row in (await db.execute(text("SELECT id,version,status,title,amendment_reason,created_at,finalised_at FROM external_session_note_versions WHERE note_id=:note AND tenant_id=:tenant ORDER BY version DESC"),{"note":note_id,"tenant":ctx["tenant_id"]})).mappings().all()];current=next(row for row in versions if row["version"]==note["current_version"])
+    sections=[dict(row) for row in (await db.execute(text("SELECT id,section_key,title,content,visibility,sort_order FROM external_session_note_sections WHERE note_version_id=:version AND tenant_id=:tenant ORDER BY sort_order"),{"version":current["id"],"tenant":ctx["tenant_id"]})).mappings().all()]
+    return {"success":True,"data":{"note":dict(note),"versions":versions,"sections":sections},"error":None,"request_id":request.state.correlation_id}
+
+@app.patch("/api/v1/practice-operations/session-notes/{note_id}")
+async def save_session_note(request:Request,note_id:UUID,body:SessionNoteSave,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"SESSION_NOTES")
+    if denied:return denied
+    note=(await db.execute(text("SELECT id,client_id,status,current_version FROM external_session_notes WHERE id=:id AND tenant_id=:tenant"),{"id":note_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not note:return error(request,404,"SESSION_NOTE_NOT_FOUND","Session note not found")
+    if note["status"] in {"FINALISED","AMENDED"}:return error(request,409,"FINALISED_NOTE_IMMUTABLE","Finalised note versions are immutable; create an amendment")
+    if note["current_version"]!=body.expected_version:return error(request,409,"STALE_WRITE","This note changed. Refresh and retry")
+    version=(await db.execute(text("SELECT id FROM external_session_note_versions WHERE note_id=:note AND tenant_id=:tenant AND version=:version"),{"note":note_id,"tenant":ctx["tenant_id"],"version":note["current_version"]})).scalar_one();await db.execute(text("DELETE FROM external_session_note_sections WHERE note_version_id=:version AND tenant_id=:tenant"),{"version":version,"tenant":ctx["tenant_id"]});await _write_note_sections(db,ctx["tenant_id"],version,body.sections);now=datetime.now(timezone.utc)
+    await db.execute(text("UPDATE external_session_note_versions SET status='SAVED',title=:title WHERE id=:version"),{"title":body.title,"version":version});await db.execute(text("UPDATE external_session_notes SET status='SAVED',title=:title,updated_at=:now WHERE id=:note AND tenant_id=:tenant"),{"title":body.title,"now":now,"note":note_id,"tenant":ctx["tenant_id"]});await db.commit()
+    return {"success":True,"data":{"id":str(note_id),"status":"SAVED","version":note["current_version"]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/session-notes/{note_id}/finalise")
+async def finalise_session_note(request:Request,note_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"SESSION_NOTES")
+    if denied:return denied
+    now=datetime.now(timezone.utc);row=(await db.execute(text("UPDATE external_session_notes SET status='FINALISED',updated_at=:now WHERE id=:id AND tenant_id=:tenant AND status IN ('DRAFT','SAVED') RETURNING current_version"),{"now":now,"id":note_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,409,"NOTE_NOT_FINALISABLE","This note cannot be finalised")
+    await db.execute(text("UPDATE external_session_note_versions SET status='FINALISED',finalised_at=:now WHERE note_id=:note AND tenant_id=:tenant AND version=:version"),{"now":now,"note":note_id,"tenant":ctx["tenant_id"],"version":row["current_version"]});await db.commit();return {"success":True,"data":{"id":str(note_id),"status":"FINALISED"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/session-notes/{note_id}/amendments",status_code=201)
+async def amend_session_note(request:Request,note_id:UUID,body:SessionNoteAmendment,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"SESSION_NOTES")
+    if denied:return denied
+    note=(await db.execute(text("SELECT client_id,status,current_version FROM external_session_notes WHERE id=:id AND tenant_id=:tenant"),{"id":note_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not note or note["status"] not in {"FINALISED","AMENDED"}:return error(request,409,"AMENDMENT_REQUIRES_FINALISED_NOTE","Only a finalised note can be amended")
+    version_number=note["current_version"]+1;version_id=uuid4();now=datetime.now(timezone.utc)
+    await db.execute(text("INSERT INTO external_session_note_versions(id,note_id,tenant_id,client_id,version,status,title,amendment_reason,created_by,created_at,finalised_at) VALUES (:id,:note,:tenant,:client,:version,'AMENDED',:title,:reason,:actor,:now,:now)"),{"id":version_id,"note":note_id,"tenant":ctx["tenant_id"],"client":note["client_id"],"version":version_number,"title":body.title,"reason":body.reason,"actor":ctx["user_id"],"now":now});await _write_note_sections(db,ctx["tenant_id"],version_id,body.sections)
+    await db.execute(text("UPDATE external_session_notes SET status='AMENDED',title=:title,current_version=:version,updated_at=:now WHERE id=:note AND tenant_id=:tenant"),{"title":body.title,"version":version_number,"now":now,"note":note_id,"tenant":ctx["tenant_id"]});await db.commit();return {"success":True,"data":{"id":str(note_id),"status":"AMENDED","version":version_number},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/session-notes/{note_id}/private")
+async def list_private_notes(request:Request,note_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"PRIVATE_NOTES")
+    if denied:return denied
+    rows=(await db.execute(text("SELECT id,encrypted_content,created_by,created_at,updated_at FROM external_session_private_notes WHERE note_id=:note AND tenant_id=:tenant ORDER BY created_at DESC"),{"note":note_id,"tenant":ctx["tenant_id"]})).mappings().all();cipher=_private_note_cipher()
+    return {"success":True,"data":{"items":[{"id":row["id"],"content":cipher.decrypt(row["encrypted_content"].encode()).decode(),"created_by":row["created_by"],"created_at":row["created_at"],"updated_at":row["updated_at"]} for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/session-notes/{note_id}/private",status_code=201)
+async def create_private_note(request:Request,note_id:UUID,body:PrivateNoteCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"PRIVATE_NOTES")
+    if denied:return denied
+    note=(await db.execute(text("SELECT client_id FROM external_session_notes WHERE id=:id AND tenant_id=:tenant"),{"id":note_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not note:return error(request,404,"SESSION_NOTE_NOT_FOUND","Session note not found")
+    item_id=uuid4();now=datetime.now(timezone.utc);encrypted=_private_note_cipher().encrypt(body.content.encode()).decode()
+    await db.execute(text("INSERT INTO external_session_private_notes(id,note_id,tenant_id,client_id,encrypted_content,created_by,created_at,updated_at) VALUES (:id,:note,:tenant,:client,:content,:actor,:now,:now)"),{"id":item_id,"note":note_id,"tenant":ctx["tenant_id"],"client":note["client_id"],"content":encrypted,"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"id":str(item_id)},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/profession-intake/{token}")
 async def read_profession_intake(request: Request, token: str, db: AsyncSession=Depends(get_db)):

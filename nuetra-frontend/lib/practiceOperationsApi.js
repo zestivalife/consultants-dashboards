@@ -34,6 +34,14 @@ export function createProfessionPlan(payload){return request('/profession-plans'
 export function getProfessionPlan(planId){return request(`/profession-plans/${encodeURIComponent(planId)}`);}
 export function saveProfessionPlan(planId,payload){return request(`/profession-plans/${encodeURIComponent(planId)}`,{method:'PATCH',body:JSON.stringify(payload)});}
 export function publishProfessionPlan(planId){return request(`/profession-plans/${encodeURIComponent(planId)}/publish`,{method:'POST'});}
+export function listSessionNotes(clientId){return request(`/clients/${encodeURIComponent(clientId)}/session-notes`);}
+export function createSessionNote(payload){return request('/session-notes',{method:'POST',body:JSON.stringify(payload)});}
+export function getSessionNote(noteId){return request(`/session-notes/${encodeURIComponent(noteId)}`);}
+export function saveSessionNote(noteId,payload){return request(`/session-notes/${encodeURIComponent(noteId)}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function finaliseSessionNote(noteId){return request(`/session-notes/${encodeURIComponent(noteId)}/finalise`,{method:'POST'});}
+export function amendSessionNote(noteId,payload){return request(`/session-notes/${encodeURIComponent(noteId)}/amendments`,{method:'POST',body:JSON.stringify(payload)});}
+export function listPrivateNotes(noteId){return request(`/session-notes/${encodeURIComponent(noteId)}/private`);}
+export function createPrivateNote(noteId,payload){return request(`/session-notes/${encodeURIComponent(noteId)}/private`,{method:'POST',body:JSON.stringify(payload)});}
 export function listProfessionIntakeProjections(){return request('/profession-intake/projections');}
 export function publishProfessionIntakeTemplate(payload){return request('/profession-intake/templates',{method:'POST',body:JSON.stringify(payload)});}
 export function listPracticeCalendar({view='AGENDA',anchor,clientId}={}){const query=new URLSearchParams({view});if(anchor)query.set('anchor',anchor);if(clientId)query.set('client_id',clientId);return request(`/calendar/events?${query}`);}
