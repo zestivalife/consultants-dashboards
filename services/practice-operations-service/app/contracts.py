@@ -1,5 +1,5 @@
 from enum import StrEnum
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
 from pydantic import BaseModel, Field
@@ -202,3 +202,30 @@ class SessionNoteAmendment(BaseModel):
 
 class PrivateNoteCreate(BaseModel):
     content: str = Field(min_length=1, max_length=20000)
+
+class ProgressMetricCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=100, pattern=r"^[a-z][a-z0-9_]*$")
+    label: str = Field(min_length=1, max_length=240)
+    value_type: Literal["NUMBER","TEXT","SCALE"]
+    unit: str | None = Field(default=None, max_length=60)
+    direction: Literal["INCREASE","DECREASE","MAINTAIN"] | None = None
+    source_type: Literal["MANUAL","ASSESSMENT","BIOMARKER_REFERENCE"] = "MANUAL"
+
+class ProgressObservationCreate(BaseModel):
+    metric_definition_id: UUID
+    numeric_value: float | None = None
+    text_value: str | None = Field(default=None, max_length=4000)
+    source_type: Literal["MANUAL","ASSESSMENT","BIOMARKER_REFERENCE"] = "MANUAL"
+    source_id: str | None = Field(default=None, max_length=160)
+    observed_at: datetime
+
+class ProgressTargetCreate(BaseModel):
+    metric_definition_id: UUID
+    numeric_target: float | None = None
+    text_target: str | None = Field(default=None, max_length=2000)
+    target_date: date | None = None
+
+class ProgressMilestoneCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=240)
+    description: str | None = Field(default=None, max_length=4000)
+    target_date: date | None = None

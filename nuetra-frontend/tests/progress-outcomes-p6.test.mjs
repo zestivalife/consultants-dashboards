@@ -1,0 +1,6 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
+const ui=fs.readFileSync(new URL('../components/external/ProgressOutcomes.jsx',import.meta.url),'utf8');const api=fs.readFileSync(new URL('../lib/practiceOperationsApi.js',import.meta.url),'utf8');const workspace=fs.readFileSync(new URL('../components/external/ProfessionClient360.jsx',import.meta.url),'utf8');
+test('P6 API covers progress metrics observations targets and milestones',()=>{for(const value of ['getClientProgress','createProgressMetric','createProgressObservation','createProgressTarget','createProgressMilestone'])assert.match(api,new RegExp(value))});
+test('P6 renders metrics trends and milestone timeline',()=>{for(const value of ['ProgressMetricCard','ProgressTrendChart','MilestoneTimeline','Progress & outcomes'])assert.match(ui,new RegExp(value))});
+test('P6 exposes loading error and confirmed empty states',()=>{for(const value of ['Loading progress and outcomes','Progress and outcomes could not load','No progress metrics yet','No milestones recorded yet'])assert.match(ui,new RegExp(value))});
+test('P6 is integrated into profession Client360 without frozen-domain coupling',()=>{assert.match(workspace,/ProgressOutcomes clientId=\{clientId\}/);assert.doesNotMatch(ui,/Diet Plan|Common Food|Health Record|biomarker extractor/i)});

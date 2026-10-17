@@ -22,6 +22,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            AssessmentAnswerSave, AssessmentComplete,
                            ProfessionPlanCreate, ProfessionPlanSave)
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
+from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
 from app.profession_intake import (FROZEN_PROFESSIONS, SUPPORTED_PROFESSIONS,
@@ -900,6 +901,51 @@ async def create_private_note(request:Request,note_id:UUID,body:PrivateNoteCreat
     if not note:return error(request,404,"SESSION_NOTE_NOT_FOUND","Session note not found")
     item_id=uuid4();now=datetime.now(timezone.utc);encrypted=_private_note_cipher().encrypt(body.content.encode()).decode()
     await db.execute(text("INSERT INTO external_session_private_notes(id,note_id,tenant_id,client_id,encrypted_content,created_by,created_at,updated_at) VALUES (:id,:note,:tenant,:client,:content,:actor,:now,:now)"),{"id":item_id,"note":note_id,"tenant":ctx["tenant_id"],"client":note["client_id"],"content":encrypted,"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"id":str(item_id)},"error":None,"request_id":request.state.correlation_id}
+
+async def _progress_guard(request,db,ctx):
+    return external_only(request,ctx) or await require_capability(request,db,ctx,"GOALS_PROGRESS")
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/progress")
+async def client_progress(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _progress_guard(request,db,ctx)
+    if denied:return denied
+    metrics=[dict(row) for row in (await db.execute(text("SELECT id,code,label,value_type,unit,direction,source_type,active FROM external_progress_metric_definitions WHERE tenant_id=:tenant AND active=TRUE ORDER BY label"),{"tenant":ctx["tenant_id"]})).mappings().all()]
+    observations=[dict(row) for row in (await db.execute(text("SELECT o.id,o.metric_definition_id,o.numeric_value,o.text_value,o.source_type,o.source_id,o.observed_at,m.label,m.unit FROM external_progress_observations o JOIN external_progress_metric_definitions m ON m.id=o.metric_definition_id WHERE o.tenant_id=:tenant AND o.client_id=:client ORDER BY o.observed_at DESC LIMIT 200"),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()]
+    targets=[dict(row) for row in (await db.execute(text("SELECT t.id,t.metric_definition_id,t.numeric_target,t.text_target,t.target_date,t.status,m.label,m.unit FROM external_progress_targets t JOIN external_progress_metric_definitions m ON m.id=t.metric_definition_id WHERE t.tenant_id=:tenant AND t.client_id=:client ORDER BY t.created_at DESC"),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()]
+    milestones=[dict(row) for row in (await db.execute(text("SELECT id,title,description,status,target_date,achieved_at,created_at FROM external_progress_milestones WHERE tenant_id=:tenant AND client_id=:client ORDER BY created_at DESC"),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()]
+    return {"success":True,"data":{"metrics":metrics,"observations":observations,"targets":targets,"milestones":milestones,"biomarker_history_source":"EXISTING_EXTERNAL_BIOMARKER_HISTORY"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/progress/metrics",status_code=201)
+async def create_progress_metric(request:Request,body:ProgressMetricCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _progress_guard(request,db,ctx)
+    if denied:return denied
+    config=await configuration(db,ctx);item_id=uuid4();now=datetime.now(timezone.utc)
+    await db.execute(text("INSERT INTO external_progress_metric_definitions(id,tenant_id,profession_code,code,label,value_type,unit,direction,source_type,created_by,created_at) VALUES (:id,:tenant,:profession,:code,:label,:type,:unit,:direction,:source,:actor,:now)"),{"id":item_id,"tenant":ctx["tenant_id"],"profession":config["profession"],"code":body.code,"label":body.label,"type":body.value_type,"unit":body.unit,"direction":body.direction,"source":body.source_type,"actor":ctx["user_id"],"now":now});await db.commit()
+    return {"success":True,"data":{"id":str(item_id)},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/progress/observations",status_code=201)
+async def create_progress_observation(request:Request,client_id:str,body:ProgressObservationCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _progress_guard(request,db,ctx)
+    if denied:return denied
+    if body.source_type=="BIOMARKER_REFERENCE" and (not body.source_id or body.numeric_value is not None or body.text_value is not None):return error(request,400,"BIOMARKER_REFERENCE_ONLY","Biomarker progress must reference existing history without copying its value")
+    metric=(await db.execute(text("SELECT id FROM external_progress_metric_definitions WHERE id=:id AND tenant_id=:tenant AND active=TRUE"),{"id":body.metric_definition_id,"tenant":ctx["tenant_id"]})).scalar_one_or_none()
+    if not metric:return error(request,404,"PROGRESS_METRIC_NOT_FOUND","Progress metric not found")
+    item_id=uuid4();now=datetime.now(timezone.utc);await db.execute(text("INSERT INTO external_progress_observations(id,tenant_id,client_id,metric_definition_id,numeric_value,text_value,source_type,source_id,observed_at,recorded_by,created_at) VALUES (:id,:tenant,:client,:metric,:numeric,:text,:source,:source_id,:observed,:actor,:now)"),{"id":item_id,"tenant":ctx["tenant_id"],"client":client_id,"metric":metric,"numeric":body.numeric_value,"text":body.text_value,"source":body.source_type,"source_id":body.source_id,"observed":body.observed_at,"actor":ctx["user_id"],"now":now});await db.commit()
+    return {"success":True,"data":{"id":str(item_id)},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/progress/targets",status_code=201)
+async def create_progress_target(request:Request,client_id:str,body:ProgressTargetCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _progress_guard(request,db,ctx)
+    if denied:return denied
+    item_id=uuid4();now=datetime.now(timezone.utc);result=await db.execute(text("INSERT INTO external_progress_targets(id,tenant_id,client_id,metric_definition_id,numeric_target,text_target,target_date,status,created_by,created_at,updated_at) SELECT :id,:tenant,:client,id,:numeric,:text,:target,'ACTIVE',:actor,:now,:now FROM external_progress_metric_definitions WHERE id=:metric AND tenant_id=:tenant"),{"id":item_id,"tenant":ctx["tenant_id"],"client":client_id,"metric":body.metric_definition_id,"numeric":body.numeric_target,"text":body.text_target,"target":body.target_date,"actor":ctx["user_id"],"now":now})
+    if result.rowcount != 1:return error(request,404,"PROGRESS_METRIC_NOT_FOUND","Progress metric not found")
+    await db.commit();return {"success":True,"data":{"id":str(item_id)},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/progress/milestones",status_code=201)
+async def create_progress_milestone(request:Request,client_id:str,body:ProgressMilestoneCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _progress_guard(request,db,ctx)
+    if denied:return denied
+    item_id=uuid4();now=datetime.now(timezone.utc);await db.execute(text("INSERT INTO external_progress_milestones(id,tenant_id,client_id,title,description,status,target_date,created_by,created_at,updated_at) VALUES (:id,:tenant,:client,:title,:description,'PLANNED',:target,:actor,:now,:now)"),{"id":item_id,"tenant":ctx["tenant_id"],"client":client_id,"title":body.title,"description":body.description,"target":body.target_date,"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"id":str(item_id)},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/profession-intake/{token}")
 async def read_profession_intake(request: Request, token: str, db: AsyncSession=Depends(get_db)):
