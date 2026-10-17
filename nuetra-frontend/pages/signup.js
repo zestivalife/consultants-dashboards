@@ -114,16 +114,22 @@ export default function ExternalConsultantSignupPage() {
 
   if (result) return <main className="fluent-page min-h-screen px-4 py-8 sm:px-6"><section className="fluent-card mx-auto max-w-2xl rounded-[36px] p-6 sm:p-10"><div className="rounded-[28px] border border-[#107c10]/20 bg-[#107c10]/10 p-6"><CheckCircle2 className="h-9 w-9 text-[#107c10]" /><h1 className="mt-4 text-3xl font-semibold text-[#242424]">Workspace created</h1><p className="mt-2 text-sm leading-6 text-[#424242]">Your account and workspace are ready. Complete onboarding to configure your practice.</p><Link href={result.workspace_ready ? '/dashboard/provider' : '/onboarding'} className="fluent-primary-button mt-6 inline-flex items-center gap-2 rounded-[22px] px-5 py-3 text-sm font-medium">Continue<ArrowRight className="h-4 w-4" /></Link></div></section></main>;
 
-  return <main className="min-h-screen bg-[#f3f2ed] px-4 pb-10 pt-28 sm:px-6">
+  return <main className="min-h-screen bg-[#f3f2ed] px-4 pb-10 pt-28 sm:px-6 lg:px-8">
     <PublicHeader action="login" />
-    <div className="mx-auto grid max-w-[1480px] items-start gap-6 min-[1200px]:grid-cols-[minmax(360px,0.82fr)_minmax(620px,1.18fr)] min-[1200px]:gap-8">
-    <div className="order-2 min-w-0 self-start min-[1200px]:order-1 min-[1200px]:sticky min-[1200px]:top-28"><AuthStoryPanel mode="signup" /></div>
-    <section className="fluent-card order-1 min-w-0 rounded-[36px] p-6 sm:p-10 min-[1200px]:order-2">
+    <div className="pointer-events-none fixed inset-0 overflow-hidden">
+      <div className="absolute left-[-10%] top-[-8%] h-[420px] w-[420px] rounded-full bg-[#dbeafe] blur-3xl" />
+      <div className="absolute right-[-10%] top-[8%] h-[380px] w-[380px] rounded-full bg-[#dcfce7] blur-3xl" />
+      <div className="absolute bottom-[-12%] left-[24%] h-[320px] w-[320px] rounded-full bg-[#fef3c7] blur-3xl" />
+    </div>
+    <div className="relative mx-auto grid max-w-[1480px] items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(560px,1fr)] lg:gap-8">
+    <div className="order-2 min-w-0 self-start lg:order-1 lg:sticky lg:top-28"><AuthStoryPanel mode="signup" /></div>
+    <section className="fluent-card order-1 min-w-0 rounded-[36px] p-6 sm:p-8 lg:order-2">
+      <div className="mx-auto max-w-[820px]">
       <Link href="/login" className="inline-flex items-center gap-2 text-sm text-[#0f6cbd]"><ArrowLeft className="h-4 w-4" />Back to sign in</Link>
-      <p className="mt-8 text-xs uppercase tracking-[0.24em] text-[#0f6cbd]">Zestiva Consultant</p>
-      <h1 className="mt-3 text-3xl font-semibold text-[#242424] sm:text-4xl">Create your consultant workspace</h1>
-      <p className="mt-3 text-base leading-7 text-[#616161]">Tell us about your practice. You can complete the remaining setup after your workspace is created.</p>
-      <form onSubmit={submit} className="mt-8 grid gap-5 sm:grid-cols-2" noValidate>
+      <p className="mt-6 text-xs uppercase tracking-[0.24em] text-[#0f6cbd]">Zestiva Consultant</p>
+      <h1 className="mt-2 text-3xl font-semibold text-[#242424] sm:text-4xl">Create your consultant workspace</h1>
+      <p className="mt-2 text-base leading-7 text-[#616161]">Tell us about your practice. You can complete the remaining setup after your workspace is created.</p>
+      <form onSubmit={submit} className="mt-7 grid gap-4 sm:grid-cols-2" noValidate>
         <InputField label="Full name" error={touched.fullName && errors.fullName}><input required value={form.fullName} onChange={update('fullName')} onBlur={blur('fullName')} className="fluent-input w-full rounded-[22px] px-4 py-3 text-sm" autoComplete="name" /></InputField>
         <InputField label="Mobile number" error={touched.mobileNumber && errors.mobileNumber}><div className="fluent-input flex items-center gap-3 rounded-[22px] px-4 py-3"><Phone className="h-4 w-4 text-[#616161]" /><input required type="tel" value={form.mobileNumber} onChange={update('mobileNumber')} onBlur={blur('mobileNumber')} placeholder="+91 97620 06688" className="w-full bg-transparent text-sm outline-none" autoComplete="tel" /></div></InputField>
         <InputField label="Email" error={touched.email && errors.email}><div className="fluent-input flex items-center gap-3 rounded-[22px] px-4 py-3"><Mail className="h-4 w-4 text-[#616161]" /><input required type="email" value={form.email} onChange={update('email')} onBlur={blur('email')} className="w-full bg-transparent text-sm outline-none" autoComplete="email" /></div></InputField>
@@ -146,6 +152,7 @@ export default function ExternalConsultantSignupPage() {
       </form>
       {error ? <div role="alert" className="mt-5 rounded-[20px] border border-[#d13438]/20 bg-[#d13438]/10 px-4 py-3 text-sm text-[#b10e1c]">{error}</div> : null}
       <p className="mt-6 text-center text-sm text-[#616161]">Already have an account? <Link href="/login" className="font-medium text-[#0f6cbd]">Sign in</Link></p>
+      </div>
     </section></div>
   </main>;
 }
