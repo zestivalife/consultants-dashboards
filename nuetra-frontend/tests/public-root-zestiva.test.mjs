@@ -14,7 +14,7 @@ test("public root is isolated in its own component",()=>{
   assert.match(app,/marketing root is deliberately isolated/);
 });
 test("approved identity, metadata, video and CTA destinations are exact",()=>{
-  assert.match(source,/Zestiva Consultant — Intelligent Practice OS/);
+  assert.match(source,/Zestiva Consultant — Intelligent Practice Operating System/);
   assert.match(source,/hf_20260601_110537_3a579fa0-7bbc-4d94-9d25-0e816c7840f5\.mp4/);
   assert.match(source,/https:\/\/consultant\.nuetra\.in\/login/);
   assert.match(source,/https:\/\/consultant\.nuetra\.in\/signup/);
