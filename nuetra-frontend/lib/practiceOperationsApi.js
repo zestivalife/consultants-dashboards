@@ -47,6 +47,7 @@ export function createProgressMetric(payload){return request('/progress/metrics'
 export function createProgressObservation(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/progress/observations`,{method:'POST',body:JSON.stringify(payload)});}
 export function createProgressTarget(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/progress/targets`,{method:'POST',body:JSON.stringify(payload)});}
 export function createProgressMilestone(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/progress/milestones`,{method:'POST',body:JSON.stringify(payload)});}
+export function getProfessionIntelligence(){return request('/intelligence/signals');}
 export function listProfessionIntakeProjections(){return request('/profession-intake/projections');}
 export function publishProfessionIntakeTemplate(payload){return request('/profession-intake/templates',{method:'POST',body:JSON.stringify(payload)});}
 export function listPracticeCalendar({view='AGENDA',anchor,clientId}={}){const query=new URLSearchParams({view});if(anchor)query.set('anchor',anchor);if(clientId)query.set('client_id',clientId);return request(`/calendar/events?${query}`);}

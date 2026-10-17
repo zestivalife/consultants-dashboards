@@ -905,6 +905,43 @@ async def create_private_note(request:Request,note_id:UUID,body:PrivateNoteCreat
 async def _progress_guard(request,db,ctx):
     return external_only(request,ctx) or await require_capability(request,db,ctx,"GOALS_PROGRESS")
 
+PROFESSION_SIGNAL_CODES={
+ "DIABETES_EDUCATOR":{"assessment":"ASSESSMENT_REVIEW_PENDING","followup":"EDUCATION_FOLLOWUP_DUE","goal":"LIFESTYLE_GOAL_REVIEW","plan":"EDUCATION_PLAN_REVIEW_DUE","task":"SELF_MANAGEMENT_REVIEW_DUE"},
+ "PSYCHOLOGIST":{"assessment":"ASSESSMENT_REVIEW_PENDING","followup":"SESSION_FOLLOWUP_DUE","goal":"THERAPY_GOAL_REVIEW","plan":"THERAPY_PLAN_REVIEW","task":"HOMEWORK_REVIEW_DUE","missed":"MISSED_SESSION"},
+ "WELLNESS_CONSULTANT":{"assessment":"ASSESSMENT_REVIEW_PENDING","followup":"WELLNESS_CHECKIN_DUE","goal":"WELLNESS_GOAL_REVIEW","plan":"WELLNESS_PLAN_REVIEW","task":"HABIT_REVIEW_DUE"},
+ "HEALTH_COACH":{"followup":"CHECKIN_OVERDUE","goal":"GOAL_STAGNATION","plan":"COACHING_PLAN_REVIEW","task":"ACCOUNTABILITY_TASK_DUE"},
+ "BEHAVIOURAL_THERAPIST":{"assessment":"ASSESSMENT_REVIEW_PENDING","followup":"BEHAVIOUR_REVIEW_DUE","goal":"TARGET_BEHAVIOUR_DATA_INCOMPLETE","plan":"INTERVENTION_PLAN_REVIEW","task":"CAREGIVER_TASK_DUE"},
+ "OCCUPATIONAL_THERAPIST":{"assessment":"FUNCTION_REASSESSMENT_DUE","followup":"FOLLOWUP_DUE","goal":"ADL_GOAL_REVIEW","plan":"OT_PLAN_REVIEW","task":"ACTIVITY_ADHERENCE_REVIEW"},
+ "PHYSIOTHERAPIST":{"assessment":"FUNCTION_REASSESSMENT_DUE","followup":"FOLLOWUP_OVERDUE","goal":"REHAB_MILESTONE_DUE","plan":"REHAB_PLAN_REVIEW","task":"EXERCISE_ADHERENCE_REVIEW"},
+ "MENTAL_WELLNESS_THERAPIST":{"assessment":"MOOD_REVIEW_DUE","followup":"SESSION_FOLLOWUP_DUE","goal":"GOAL_REVIEW","plan":"SUPPORT_PLAN_REVIEW","task":"STRESS_REVIEW_DUE"},
+}
+
+@app.get("/api/v1/practice-operations/intelligence/signals")
+async def profession_intelligence_signals(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    config=await configuration(db,ctx);profession=config["profession"];codes=PROFESSION_SIGNAL_CODES.get(profession,{})
+    if not codes:return {"success":True,"data":{"profession_code":profession,"items":[]},"error":None,"request_id":request.state.correlation_id}
+    tenant=ctx["tenant_id"];now=datetime.now(timezone.utc);items=[]
+    def add(kind,row,reason,target):
+        code=codes.get(kind)
+        if not code:return
+        source={"assessment":"external_assessment_instances","followup":"practice_follow_ups","goal":"practice_goals","plan":"external_profession_plans","task":"practice_tasks","missed":"practice_consultations"}[kind]
+        items.append({"signal_code":code,"profession_code":profession,"tenant_id":tenant,"client_id":row["client_id"],"source_domain":source,"source_record_id":str(row["id"]),"reason":reason,"occurred_at":row.get("updated_at") or row.get("created_at"),"due_at":row.get("due_at"),"priority":"P3_MEDIUM" if kind in {"assessment","followup","missed"} else "P4_LOW","cta":{"label":"Review","target":target},"provenance":{"table":source,"record_id":str(row["id"])},"resolution_state":"ACTIVE"})
+    assessments=(await db.execute(text("SELECT id,client_id,status,due_at,updated_at FROM external_assessment_instances WHERE tenant_id=:tenant AND status IN ('ASSIGNED','IN_PROGRESS','COMPLETED') AND (status='COMPLETED' OR due_at<:now)"),{"tenant":tenant,"now":now})).mappings().all()
+    for row in assessments:add("assessment",row,"Assessment is ready or due for practitioner review.","assessments")
+    for kind,table,target,label in (("followup","practice_follow_ups","followups","Follow-up is due for review."),("task","practice_tasks","tasks","Practice task is due for review.")):
+        rows=(await db.execute(text(f"SELECT id,client_id,due_at,updated_at FROM {table} WHERE tenant_id=:tenant AND due_at<:now AND status NOT IN ('COMPLETED','CANCELLED','ARCHIVED')"),{"tenant":tenant,"now":now})).mappings().all()
+        for row in rows:add(kind,row,label,target)
+    goals=(await db.execute(text("SELECT id,client_id,updated_at,due_at FROM practice_goals WHERE tenant_id=:tenant AND status NOT IN ('COMPLETED','CANCELLED','ARCHIVED') AND updated_at<:stale"),{"tenant":tenant,"stale":now-timedelta(days=30)})).mappings().all()
+    for row in goals:add("goal",row,"Goal has not been updated in 30 days and needs workflow review.","goals")
+    plans=(await db.execute(text("SELECT id,client_id,updated_at,NULL::timestamptz AS due_at FROM external_profession_plans WHERE tenant_id=:tenant AND status IN ('DRAFT','SAVED','PUBLISHED') AND updated_at<:stale"),{"tenant":tenant,"stale":now-timedelta(days=30)})).mappings().all()
+    for row in plans:add("plan",row,"Profession plan has reached its operational review interval.","client")
+    missed=(await db.execute(text("SELECT id,client_id,updated_at,due_at FROM practice_consultations WHERE tenant_id=:tenant AND status='MISSED'"),{"tenant":tenant})).mappings().all()
+    for row in missed:add("missed",row,"A recorded session was missed and needs follow-up.","consultations")
+    items.sort(key=lambda item:(item["priority"],str(item.get("due_at") or item.get("occurred_at") or "")))
+    return {"success":True,"data":{"profession_code":profession,"items":items},"error":None,"request_id":request.state.correlation_id}
+
 @app.get("/api/v1/practice-operations/clients/{client_id}/progress")
 async def client_progress(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=await _progress_guard(request,db,ctx)
