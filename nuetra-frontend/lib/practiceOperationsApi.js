@@ -58,6 +58,8 @@ export function getSessionBriefing(clientId){return request(`/clients/${encodeUR
 export function listSessionSuggestions(clientId){return request(`/clients/${encodeURIComponent(clientId)}/session-assistant/suggestions`);}
 export function generateSessionSuggestions(sessionNoteId){return request('/session-assistant/suggestions',{method:'POST',body:JSON.stringify({session_note_id:sessionNoteId})});}
 export function decideSessionSuggestion(suggestionId,payload){return request(`/session-assistant/suggestions/${encodeURIComponent(suggestionId)}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function getClientEngagement(clientId){return request(`/clients/${encodeURIComponent(clientId)}/engagement`);}
+export function getEngagementProjections(clientIds){return request('/engagement/projections',{method:'POST',body:JSON.stringify({client_ids:clientIds})});}
 export function listProfessionIntakeProjections(){return request('/profession-intake/projections');}
 export function publishProfessionIntakeTemplate(payload){return request('/profession-intake/templates',{method:'POST',body:JSON.stringify(payload)});}
 export function listPracticeCalendar({view='AGENDA',anchor,clientId}={}){const query=new URLSearchParams({view});if(anchor)query.set('anchor',anchor);if(clientId)query.set('client_id',clientId);return request(`/calendar/events?${query}`);}

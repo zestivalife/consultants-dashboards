@@ -261,3 +261,6 @@ class SessionSuggestionGenerate(BaseModel):
 class SessionSuggestionDecision(BaseModel):
     decision: Literal["ACCEPT","EDIT_AND_ACCEPT","DISMISS"]
     proposed_payload: dict[str,Any] | None = None
+
+class EngagementProjectionRequest(BaseModel):
+    client_ids: list[str] = Field(min_length=1,max_length=100)

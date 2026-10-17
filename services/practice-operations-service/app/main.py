@@ -23,7 +23,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            ProfessionPlanCreate, ProfessionPlanSave)
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
-from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision
+from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
 from app.profession_intake import (FROZEN_PROFESSIONS, SUPPORTED_PROFESSIONS,
@@ -1050,6 +1050,37 @@ async def decide_session_suggestion(request:Request,suggestion_id:UUID,body:Sess
     if row["status"]!="PROPOSED":return error(request,409,"SUGGESTION_ALREADY_DECIDED","Suggestion has already been decided")
     status={"ACCEPT":"ACCEPTED","EDIT_AND_ACCEPT":"EDITED_ACCEPTED","DISMISS":"DISMISSED"}[body.decision];payload=body.proposed_payload if body.decision=="EDIT_AND_ACCEPT" else row["proposed_payload"];now=datetime.now(timezone.utc)
     await db.execute(text("UPDATE external_session_action_suggestions SET status=:status,proposed_payload=CAST(:payload AS jsonb),confirmed_by=:actor,confirmed_at=:now,updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"status":status,"payload":json.dumps(payload),"actor":ctx["user_id"],"now":now,"id":suggestion_id,"tenant":ctx["tenant_id"]});await db.commit();return {"success":True,"data":{"id":str(suggestion_id),"status":status,"action_executed":False},"error":None,"request_id":request.state.correlation_id}
+
+async def _engagement_projection(db,tenant,client_id):
+    now=datetime.now(timezone.utc);params={"tenant":tenant,"client":client_id,"now":now,"inactive":now-timedelta(days=21),"stale":now-timedelta(days=30),"plan_stale":now-timedelta(days=60)};reasons=[];indicators=[]
+    future=(await db.execute(text("SELECT id,due_at FROM practice_consultations WHERE tenant_id=:tenant AND client_id=:client AND due_at>=:now AND status NOT IN ('CANCELLED','COMPLETED','NO_SHOW','MISSED') ORDER BY due_at LIMIT 1"),params)).mappings().first()
+    if not future:reasons.append({"code":"NO_FUTURE_SESSION","reason":"No future session is currently scheduled.","source":"practice_consultations"})
+    missed=(await db.execute(text("SELECT COUNT(*) FROM practice_consultations WHERE tenant_id=:tenant AND client_id=:client AND status IN ('NO_SHOW','MISSED')"),params)).scalar_one()
+    if missed>=2:reasons.append({"code":"MULTIPLE_MISSED_SESSIONS","reason":f'{missed} sessions are recorded as missed.',"source":"practice_consultations"})
+    overdue_checkin=(await db.execute(text("SELECT id,due_at FROM practice_checkins WHERE tenant_id=:tenant AND client_id=:client AND due_at<:now AND status NOT IN ('COMPLETED','CANCELLED','ARCHIVED') ORDER BY due_at LIMIT 1"),params)).mappings().first()
+    if overdue_checkin:reasons.append({"code":"CHECKIN_OVERDUE","reason":"A check-in is overdue.","source":f'practice_checkins:{overdue_checkin["id"]}'})
+    stale_goal=(await db.execute(text("SELECT id,updated_at FROM practice_goals WHERE tenant_id=:tenant AND client_id=:client AND status NOT IN ('COMPLETED','CANCELLED','ARCHIVED') AND updated_at<:stale ORDER BY updated_at LIMIT 1"),params)).mappings().first()
+    if stale_goal:reasons.append({"code":"GOAL_NOT_UPDATED","reason":"An active goal has not been updated for 30 days.","source":f'practice_goals:{stale_goal["id"]}'})
+    stale_plan=(await db.execute(text("SELECT id,updated_at FROM external_profession_plans WHERE tenant_id=:tenant AND client_id=:client AND status='PUBLISHED' AND updated_at<:plan_stale ORDER BY updated_at LIMIT 1"),params)).mappings().first()
+    if stale_plan:reasons.append({"code":"PLAN_REVIEW_OVERDUE","reason":"The published profession plan is due for operational review.","source":f'external_profession_plans:{stale_plan["id"]}'})
+    activity=(await db.execute(text("""SELECT MAX(value) FROM (SELECT MAX(updated_at) value FROM practice_consultations WHERE tenant_id=:tenant AND client_id=:client UNION ALL SELECT MAX(updated_at) FROM practice_checkins WHERE tenant_id=:tenant AND client_id=:client UNION ALL SELECT MAX(updated_at) FROM practice_tasks WHERE tenant_id=:tenant AND client_id=:client UNION ALL SELECT MAX(updated_at) FROM practice_goals WHERE tenant_id=:tenant AND client_id=:client UNION ALL SELECT MAX(created_at) FROM practice_communication_activity WHERE tenant_id=:tenant AND client_id=:client) activity"""),params)).scalar_one_or_none()
+    if activity and activity<params["inactive"]:reasons.append({"code":"CLIENT_INACTIVE","reason":"No meaningful practice activity is recorded for 21 days.","source":"practice activity timeline"})
+    if future:indicators.append({"reason":"A future session is scheduled.","source":f'practice_consultations:{future["id"]}'})
+    state="INSUFFICIENT_DATA" if not activity else "NEEDS_ATTENTION" if len(reasons)>=2 else "MODERATE" if reasons else "HIGH"
+    return {"client_id":client_id,"state":state,"reasons":reasons,"positive_indicators":indicators,"last_meaningful_activity":activity,"cta":{"label":"Open client","target":"client"},"explanation":"Operational engagement only; not a clinical risk assessment."}
+
+@app.post("/api/v1/practice-operations/engagement/projections")
+async def engagement_projections(request:Request,body:EngagementProjectionRequest,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    items=[await _engagement_projection(db,ctx["tenant_id"],client_id) for client_id in dict.fromkeys(body.client_ids)]
+    return {"success":True,"data":{"items":items},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/engagement")
+async def client_engagement(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    return {"success":True,"data":await _engagement_projection(db,ctx["tenant_id"],client_id),"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/practice-operations/clients/{client_id}/progress")
 async def client_progress(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
