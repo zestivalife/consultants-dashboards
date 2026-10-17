@@ -10,6 +10,19 @@ import FrontendBuildGate from '../components/FrontendBuildGate';
 function MyApp({ Component, pageProps }) {
   const router = useRouter();
 
+  // The marketing root is deliberately isolated from authenticated bootstrap,
+  // tenant resolution and the protected-workspace build gate.
+  if (router.pathname === '/') {
+    return (
+      <>
+        <Head>
+          <link rel="icon" href="/zestiva-logo.png" type="image/png" />
+        </Head>
+        <Component {...pageProps} />
+      </>
+    );
+  }
+
   return (
     <FrontendBuildGate>
       <AuthProvider>
