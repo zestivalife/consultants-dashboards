@@ -10,6 +10,7 @@ test('root and auth surfaces share the exact approved Zestiva asset',()=>{
   assert.match(logo,/src="\/zestiva\.svg"/);
   assert.match(logo,/width=\{336\} height=\{86\}/);
   assert.match(landing,/ZestivaLogo/);
+  assert.match(landing,/href=\{ROOT\} aria-label="Zestiva Consultant home"/);
   assert.match(header,/ZestivaLogo/);
   assert.match(login,/PublicHeader/);
   assert.match(signup,/PublicHeader/);
