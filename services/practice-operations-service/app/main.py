@@ -79,6 +79,17 @@ TERMINOLOGY = {
     "MENTAL_WELLNESS_THERAPIST":{"consultation":"Therapy Session","plan":"Wellness Plan","goal":"Wellness Goal"},
 }
 
+PROFESSION_CLIENT360_SECTIONS = {
+    "PSYCHOLOGIST": [("Assessments", "assessments"), ("Sessions", "consultations"), ("Therapy Goals", "goals"), ("Notes", "notes"), ("Progress", "tasks")],
+    "PHYSIOTHERAPIST": [("Pain & Function", "assessments"), ("Physical Assessments", "assessments"), ("Rehab", "goals"), ("Exercise", "tasks"), ("Progress", "follow-ups")],
+    "DIABETES_EDUCATOR": [("Metabolic Profile", "assessments"), ("Biomarkers", "biomarkers"), ("Education", "consultations"), ("Lifestyle", "goals"), ("Progress", "follow-ups")],
+    "HEALTH_COACH": [("Coaching Profile", "assessments"), ("Check-ins", "follow-ups"), ("Habits", "tasks"), ("Goals", "goals"), ("Progress", "consultations")],
+    "WELLNESS_CONSULTANT": [("Wellness Profile", "assessments"), ("Habits", "tasks"), ("Wellness Plan", "goals"), ("Progress", "follow-ups")],
+    "BEHAVIOURAL_THERAPIST": [("Behaviour Profile", "assessments"), ("Behaviour Logs", "notes"), ("Intervention Plan", "goals"), ("Progress", "follow-ups")],
+    "OCCUPATIONAL_THERAPIST": [("Functional Profile", "assessments"), ("ADL", "assessments"), ("Activities", "tasks"), ("OT Plan", "goals"), ("Progress", "follow-ups")],
+    "MENTAL_WELLNESS_THERAPIST": [("Wellbeing", "assessments"), ("Sessions", "consultations"), ("Goals", "goals"), ("Support Plan", "tasks"), ("Progress", "follow-ups")],
+}
+
 
 async def configuration(db: AsyncSession, ctx):
     row = (await db.execute(text("SELECT profession,capabilities,terminology,profile,version FROM practice_tenant_configuration WHERE tenant_id=:tenant_id"), {"tenant_id":ctx["tenant_id"]})).mappings().first()
@@ -696,6 +707,40 @@ async def complete_assessment(request:Request,assessment_id:UUID,body:Assessment
     if missing:return error(request,409,"ASSESSMENT_REQUIRED_ANSWERS_MISSING","Complete all required assessment questions")
     await db.execute(text("UPDATE external_assessment_instances SET status='COMPLETED',completed_at=:now,updated_at=:now WHERE id=:id"),{"id":assessment_id,"now":now});await db.execute(text("INSERT INTO external_assessment_review_events(id,assessment_instance_id,tenant_id,client_id,event_type,notes,actor_id,created_at) VALUES (:event,:id,:tenant,:client,'COMPLETED',:notes,:actor,:now)"),{"event":uuid4(),"id":assessment_id,"tenant":ctx["tenant_id"],"client":instance["client_id"],"notes":body.review_notes,"actor":ctx["user_id"],"now":now});await db.commit()
     return {"success":True,"data":{"id":str(assessment_id),"status":"COMPLETED"},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/profession-view")
+async def profession_client360(request: Request, client_id: str, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied = external_only(request, ctx)
+    if denied: return denied
+    config = await configuration(db, ctx)
+    profession = config["profession"]
+    sections = PROFESSION_CLIENT360_SECTIONS.get(profession, [])
+    if not sections:
+        return {"success":True,"data":{"profession":profession,"sections":[]},"error":None,"request_id":request.state.correlation_id}
+    capabilities = set(config["capabilities"])
+    resource_caps = {"consultations":"CONSULTATIONS", "follow-ups":"FOLLOW_UPS", "goals":"GOALS_PROGRESS", "tasks":"TASKS", "notes":"SESSION_NOTES", "assessments":"ASSESSMENTS"}
+    records = {}
+    for source in {source for _, source in sections if source != "biomarkers"}:
+        capability = resource_caps[source]
+        if capability not in capabilities:
+            records[source] = {"state":"UNAVAILABLE", "items":[], "reason":"CAPABILITY_NOT_ENABLED"}
+            continue
+        if source == "assessments":
+            rows = (await db.execute(text("""SELECT i.id,i.status,i.assigned_at AS occurred_at,i.completed_at,d.title,i.profession_code
+              FROM external_assessment_instances i JOIN external_assessment_definitions d ON d.id=i.definition_id
+              WHERE i.tenant_id=:tenant AND i.client_id=:client ORDER BY i.assigned_at DESC LIMIT 25"""), {"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+        else:
+            table = RESOURCE_TABLES[source]
+            rows = (await db.execute(text(f"SELECT id,title,status,type,due_at,created_at AS occurred_at,updated_at,payload FROM {table} WHERE tenant_id=:tenant AND client_id=:client ORDER BY created_at DESC LIMIT 25"), {"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+        records[source] = {"state":"READY", "items":[dict(row) for row in rows]}
+    projected=[]
+    for label,source in sections:
+        if source == "biomarkers":
+            projected.append({"label":label,"source":source,"state":"EXTERNAL_SOURCE","items":[]})
+        else:
+            projected.append({"label":label,"source":source,**records[source]})
+    return {"success":True,"data":{"profession":profession,"terminology":config["terminology"],"sections":projected},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/profession-intake/{token}")
 async def read_profession_intake(request: Request, token: str, db: AsyncSession=Depends(get_db)):
