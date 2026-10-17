@@ -1,0 +1,6 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
+const ui=fs.readFileSync(new URL('../components/external/ProfessionPlans.jsx',import.meta.url),'utf8');const api=fs.readFileSync(new URL('../lib/practiceOperationsApi.js',import.meta.url),'utf8');const client360=fs.readFileSync(new URL('../components/external/ProfessionClient360.jsx',import.meta.url),'utf8');
+test('P4 API covers create read save publish and history',()=>{for(const value of ['listProfessionPlans','createProfessionPlan','getProfessionPlan','saveProfessionPlan','publishProfessionPlan'])assert.match(api,new RegExp(value))});
+test('P4 provides editor preview history and immutable published state',()=>{for(const value of ['ProfessionPlanEditor','ProfessionPlanPreview','ProfessionPlanHistory','Published versions are immutable'])assert.match(ui,new RegExp(value))});
+test('P4 exposes explicit loading error and confirmed empty states',()=>{for(const value of ['Loading profession plans','Profession plans could not load','No profession plans yet'])assert.match(ui,new RegExp(value))});
+test('profession plans are integrated only inside the new profession workspace',()=>{assert.match(client360,/ProfessionPlans clientId=\{clientId\}/);assert.doesNotMatch(ui,/Diet Plan|Common Food|biomarker/i)});

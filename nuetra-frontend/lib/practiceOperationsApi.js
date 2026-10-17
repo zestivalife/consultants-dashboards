@@ -29,6 +29,11 @@ export function createProfessionIntakeInvitation(clientId,payload={}){return req
 export function revokeProfessionIntakeInvitation(clientId){return request(`/clients/${encodeURIComponent(clientId)}/profession-intake-invitations/revoke`,{method:'POST'});}
 export function getClientProfessionIntake(clientId){return request(`/clients/${encodeURIComponent(clientId)}/profession-intake`);}
 export function getProfessionClient360(clientId){return request(`/clients/${encodeURIComponent(clientId)}/profession-view`);}
+export function listProfessionPlans(clientId){return request(`/clients/${encodeURIComponent(clientId)}/profession-plans`);}
+export function createProfessionPlan(payload){return request('/profession-plans',{method:'POST',body:JSON.stringify(payload)});}
+export function getProfessionPlan(planId){return request(`/profession-plans/${encodeURIComponent(planId)}`);}
+export function saveProfessionPlan(planId,payload){return request(`/profession-plans/${encodeURIComponent(planId)}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function publishProfessionPlan(planId){return request(`/profession-plans/${encodeURIComponent(planId)}/publish`,{method:'POST'});}
 export function listProfessionIntakeProjections(){return request('/profession-intake/projections');}
 export function publishProfessionIntakeTemplate(payload){return request('/profession-intake/templates',{method:'POST',body:JSON.stringify(payload)});}
 export function listPracticeCalendar({view='AGENDA',anchor,clientId}={}){const query=new URLSearchParams({view});if(anchor)query.set('anchor',anchor);if(clientId)query.set('client_id',clientId);return request(`/calendar/events?${query}`);}

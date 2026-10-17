@@ -154,3 +154,25 @@ class AssessmentAnswerSave(BaseModel):
 
 class AssessmentComplete(AssessmentAnswerSave):
     review_notes: str | None = Field(default=None, max_length=4000)
+
+class ProfessionPlanItem(BaseModel):
+    key: str = Field(min_length=1, max_length=100, pattern=r"^[a-z][a-z0-9_]*$")
+    label: str = Field(min_length=1, max_length=240)
+    content: dict[str, Any] = Field(default_factory=dict)
+
+class ProfessionPlanSection(BaseModel):
+    key: str = Field(min_length=1, max_length=100, pattern=r"^[a-z][a-z0-9_]*$")
+    title: str = Field(min_length=1, max_length=240)
+    content: dict[str, Any] = Field(default_factory=dict)
+    items: list[ProfessionPlanItem] = Field(default_factory=list, max_length=100)
+
+class ProfessionPlanCreate(BaseModel):
+    client_id: str
+    plan_type: Literal["THERAPY_PLAN","REHAB_PLAN","EXERCISE_PLAN","HABIT_PLAN","WELLNESS_PLAN","BEHAVIOUR_INTERVENTION_PLAN","OT_PLAN","DIABETES_EDUCATION_PLAN","SUPPORT_PLAN"]
+    title: str = Field(min_length=1, max_length=240)
+    sections: list[ProfessionPlanSection] = Field(default_factory=list, max_length=40)
+
+class ProfessionPlanSave(BaseModel):
+    title: str = Field(min_length=1, max_length=240)
+    expected_version: int = Field(ge=1)
+    sections: list[ProfessionPlanSection] = Field(default_factory=list, max_length=40)
