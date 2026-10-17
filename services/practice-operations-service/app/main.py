@@ -23,6 +23,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            ProfessionPlanCreate, ProfessionPlanSave)
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
+from app.contracts import TemplateCreate, TemplateUpdate
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
 from app.profession_intake import (FROZEN_PROFESSIONS, SUPPORTED_PROFESSIONS,
@@ -941,6 +942,65 @@ async def profession_intelligence_signals(request:Request,ctx=Depends(context),d
     for row in missed:add("missed",row,"A recorded session was missed and needs follow-up.","consultations")
     items.sort(key=lambda item:(item["priority"],str(item.get("due_at") or item.get("occurred_at") or "")))
     return {"success":True,"data":{"profession_code":profession,"items":items},"error":None,"request_id":request.state.correlation_id}
+
+async def _write_template_sections(db,tenant,version_id,sections):
+    for section_index,section in enumerate(sections):
+        section_id=uuid4();await db.execute(text("INSERT INTO external_template_sections(id,template_version_id,tenant_id,section_key,title,description,sort_order) VALUES (:id,:version,:tenant,:key,:title,:description,:sort)"),{"id":section_id,"version":version_id,"tenant":tenant,"key":section.key,"title":section.title,"description":section.description,"sort":section_index})
+        for item_index,item in enumerate(section.items):await db.execute(text("INSERT INTO external_template_items(id,section_id,tenant_id,item_key,label,item_type,config,sort_order) VALUES (:id,:section,:tenant,:key,:label,:type,CAST(:config AS jsonb),:sort)"),{"id":uuid4(),"section":section_id,"tenant":tenant,"key":item.key,"label":item.label,"type":item.item_type,"config":json.dumps(item.config),"sort":item_index})
+
+@app.get("/api/v1/practice-operations/templates")
+async def list_templates(request:Request,scope:str|None=None,template_type:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    config=await configuration(db,ctx);rows=(await db.execute(text("SELECT id,profession_code,template_type,scope,owner_id,title,description,active,current_version,updated_at FROM external_template_definitions WHERE active=TRUE AND profession_code=:profession AND (scope='SYSTEM' OR tenant_id=:tenant) AND (CAST(:scope AS text) IS NULL OR scope=CAST(:scope AS text)) AND (CAST(:type AS text) IS NULL OR template_type=CAST(:type AS text)) ORDER BY scope,title"),{"profession":config["profession"],"tenant":ctx["tenant_id"],"scope":scope,"type":template_type})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/templates",status_code=201)
+async def create_template(request:Request,body:TemplateCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    if body.scope=="PRACTICE" and (ctx.get("role") or "").upper() not in {"OWNER","ADMIN","ORGANISATION_ADMIN"}:return error(request,403,"PRACTICE_ADMIN_REQUIRED","Practice template creation requires owner or administrator access")
+    config=await configuration(db,ctx);definition_id=uuid4();version_id=uuid4();now=datetime.now(timezone.utc);tenant=ctx["tenant_id"]
+    await db.execute(text("INSERT INTO external_template_definitions(id,tenant_id,profession_code,template_type,scope,owner_id,title,description,active,current_version,created_by,created_at,updated_at) VALUES (:id,:tenant,:profession,:type,:scope,:owner,:title,:description,TRUE,1,:actor,:now,:now)"),{"id":definition_id,"tenant":tenant,"profession":config["profession"],"type":body.template_type,"scope":body.scope,"owner":ctx["user_id"] if body.scope=="PRACTITIONER" else None,"title":body.title,"description":body.description,"actor":ctx["user_id"],"now":now})
+    await db.execute(text("INSERT INTO external_template_versions(id,definition_id,tenant_id,version,title,description,status,created_by,created_at) VALUES (:id,:definition,:tenant,1,:title,:description,'ACTIVE',:actor,:now)"),{"id":version_id,"definition":definition_id,"tenant":tenant,"title":body.title,"description":body.description,"actor":ctx["user_id"],"now":now});await _write_template_sections(db,tenant,version_id,body.sections);await db.execute(text("INSERT INTO external_template_audit_events(id,definition_id,template_version_id,tenant_id,event_type,actor_id,created_at) VALUES (:id,:definition,:version,:tenant,'CREATED',:actor,:now)"),{"id":uuid4(),"definition":definition_id,"version":version_id,"tenant":tenant,"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"id":str(definition_id),"version":1},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/templates/{template_id}")
+async def get_template(request:Request,template_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    row=(await db.execute(text("SELECT id,tenant_id,profession_code,template_type,scope,owner_id,title,description,active,current_version,created_by,created_at,updated_at FROM external_template_definitions WHERE id=:id AND (scope='SYSTEM' OR tenant_id=:tenant)"),{"id":template_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"TEMPLATE_NOT_FOUND","Template not found")
+    version=(await db.execute(text("SELECT id,definition_id,tenant_id,version,title,description,status,created_by,created_at FROM external_template_versions WHERE definition_id=:id AND version=:version"),{"id":template_id,"version":row["current_version"]})).mappings().one();sections=[dict(item) for item in (await db.execute(text("SELECT id,template_version_id,tenant_id,section_key,title,description,sort_order FROM external_template_sections WHERE template_version_id=:version ORDER BY sort_order"),{"version":version["id"]})).mappings().all()];items=[dict(item) for item in (await db.execute(text("SELECT i.id,i.section_id,i.tenant_id,i.item_key,i.label,i.item_type,i.config,i.sort_order FROM external_template_items i JOIN external_template_sections s ON s.id=i.section_id WHERE s.template_version_id=:version ORDER BY s.sort_order,i.sort_order"),{"version":version["id"]})).mappings().all()]
+    for section in sections:section["items"]=[item for item in items if item["section_id"]==section["id"]]
+    return {"success":True,"data":{"definition":dict(row),"version":dict(version),"sections":sections,"locked":row["scope"]=="SYSTEM"},"error":None,"request_id":request.state.correlation_id}
+
+@app.patch("/api/v1/practice-operations/templates/{template_id}")
+async def update_template(request:Request,template_id:UUID,body:TemplateUpdate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    row=(await db.execute(text("SELECT scope,owner_id,current_version FROM external_template_definitions WHERE id=:id AND tenant_id=:tenant AND active=TRUE"),{"id":template_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"TEMPLATE_NOT_FOUND","Editable template not found")
+    if row["scope"]=="SYSTEM":return error(request,409,"SYSTEM_TEMPLATE_IMMUTABLE","System templates require a new governed version")
+    if row["scope"]=="PRACTITIONER" and row["owner_id"]!=ctx["user_id"]:return error(request,403,"TEMPLATE_OWNER_REQUIRED","Only the owning practitioner may edit this template")
+    if row["current_version"]!=body.expected_version:return error(request,409,"TEMPLATE_VERSION_CONFLICT","Template has changed; reload before editing")
+    version_number=row["current_version"]+1;version_id=uuid4();now=datetime.now(timezone.utc);tenant=ctx["tenant_id"]
+    await db.execute(text("UPDATE external_template_versions SET status='SUPERSEDED' WHERE definition_id=:id AND status='ACTIVE'"),{"id":template_id});await db.execute(text("INSERT INTO external_template_versions(id,definition_id,tenant_id,version,title,description,status,created_by,created_at) VALUES (:id,:definition,:tenant,:version,:title,:description,'ACTIVE',:actor,:now)"),{"id":version_id,"definition":template_id,"tenant":tenant,"version":version_number,"title":body.title,"description":body.description,"actor":ctx["user_id"],"now":now});await _write_template_sections(db,tenant,version_id,body.sections);await db.execute(text("UPDATE external_template_definitions SET title=:title,description=:description,current_version=:version,updated_at=:now WHERE id=:id"),{"title":body.title,"description":body.description,"version":version_number,"now":now,"id":template_id});await db.execute(text("INSERT INTO external_template_audit_events(id,definition_id,template_version_id,tenant_id,event_type,actor_id,created_at) VALUES (:event,:definition,:version,:tenant,'VERSION_CREATED',:actor,:now)"),{"event":uuid4(),"definition":template_id,"version":version_id,"tenant":tenant,"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"id":str(template_id),"version":version_number},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/templates/{template_id}/duplicate",status_code=201)
+async def duplicate_template(request:Request,template_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    source=(await db.execute(text("SELECT template_type,title,description FROM external_template_definitions WHERE id=:id AND (scope='SYSTEM' OR tenant_id=:tenant) AND active=TRUE"),{"id":template_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not source:return error(request,404,"TEMPLATE_NOT_FOUND","Template not found")
+    detail=await get_template(request,template_id,ctx,db);payload=detail["data"];body=TemplateCreate(template_type=source["template_type"],scope="PRACTITIONER",title=f'{source["title"]} copy',description=source["description"],sections=[{"key":section["section_key"],"title":section["title"],"description":section["description"],"items":[{"key":item["item_key"],"label":item["label"],"item_type":item["item_type"],"config":item["config"]} for item in section["items"]]} for section in payload["sections"]]);return await create_template(request,body,ctx,db)
+
+@app.post("/api/v1/practice-operations/templates/{template_id}/archive")
+async def archive_template(request:Request,template_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    result=await db.execute(text("UPDATE external_template_definitions SET active=FALSE,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND scope<>'SYSTEM' AND (scope='PRACTICE' OR owner_id=:actor)"),{"now":datetime.now(timezone.utc),"id":template_id,"tenant":ctx["tenant_id"],"actor":ctx["user_id"]})
+    if result.rowcount!=1:return error(request,404,"EDITABLE_TEMPLATE_NOT_FOUND","Editable custom template not found")
+    await db.commit();return {"success":True,"data":{"id":str(template_id),"archived":True},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/practice-operations/clients/{client_id}/progress")
 async def client_progress(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):

@@ -48,6 +48,12 @@ export function createProgressObservation(clientId,payload){return request(`/cli
 export function createProgressTarget(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/progress/targets`,{method:'POST',body:JSON.stringify(payload)});}
 export function createProgressMilestone(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/progress/milestones`,{method:'POST',body:JSON.stringify(payload)});}
 export function getProfessionIntelligence(){return request('/intelligence/signals');}
+export function listTemplates({scope,templateType}={}){const query=new URLSearchParams();if(scope)query.set('scope',scope);if(templateType)query.set('template_type',templateType);return request(`/templates?${query}`);}
+export function getTemplate(templateId){return request(`/templates/${encodeURIComponent(templateId)}`);}
+export function createTemplate(payload){return request('/templates',{method:'POST',body:JSON.stringify(payload)});}
+export function updateTemplate(templateId,payload){return request(`/templates/${encodeURIComponent(templateId)}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function duplicateTemplate(templateId){return request(`/templates/${encodeURIComponent(templateId)}/duplicate`,{method:'POST'});}
+export function archiveTemplate(templateId){return request(`/templates/${encodeURIComponent(templateId)}/archive`,{method:'POST'});}
 export function listProfessionIntakeProjections(){return request('/profession-intake/projections');}
 export function publishProfessionIntakeTemplate(payload){return request('/profession-intake/templates',{method:'POST',body:JSON.stringify(payload)});}
 export function listPracticeCalendar({view='AGENDA',anchor,clientId}={}){const query=new URLSearchParams({view});if(anchor)query.set('anchor',anchor);if(clientId)query.set('client_id',clientId);return request(`/calendar/events?${query}`);}

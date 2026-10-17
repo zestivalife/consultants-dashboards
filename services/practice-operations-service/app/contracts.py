@@ -229,3 +229,28 @@ class ProgressMilestoneCreate(BaseModel):
     title: str = Field(min_length=1, max_length=240)
     description: str | None = Field(default=None, max_length=4000)
     target_date: date | None = None
+
+class TemplateItemInput(BaseModel):
+    key: str = Field(min_length=1,max_length=100,pattern=r"^[a-z][a-z0-9_]*$")
+    label: str = Field(min_length=1,max_length=240)
+    item_type: str = Field(min_length=1,max_length=40)
+    config: dict[str,Any] = Field(default_factory=dict)
+
+class TemplateSectionInput(BaseModel):
+    key: str = Field(min_length=1,max_length=100,pattern=r"^[a-z][a-z0-9_]*$")
+    title: str = Field(min_length=1,max_length=240)
+    description: str | None = Field(default=None,max_length=2000)
+    items: list[TemplateItemInput] = Field(default_factory=list,max_length=100)
+
+class TemplateCreate(BaseModel):
+    template_type: Literal["INTAKE","ASSESSMENT","SESSION_NOTE","PLAN","FOLLOWUP","TASK","MESSAGE","PROGRESS_REPORT"]
+    scope: Literal["PRACTICE","PRACTITIONER"]
+    title: str = Field(min_length=1,max_length=240)
+    description: str | None = Field(default=None,max_length=4000)
+    sections: list[TemplateSectionInput] = Field(default_factory=list,max_length=40)
+
+class TemplateUpdate(BaseModel):
+    expected_version: int = Field(ge=1)
+    title: str = Field(min_length=1,max_length=240)
+    description: str | None = Field(default=None,max_length=4000)
+    sections: list[TemplateSectionInput] = Field(default_factory=list,max_length=40)

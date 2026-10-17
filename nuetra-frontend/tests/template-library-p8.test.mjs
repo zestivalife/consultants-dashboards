@@ -1,0 +1,7 @@
+import test from'node:test';import assert from'node:assert/strict';import fs from'node:fs';
+const ui=fs.readFileSync(new URL('../components/external/ExternalTemplateLibrary.jsx',import.meta.url),'utf8');const api=fs.readFileSync(new URL('../lib/practiceOperationsApi.js',import.meta.url),'utf8');const workspace=fs.readFileSync(new URL('../components/external/ExternalSaaSWorkspace.jsx',import.meta.url),'utf8');
+test('P8 exposes governed scope and type filters',()=>{for(const value of ['All','System','Practice','My Templates','Intake','Assessment','Notes','Plans','Messages','Reports'])assert.match(ui,new RegExp(value))});
+test('P8 exposes preview duplicate create edit and archive actions',()=>{for(const value of ['Preview','Duplicate','Create Custom','Edit Custom','Archive'])assert.match(ui,new RegExp(value))});
+test('P8 never edits locked system templates directly',()=>{assert.match(ui,/System templates are immutable/);assert.match(ui,/item\.scope!==['"]SYSTEM['"]/)});
+test('P8 distinguishes loading error and confirmed empty states',()=>{for(const value of ['Loading template library','Template library could not load','No templates match these filters','confirmed empty library state'])assert.match(ui,new RegExp(value))});
+test('P8 is wired to versioned APIs and real Templates navigation',()=>{for(const value of ['listTemplates','getTemplate','createTemplate','updateTemplate','duplicateTemplate','archiveTemplate'])assert.match(api,new RegExp(value));assert.match(workspace,/ExternalTemplateLibrary/)});
