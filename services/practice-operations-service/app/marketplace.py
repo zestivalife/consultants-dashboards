@@ -12,17 +12,29 @@ PROFILE_TRANSITIONS={
 ADMIN_ACTIONS={"START_REVIEW":"UNDER_REVIEW","REQUEST_CHANGES":"CHANGES_REQUIRED","APPROVE_PROFILE":"APPROVED","REJECT_PROFILE":"REJECTED","PUBLISH_PROFILE":"PUBLISHED","UNPUBLISH_PROFILE":"UNPUBLISHED","SUSPEND_PROFILE":"SUSPENDED","RESTORE_PROFILE":"UNPUBLISHED"}
 REASON_REQUIRED={"REQUEST_CHANGES","REJECT_PROFILE","UNPUBLISH_PROFILE","SUSPEND_PROFILE","REJECT_QUALIFICATION","REJECT_REVIEW","HIDE_REVIEW"}
 
+class PublicLocation(BaseModel):
+    id:str;name:str=Field(min_length=2,max_length=240);mode:str=Field(pattern="^(ONLINE|IN_PERSON|PHONE|OTHER)$")
+
+class PublicService(BaseModel):
+    id:str;name:str=Field(min_length=2,max_length=240);description:str|None=Field(default=None,max_length=1000)
+    duration:int=Field(ge=5,le=480);mode:str=Field(pattern="^(ONLINE|IN_PERSON|PHONE|OTHER)$");location_id:str|None=None
+    fee:int|None=Field(default=None,ge=0);enrolment_mode:str=Field(pattern="^(REQUEST_ENROLMENT|DIRECT_BOOKING)$");active:bool=True
+
+class PublicProgramme(BaseModel):
+    id:str;name:str=Field(min_length=2,max_length=240);description:str|None=Field(default=None,max_length=2000);fee:int|None=Field(default=None,ge=0);active:bool=True
+
 class ProfileSave(BaseModel):
     display_name:str=Field(min_length=2,max_length=160);professional_title:str=Field(min_length=2,max_length=180);profession_code:str=Field(min_length=2,max_length=80)
     profile_photo_url:str|None=None;specialisations:list[str]=Field(default_factory=list,max_length=20);experience_years:int=Field(ge=0,le=80)
     bio:str=Field(min_length=20,max_length=4000);languages:list[str]=Field(default_factory=list,max_length=20);consultation_modes:list[str]=Field(default_factory=list,max_length=4)
-    areas_of_focus:list[str]=Field(default_factory=list,max_length=30);public_locations:list[dict]=Field(default_factory=list,max_length=20);services:list[dict]=Field(default_factory=list,max_length=30)
-    programmes:list[dict]=Field(default_factory=list,max_length=30);session_duration:int|None=Field(default=None,ge=10,le=480);public_fee_from:int|None=Field(default=None,ge=0)
+    areas_of_focus:list[str]=Field(default_factory=list,max_length=30);public_locations:list[PublicLocation]=Field(default_factory=list,max_length=20);services:list[PublicService]=Field(default_factory=list,max_length=30)
+    programmes:list[PublicProgramme]=Field(default_factory=list,max_length=30);session_duration:int|None=Field(default=None,ge=10,le=480);public_fee_from:int|None=Field(default=None,ge=0)
     accepting_new_clients:bool=False
     @field_validator("profile_photo_url")
     @classmethod
     def safe_photo(cls,value):
         if value and not (value.startswith("https://") or value.startswith("/")):raise ValueError("Public photo must use an approved HTTPS or same-origin derivative")
+        if value and any(marker in value.lower() for marker in ("object_key","presigned","signature=","x-amz-")):raise ValueError("Private object references cannot be used as public photos")
         return value
 
 class QualificationCreate(BaseModel):
@@ -54,3 +66,6 @@ def publicly_visible(profile):return profile["status"]=="PUBLISHED" and profile[
 def dedupe_key(profile_id,email,phone,service_id):return hashlib.sha256(f"{profile_id}|{(email or '').strip().lower()}|{(phone or '').strip()}|{service_id or ''}".encode()).hexdigest()
 def privacy_safe_name(name):
     parts=(name or "Verified Client").split();return f"{parts[0]} {parts[-1][0]}." if len(parts)>1 else f"{parts[0][0]}." if parts else "Verified Client"
+def public_rating(reviews):
+    included=[item["overall_rating"] for item in reviews if item.get("verified_engagement") is True and item.get("status")=="PUBLISHED"]
+    return {"review_count":len(included),"average_rating":round(sum(included)/len(included),2) if included else None,"label":f"{round(sum(included)/len(included),2)}" if included else "New on Zestiva"}

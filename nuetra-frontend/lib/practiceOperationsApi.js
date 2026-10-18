@@ -187,6 +187,8 @@ export function getAiCopilotStatus(){return request('/ai-copilot/status');}
 export function createAiDraft(payload){return request('/ai-copilot/drafts',{method:'POST',body:JSON.stringify(payload)});}
 export function getDashboardCommandCentre(){return request('/dashboard/command-centre');}
 export function getMarketplaceProfile(){return request('/marketplace/profile');}
+export function getMarketplaceReadiness(){return request('/marketplace/readiness');}
+export function listMarketplaceReviews(){return request('/marketplace/reviews');}
 export function saveMarketplaceProfile(payload){return request('/marketplace/profile',{method:'PUT',body:JSON.stringify(payload)});}
 export function submitMarketplaceProfile(){return request('/marketplace/profile/submit',{method:'POST'});}
 export function addMarketplaceQualification(payload){return request('/marketplace/qualifications',{method:'POST',body:JSON.stringify(payload)});}
@@ -198,6 +200,7 @@ export function decideMarketplaceProfile(id,action,reason){return request(`/admi
 export function decideMarketplaceQualification(id,action,reason){return request(`/admin/marketplace/qualifications/${encodeURIComponent(id)}/decision`,{method:'POST',body:JSON.stringify({action,reason})});}
 export function decideMarketplaceReview(id,action,reason){return request(`/admin/marketplace/reviews/${encodeURIComponent(id)}/decision`,{method:'POST',body:JSON.stringify({action,reason})});}
 export function getAdminMarketplaceAnalytics(){return request('/admin/marketplace/analytics');}
+export function getAdminMarketplaceOperations(){return request('/admin/marketplace/operations');}
 export function listComplianceAudit(clientId=''){return request(`/compliance/audit${clientId?`?client_id=${encodeURIComponent(clientId)}`:''}`);}
 export function exportClientData(clientId,sections){return request(`/compliance/exports/clients/${encodeURIComponent(clientId)}`,{method:'POST',body:JSON.stringify({sections})});}
 export async function downloadVaultDocument(id){const result=await request(`/documents/${encodeURIComponent(id)}/download`,{method:'POST'});window.open(result.download_url,'_blank','noopener,noreferrer');return result;}

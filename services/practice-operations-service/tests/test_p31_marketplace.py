@@ -1,7 +1,7 @@
 from pathlib import Path
 import pytest
 from app.marketplace import (PRIVATE_FIELDS,ProfileSave,assert_transition,can_publish,
-                             completeness,dedupe_key,public_projection,publicly_visible,slug_base)
+                             completeness,dedupe_key,public_projection,public_rating,publicly_visible,slug_base)
 
 ROOT=Path(__file__).parents[1]
 
@@ -58,3 +58,36 @@ def test_enrolment_reuses_p24_and_reviews_require_completed_engagement():
     assert "external_scheduled_appointments" in main
     assert 'status=\'COMPLETED\'' in main
     assert "REVIEW_NOT_ELIGIBLE" in main
+
+def test_real_data_contract_rejects_private_photo_and_requires_governed_catalog_shape():
+    good=payload()|{"public_locations":[{"id":"00000000-0000-0000-0000-000000000001","name":"QA Clinic","mode":"IN_PERSON"}],"services":[{"id":"00000000-0000-0000-0000-000000000002","name":"QA Session","description":"Fixture only","duration":60,"mode":"IN_PERSON","location_id":"00000000-0000-0000-0000-000000000001","fee":10000,"enrolment_mode":"REQUEST_ENROLMENT","active":True}],"programmes":[{"id":"00000000-0000-0000-0000-000000000003","name":"QA Programme","description":"Fixture only","fee":50000,"active":True}]}
+    assert ProfileSave(**good).services[0].duration==60
+    with pytest.raises(ValueError):ProfileSave(**(good|{"profile_photo_url":"https://private.example/image?X-Amz-Signature=secret"}))
+
+def test_complete_super_admin_lifecycle_keeps_approval_and_publication_separate():
+    path=[("DRAFT","SUBMITTED_FOR_REVIEW"),("SUBMITTED_FOR_REVIEW","UNDER_REVIEW"),("UNDER_REVIEW","CHANGES_REQUIRED"),("CHANGES_REQUIRED","DRAFT"),("DRAFT","SUBMITTED_FOR_REVIEW"),("SUBMITTED_FOR_REVIEW","UNDER_REVIEW"),("UNDER_REVIEW","APPROVED"),("APPROVED","PUBLISHED"),("PUBLISHED","UNPUBLISHED"),("UNPUBLISHED","PUBLISHED"),("PUBLISHED","SUSPENDED"),("SUSPENDED","UNPUBLISHED")]
+    for current,target in path:assert_transition(current,target)
+    approved={"status":"APPROVED","public_visibility":False,"approval_valid":True,"approved_version":2,"working_version":2,"suspended_at":None}
+    assert can_publish(approved) and not publicly_visible(approved)
+
+def test_rating_includes_only_published_verified_engagements_and_never_zero_stars():
+    reviews=[{"overall_rating":5,"verified_engagement":True,"status":"PUBLISHED"},{"overall_rating":1,"verified_engagement":False,"status":"PUBLISHED"},{"overall_rating":2,"verified_engagement":True,"status":"HIDDEN"}]
+    assert public_rating(reviews)=={"review_count":1,"average_rating":5.0,"label":"5.0"}
+    assert public_rating([])=={"review_count":0,"average_rating":None,"label":"New on Zestiva"}
+
+def test_operational_endpoints_cover_readiness_credentials_reviews_and_enrolments():
+    main=(ROOT/"app/main.py").read_text()
+    for route in ["/marketplace/readiness","/marketplace/reviews","/admin/marketplace/operations"]:assert route in main
+    for domain in ["external_service_packages","external_appointment_types","external_practice_locations","external_availability_rules","external_documents"]:assert domain in main[main.index('async def marketplace_readiness'):main.index('@app.put("/api/v1/practice-operations/marketplace/profile")')]
+    assert '"EXPIRE_QUALIFICATION":"EXPIRED"' in main
+
+def test_fixture_import_is_draft_only_repeatable_and_contains_no_reviews():
+    fixture=(ROOT.parents[1]/"docs/fixtures/p31-marketplace-profile-drafts.csv").read_text()
+    assert fixture.count("P31-QA-")==4
+    assert fixture.count(",DRAFT") == 4
+    assert "fixture_only" in fixture and "review" not in fixture.lower()
+
+def test_real_consultant_onboarding_checklist_classifies_public_and_private_data():
+    checklist=(ROOT.parents[1]/"docs/p31-marketplace-onboarding-checklist.md").read_text()
+    for field in ["Identity","Public profile","Photo","Credentials","Services","Locations","Availability","Reviews"]:assert field in checklist
+    assert "Derivative only" in checklist and "Source document" in checklist

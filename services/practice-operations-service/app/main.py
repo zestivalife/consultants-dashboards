@@ -4117,10 +4117,43 @@ async def marketplace_profile(request:Request,ctx=Depends(context),db:AsyncSessi
     enrolments=(await db.execute(text("SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE status='NEW')::int new_count FROM external_consultant_marketplace_enrolments WHERE profile_id=:profile"),{"profile":profile["id"]})).mappings().one()
     return {"success":True,"data":{"state":"READY","profile":dict(profile),"version":dict(version) if version else None,"qualifications":qualifications,"analytics":{**dict(analytics),**dict(review),"enrolments":dict(enrolments)}},"error":None,"request_id":request.state.correlation_id}
 
+@app.get("/api/v1/practice-operations/marketplace/readiness")
+async def marketplace_readiness(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    packages=[dict(row) for row in (await db.execute(text("SELECT id,name,description,session_allowance,duration_days,price_minor,currency,active FROM external_service_packages WHERE tenant_id=:tenant AND active=TRUE ORDER BY name"),{"tenant":ctx["tenant_id"]})).mappings().all()]
+    appointment_types=[dict(row) for row in (await db.execute(text("SELECT id,name,description,duration_minutes,location_type,location_details,active FROM external_appointment_types WHERE tenant_id=:tenant AND active=TRUE ORDER BY name"),{"tenant":ctx["tenant_id"]})).mappings().all()]
+    locations=[dict(row) for row in (await db.execute(text("SELECT id,name,timezone,active FROM external_practice_locations WHERE tenant_id=:tenant AND active=TRUE ORDER BY name"),{"tenant":ctx["tenant_id"]})).mappings().all()]
+    availability=[dict(row) for row in (await db.execute(text("SELECT weekday,start_time,end_time,timezone FROM external_availability_rules WHERE tenant_id=:tenant AND active=TRUE ORDER BY weekday,start_time"),{"tenant":ctx["tenant_id"]})).mappings().all()]
+    documents=[dict(row) for row in (await db.execute(text("SELECT id,title,category,visibility,status FROM external_documents WHERE tenant_id=:tenant AND client_id IS NULL AND status='AVAILABLE' AND visibility IN ('PRACTITIONER_PRIVATE','PRACTICE_ADMINISTRATIVE') ORDER BY updated_at DESC LIMIT 100"),{"tenant":ctx["tenant_id"]})).mappings().all()]
+    return {"success":True,"data":{"state":"READY","packages":packages,"appointment_types":appointment_types,"locations":locations,"availability":availability,"private_documents":documents,"direct_booking":"CONFIGURATION_DEPENDENT"},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/marketplace/reviews")
+async def marketplace_reviews(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    profile=await _marketplace_profile(db,ctx)
+    if not profile:return {"success":True,"data":{"state":"CONFIRMED_EMPTY","items":[]},"error":None,"request_id":request.state.correlation_id}
+    rows=[dict(row) for row in (await db.execute(text("SELECT id,overall_rating,review_text,status,verified_engagement,reported_at,created_at FROM external_consultant_reviews WHERE profile_id=:profile AND tenant_id=:tenant ORDER BY created_at DESC LIMIT 100"),{"profile":profile["id"],"tenant":ctx["tenant_id"]})).mappings().all()]
+    return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows},"error":None,"request_id":request.state.correlation_id}
+
 @app.put("/api/v1/practice-operations/marketplace/profile")
 async def save_marketplace_profile(request:Request,body:ProfileSave,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=external_only(request,ctx)
     if denied:return denied
+    for service in body.services:
+        valid=(await db.execute(text("SELECT 1 FROM external_appointment_types WHERE id=:id AND tenant_id=:tenant AND active=TRUE"),{"id":UUID(service.id),"tenant":ctx["tenant_id"]})).first()
+        if not valid:return error(request,422,"GOVERNED_SERVICE_REQUIRED","Public services must reference an active tenant appointment type")
+        if service.location_id:
+            located=(await db.execute(text("SELECT 1 FROM external_practice_locations WHERE id=:id AND tenant_id=:tenant AND active=TRUE"),{"id":UUID(service.location_id),"tenant":ctx["tenant_id"]})).first()
+            if not located:return error(request,422,"GOVERNED_LOCATION_REQUIRED","Public service location must reference an active tenant location")
+    for programme in body.programmes:
+        valid=(await db.execute(text("SELECT 1 FROM external_service_packages WHERE id=:id AND tenant_id=:tenant AND active=TRUE"),{"id":UUID(programme.id),"tenant":ctx["tenant_id"]})).first()
+        if not valid:return error(request,422,"GOVERNED_PROGRAMME_REQUIRED","Public programmes must reference an active tenant package")
+    for location in body.public_locations:
+        if location.mode!="ONLINE":
+            valid=(await db.execute(text("SELECT 1 FROM external_practice_locations WHERE id=:id AND tenant_id=:tenant AND active=TRUE"),{"id":UUID(location.id),"tenant":ctx["tenant_id"]})).first()
+            if not valid:return error(request,422,"GOVERNED_LOCATION_REQUIRED","Public locations must reference an active tenant location")
     now=datetime.now(timezone.utc);payload=public_projection(body.model_dump());existing=await _marketplace_profile(db,ctx,True)
     if existing:
         if existing["status"] in {"SUBMITTED_FOR_REVIEW","UNDER_REVIEW"}:return error(request,409,"PROFILE_LOCKED_FOR_REVIEW","Withdraw or wait for review before editing")
@@ -4225,7 +4258,7 @@ async def admin_marketplace_decision(profile_id:UUID,request:Request,body:AdminD
 async def admin_qualification_decision(qualification_id:UUID,request:Request,body:QualificationDecision,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=_platform_admin(request,ctx)
     if denied:return denied
-    action=body.action.upper();status={"VERIFY_QUALIFICATION":"VERIFIED","REJECT_QUALIFICATION":"REJECTED"}.get(action)
+    action=body.action.upper();status={"VERIFY_QUALIFICATION":"VERIFIED","REJECT_QUALIFICATION":"REJECTED","EXPIRE_QUALIFICATION":"EXPIRED"}.get(action)
     if not status:return error(request,422,"UNKNOWN_QUALIFICATION_ACTION","Qualification action is not recognised")
     if action in REASON_REQUIRED and not body.reason:return error(request,422,"REASON_REQUIRED","A reason is required")
     row=(await db.execute(text("UPDATE external_consultant_qualifications SET verification_status=:status,verified_by=:actor,verified_at=:now,rejection_reason=:reason,updated_at=:now WHERE id=:id RETURNING profile_id,tenant_id"),{"status":status,"actor":ctx["user_id"],"now":datetime.now(timezone.utc),"reason":body.reason,"id":qualification_id})).mappings().first()
@@ -4234,7 +4267,16 @@ async def admin_qualification_decision(qualification_id:UUID,request:Request,bod
     verified=(await db.execute(text("SELECT COUNT(*) FROM external_consultant_qualifications WHERE profile_id=:profile AND verification_status='VERIFIED' AND (expiry_date IS NULL OR expiry_date>=CURRENT_DATE)"),{"profile":row["profile_id"]})).scalar_one()
     if current:
         score,missing=completeness(dict(current["projection"]),verified);await db.execute(text("UPDATE external_consultant_public_profile_versions SET completeness=:score,missing_fields=CAST(:missing AS jsonb) WHERE profile_id=:profile AND version=:version"),{"score":score,"missing":json.dumps(missing),"profile":row["profile_id"],"version":current["working_version"]})
-    await _marketplace_audit(db,row["profile_id"],row["tenant_id"],"QUALIFICATION_VERIFIED" if status=="VERIFIED" else "QUALIFICATION_REJECTED",ctx["user_id"],ctx["role"],body.reason,{"qualification_id":str(qualification_id)});await db.commit();return {"success":True,"data":{"verification_status":status},"error":None,"request_id":request.state.correlation_id}
+    await _marketplace_audit(db,row["profile_id"],row["tenant_id"],f"QUALIFICATION_{status}",ctx["user_id"],ctx["role"],body.reason,{"qualification_id":str(qualification_id)});await db.commit();return {"success":True,"data":{"verification_status":status},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/admin/marketplace/operations")
+async def admin_marketplace_operations(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    qualifications=[dict(row) for row in (await db.execute(text("SELECT q.id,q.profile_id,q.tenant_id,q.qualification_type,q.title,q.institution,q.award_year,q.country,q.registration_number,q.issuing_body,q.expiry_date,q.verification_status,q.credential_document_id,d.title credential_document_title,d.status credential_document_status FROM external_consultant_qualifications q LEFT JOIN external_documents d ON d.id=q.credential_document_id AND d.tenant_id=q.tenant_id ORDER BY q.updated_at DESC LIMIT 200"))).mappings().all()]
+    reviews=[dict(row) for row in (await db.execute(text("SELECT id,profile_id,tenant_id,overall_rating,review_text,verified_engagement,status,reported_at,created_at FROM external_consultant_reviews ORDER BY updated_at DESC LIMIT 200"))).mappings().all()]
+    enrolments=[dict(row) for row in (await db.execute(text("SELECT id,profile_id,tenant_id,lead_id,service_id,programme_id,full_name,consultation_mode,location_id,preferred_at,status,created_at FROM external_consultant_marketplace_enrolments ORDER BY updated_at DESC LIMIT 200"))).mappings().all()]
+    return {"success":True,"data":{"state":"READY","qualifications":qualifications,"reviews":reviews,"enrolments":enrolments},"error":None,"request_id":request.state.correlation_id}
 
 def _public_profile_sql(extra=""):
     return """SELECT p.id,p.tenant_id,p.slug,p.accepting_new_clients,v.projection,
