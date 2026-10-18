@@ -45,3 +45,4 @@ def test_portal_scope_and_false_viewed_guards_are_explicit():
     assert "explicit_open" in text
     assert "status=CASE WHEN status='ASSIGNED' THEN 'OPENED'" in text
     assert "READ_RESOURCES" in text and "SUBMIT_HOMEWORK_CHECKIN" in text
+    assert '"window_type":"PROGRAMME"' in text

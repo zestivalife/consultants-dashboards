@@ -2330,6 +2330,16 @@ async def get_client_adherence(request:Request,client_id:str,ctx=Depends(context
     for window,days in (("7_DAY",7),("30_DAY",30)):
         summary=adherence_summary(rows,today=today,days=days);summary.update({"window_type":window,"window_start":today-timedelta(days=days-1),"window_end":today})
         summaries.append(summary)
+    package=(await db.execute(text("""SELECT start_date,end_date FROM external_client_packages
+      WHERE tenant_id=:tenant AND client_id=:client AND status IN ('ACTIVE','PAUSED','COMPLETED','EXPIRED')
+      ORDER BY CASE WHEN status='ACTIVE' THEN 0 ELSE 1 END,start_date DESC LIMIT 1"""),
+      {"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
+    programme_start=package["start_date"] if package else min((row["start_date"] for row in rows),default=today)
+    programme_end=min(package["end_date"],today) if package else today
+    programme_days=max((programme_end-programme_start).days+1,1)
+    programme=adherence_summary(rows,today=programme_end,days=programme_days)
+    programme.update({"window_type":"PROGRAMME","window_start":programme_start,"window_end":programme_end})
+    summaries.append(programme)
     return {"success":True,"data":{"client_id":client_id,"windows":summaries},"error":None,"request_id":request.state.correlation_id}
 
 
