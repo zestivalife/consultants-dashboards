@@ -1,0 +1,8 @@
+"""P25 truthful multi-channel communication centre."""
+from alembic import op
+revision="0025_communication_centre";down_revision="0024_lead_crm";branch_labels=None;depends_on=None
+def upgrade():
+    op.execute("""CREATE TABLE external_communication_preparations(id UUID PRIMARY KEY,tenant_id VARCHAR(80) NOT NULL,client_id VARCHAR(120) NOT NULL,channel VARCHAR(40) NOT NULL,purpose VARCHAR(240) NOT NULL,subject VARCHAR(500),body TEXT NOT NULL,status VARCHAR(24) NOT NULL DEFAULT 'PREPARED',automation_id UUID,created_by VARCHAR(120) NOT NULL,created_at TIMESTAMPTZ NOT NULL,updated_at TIMESTAMPTZ NOT NULL,CONSTRAINT ck_communication_channel CHECK(channel IN ('WHATSAPP_DEEP_LINK','EMAIL_PREPARATION','SMS_PREPARATION','CLIENT_PORTAL_NOTIFICATION')),CONSTRAINT ck_communication_preparation_status CHECK(status IN ('PREPARED','WHATSAPP_OPENED','CANCELLED')))""")
+    op.execute("""CREATE TABLE external_communication_reminders(id UUID PRIMARY KEY,tenant_id VARCHAR(80) NOT NULL,client_id VARCHAR(120) NOT NULL,preparation_id UUID REFERENCES external_communication_preparations(id),channel VARCHAR(40) NOT NULL,due_at TIMESTAMPTZ NOT NULL,status VARCHAR(24) NOT NULL DEFAULT 'SCHEDULED',automation_id UUID,idempotency_key VARCHAR(160) NOT NULL,created_by VARCHAR(120) NOT NULL,created_at TIMESTAMPTZ NOT NULL,completed_at TIMESTAMPTZ,CONSTRAINT ck_communication_reminder_status CHECK(status IN ('SCHEDULED','DUE','PREPARED','CANCELLED')),UNIQUE(tenant_id,idempotency_key))""")
+    op.execute("CREATE INDEX ix_external_communication_centre ON external_communication_preparations(tenant_id,client_id,created_at DESC)")
+def downgrade():raise RuntimeError("Communication Centre is expand-only")

@@ -702,3 +702,19 @@ class LeadFollowUpCreate(BaseModel):
 
 class LeadConvert(BaseModel):
     client_id: str = Field(min_length=1,max_length=120)
+
+class CommunicationPreparationCreate(BaseModel):
+    client_id: str = Field(min_length=1,max_length=120)
+    channel: Literal["WHATSAPP_DEEP_LINK","EMAIL_PREPARATION","SMS_PREPARATION","CLIENT_PORTAL_NOTIFICATION"]
+    purpose: str = Field(min_length=1,max_length=240)
+    subject: str | None = Field(default=None,max_length=500)
+    body: str = Field(min_length=1,max_length=10000)
+    automation_id: UUID | None = None
+
+class CommunicationReminderCreate(BaseModel):
+    client_id: str = Field(min_length=1,max_length=120)
+    channel: Literal["WHATSAPP_DEEP_LINK","EMAIL_PREPARATION","SMS_PREPARATION","CLIENT_PORTAL_NOTIFICATION"]
+    due_at: datetime
+    preparation_id: UUID | None = None
+    automation_id: UUID | None = None
+    idempotency_key: str = Field(min_length=8,max_length=160)

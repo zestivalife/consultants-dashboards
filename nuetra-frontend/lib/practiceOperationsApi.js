@@ -173,6 +173,9 @@ export function createLead(payload){return request('/leads',{method:'POST',body:
 export function updateLeadStage(id,stage,reason){return request(`/leads/${encodeURIComponent(id)}/stage`,{method:'POST',body:JSON.stringify({stage,reason})});}
 export function createLeadFollowUp(id,payload){return request(`/leads/${encodeURIComponent(id)}/follow-ups`,{method:'POST',body:JSON.stringify(payload)});}
 export function convertLead(id,clientId){return request(`/leads/${encodeURIComponent(id)}/convert`,{method:'POST',body:JSON.stringify({client_id:clientId})});}
+export function getCommunicationCentre(clientId=''){return request(`/communication/centre${clientId?`?client_id=${encodeURIComponent(clientId)}`:''}`);}
+export function prepareCommunication(payload){return request('/communication/centre',{method:'POST',body:JSON.stringify(payload)});}
+export function createCommunicationReminder(payload){return request('/communication/reminders',{method:'POST',body:JSON.stringify(payload)});}
 export async function downloadVaultDocument(id){const result=await request(`/documents/${encodeURIComponent(id)}/download`,{method:'POST'});window.open(result.download_url,'_blank','noopener,noreferrer');return result;}
 export async function downloadProgressReport(id,format){
   const send=token=>fetch(`${BASE}/progress-reports/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(format)}`,{credentials:'include',headers:token?{'X-Nuetra-Authorization':`Bearer ${token}`}:{}});

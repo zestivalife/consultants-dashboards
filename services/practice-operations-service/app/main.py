@@ -48,6 +48,7 @@ from app.contracts import FormCreate, FormAssign, FormResponseSave
 from app.contracts import ConsentTemplateCreate, ConsentAssign, ConsentDecision
 from app.contracts import DocumentCreate, DocumentUpdate, DocumentFinalise, DocumentVersionCreate
 from app.contracts import LeadCreate, LeadStageUpdate, LeadFollowUpCreate, LeadConvert
+from app.contracts import CommunicationPreparationCreate, CommunicationReminderCreate
 from app.document_storage import (StorageUnavailable, InvalidDocument, new_object_key,
                                   signed_upload, signed_download, validate_document,
                                   verify_uploaded_object)
@@ -3784,3 +3785,26 @@ async def convert_lead(request:Request,lead_id:UUID,body:LeadConvert,ctx=Depends
     if not current:return error(request,404,"LEAD_NOT_FOUND","Lead not found")
     if current!="CONSULTATION_BOOKED":return error(request,409,"LEAD_NOT_READY","Only a consultation-booked lead can be converted")
     now=datetime.now(timezone.utc);await db.execute(text("UPDATE external_leads SET stage='CONVERTED',converted_client_id=:client,updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"client":body.client_id,"now":now,"id":lead_id,"tenant":ctx["tenant_id"]});await db.execute(text("INSERT INTO external_lead_stage_history(id,lead_id,tenant_id,previous_stage,resulting_stage,reason,actor_id,created_at) VALUES (:id,:lead,:tenant,:previous,'CONVERTED','Created through existing Client Core',:actor,:now)"),{"id":uuid4(),"lead":lead_id,"tenant":ctx["tenant_id"],"previous":current,"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"id":str(lead_id),"stage":"CONVERTED","client_id":body.client_id},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/communication/centre")
+async def communication_centre(request:Request,client_id:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"COMMUNICATION_VIEW",client_id)
+    if denied:return denied
+    rows=(await db.execute(text("SELECT id,client_id,channel,purpose,subject,body,status,automation_id,created_at,updated_at FROM external_communication_preparations WHERE tenant_id=:tenant AND (CAST(:client AS text) IS NULL OR client_id=CAST(:client AS text)) ORDER BY created_at DESC LIMIT 200"),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+    reminders=(await db.execute(text("SELECT id,client_id,preparation_id,channel,due_at,status,automation_id,created_at FROM external_communication_reminders WHERE tenant_id=:tenant AND (CAST(:client AS text) IS NULL OR client_id=CAST(:client AS text)) ORDER BY due_at ASC LIMIT 200"),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows],"reminders":[dict(row) for row in reminders],"delivery_truth":"PREPARATION_ONLY"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/communication/centre",status_code=201)
+async def prepare_communication(request:Request,body:CommunicationPreparationCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"COMMUNICATION_PREPARE",body.client_id)
+    if denied:return denied
+    item_id=uuid4();now=datetime.now(timezone.utc);await db.execute(text("INSERT INTO external_communication_preparations(id,tenant_id,client_id,channel,purpose,subject,body,status,automation_id,created_by,created_at,updated_at) VALUES (:id,:tenant,:client,:channel,:purpose,:subject,:body,'PREPARED',:automation,:actor,:now,:now)"),{"id":item_id,"tenant":ctx["tenant_id"],"client":body.client_id,"channel":body.channel,"purpose":body.purpose,"subject":body.subject,"body":body.body,"automation":body.automation_id,"actor":ctx["user_id"],"now":now});await db.commit()
+    return {"success":True,"data":{"id":str(item_id),"status":"PREPARED","sent":False,"delivered":False,"read":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/communication/reminders",status_code=201)
+async def create_communication_reminder(request:Request,body:CommunicationReminderCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"COMMUNICATION_PREPARE",body.client_id)
+    if denied:return denied
+    item_id=uuid4();result=await db.execute(text("INSERT INTO external_communication_reminders(id,tenant_id,client_id,preparation_id,channel,due_at,status,automation_id,idempotency_key,created_by,created_at) VALUES (:id,:tenant,:client,:preparation,:channel,:due,'SCHEDULED',:automation,:key,:actor,:now) ON CONFLICT (tenant_id,idempotency_key) DO NOTHING"),{"id":item_id,"tenant":ctx["tenant_id"],"client":body.client_id,"preparation":body.preparation_id,"channel":body.channel,"due":body.due_at,"automation":body.automation_id,"key":body.idempotency_key,"actor":ctx["user_id"],"now":datetime.now(timezone.utc)})
+    if result.rowcount!=1:return error(request,409,"REMINDER_ALREADY_EXISTS","This reminder was already scheduled")
+    await db.commit();return {"success":True,"data":{"id":str(item_id),"status":"SCHEDULED","automation_execution":False},"error":None,"request_id":request.state.correlation_id}
