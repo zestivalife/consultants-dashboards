@@ -489,3 +489,44 @@ class HomeworkCheckinCreate(BaseModel):
     reflection_text: str | None = Field(default=None, max_length=10000)
     note: str | None = Field(default=None, max_length=4000)
     difficulty_rating: int | None = Field(default=None, ge=1, le=5)
+
+
+class AutomationConditionInput(BaseModel):
+    field_key: Literal["CLIENT.status","APPOINTMENT.status","PACKAGE.sessions_remaining","INVOICE.balance_due","HOMEWORK.status","GOAL.status","profession_code","client_id"]
+    operator: Literal["EQUALS","NOT_EQUALS","GREATER_THAN","GREATER_OR_EQUAL","LESS_THAN","LESS_OR_EQUAL","IN","NOT_IN","EXISTS","NOT_EXISTS"]
+    expected_value: Any = None
+
+
+class AutomationActionInput(BaseModel):
+    action_type: Literal["CREATE_TASK","CREATE_FOLLOWUP","ASSIGN_ASSESSMENT","PREPARE_MESSAGE","CREATE_PLAN_REVIEW","CREATE_RENEWAL_TASK","CREATE_INVOICE_REMINDER","CREATE_HOMEWORK_REVIEW","ADD_WAITLIST_ACTION","CREATE_APPOINTMENT_REMINDER","CREATE_RESOURCE_ASSIGNMENT","CREATE_CLIENT_CHECKIN"]
+    configuration: dict[str, Any] = Field(default_factory=dict)
+    confirmation_required: bool = False
+
+
+class AutomationCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=240)
+    description: str | None = Field(default=None, max_length=4000)
+    profession_code: str | None = Field(default=None, max_length=80)
+    capability_required: str | None = Field(default=None, max_length=80)
+    trigger_type: Literal["CLIENT_CREATED","ONBOARDING_COMPLETED","ASSESSMENT_COMPLETED","SESSION_COMPLETED","APPOINTMENT_CREATED","APPOINTMENT_RESCHEDULED","APPOINTMENT_CANCELLED","NO_SHOW","TASK_OVERDUE","HOMEWORK_COMPLETED","HOMEWORK_OVERDUE","GOAL_DUE","PLAN_PUBLISHED","PLAN_REVIEW_DUE","PACKAGE_ENDING_SOON","SESSIONS_LOW","RENEWAL_DUE","INVOICE_ISSUED","INVOICE_OVERDUE","PAYMENT_RECORDED","CLIENT_INACTIVE","FOLLOWUP_COMPLETED"]
+    requires_confirmation: bool = False
+    max_retries: int = Field(default=3, ge=0, le=10)
+    cooldown_minutes: int | None = Field(default=None, ge=1, le=525600)
+    active_from: datetime | None = None
+    active_until: datetime | None = None
+    conditions: list[AutomationConditionInput] = Field(default_factory=list, max_length=20)
+    actions: list[AutomationActionInput] = Field(min_length=1, max_length=20)
+
+
+class AutomationStateUpdate(BaseModel):
+    enabled: bool
+
+
+class AutomationDryRun(BaseModel):
+    event_type: str = Field(min_length=1, max_length=80)
+    sample_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class AutomationActionDecision(BaseModel):
+    decision: Literal["APPROVE","DISMISS"]
+    configuration: dict[str, Any] | None = None

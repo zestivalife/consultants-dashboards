@@ -104,6 +104,15 @@ export function listClientHomework(clientId){return request(`/clients/${encodeUR
 export function createClientHomework(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/homework`,{method:'POST',body:JSON.stringify(payload)});}
 export function updateClientHomework(clientId,id,status){return request(`/clients/${encodeURIComponent(clientId)}/homework/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify({status})});}
 export function getClientAdherence(clientId){return request(`/clients/${encodeURIComponent(clientId)}/adherence`);}
+export function listAutomations(state){return request(`/automations${state?`?state=${encodeURIComponent(state)}`:''}`);}
+export function listAutomationTemplates(){return request('/automations/templates');}
+export function createAutomation(payload){return request('/automations',{method:'POST',body:JSON.stringify(payload)});}
+export function updateAutomation(id,payload){return request(`/automations/${encodeURIComponent(id)}`,{method:'PUT',body:JSON.stringify(payload)});}
+export function setAutomationEnabled(id,enabled){return request(`/automations/${encodeURIComponent(id)}/state`,{method:'PATCH',body:JSON.stringify({enabled})});}
+export function dryRunAutomation(id,payload){return request(`/automations/${encodeURIComponent(id)}/dry-run`,{method:'POST',body:JSON.stringify(payload)});}
+export function listAutomationHistory(){return request('/automations/executions/history');}
+export function listPendingAutomationActions(){return request('/automations/actions/pending');}
+export function decideAutomationAction(id,decision,configuration){return request(`/automations/actions/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify({decision,configuration})});}
 export async function getPublicBooking(token){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}`);const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Booking link is unavailable.');return body?.data;}
 export async function submitPublicBooking(token,startsAt){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}?starts_at=${encodeURIComponent(startsAt)}`,{method:'POST',headers:{'Content-Type':'application/json'}});const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Appointment could not be booked.');return body?.data;}
 export async function openWhatsApp(payload){

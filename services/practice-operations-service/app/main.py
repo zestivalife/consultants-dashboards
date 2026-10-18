@@ -36,8 +36,12 @@ from app.contracts import (BillableServiceCreate, BillableServiceUpdate, Invoice
 from app.contracts import (ProfessionalResourceCreate, ProfessionalResourceUpdate,
                            ResourceAssignmentCreate, HomeworkCreate,
                            HomeworkStatusUpdate, HomeworkCheckinCreate)
+from app.contracts import (AutomationCreate, AutomationStateUpdate,
+                           AutomationDryRun, AutomationActionDecision)
 from app.billing import calculate_line
 from app.p15 import adherence_summary, homework_transition
+from app.p16 import (ACTION_TYPES, CONFIRMATION_ACTIONS, SAFE_ACTIONS,
+                     assert_chain_depth, evaluate_condition, idempotency_key)
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -72,7 +76,7 @@ ALL_CAPABILITIES = {
     "CARE_PLAN", "THERAPY_PLAN", "BEHAVIOURAL_PLAN", "EXERCISE_PLAN",
     "REHAB_PLAN", "HABIT_PLAN", "LAB_ANALYSIS", "BIOMARKERS", "MEASUREMENTS",
     "TEMPLATES", "PROGRESS_REPORTS", "PRACTICE_TEAM", "PACKAGES", "BILLING",
-    "RENEWALS", "ANALYTICS", "CLIENT_PORTAL", "RESOURCE_LIBRARY", "HOMEWORK", "ADHERENCE",
+    "RENEWALS", "ANALYTICS", "CLIENT_PORTAL", "RESOURCE_LIBRARY", "HOMEWORK", "ADHERENCE", "AUTOMATIONS",
 }
 RESOURCE_CAPABILITY = {"consultations":"CONSULTATIONS", "follow-ups":"FOLLOW_UPS", "goals":"GOALS_PROGRESS", "tasks":"TASKS"}
 PROFESSION_DEFAULTS = {
@@ -88,8 +92,10 @@ PROFESSION_DEFAULTS = {
     "OCCUPATIONAL_THERAPIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "MENTAL_WELLNESS_THERAPIST": {"CONSULTATIONS","SESSION_NOTES","PRIVATE_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
 }
-for _profession_capabilities in PROFESSION_DEFAULTS.values():
+for _profession, _profession_capabilities in PROFESSION_DEFAULTS.items():
     _profession_capabilities.update({"RESOURCE_LIBRARY", "HOMEWORK", "ADHERENCE"})
+    if _profession not in FROZEN_PROFESSIONS:
+        _profession_capabilities.add("AUTOMATIONS")
 TERMINOLOGY = {
     "DIETITIAN":{"consultation":"Consultation","plan":"Diet Plan","goal":"Nutrition Goal"},
     "NUTRITIONIST":{"consultation":"Consultation","plan":"Nutrition Plan","goal":"Nutrition Goal"},
@@ -2503,3 +2509,249 @@ async def client_portal_submit_document(request: Request, token: str, body: Clie
     })
     return {"success": True, "data": {"id": str(document_id), "status": "SUBMITTED"},
             "error": None, "request_id": request.state.correlation_id}
+
+
+# P16 is an additive consumer of the existing service_outbox_events stream.
+async def _automation_audit(db,ctx,event_type,*,automation_id=None,version_id=None,execution_id=None,action_result_id=None,metadata=None):
+    await db.execute(text("""INSERT INTO external_automation_audit_events
+      (id,tenant_id,automation_id,automation_version_id,execution_id,action_result_id,event_type,actor_id,actor_type,metadata,created_at)
+      VALUES (:id,:tenant,:automation,:version,:execution,:result,:event,:actor,:actor_type,CAST(:metadata AS jsonb),:now)"""),{
+      "id":uuid4(),"tenant":ctx["tenant_id"],"automation":automation_id,"version":version_id,
+      "execution":execution_id,"result":action_result_id,"event":event_type,"actor":ctx.get("user_id") or "SYSTEM",
+      "actor_type":"SYSTEM" if ctx.get("system") else "PRACTITIONER","metadata":json.dumps(metadata or {}),"now":datetime.now(timezone.utc)})
+
+
+async def _write_automation_version(db,ctx,automation_id,version,body,status="DRAFT"):
+    now=datetime.now(timezone.utc);version_id=uuid4()
+    await db.execute(text("""INSERT INTO external_automation_versions
+      (id,definition_id,tenant_id,version,trigger_type,requires_confirmation,max_retries,cooldown_minutes,active_from,active_until,status,created_by,created_at)
+      VALUES (:id,:definition,:tenant,:version,:trigger,:confirm,:retries,:cooldown,:active_from,:active_until,:status,:actor,:now)"""),{
+      "id":version_id,"definition":automation_id,"tenant":ctx["tenant_id"],"version":version,"trigger":body.trigger_type,
+      "confirm":body.requires_confirmation,"retries":body.max_retries,"cooldown":body.cooldown_minutes,
+      "active_from":body.active_from,"active_until":body.active_until,"status":status,"actor":ctx["user_id"],"now":now})
+    for index,condition in enumerate(body.conditions):
+        evaluate_condition({},condition.field_key,condition.operator,condition.expected_value)
+        await db.execute(text("""INSERT INTO external_automation_conditions
+          (id,automation_version_id,tenant_id,condition_index,field_key,operator,expected_value,created_at)
+          VALUES (:id,:version,:tenant,:index,:field,:operator,CAST(:expected AS jsonb),:now)"""),{
+          "id":uuid4(),"version":version_id,"tenant":ctx["tenant_id"],"index":index,"field":condition.field_key,
+          "operator":condition.operator,"expected":json.dumps(condition.expected_value),"now":now})
+    for index,action in enumerate(body.actions):
+        if action.action_type not in ACTION_TYPES: raise ValueError("UNSUPPORTED_AUTOMATION_ACTION")
+        confirmation=action.confirmation_required or action.action_type in CONFIRMATION_ACTIONS
+        await db.execute(text("""INSERT INTO external_automation_actions
+          (id,automation_version_id,tenant_id,action_index,action_type,confirmation_required,configuration,created_at)
+          VALUES (:id,:version,:tenant,:index,:type,:confirm,CAST(:configuration AS jsonb),:now)"""),{
+          "id":uuid4(),"version":version_id,"tenant":ctx["tenant_id"],"index":index,"type":action.action_type,
+          "confirm":confirmation,"configuration":json.dumps(action.configuration),"now":now})
+    return version_id
+
+
+@app.get("/api/v1/practice-operations/automations")
+async def list_automations(request:Request,state:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    rows=(await db.execute(text("""SELECT d.id,d.name,d.description,d.profession_code,d.trigger_type,d.enabled,d.current_version,d.archived_at,d.updated_at,
+      v.requires_confirmation,v.max_retries,v.cooldown_minutes,v.status
+      FROM external_automation_definitions d JOIN external_automation_versions v ON v.definition_id=d.id AND v.version=d.current_version
+      WHERE d.tenant_id=:tenant AND (:state IS NULL OR (:state='ACTIVE' AND d.enabled) OR (:state='DISABLED' AND NOT d.enabled) OR v.status=:state)
+      ORDER BY d.updated_at DESC"""),{"tenant":ctx["tenant_id"],"state":state})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/automations/templates")
+async def automation_templates(request:Request,ctx=Depends(context)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    items=[
+      {"name":"Post-session follow-up","trigger_type":"SESSION_COMPLETED","actions":["CREATE_FOLLOWUP"]},
+      {"name":"No-show recovery","trigger_type":"NO_SHOW","actions":["CREATE_FOLLOWUP","PREPARE_MESSAGE"]},
+      {"name":"Package renewal","trigger_type":"PACKAGE_ENDING_SOON","actions":["CREATE_RENEWAL_TASK"]},
+      {"name":"Invoice overdue","trigger_type":"INVOICE_OVERDUE","actions":["CREATE_INVOICE_REMINDER","PREPARE_MESSAGE"]},
+      {"name":"Homework missed","trigger_type":"HOMEWORK_OVERDUE","actions":["CREATE_HOMEWORK_REVIEW"]},
+    ]
+    return {"success":True,"data":{"items":items},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/automations",status_code=201)
+async def create_automation(request:Request,body:AutomationCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    now=datetime.now(timezone.utc);automation_id=uuid4()
+    await db.execute(text("""INSERT INTO external_automation_definitions
+      (id,tenant_id,name,description,profession_code,capability_required,trigger_type,enabled,current_version,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:name,:description,:profession,:capability,:trigger,FALSE,1,:actor,:now,:now)"""),{
+      "id":automation_id,"tenant":ctx["tenant_id"],"name":body.name,"description":body.description,"profession":body.profession_code,
+      "capability":body.capability_required,"trigger":body.trigger_type,"actor":ctx["user_id"],"now":now})
+    version_id=await _write_automation_version(db,ctx,automation_id,1,body)
+    await _automation_audit(db,ctx,"AUTOMATION_CREATED",automation_id=automation_id,version_id=version_id)
+    return {"success":True,"data":{"id":str(automation_id),"version":1,"status":"DRAFT"},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.put("/api/v1/practice-operations/automations/{automation_id}")
+async def edit_automation(request:Request,automation_id:UUID,body:AutomationCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    row=(await db.execute(text("SELECT current_version FROM external_automation_definitions WHERE id=:id AND tenant_id=:tenant AND archived_at IS NULL"),{"id":automation_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"AUTOMATION_NOT_FOUND","Automation not found")
+    version=row["current_version"]+1;version_id=await _write_automation_version(db,ctx,automation_id,version,body)
+    await db.execute(text("""UPDATE external_automation_definitions SET name=:name,description=:description,profession_code=:profession,
+      capability_required=:capability,trigger_type=:trigger,current_version=:version,enabled=FALSE,updated_at=:now WHERE id=:id AND tenant_id=:tenant"""),{
+      "name":body.name,"description":body.description,"profession":body.profession_code,"capability":body.capability_required,
+      "trigger":body.trigger_type,"version":version,"now":datetime.now(timezone.utc),"id":automation_id,"tenant":ctx["tenant_id"]})
+    await _automation_audit(db,ctx,"AUTOMATION_UPDATED",automation_id=automation_id,version_id=version_id)
+    return {"success":True,"data":{"id":str(automation_id),"version":version,"status":"DRAFT"},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.patch("/api/v1/practice-operations/automations/{automation_id}/state")
+async def set_automation_state(request:Request,automation_id:UUID,body:AutomationStateUpdate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    row=(await db.execute(text("""UPDATE external_automation_definitions SET enabled=:enabled,updated_at=:now
+      WHERE id=:id AND tenant_id=:tenant AND archived_at IS NULL RETURNING current_version"""),{
+      "enabled":body.enabled,"now":datetime.now(timezone.utc),"id":automation_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"AUTOMATION_NOT_FOUND","Automation not found")
+    await db.execute(text("UPDATE external_automation_versions SET status=:status WHERE definition_id=:id AND tenant_id=:tenant AND version=:version"),{
+      "status":"ENABLED" if body.enabled else "DISABLED","id":automation_id,"tenant":ctx["tenant_id"],"version":row["current_version"]})
+    await _automation_audit(db,ctx,"AUTOMATION_ENABLED" if body.enabled else "AUTOMATION_DISABLED",automation_id=automation_id)
+    return {"success":True,"data":{"id":str(automation_id),"enabled":body.enabled},"error":None,"request_id":request.state.correlation_id}
+
+
+async def _automation_version_graph(db,tenant,automation_id):
+    version=(await db.execute(text("""SELECT v.* FROM external_automation_versions v JOIN external_automation_definitions d ON d.id=v.definition_id
+      WHERE d.id=:id AND d.tenant_id=:tenant AND v.version=d.current_version"""),{"id":automation_id,"tenant":tenant})).mappings().first()
+    if not version:return None,[],[]
+    conditions=(await db.execute(text("SELECT id,condition_index,field_key,operator,expected_value FROM external_automation_conditions WHERE automation_version_id=:id AND tenant_id=:tenant ORDER BY condition_index"),{"id":version["id"],"tenant":tenant})).mappings().all()
+    actions=(await db.execute(text("SELECT id,automation_version_id,action_index,action_type,confirmation_required,configuration FROM external_automation_actions WHERE automation_version_id=:id AND tenant_id=:tenant ORDER BY action_index"),{"id":version["id"],"tenant":tenant})).mappings().all()
+    return version,conditions,actions
+
+
+@app.post("/api/v1/practice-operations/automations/{automation_id}/dry-run")
+async def dry_run_automation(request:Request,automation_id:UUID,body:AutomationDryRun,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    version,conditions,actions=await _automation_version_graph(db,ctx["tenant_id"],automation_id)
+    if not version:return error(request,404,"AUTOMATION_NOT_FOUND","Automation not found")
+    results=[{"field":c["field_key"],"operator":c["operator"],"passed":evaluate_condition(body.sample_payload,c["field_key"],c["operator"],c["expected_value"])} for c in conditions]
+    matched=body.event_type==version["trigger_type"] and all(item["passed"] for item in results)
+    return {"success":True,"data":{"trigger_matched":body.event_type==version["trigger_type"],"conditions":results,"matched":matched,
+      "actions":[{"action_type":a["action_type"],"would_execute":matched,"confirmation_required":a["confirmation_required"]} for a in actions],"writes_performed":0},"error":None,"request_id":request.state.correlation_id}
+
+
+async def _execute_safe_automation_action(db,ctx,event,action,idem):
+    action_type=action["action_type"];client_id=str((event["payload"] or {}).get("client_id") or "")
+    if not client_id:return None,"CLIENT_CONTEXT_REQUIRED"
+    table="practice_follow_ups" if action_type=="CREATE_FOLLOWUP" else "practice_tasks"
+    target_id=uuid4();now=datetime.now(timezone.utc);due=now+timedelta(days=int((action["configuration"] or {}).get("delay_days",0)))
+    title=(action["configuration"] or {}).get("title") or action_type.replace("_"," ").title()
+    await db.execute(text(f"""INSERT INTO {table}
+      (id,tenant_id,client_id,type,title,status,due_at,payload,version,created_by,idempotency_key,created_at,updated_at)
+      VALUES (:id,:tenant,:client,:type,:title,'TODO',:due,CAST(:payload AS jsonb),1,'AUTOMATION',:idem,:now,:now)
+      ON CONFLICT (tenant_id,idempotency_key) DO NOTHING"""),{"id":target_id,"tenant":ctx["tenant_id"],"client":client_id,
+      "type":action_type,"title":title,"due":due,"payload":json.dumps({"source_automation_id":str(action["automation_version_id"]),"originating_event_id":str(event["id"])}),"idem":idem,"now":now})
+    return str(target_id),None
+
+
+@app.post("/api/v1/practice-operations/automations/events/{event_id}/execute")
+async def execute_automations(request:Request,event_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    event=(await db.execute(text("SELECT id,event_type,aggregate_type,aggregate_id,payload,created_at FROM service_outbox_events WHERE id=:id AND tenant_id=:tenant"),{"id":event_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not event:return error(request,404,"OUTBOX_EVENT_NOT_FOUND","Outbox event not found")
+    payload=dict(event["payload"] or {});depth=int(payload.get("execution_depth",0));assert_chain_depth(depth)
+    definitions=(await db.execute(text("""SELECT id,current_version FROM external_automation_definitions WHERE tenant_id=:tenant AND enabled=TRUE
+      AND archived_at IS NULL AND trigger_type=:trigger"""),{"tenant":ctx["tenant_id"],"trigger":event["event_type"]})).mappings().all()
+    execution_ids=[]
+    for definition in definitions:
+        version,conditions,actions=await _automation_version_graph(db,ctx["tenant_id"],definition["id"])
+        now=datetime.now(timezone.utc)
+        if (version["active_from"] and version["active_from"]>now) or (version["active_until"] and version["active_until"]<now):continue
+        if version["cooldown_minutes"] and payload.get("client_id"):
+            recent=(await db.execute(text("""SELECT 1 FROM external_automation_executions
+              WHERE tenant_id=:tenant AND automation_version_id=:version AND client_id=:client AND created_at>=:cutoff LIMIT 1"""),{
+              "tenant":ctx["tenant_id"],"version":version["id"],"client":str(payload["client_id"]),
+              "cutoff":now-timedelta(minutes=version["cooldown_minutes"])})).scalar_one_or_none()
+            if recent:continue
+        condition_results=[{"field":c["field_key"],"passed":evaluate_condition(payload,c["field_key"],c["operator"],c["expected_value"])} for c in conditions]
+        if not all(item["passed"] for item in condition_results):continue
+        execution_id=uuid4()
+        inserted=(await db.execute(text("""INSERT INTO external_automation_executions
+          (id,tenant_id,automation_id,automation_version_id,event_id,client_id,status,attempt_count,execution_depth,condition_results,started_at,created_at)
+          VALUES (:id,:tenant,:automation,:version,:event,:client,'RUNNING',1,:depth,CAST(:conditions AS jsonb),:now,:now)
+          ON CONFLICT (tenant_id,automation_version_id,event_id) DO NOTHING RETURNING id"""),{
+          "id":execution_id,"tenant":ctx["tenant_id"],"automation":definition["id"],"version":version["id"],"event":event_id,
+          "client":payload.get("client_id"),"depth":depth,"conditions":json.dumps(condition_results),"now":now})).scalar_one_or_none()
+        if not inserted:continue
+        pending=False
+        for action in actions:
+            idem=idempotency_key(ctx["tenant_id"],str(version["id"]),str(event_id),action["action_index"]);result_id=uuid4()
+            await db.execute(text("""INSERT INTO external_automation_idempotency_keys
+              (tenant_id,idempotency_key,automation_version_id,event_id,action_index,action_result_id,created_at)
+              VALUES (:tenant,:key,:version,:event,:index,:result,:now) ON CONFLICT DO NOTHING"""),{
+              "tenant":ctx["tenant_id"],"key":idem,"version":version["id"],"event":event_id,"index":action["action_index"],"result":result_id,"now":now})
+            confirmation=version["requires_confirmation"] or action["confirmation_required"] or action["action_type"] in CONFIRMATION_ACTIONS
+            status="PENDING_CONFIRMATION" if confirmation else "SUCCEEDED";target_id=None;error_code=None
+            if confirmation:pending=True
+            else:target_id,error_code=await _execute_safe_automation_action(db,ctx,event,action,idem);status="FAILED" if error_code else "SUCCEEDED"
+            await db.execute(text("""INSERT INTO external_automation_action_results
+              (id,tenant_id,execution_id,action_id,action_index,action_type,status,target_type,target_id,result_summary,error_code,attempt_count,created_at,updated_at)
+              VALUES (:id,:tenant,:execution,:action,:index,:type,:status,:target_type,:target,:summary,:error,1,:now,:now)"""),{
+              "id":result_id,"tenant":ctx["tenant_id"],"execution":execution_id,"action":action["id"],"index":action["action_index"],
+              "type":action["action_type"],"status":status,"target_type":"FOLLOWUP" if action["action_type"]=="CREATE_FOLLOWUP" else "TASK",
+              "target":target_id,"summary":"Waiting for practitioner confirmation" if confirmation else "Operational action completed",
+              "error":error_code,"now":now})
+            if not confirmation:
+                await _automation_audit(db,{**ctx,"system":True},"ACTION_FAILED" if error_code else "ACTION_SUCCEEDED",
+                  automation_id=definition["id"],version_id=version["id"],execution_id=execution_id,action_result_id=result_id,
+                  metadata={"action_type":action["action_type"],"target_id":target_id})
+                if target_id and payload.get("client_id"):
+                    await db.execute(text("""INSERT INTO practice_timeline_events
+                      (id,tenant_id,client_id,event_type,source_type,source_id,summary,metadata,occurred_at)
+                      VALUES (:id,:tenant,:client,'AUTOMATION_ACTION_CREATED','AUTOMATION',:source,:summary,CAST(:metadata AS jsonb),:now)
+                      ON CONFLICT (tenant_id,event_type,source_type,source_id) DO NOTHING"""),{
+                      "id":uuid4(),"tenant":ctx["tenant_id"],"client":str(payload["client_id"]),"source":target_id,
+                      "summary":f"Created by automation: {action['action_type'].replace('_',' ').title()}",
+                      "metadata":json.dumps({"automation_id":str(definition["id"]),"execution_id":str(execution_id)}),"now":now})
+        final="PENDING_CONFIRMATION" if pending else "SUCCEEDED"
+        await db.execute(text("UPDATE external_automation_executions SET status=:status,completed_at=CASE WHEN :status='SUCCEEDED' THEN :now ELSE NULL END WHERE id=:id AND tenant_id=:tenant"),{"status":final,"now":now,"id":execution_id,"tenant":ctx["tenant_id"]})
+        await _automation_audit(db,{**ctx,"system":True},"AUTOMATION_EXECUTED",automation_id=definition["id"],version_id=version["id"],execution_id=execution_id)
+        execution_ids.append(str(execution_id))
+    await db.execute(text("""INSERT INTO service_outbox_deliveries(consumer_name,event_id,tenant_id,delivered_at)
+      VALUES ('P16_AUTOMATION_ENGINE',:event,:tenant,:now) ON CONFLICT DO NOTHING"""),{"event":event_id,"tenant":ctx["tenant_id"],"now":datetime.now(timezone.utc)})
+    return {"success":True,"data":{"event_id":str(event_id),"executions":execution_ids},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/automations/executions/history")
+async def automation_history(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    rows=(await db.execute(text("""SELECT e.id,d.name AS automation,e.client_id,d.trigger_type,e.status,e.attempt_count,e.condition_results,e.error_code,e.error_summary,e.created_at
+      FROM external_automation_executions e JOIN external_automation_definitions d ON d.id=e.automation_id
+      WHERE e.tenant_id=:tenant ORDER BY e.created_at DESC LIMIT 100"""),{"tenant":ctx["tenant_id"]})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/automations/actions/pending")
+async def pending_automation_actions(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    rows=(await db.execute(text("""SELECT r.id,r.action_type,r.result_summary,r.created_at,e.client_id,d.name AS automation
+      FROM external_automation_action_results r JOIN external_automation_executions e ON e.id=r.execution_id
+      JOIN external_automation_definitions d ON d.id=e.automation_id
+      WHERE r.tenant_id=:tenant AND r.status='PENDING_CONFIRMATION' ORDER BY r.created_at"""),{"tenant":ctx["tenant_id"]})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.patch("/api/v1/practice-operations/automations/actions/{result_id}")
+async def decide_automation_action(request:Request,result_id:UUID,body:AutomationActionDecision,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    status="SUCCEEDED" if body.decision=="APPROVE" else "CANCELLED";now=datetime.now(timezone.utc)
+    row=(await db.execute(text("""UPDATE external_automation_action_results SET status=:status,
+      approved_by=CASE WHEN :decision='APPROVE' THEN :actor ELSE approved_by END,approved_at=CASE WHEN :decision='APPROVE' THEN :now ELSE approved_at END,
+      dismissed_by=CASE WHEN :decision='DISMISS' THEN :actor ELSE dismissed_by END,dismissed_at=CASE WHEN :decision='DISMISS' THEN :now ELSE dismissed_at END,updated_at=:now
+      WHERE id=:id AND tenant_id=:tenant AND status='PENDING_CONFIRMATION' RETURNING execution_id"""),{
+      "status":status,"decision":body.decision,"actor":ctx["user_id"],"now":now,"id":result_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"AUTOMATION_ACTION_NOT_FOUND","Pending automation action not found")
+    await _automation_audit(db,ctx,"ACTION_APPROVED" if body.decision=="APPROVE" else "ACTION_DISMISSED",execution_id=row["execution_id"],action_result_id=result_id)
+    return {"success":True,"data":{"id":str(result_id),"status":status},"error":None,"request_id":request.state.correlation_id}
