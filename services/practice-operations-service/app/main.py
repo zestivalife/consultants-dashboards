@@ -4000,7 +4000,10 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
     if principal["status"]!="ACTIVE":return error(request,403,"TEAM_MEMBERSHIP_INACTIVE","Practice membership is not active")
     permissions=set(principal["permissions"]);tenant=ctx["tenant_id"];actor=ctx["user_id"]
     practice_wide=bool(principal["practice_wide_client_access"] or principal["legacy_solo"] or principal["role"] in {"PRACTICE_OWNER","PRACTICE_ADMIN","RECEPTIONIST"})
-    params={"tenant":tenant,"actor":actor,"practice_wide":practice_wide}
+    visit=(await db.execute(text("SELECT dashboard_last_seen_at FROM external_consultant_dashboard_state WHERE tenant_id=:tenant AND user_id=:actor"),{"tenant":tenant,"actor":actor})).mappings().first()
+    request_started_at=datetime.now(timezone.utc)
+    last_seen_at=visit["dashboard_last_seen_at"] if visit else request_started_at-timedelta(days=7)
+    params={"tenant":tenant,"actor":actor,"practice_wide":practice_wide,"last_seen":last_seen_at}
 
     async def read(name,sql,*,allowed=True):
         if not allowed:return command_section([],restricted=True)
@@ -4026,11 +4029,15 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
       WHERE q.tenant_id=:tenant AND q.status IN ('NOT_STARTED','IN_PROGRESS','MISSED') AND {scope}
       UNION ALL SELECT q.id::text,q.client_id,q.title,q.status,q.period_end::timestamptz,q.updated_at,'REPORT' source_module FROM external_progress_reports q
       WHERE q.tenant_id=:tenant AND q.status IN ('DRAFT','GENERATED') AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,q.title,q.status,q.due_at,q.updated_at,'TASK' source_module FROM practice_tasks q
+      WHERE q.tenant_id=:tenant AND q.status='COMPLETED' AND q.updated_at>=NOW()-INTERVAL '7 days' AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,q.title,q.status,q.due_at,q.updated_at,'FOLLOW_UP' source_module FROM practice_follow_ups q
+      WHERE q.tenant_id=:tenant AND q.status='COMPLETED' AND q.updated_at>=NOW()-INTERVAL '7 days' AND {scope}
     ) work_items ORDER BY due_at NULLS LAST,updated_at DESC LIMIT 40""",allowed=bool({"TASK_VIEW","FOLLOWUP_VIEW","RESOURCE_VIEW","REPORT_VIEW"}&permissions))
-    if work["status"] in {"READY","EMPTY_CONFIRMED"} and not work.get("restricted"):
+    if work["status"] in {"READY","CONFIRMED_EMPTY"} and not work.get("restricted"):
         mapped=[]
         for row in work["items"]:
-            signal=f"{row['source_module']}_OVERDUE" if row.get("due_at") and row["due_at"]<datetime.now(timezone.utc) else row["source_module"]
+            signal=f"{row['source_module']}_OVERDUE" if row.get("status")!="COMPLETED" and row.get("due_at") and row["due_at"]<datetime.now(timezone.utc) else row["source_module"]
             mapped.append({**row,"signal":signal,"priority":operational_priority(row.get("due_at"),signal),"action":next_action(signal)})
         work["items"]=sort_work(mapped)
     attention=await read("clients_needing_attention",f"""SELECT id,client_id,signal,context,due_at FROM (
@@ -4041,15 +4048,25 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
       UNION ALL SELECT q.id::text,q.client_id,'INVOICE_OVERDUE','Invoice has an overdue balance',q.due_date::timestamptz FROM external_invoices q WHERE q.tenant_id=:tenant AND q.status IN ('ISSUED','PART_PAID','OVERDUE') AND q.balance_due_minor>0 AND q.due_date<CURRENT_DATE AND {scope}
       UNION ALL SELECT q.id::text,q.client_id,'REPORT_PENDING','Progress report remains incomplete',q.period_end::timestamptz FROM external_progress_reports q WHERE q.tenant_id=:tenant AND q.status IN ('DRAFT','GENERATED') AND {scope}
       UNION ALL SELECT q.id::text,q.client_id,'REFERRAL_PENDING','Referral needs an operational decision',q.updated_at FROM external_referrals q WHERE q.tenant_id=:tenant AND q.status IN ('DRAFT','CONSENT_PENDING','READY_TO_SEND','SENT') AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,'MISSED_APPOINTMENT','Appointment was missed',q.starts_at FROM external_scheduled_appointments q WHERE q.tenant_id=:tenant AND (q.status='NO_SHOW' OR q.attendance_status='NO_SHOW') AND q.starts_at>=NOW()-INTERVAL '30 days' AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,'ONBOARDING_INCOMPLETE','Configured onboarding remains incomplete',q.updated_at FROM external_client_intake_instances q WHERE q.tenant_id=:tenant AND q.status NOT IN ('COMPLETED','REVOKED') AND q.completion_percent<100 AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,'DOCUMENT_PENDING','Document upload or review remains incomplete',q.updated_at FROM external_documents q WHERE q.tenant_id=:tenant AND q.status IN ('PENDING_UPLOAD','UPLOAD_FAILED','QUARANTINED') AND q.visibility<>'PRACTITIONER_PRIVATE' AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,'NO_FUTURE_APPOINTMENT','No future appointment is booked',q.updated_at FROM external_client_packages q WHERE q.tenant_id=:tenant AND q.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM external_scheduled_appointments a WHERE a.tenant_id=q.tenant_id AND a.client_id=q.client_id AND a.starts_at>NOW() AND a.status IN ('BOOKED','CONFIRMED')) AND {scope}
     ) signals ORDER BY due_at NULLS LAST LIMIT 30""",allowed="CLIENT_LIST_VIEW" in permissions)
-    if attention["status"] in {"READY","EMPTY_CONFIRMED"} and not attention.get("restricted"):
+    if attention["status"] in {"READY","CONFIRMED_EMPTY"} and not attention.get("restricted"):
         attention["items"]=[{**row,"priority":operational_priority(row.get("due_at"),row["signal"]),"action":next_action(row["signal"])} for row in attention["items"]]
     onboarding=await read("onboarding",f"""SELECT q.id::text,q.client_id,q.status,q.completion_percent,q.updated_at,
       CASE WHEN q.completion_percent=100 THEN 'READY_FOR_CONSULTATION' ELSE 'ONBOARDING_INCOMPLETE' END signal
       FROM external_client_intake_instances q WHERE q.tenant_id=:tenant AND q.status NOT IN ('REVOKED') AND {scope}
       ORDER BY q.updated_at DESC LIMIT 20""",allowed="CLIENT_LIST_VIEW" in permissions)
-    recent=await read("recent_changes",f"""SELECT q.id::text,q.client_id,q.event_type,q.title,q.created_at
-      FROM practice_notifications q WHERE q.tenant_id=:tenant AND {scope} ORDER BY q.created_at DESC LIMIT 12""",allowed="PRACTICE_VIEW" in permissions or "CLIENT_LIST_VIEW" in permissions)
+    recent=await read("recent_changes",f"""SELECT id,client_id,event_type,title,created_at FROM (
+      SELECT q.id::text,q.client_id,q.event_type,q.title,q.created_at FROM practice_notifications q
+        WHERE q.tenant_id=:tenant AND q.created_at>:last_seen AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,q.event_type,'Client portal activity',q.created_at FROM external_client_portal_audit_events q
+        WHERE q.tenant_id=:tenant AND q.created_at>:last_seen AND q.actor_type='CLIENT' AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,'DOCUMENT_UPDATED',q.title,q.updated_at FROM external_documents q
+        WHERE q.tenant_id=:tenant AND q.updated_at>:last_seen AND q.visibility<>'PRACTITIONER_PRIVATE' AND {scope}
+    ) changes ORDER BY created_at DESC LIMIT 20""",allowed="PRACTICE_VIEW" in permissions or "CLIENT_LIST_VIEW" in permissions)
     leads=await read("leads",f"""SELECT q.id::text,NULL::varchar client_id,(q.first_name||COALESCE(' '||q.last_name,'')) title,q.stage,q.next_follow_up_at AS due_at,q.updated_at,
       CASE WHEN q.stage='NEW' THEN 'NEW_LEAD' WHEN q.next_follow_up_at<NOW() THEN 'LEAD_FOLLOWUP_OVERDUE' ELSE 'LEAD_FOLLOWUP' END signal
       FROM external_leads q WHERE q.tenant_id=:tenant AND q.stage NOT IN ('CONVERTED','NOT_INTERESTED','LOST')
@@ -4075,9 +4092,33 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
       UNION ALL SELECT q.id::text,q.client_id,q.purpose title,q.status,q.updated_at,'COMMUNICATION' source_module FROM external_communication_preparations q WHERE q.tenant_id=:tenant AND q.created_by=:actor AND q.status='PREPARED' AND {scope}
     ) drafts ORDER BY updated_at DESC LIMIT 15""",allowed=bool({"SESSION_VIEW","REPORT_VIEW","BILLING_VIEW","COMMUNICATION_VIEW"}&permissions))
 
+    session_briefs=await read("session_briefs",f"""SELECT q.id::text,q.client_id,q.starts_at AS due_at,
+      (SELECT MAX(p.starts_at) FROM external_scheduled_appointments p WHERE p.tenant_id=q.tenant_id AND p.client_id=q.client_id AND p.starts_at<q.starts_at AND p.status='COMPLETED') last_session_at,
+      (SELECT COUNT(*)::int FROM external_form_assignments f WHERE f.tenant_id=q.tenant_id AND f.client_id=q.client_id AND f.status='COMPLETED' AND f.completed_at>:last_seen) recent_assessments,
+      (SELECT COUNT(*)::int FROM external_homework_assignments h WHERE h.tenant_id=q.tenant_id AND h.client_id=q.client_id AND h.status='COMPLETED') homework_completed,
+      (SELECT COUNT(*)::int FROM external_documents d WHERE d.tenant_id=q.tenant_id AND d.client_id=q.client_id AND d.visibility<>'PRACTITIONER_PRIVATE' AND d.updated_at>:last_seen) new_documents,
+      (SELECT COUNT(*)::int FROM external_consent_records c WHERE c.tenant_id=q.tenant_id AND c.client_id=q.client_id AND c.status='ACCEPTED') accepted_consents,
+      COALESCE((SELECT cp.sessions_total-COUNT(cs.id) FROM external_client_packages cp LEFT JOIN external_client_package_sessions cs ON cs.client_package_id=cp.id AND cs.tenant_id=cp.tenant_id WHERE cp.tenant_id=q.tenant_id AND cp.client_id=q.client_id AND cp.status='ACTIVE' GROUP BY cp.id,cp.end_date ORDER BY cp.end_date LIMIT 1),0)::int sessions_remaining
+      FROM external_scheduled_appointments q WHERE q.tenant_id=:tenant AND q.starts_at>=date_trunc('day',NOW()) AND q.starts_at<date_trunc('day',NOW())+INTERVAL '1 day' AND q.status<>'CANCELLED' AND {scope}
+      ORDER BY q.starts_at LIMIT 20""",allowed="CALENDAR_VIEW" in permissions and "CLIENT_LIST_VIEW" in permissions)
+
+    marketplace=await read("marketplace", """SELECT id,client_id,title,status,due_at,signal FROM (
+      SELECT e.id::text,NULL::varchar client_id,e.full_name title,e.status,e.created_at due_at,'NEW_MARKETPLACE_ENROLMENT' signal
+      FROM external_consultant_marketplace_enrolments e JOIN external_consultant_public_profiles p ON p.id=e.profile_id AND p.tenant_id=e.tenant_id
+      WHERE e.tenant_id=:tenant AND p.consultant_user_id=:actor AND e.status='NEW'
+      UNION ALL SELECT p.id::text,NULL::varchar,p.slug,p.status,p.updated_at,
+        CASE WHEN p.status='CHANGES_REQUIRED' THEN 'PROFILE_CHANGES_REQUIRED' WHEN p.status='APPROVED' AND p.public_visibility=FALSE THEN 'PROFILE_APPROVED_NOT_PUBLISHED' ELSE 'PROFILE_UNDER_REVIEW' END
+      FROM external_consultant_public_profiles p WHERE p.tenant_id=:tenant AND p.consultant_user_id=:actor AND p.status IN ('CHANGES_REQUIRED','UNDER_REVIEW','APPROVED')
+      UNION ALL SELECT q.id::text,NULL::varchar,q.title,q.verification_status,q.expiry_date::timestamptz,'CREDENTIAL_EXPIRING'
+      FROM external_consultant_qualifications q JOIN external_consultant_public_profiles p ON p.id=q.profile_id AND p.tenant_id=q.tenant_id
+      WHERE q.tenant_id=:tenant AND p.consultant_user_id=:actor AND q.expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE+60
+    ) signals ORDER BY due_at LIMIT 20""",allowed=principal["role"] in {"PRACTICE_OWNER","PRACTICE_ADMIN","PRACTITIONER"})
+    if marketplace["status"] in {"READY","CONFIRMED_EMPTY"} and not marketplace.get("restricted"):
+        marketplace["items"]=[{**row,"priority":operational_priority(row.get("due_at"),row["signal"]),"action":next_action(row["signal"])} for row in marketplace["items"]]
+
     sections={"schedule":schedule,"my_work":work,"clients_needing_attention":attention,"onboarding":onboarding,
       "recent_changes":recent,"leads":leads,"renewals":renewals,"revenue_attention":revenue,
-      "automation_confirmations":confirmations,"continue_working":drafts}
+      "automation_confirmations":confirmations,"continue_working":drafts,"session_briefs":session_briefs,"marketplace":marketplace}
     failed=[name for name,value in sections.items() if value["status"]=="FAILED"]
     daily_counts={
       "appointments_today":len(schedule["items"]) if schedule["status"]!="FAILED" and not schedule.get("restricted") else None,
@@ -4085,10 +4126,14 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
       "clients_needing_attention":len({row.get("client_id") for row in attention["items"] if row.get("client_id")}) if attention["status"]!="FAILED" and not attention.get("restricted") else None,
       "new_leads":sum(1 for row in leads["items"] if row.get("stage")=="NEW") if leads["status"]!="FAILED" and not leads.get("restricted") else None,
       "automation_confirmations":len(confirmations["items"]) if confirmations["status"]!="FAILED" and not confirmations.get("restricted") else None,
+      "marketplace_enrolments":sum(1 for row in marketplace["items"] if row.get("signal")=="NEW_MARKETPLACE_ENROLMENT") if marketplace["status"]!="FAILED" and not marketplace.get("restricted") else None,
     }
     overall="PARTIAL_DATA" if failed else "READY" if any(value is not None and value>0 for value in daily_counts.values()) else "CONFIRMED_EMPTY"
+    await db.execute(text("""INSERT INTO external_consultant_dashboard_state(tenant_id,user_id,dashboard_last_seen_at,updated_at)
+      VALUES (:tenant,:actor,:seen,:seen) ON CONFLICT(tenant_id,user_id) DO UPDATE SET dashboard_last_seen_at=EXCLUDED.dashboard_last_seen_at,updated_at=EXCLUDED.updated_at"""),{"tenant":tenant,"actor":actor,"seen":request_started_at})
+    await db.commit()
     return {"success":True,"data":{"state":overall,"role":principal["role"],"profession_code":principal.get("profession_code"),
-      "daily_brief":daily_counts,"sections":sections,"failed_sections":failed,"generated_at":datetime.now(timezone.utc)},
+      "daily_brief":daily_counts,"sections":sections,"failed_sections":failed,"last_seen_at":last_seen_at,"generated_at":request_started_at},
       "error":None,"request_id":request.state.correlation_id}
 
 

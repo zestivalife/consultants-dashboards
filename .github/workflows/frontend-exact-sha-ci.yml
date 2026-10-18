@@ -68,6 +68,29 @@ jobs:
           cache: npm
           cache-dependency-path: nuetra-frontend/package-lock.json
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            services/practice-operations-service/requirements.txt
+            api-gateway/requirements.txt
+
+      - name: Install locked backend dependencies
+        run: python -m pip install -r services/practice-operations-service/requirements.txt
+
+      - name: Run practice operations regression
+        working-directory: services/practice-operations-service
+        run: python -m pytest -q
+
+      - name: Install locked gateway dependencies
+        run: python -m pip install -r api-gateway/requirements.txt
+
+      - name: Run gateway regression
+        working-directory: api-gateway
+        run: python -m pytest -q
+
       - name: Install locked dependencies
         working-directory: nuetra-frontend
         run: npm ci
@@ -100,5 +123,7 @@ jobs:
           echo "- Tested SHA: \`$tested_sha\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Focused regression: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Full frontend regression: **PASS**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Practice operations regression: **PASS**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Gateway regression: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Production build: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- git diff --check: **PASS**" >> "$GITHUB_STEP_SUMMARY"

@@ -20,6 +20,15 @@ ACTION_BY_SIGNAL={
     "RENEWAL_DUE":("Prepare renewal","packages"),
     "PROGRAMME_ENDING":("Prepare renewal","packages"),
     "NO_FUTURE_APPOINTMENT":("Book appointment","calendar"),
+    "MISSED_APPOINTMENT":("Review appointment","calendar"),
+    "DOCUMENT_PENDING":("Review document","documents"),
+    "PACKAGE_LOW":("Prepare renewal","packages"),
+    "LEAD_FOLLOWUP_OVERDUE":("Open lead","leads"),
+    "NEW_LEAD":("Open lead","leads"),
+    "NEW_MARKETPLACE_ENROLMENT":("Review enrolment","marketplace"),
+    "PROFILE_CHANGES_REQUIRED":("Update public profile","marketplace-profile"),
+    "PROFILE_APPROVED_NOT_PUBLISHED":("Review publication","marketplace-profile"),
+    "CREDENTIAL_EXPIRING":("Review credentials","marketplace-profile"),
 }
 
 def operational_priority(due_at=None, signal=""):
@@ -40,10 +49,12 @@ def next_action(signal):
     label,target=ACTION_BY_SIGNAL.get(signal,("Open client","client"))
     return {"label":label,"target":target}
 
-def section(items, *, failed=False, restricted=False, summary=None):
-    if restricted:return {"status":"EMPTY_CONFIRMED","items":[],"restricted":True,"summary":summary or {}}
+def section(items, *, failed=False, restricted=False, partial=False, configuration_required=False, summary=None):
+    if configuration_required:return {"status":"CONFIGURATION_REQUIRED","items":[],"summary":summary or {}}
+    if restricted:return {"status":"CONFIRMED_EMPTY","items":[],"restricted":True,"summary":summary or {}}
     if failed:return {"status":"FAILED","items":[],"summary":summary or {}}
-    return {"status":"READY" if items else "EMPTY_CONFIRMED","items":items,"summary":summary or {}}
+    if partial:return {"status":"PARTIAL","items":items,"summary":summary or {}}
+    return {"status":"READY" if items else "CONFIRMED_EMPTY","items":items,"summary":summary or {}}
 
 def sort_work(items):
     return sorted(items,key=lambda item:(PRIORITY_ORDER.get(item.get("priority"),9),str(item.get("due_at") or ""),str(item.get("id") or "")))
