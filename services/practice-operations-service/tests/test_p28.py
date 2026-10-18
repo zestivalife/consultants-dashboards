@@ -14,5 +14,5 @@ def test_unconfigured_provider_fails_closed():
 def test_payment_storage_is_idempotent_and_reconciles_p14():
     for table in ('external_payment_orders','external_payment_attempts','external_payment_webhook_events','external_payment_reconciliation_events'):assert table in MIG
     assert 'UNIQUE(tenant_id,idempotency_key)' in MIG and 'UNIQUE(provider,provider_event_id)' in MIG
-    assert 'external_invoices' in MIG and 'external_payments' in MIG
+    assert 'external_invoices' in MIG and 'external_payment_records' in MIG
     assert 'replay' in MAIN and 'lookup_payment' in MAIN
