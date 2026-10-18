@@ -33,6 +33,8 @@ def test_confirmation_and_communication_are_fail_closed():
     assert {"ASSIGN_ASSESSMENT","PREPARE_MESSAGE","CREATE_RESOURCE_ASSIGNMENT","CREATE_CLIENT_CHECKIN"}<=CONFIRMATION_ACTIONS
     text=(Path(__file__).parents[1]/"app/main.py").read_text()
     assert "PENDING_CONFIRMATION" in text
+    assert "_execute_confirmed_automation_action" in text
+    assert "'DRAFT','MESSAGE_PREPARED'" in text
     assert "AUTOMATIC_MESSAGE_SEND" not in text
     assert "AUTO_CHARGE" not in text
 

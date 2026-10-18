@@ -2742,16 +2742,82 @@ async def pending_automation_actions(request:Request,ctx=Depends(context),db:Asy
     return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
 
 
+async def _execute_confirmed_automation_action(db,ctx,row,configuration):
+    now=datetime.now(timezone.utc);action_type=row["action_type"];client_id=str((row["payload"] or {}).get("client_id") or "")
+    if not client_id:return None,"CLIENT_CONTEXT_REQUIRED"
+    config={**dict(row["configuration"] or {}),**dict(configuration or {})}
+    if action_type=="PREPARE_MESSAGE":
+        target_id=uuid4()
+        await db.execute(text("""INSERT INTO practice_communication_activity
+          (id,tenant_id,client_id,channel,event_type,purpose,metadata,created_by,created_at)
+          VALUES (:id,:tenant,:client,'DRAFT','MESSAGE_PREPARED',:purpose,CAST(:metadata AS jsonb),:actor,:now)"""),{
+          "id":target_id,"tenant":ctx["tenant_id"],"client":client_id,"purpose":str(config.get("purpose") or "Automation prepared message")[:120],
+          "metadata":json.dumps({"status":"DRAFT","message":str(config.get("message") or "")[:2000],"execution_id":str(row["execution_id"])}),"actor":ctx["user_id"],"now":now})
+        return str(target_id),None
+    if action_type=="CREATE_CLIENT_CHECKIN":
+        target_id=uuid4();idem=idempotency_key(ctx["tenant_id"],str(row["automation_version_id"]),str(row["event_id"]),row["action_index"])
+        await db.execute(text("""INSERT INTO practice_checkins
+          (id,tenant_id,client_id,type,title,status,due_at,payload,version,created_by,idempotency_key,created_at,updated_at)
+          VALUES (:id,:tenant,:client,'AUTOMATION_CHECKIN',:title,'TODO',:due,CAST(:payload AS jsonb),1,:actor,:idem,:now,:now)
+          ON CONFLICT (tenant_id,idempotency_key) DO NOTHING"""),{
+          "id":target_id,"tenant":ctx["tenant_id"],"client":client_id,"title":str(config.get("title") or "Client check-in")[:240],
+          "due":now+timedelta(days=int(config.get("delay_days",0))),"payload":json.dumps({"execution_id":str(row["execution_id"])}),
+          "actor":ctx["user_id"],"idem":idem,"now":now})
+        return str(target_id),None
+    if action_type=="ASSIGN_ASSESSMENT":
+        definition_id=config.get("definition_id")
+        if not definition_id:return None,"ASSESSMENT_DEFINITION_REQUIRED"
+        definition=(await db.execute(text("""SELECT d.id,d.profession_code,v.id AS version_id FROM external_assessment_definitions d
+          JOIN external_assessment_versions v ON v.definition_id=d.id AND v.status='ACTIVE'
+          WHERE d.id=CAST(:id AS uuid) AND d.active=TRUE AND (d.tenant_id IS NULL OR d.tenant_id=:tenant)
+          ORDER BY v.version DESC LIMIT 1"""),{"id":str(definition_id),"tenant":ctx["tenant_id"]})).mappings().first()
+        if not definition:return None,"ASSESSMENT_DEFINITION_NOT_FOUND"
+        target_id=uuid4()
+        await db.execute(text("""INSERT INTO external_assessment_instances
+          (id,tenant_id,client_id,definition_id,version_id,profession_code,status,assigned_by,assigned_at,due_at,updated_at)
+          VALUES (:id,:tenant,:client,:definition,:version,:profession,'ASSIGNED',:actor,:now,:due,:now)"""),{
+          "id":target_id,"tenant":ctx["tenant_id"],"client":client_id,"definition":definition["id"],"version":definition["version_id"],
+          "profession":definition["profession_code"],"actor":ctx["user_id"],"now":now,"due":None})
+        return str(target_id),None
+    if action_type=="CREATE_RESOURCE_ASSIGNMENT":
+        resource_id=config.get("resource_id")
+        if not resource_id:return None,"RESOURCE_ID_REQUIRED"
+        resource=(await db.execute(text("""SELECT d.id,v.id AS version_id FROM external_resource_definitions d
+          JOIN external_resource_versions v ON v.resource_id=d.id AND v.version=d.current_version
+          WHERE d.id=CAST(:id AS uuid) AND d.active=TRUE AND (d.scope='SYSTEM' OR d.tenant_id=:tenant)"""),{"id":str(resource_id),"tenant":ctx["tenant_id"]})).mappings().first()
+        if not resource:return None,"RESOURCE_NOT_FOUND"
+        target_id=uuid4()
+        await db.execute(text("""INSERT INTO external_resource_assignments
+          (id,tenant_id,resource_id,resource_version_id,client_id,context_type,assigned_by,assigned_at,instructions,required,status)
+          VALUES (:id,:tenant,:resource,:version,:client,'CLIENT',:actor,:now,:instructions,:required,'ASSIGNED')"""),{
+          "id":target_id,"tenant":ctx["tenant_id"],"resource":resource["id"],"version":resource["version_id"],"client":client_id,
+          "actor":ctx["user_id"],"now":now,"instructions":config.get("instructions"),"required":bool(config.get("required",False))})
+        return str(target_id),None
+    return None,"UNSUPPORTED_CONFIRMED_ACTION"
+
+
 @app.patch("/api/v1/practice-operations/automations/actions/{result_id}")
 async def decide_automation_action(request:Request,result_id:UUID,body:AutomationActionDecision,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=external_only(request,ctx)
     if denied:return denied
-    status="SUCCEEDED" if body.decision=="APPROVE" else "CANCELLED";now=datetime.now(timezone.utc)
+    status="RUNNING" if body.decision=="APPROVE" else "CANCELLED";now=datetime.now(timezone.utc)
     row=(await db.execute(text("""UPDATE external_automation_action_results SET status=:status,
       approved_by=CASE WHEN :decision='APPROVE' THEN :actor ELSE approved_by END,approved_at=CASE WHEN :decision='APPROVE' THEN :now ELSE approved_at END,
       dismissed_by=CASE WHEN :decision='DISMISS' THEN :actor ELSE dismissed_by END,dismissed_at=CASE WHEN :decision='DISMISS' THEN :now ELSE dismissed_at END,updated_at=:now
-      WHERE id=:id AND tenant_id=:tenant AND status='PENDING_CONFIRMATION' RETURNING execution_id"""),{
+      WHERE id=:id AND tenant_id=:tenant AND status='PENDING_CONFIRMATION' RETURNING execution_id,action_id,action_index,action_type"""),{
       "status":status,"decision":body.decision,"actor":ctx["user_id"],"now":now,"id":result_id,"tenant":ctx["tenant_id"]})).mappings().first()
     if not row:return error(request,404,"AUTOMATION_ACTION_NOT_FOUND","Pending automation action not found")
+    error_code=None;target_id=None
+    if body.decision=="APPROVE":
+        graph=(await db.execute(text("""SELECT r.execution_id,r.action_index,r.action_type,a.configuration,e.automation_version_id,e.event_id,o.payload
+          FROM external_automation_action_results r JOIN external_automation_actions a ON a.id=r.action_id
+          JOIN external_automation_executions e ON e.id=r.execution_id JOIN service_outbox_events o ON o.id=e.event_id
+          WHERE r.id=:id AND r.tenant_id=:tenant AND e.tenant_id=:tenant AND o.tenant_id=:tenant"""),{"id":result_id,"tenant":ctx["tenant_id"]})).mappings().first()
+        target_id,error_code=await _execute_confirmed_automation_action(db,ctx,graph,body.configuration)
+        status="FAILED" if error_code else "SUCCEEDED"
+        await db.execute(text("""UPDATE external_automation_action_results SET status=:status,target_id=:target,
+          target_type=:target_type,error_code=:error,result_summary=:summary,updated_at=:now WHERE id=:id AND tenant_id=:tenant"""),{
+          "status":status,"target":target_id,"target_type":row["action_type"],"error":error_code,
+          "summary":"Confirmed action completed" if not error_code else "Confirmed action failed validation","now":now,"id":result_id,"tenant":ctx["tenant_id"]})
     await _automation_audit(db,ctx,"ACTION_APPROVED" if body.decision=="APPROVE" else "ACTION_DISMISSED",execution_id=row["execution_id"],action_result_id=result_id)
-    return {"success":True,"data":{"id":str(result_id),"status":status},"error":None,"request_id":request.state.correlation_id}
+    return {"success":True,"data":{"id":str(result_id),"status":status,"target_id":target_id,"error_code":error_code},"error":None,"request_id":request.state.correlation_id}
