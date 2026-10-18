@@ -60,6 +60,14 @@ export function generateSessionSuggestions(sessionNoteId){return request('/sessi
 export function decideSessionSuggestion(suggestionId,payload){return request(`/session-assistant/suggestions/${encodeURIComponent(suggestionId)}`,{method:'PATCH',body:JSON.stringify(payload)});}
 export function getClientEngagement(clientId){return request(`/clients/${encodeURIComponent(clientId)}/engagement`);}
 export function getEngagementProjections(clientIds){return request('/engagement/projections',{method:'POST',body:JSON.stringify({client_ids:clientIds})});}
+export function listServicePackages(includeInactive=false){return request(`/packages?include_inactive=${includeInactive?'true':'false'}`);}
+export function createServicePackage(payload){return request('/packages',{method:'POST',body:JSON.stringify(payload)});}
+export function updateServicePackage(packageId,payload){return request(`/packages/${encodeURIComponent(packageId)}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function listClientPackages(clientId){const query=clientId?`?client_id=${encodeURIComponent(clientId)}`:'';return request(`/client-packages${query}`);}
+export function assignClientPackage(payload){return request('/client-packages',{method:'POST',body:JSON.stringify(payload)});}
+export function updateClientPackage(assignmentId,payload){return request(`/client-packages/${encodeURIComponent(assignmentId)}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function recordPackageSession(assignmentId,payload){return request(`/client-packages/${encodeURIComponent(assignmentId)}/sessions`,{method:'POST',body:JSON.stringify(payload)});}
+export function listRenewalSignals(){return request('/renewal-signals');}
 export function listProfessionIntakeProjections(){return request('/profession-intake/projections');}
 export function publishProfessionIntakeTemplate(payload){return request('/profession-intake/templates',{method:'POST',body:JSON.stringify(payload)});}
 export function listPracticeCalendar({view='AGENDA',anchor,clientId}={}){const query=new URLSearchParams({view});if(anchor)query.set('anchor',anchor);if(clientId)query.set('client_id',clientId);return request(`/calendar/events?${query}`);}

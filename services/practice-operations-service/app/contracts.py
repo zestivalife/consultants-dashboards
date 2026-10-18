@@ -276,3 +276,45 @@ class ClientPortalDocumentCreate(BaseModel):
     title: str = Field(min_length=1, max_length=240)
     document_reference: str = Field(min_length=1, max_length=500)
     media_type: Literal["PDF", "DOCUMENT", "IMAGE", "OTHER"]
+
+
+class ServicePackageCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=240)
+    profession_code: str | None = Field(default=None, max_length=80)
+    capability_code: str | None = Field(default=None, max_length=80)
+    description: str | None = Field(default=None, max_length=4000)
+    session_allowance: int = Field(ge=1, le=10000)
+    duration_days: int = Field(ge=1, le=3650)
+    price_minor: int | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    active: bool = True
+
+    def snapshot(self):
+        return self.model_dump(mode="json")
+
+
+class ServicePackageUpdate(ServicePackageCreate):
+    expected_version: int = Field(ge=1)
+
+
+class ClientPackageAssign(BaseModel):
+    client_id: str = Field(min_length=1, max_length=120)
+    package_id: UUID
+    start_date: date
+    end_date: date
+    status: Literal["DRAFT","ACTIVE","PAUSED","COMPLETED","EXPIRED","CANCELLED"] = "ACTIVE"
+    sessions_total: int | None = Field(default=None, ge=1, le=10000)
+    renewal_date: date | None = None
+    notes: str | None = Field(default=None, max_length=4000)
+
+
+class ClientPackageStatusUpdate(BaseModel):
+    status: Literal["DRAFT","ACTIVE","PAUSED","COMPLETED","EXPIRED","CANCELLED"]
+    renewal_date: date | None = None
+    notes: str | None = Field(default=None, max_length=4000)
+
+
+class PackageSessionUse(BaseModel):
+    consultation_id: str | None = Field(default=None, max_length=120)
+    occurred_at: datetime
+    notes: str | None = Field(default=None, max_length=1000)

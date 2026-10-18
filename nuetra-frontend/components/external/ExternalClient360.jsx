@@ -10,6 +10,7 @@ import ExternalTransientReportAnalyzer from './ExternalBiomarkerReview';
 import ExternalBiomarkerHistory from './ExternalBiomarkerHistory';
 import ExternalHealthRecords from './ExternalHealthRecords';
 import {ProfessionClient360} from './ProfessionClient360';
+import {ClientPackagePanel} from './ExternalPackages';
 import {createProfessionIntakeInvitation,getClientProfessionIntake,getPracticeConfiguration,listClientTimeline,openWhatsApp,revokeProfessionIntakeInvitation} from '../../lib/practiceOperationsApi';
 
 const professionIntakeCodes=new Set(['DIABETES_EDUCATOR','PSYCHOLOGIST','WELLNESS_CONSULTANT','HEALTH_COACH','BEHAVIOURAL_THERAPIST','OCCUPATIONAL_THERAPIST','PHYSIOTHERAPIST','MENTAL_WELLNESS_THERAPIST']);
@@ -53,7 +54,7 @@ export function ExternalClient360({ client, practiceName, onBack, onStatus, init
   const [profileEvidenceReviews,setProfileEvidenceReviews]=useState([]);
   const [professionConfig,setProfessionConfig]=useState(null);const [professionIntake,setProfessionIntake]=useState(null);
   const usesProfessionWorkspace=professionIntakeCodes.has(professionConfig?.profession);
-  const clientTabs=useMemo(()=>usesProfessionWorkspace?['Overview','Profession','Health Profile','Health Records','Reports',...(professionConfig?.profession==='DIABETES_EDUCATOR'?['Biomarkers']:[]),'Timeline']:tabs,[professionConfig?.profession,usesProfessionWorkspace]);
+  const clientTabs=useMemo(()=>usesProfessionWorkspace?['Overview','Profession','Programme','Health Profile','Health Records','Reports',...(professionConfig?.profession==='DIABETES_EDUCATOR'?['Biomarkers']:[]),'Timeline']:tabs,[professionConfig?.profession,usesProfessionWorkspace]);
   const load = async () => { setLoading(true); setError(''); try { const result = await getExternalClient360(client.id); setData(result.client360); } catch (requestError) { setError(requestError.message || 'Unable to load Client 360.'); } finally { setLoading(false); } };
   useEffect(() => { void Promise.all([load(), loadBiomarkers()]); Promise.allSettled([getPracticeConfiguration(),getClientProfessionIntake(client.id)]).then(([configResult,intakeResult])=>{const config=configResult.status==='fulfilled'?configResult.value:null;setProfessionConfig(config);const projection=intakeResult.status==='fulfilled'?intakeResult.value:null;setProfessionIntake(projection);if(professionIntakeCodes.has(config?.profession)){setInvitation(projection?{status:projection.status,shareUrl:null}:null);return;}getCurrentExternalClientInvitation(client.id).then((result)=>setInvitation(result.invitation)).catch(()=>setInvitation(null));}); }, [client.id]);
   const overview = data?.overview;
@@ -99,7 +100,9 @@ export function ExternalClient360({ client, practiceName, onBack, onStatus, init
       <nav className="my-5 flex gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm" aria-label="Client 360 sections">{clientTabs.map((tab) => <button key={tab} onClick={() => setActive(tab)} className={`min-h-11 whitespace-nowrap rounded-xl px-4 text-sm font-semibold transition ${active === tab ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}>{tab}</button>)}</nav>
       {active === 'Overview' && shareUrl && <button onClick={openOnboardingWhatsApp} className="mb-4 min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800">Share onboarding link via WhatsApp</button>}
       {active === 'Overview' && <ClientCommandCentre data={data} client={client} overview={overview} biomarkers={biomarkers} invitation={invitation} shareUrl={shareUrl} timeline={mergedTimeline} onEdit={edit} onTab={setActive} onInvite={issueInvitation} onRevoke={revokeInvitation}/>}
+      {active === 'Overview' && !usesProfessionWorkspace && <div className="mt-4"><ClientPackagePanel clientId={client.id}/></div>}
       {active === 'Profession' && <ProfessionClient360 clientId={client.id} biomarkers={biomarkers.latest}/>}
+      {active === 'Programme' && <ClientPackagePanel clientId={client.id}/>}
       {visibleSections.length > 0 && <div className="grid gap-4 lg:grid-cols-2">{visibleSections.filter((section) => section !== 'womensHealth' || overview.gender === 'FEMALE').map((section) => <SectionCard key={section} section={section} values={data.sections[section]} provenance={data.provenance[section]} onEdit={edit}/>)}</div>}
       {active === 'Health Profile' && <ProfileEvidencePanel completeness={overview.profileCompleteness} biomarkers={biomarkers.latest} reviews={profileEvidenceReviews} onReview={async(review,action)=>{const reason=window.prompt('Add a review reason');if(!reason)return;await reviewExternalProfileEvidence(client.id,review.id,action,reason);const result=await listExternalProfileEvidenceReviews(client.id);setProfileEvidenceReviews(result.reviews||[]);}}/>}
       {active === 'Health Records' && <ExternalHealthRecords clientId={client.id} onChanged={loadBiomarkers}/>}

@@ -25,6 +25,9 @@ from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendme
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
 from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest
 from app.contracts import ClientPortalInvitationCreate, ClientPortalDocumentCreate
+from app.contracts import (ServicePackageCreate, ServicePackageUpdate,
+                           ClientPackageAssign, ClientPackageStatusUpdate,
+                           PackageSessionUse)
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -1337,6 +1340,189 @@ async def revoke_client_portal_invitations(request: Request, client_id: str, ctx
             "request_id": request.state.correlation_id}
 
 
+def _package_snapshot(body):
+    return body.snapshot() if hasattr(body, "snapshot") else body.model_dump(mode="json", exclude={"expected_version"})
+
+
+@app.get("/api/v1/practice-operations/packages")
+async def list_service_packages(request: Request, include_inactive: bool=False,
+                                ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CLIENT_CRM")
+    if denied: return denied
+    rows=(await db.execute(text("""SELECT id,name,profession_code,capability_code,description,
+      session_allowance,duration_days,price_minor,currency,active,current_version,created_at,updated_at
+      FROM external_service_packages WHERE tenant_id=:tenant
+      AND (:include_inactive OR active=TRUE) ORDER BY active DESC,lower(name)"""),
+      {"tenant":ctx["tenant_id"],"include_inactive":include_inactive})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,
+            "request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/packages",status_code=201)
+async def create_service_package(request: Request, body: ServicePackageCreate,
+                                 ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CLIENT_CRM")
+    if denied: return denied
+    if (body.price_minor is None) != (body.currency is None):
+        return error(request,422,"PACKAGE_PRICE_INVALID","Price and currency must be provided together")
+    package_id,now=uuid4(),datetime.now(timezone.utc); snapshot=_package_snapshot(body)
+    await db.execute(text("""INSERT INTO external_service_packages
+      (id,tenant_id,name,profession_code,capability_code,description,session_allowance,duration_days,
+       price_minor,currency,active,current_version,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:name,:profession,:capability,:description,:sessions,:duration,
+       :price,:currency,:active,1,:actor,:now,:now)"""),{
+      "id":package_id,"tenant":ctx["tenant_id"],"name":body.name,"profession":body.profession_code,
+      "capability":body.capability_code,"description":body.description,"sessions":body.session_allowance,
+      "duration":body.duration_days,"price":body.price_minor,"currency":body.currency,
+      "active":body.active,"actor":ctx["user_id"],"now":now})
+    await db.execute(text("""INSERT INTO external_package_versions
+      (id,package_id,tenant_id,version,snapshot,created_by,created_at)
+      VALUES (:id,:package,:tenant,1,CAST(:snapshot AS jsonb),:actor,:now)"""),{
+      "id":uuid4(),"package":package_id,"tenant":ctx["tenant_id"],"snapshot":json.dumps(snapshot),
+      "actor":ctx["user_id"],"now":now})
+    return {"success":True,"data":{"id":str(package_id),"version":1},"error":None,
+            "request_id":request.state.correlation_id}
+
+
+@app.patch("/api/v1/practice-operations/packages/{package_id}")
+async def update_service_package(request: Request, package_id: UUID, body: ServicePackageUpdate,
+                                 ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CLIENT_CRM")
+    if denied: return denied
+    if (body.price_minor is None) != (body.currency is None):
+        return error(request,422,"PACKAGE_PRICE_INVALID","Price and currency must be provided together")
+    now=datetime.now(timezone.utc); next_version=body.expected_version+1
+    row=(await db.execute(text("""UPDATE external_service_packages SET name=:name,
+      profession_code=:profession,capability_code=:capability,description=:description,
+      session_allowance=:sessions,duration_days=:duration,price_minor=:price,currency=:currency,
+      active=:active,current_version=:next_version,updated_at=:now
+      WHERE id=:id AND tenant_id=:tenant AND current_version=:expected RETURNING id"""),{
+      "id":package_id,"tenant":ctx["tenant_id"],"name":body.name,"profession":body.profession_code,
+      "capability":body.capability_code,"description":body.description,"sessions":body.session_allowance,
+      "duration":body.duration_days,"price":body.price_minor,"currency":body.currency,"active":body.active,
+      "expected":body.expected_version,"next_version":next_version,"now":now})).first()
+    if not row: return error(request,409,"PACKAGE_VERSION_CONFLICT","Package changed; refresh and retry")
+    await db.execute(text("""INSERT INTO external_package_versions
+      (id,package_id,tenant_id,version,snapshot,created_by,created_at)
+      VALUES (:id,:package,:tenant,:version,CAST(:snapshot AS jsonb),:actor,:now)"""),{
+      "id":uuid4(),"package":package_id,"tenant":ctx["tenant_id"],"version":next_version,
+      "snapshot":json.dumps(_package_snapshot(body)),"actor":ctx["user_id"],"now":now})
+    return {"success":True,"data":{"id":str(package_id),"version":next_version},"error":None,
+            "request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/client-packages",status_code=201)
+async def assign_client_package(request: Request, body: ClientPackageAssign,
+                                ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CLIENT_CRM")
+    if denied: return denied
+    if body.end_date < body.start_date:
+        return error(request,422,"PACKAGE_DATE_INVALID","End date must be on or after start date")
+    package=(await db.execute(text("""SELECT id,current_version,session_allowance FROM external_service_packages
+      WHERE id=:id AND tenant_id=:tenant AND active=TRUE"""),{"id":body.package_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not package: return error(request,404,"PACKAGE_NOT_FOUND","Package not found")
+    assignment_id,now=uuid4(),datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_client_packages
+      (id,tenant_id,client_id,package_id,package_version,start_date,end_date,status,sessions_total,
+       renewal_date,notes,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:client,:package,:version,:start,:end,:status,:sessions,
+       :renewal,:notes,:actor,:now,:now)"""),{
+      "id":assignment_id,"tenant":ctx["tenant_id"],"client":body.client_id,"package":body.package_id,
+      "version":package["current_version"],"start":body.start_date,"end":body.end_date,"status":body.status,
+      "sessions":body.sessions_total or package["session_allowance"],"renewal":body.renewal_date,
+      "notes":body.notes,"actor":ctx["user_id"],"now":now})
+    return {"success":True,"data":{"id":str(assignment_id)},"error":None,
+            "request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/client-packages")
+async def list_client_packages(request: Request, client_id: str | None=None,
+                               ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CLIENT_CRM")
+    if denied: return denied
+    rows=(await db.execute(text("""SELECT cp.id,cp.client_id,cp.package_id,p.name,p.profession_code,
+      cp.start_date,cp.end_date,cp.status,cp.sessions_total,cp.renewal_date,cp.notes,
+      COUNT(s.id)::int AS sessions_used,
+      GREATEST(cp.sessions_total-COUNT(s.id)::int,0) AS sessions_remaining,
+      MIN(c.due_at) FILTER (WHERE c.status='SCHEDULED' AND c.due_at >= NOW()) AS next_session
+      FROM external_client_packages cp
+      JOIN external_service_packages p ON p.id=cp.package_id AND p.tenant_id=cp.tenant_id
+      LEFT JOIN external_client_package_sessions s ON s.client_package_id=cp.id AND s.tenant_id=cp.tenant_id
+      LEFT JOIN practice_consultations c ON c.tenant_id=cp.tenant_id AND c.client_id=cp.client_id
+      WHERE cp.tenant_id=:tenant AND (:client IS NULL OR cp.client_id=:client)
+      GROUP BY cp.id,p.id ORDER BY cp.end_date,cp.created_at DESC"""),
+      {"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,
+            "request_id":request.state.correlation_id}
+
+
+@app.patch("/api/v1/practice-operations/client-packages/{assignment_id}")
+async def update_client_package(request: Request, assignment_id: UUID, body: ClientPackageStatusUpdate,
+                                ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CLIENT_CRM")
+    if denied: return denied
+    row=(await db.execute(text("""UPDATE external_client_packages SET status=:status,
+      renewal_date=:renewal,notes=:notes,updated_at=:now WHERE id=:id AND tenant_id=:tenant RETURNING id"""),
+      {"status":body.status,"renewal":body.renewal_date,"notes":body.notes,"now":datetime.now(timezone.utc),
+       "id":assignment_id,"tenant":ctx["tenant_id"]})).first()
+    if not row: return error(request,404,"CLIENT_PACKAGE_NOT_FOUND","Client package not found")
+    return {"success":True,"data":{"id":str(assignment_id),"status":body.status},"error":None,
+            "request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/client-packages/{assignment_id}/sessions",status_code=201)
+async def record_package_session(request: Request, assignment_id: UUID, body: PackageSessionUse,
+                                 ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CLIENT_CRM")
+    if denied: return denied
+    package=(await db.execute(text("""SELECT id,client_id,sessions_total FROM external_client_packages
+      WHERE id=:id AND tenant_id=:tenant AND status IN ('ACTIVE','PAUSED')"""),
+      {"id":assignment_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not package: return error(request,404,"CLIENT_PACKAGE_NOT_FOUND","Active client package not found")
+    used=(await db.execute(text("SELECT COUNT(*) FROM external_client_package_sessions WHERE tenant_id=:tenant AND client_package_id=:id"),
+      {"tenant":ctx["tenant_id"],"id":assignment_id})).scalar_one()
+    if used >= package["sessions_total"]:
+        return error(request,409,"PACKAGE_SESSIONS_EXHAUSTED","No package sessions remain")
+    session_id,now=uuid4(),datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_client_package_sessions
+      (id,tenant_id,client_id,client_package_id,consultation_id,occurred_at,notes,recorded_by,created_at)
+      VALUES (:id,:tenant,:client,:package,:consultation,:occurred,:notes,:actor,:now)"""),{
+      "id":session_id,"tenant":ctx["tenant_id"],"client":package["client_id"],"package":assignment_id,
+      "consultation":body.consultation_id,"occurred":body.occurred_at,"notes":body.notes,
+      "actor":ctx["user_id"],"now":now})
+    return {"success":True,"data":{"id":str(session_id),"sessions_used":used+1,
+      "sessions_remaining":package["sessions_total"]-used-1},"error":None,
+      "request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/renewal-signals")
+async def list_renewal_signals(request: Request, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CLIENT_CRM")
+    if denied: return denied
+    rows=(await db.execute(text("""WITH package_state AS (
+      SELECT cp.id,cp.client_id,p.name,cp.status,cp.end_date,cp.renewal_date,cp.sessions_total,
+       COUNT(s.id)::int used,
+       EXISTS(SELECT 1 FROM practice_consultations c WHERE c.tenant_id=cp.tenant_id
+         AND c.client_id=cp.client_id AND c.status='SCHEDULED' AND c.due_at >= NOW()) has_future
+      FROM external_client_packages cp JOIN external_service_packages p ON p.id=cp.package_id
+      LEFT JOIN external_client_package_sessions s ON s.client_package_id=cp.id AND s.tenant_id=cp.tenant_id
+      WHERE cp.tenant_id=:tenant AND cp.status IN ('ACTIVE','PAUSED') GROUP BY cp.id,p.id)
+      SELECT *,ARRAY_REMOVE(ARRAY[
+       CASE WHEN end_date < CURRENT_DATE THEN 'PROGRAMME_EXPIRED' END,
+       CASE WHEN end_date BETWEEN CURRENT_DATE AND CURRENT_DATE+INTERVAL '14 days' THEN 'PACKAGE_ENDING_SOON' END,
+       CASE WHEN sessions_total-used <= 2 THEN 'SESSIONS_LOW' END,
+       CASE WHEN NOT has_future THEN 'NO_FUTURE_SESSION' END,
+       CASE WHEN renewal_date IS NOT NULL AND renewal_date <= CURRENT_DATE+INTERVAL '14 days' THEN 'RENEWAL_DUE' END
+      ],NULL) signals FROM package_state"""),{"tenant":ctx["tenant_id"]})).mappings().all()
+    items=[]
+    for row in rows:
+        for signal in row["signals"]:
+            items.append({"client_id":row["client_id"],"client_package_id":str(row["id"]),
+                          "package_name":row["name"],"signal":signal,"end_date":row["end_date"]})
+    return {"success":True,"data":{"items":items},"error":None,
+            "request_id":request.state.correlation_id}
+
+
 @app.get("/api/v1/client-portal/{token}")
 async def client_portal_home(request: Request, token: str, db: AsyncSession=Depends(get_db)):
     scope, denied = await _portal_scope(request, token, "READ", db)
@@ -1378,11 +1564,21 @@ async def client_portal_home(request: Request, token: str, db: AsyncSession=Depe
     documents = [dict(row) for row in (await db.execute(text("""SELECT id,title,media_type,status,submitted_at
       FROM external_client_portal_documents WHERE tenant_id=:tenant AND client_id=:client
       AND status NOT IN ('REMOVED','QUARANTINED') ORDER BY submitted_at DESC"""), params)).mappings().all()]
+    packages = [dict(row) for row in (await db.execute(text("""SELECT cp.id,p.name,cp.start_date,cp.end_date,
+      cp.status,cp.sessions_total,COUNT(s.id)::int AS sessions_used,
+      GREATEST(cp.sessions_total-COUNT(s.id)::int,0) AS sessions_remaining,
+      MIN(c.due_at) FILTER (WHERE c.status='SCHEDULED' AND c.due_at >= NOW()) AS next_session
+      FROM external_client_packages cp
+      JOIN external_service_packages p ON p.id=cp.package_id AND p.tenant_id=cp.tenant_id
+      LEFT JOIN external_client_package_sessions s ON s.client_package_id=cp.id AND s.tenant_id=cp.tenant_id
+      LEFT JOIN practice_consultations c ON c.tenant_id=cp.tenant_id AND c.client_id=cp.client_id
+      WHERE cp.tenant_id=:tenant AND cp.client_id=:client AND cp.status IN ('ACTIVE','PAUSED','COMPLETED','EXPIRED')
+      GROUP BY cp.id,p.id ORDER BY cp.end_date DESC"""), params)).mappings().all()]
     return {"success": True, "data": {
         "clientId": scope["client_id"], "tasks": tasks, "appointments": appointments,
         "goals": goals, "plans": plans, "assessments": assessments,
         "instructions": instructions, "progress": progress, "documents": documents,
-        "resources": [], "notifications": [],
+        "resources": [], "notifications": [], "packages": packages,
     }, "error": None, "request_id": request.state.correlation_id}
 
 
