@@ -58,6 +58,8 @@ def test_tenant_scoping_assignment_and_audit_are_mandatory():
     assert "/api/v1/auth/me" in source
     assert "external_team_audit_events" in source
     assert "WHERE id=:id AND tenant_id=:tenant" in source
+    for permission in ("CALENDAR_VIEW", "BILLING_VIEW", "RESOURCE_VIEW", "AUTOMATION_VIEW"):
+        assert permission in source
 
 
 def test_private_note_contract_is_owner_scoped_and_assignment_guarded():

@@ -123,6 +123,7 @@ export function updateTeamMember(id,payload){return request(`/team/members/${enc
 export function suspendTeamMember(id){return request(`/team/members/${encodeURIComponent(id)}/suspend`,{method:'POST'});}
 export function deactivateTeamMember(id){return request(`/team/members/${encodeURIComponent(id)}/deactivate`,{method:'POST'});}
 export function listClientTeam(clientId){return request(`/clients/${encodeURIComponent(clientId)}/team`);}
+export function listMyClientAssignments(){return request('/team/client-assignments');}
 export function assignClientTeam(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/team`,{method:'POST',body:JSON.stringify(payload)});}
 export function updateClientTeamAssignment(clientId,id,payload){return request(`/clients/${encodeURIComponent(clientId)}/team/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
 export function removeClientTeamAssignment(clientId,id){return request(`/clients/${encodeURIComponent(clientId)}/team/${encodeURIComponent(id)}`,{method:'DELETE'});}

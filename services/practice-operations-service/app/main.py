@@ -421,7 +421,7 @@ async def create_media_reference(request: Request, body: MediaReferenceCreate, i
 
 @app.get("/api/v1/practice-operations/calendar/events")
 async def calendar_projection(request: Request, view: str="AGENDA", anchor: datetime | None=None, client_id: str | None=None, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
-    denied = external_only(request, ctx)
+    denied,_ = await _team_guard(request,db,ctx,"CALENDAR_VIEW",client_id)
     if denied: return denied
     try: start, end = calendar_window(view.upper(), anchor or datetime.now(timezone.utc))
     except ValueError: return error(request, 400, "INVALID_CALENDAR_VIEW", "View must be AGENDA, DAY, WEEK, or MONTH")
@@ -1612,10 +1612,17 @@ async def list_renewal_signals(request: Request, ctx=Depends(context), db: Async
             "request_id":request.state.correlation_id}
 
 
+async def _calendar_access(request,db,ctx,permission):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    if denied:return denied
+    denied,_=await _team_guard(request,db,ctx,permission)
+    return denied
+
+
 @app.get("/api/v1/practice-operations/scheduling/appointment-types")
 async def list_appointment_types(request: Request, include_inactive: bool=False,
                                  ctx=Depends(context), db: AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    denied=await _calendar_access(request,db,ctx,"CALENDAR_VIEW")
     if denied: return denied
     rows=(await db.execute(text("""SELECT id,name,description,duration_minutes,buffer_before_minutes,
       buffer_after_minutes,location_type,location_details,active FROM external_appointment_types
@@ -1628,7 +1635,7 @@ async def list_appointment_types(request: Request, include_inactive: bool=False,
 @app.post("/api/v1/practice-operations/scheduling/appointment-types",status_code=201)
 async def create_appointment_type(request: Request, body: AppointmentTypeCreate,
                                   ctx=Depends(context), db: AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    denied=await _calendar_access(request,db,ctx,"CALENDAR_MANAGE")
     if denied: return denied
     item_id,now=uuid4(),datetime.now(timezone.utc)
     await db.execute(text("""INSERT INTO external_appointment_types
@@ -1643,7 +1650,7 @@ async def create_appointment_type(request: Request, body: AppointmentTypeCreate,
 
 @app.get("/api/v1/practice-operations/scheduling/availability")
 async def list_availability(request: Request, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    denied=await _calendar_access(request,db,ctx,"CALENDAR_VIEW")
     if denied: return denied
     rows=(await db.execute(text("""SELECT id,weekday,start_time,end_time,timezone,effective_from,effective_until,active
       FROM external_availability_rules WHERE tenant_id=:tenant ORDER BY weekday,start_time"""),
@@ -1654,7 +1661,7 @@ async def list_availability(request: Request, ctx=Depends(context), db: AsyncSes
 @app.post("/api/v1/practice-operations/scheduling/availability",status_code=201)
 async def create_availability(request: Request, body: AvailabilityRuleCreate,
                               ctx=Depends(context), db: AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    denied=await _calendar_access(request,db,ctx,"CALENDAR_MANAGE")
     if denied: return denied
     if body.end_time <= body.start_time or (body.effective_from and body.effective_until and body.effective_until<body.effective_from):
         return error(request,422,"AVAILABILITY_WINDOW_INVALID","Availability end must follow its start")
@@ -1671,7 +1678,7 @@ async def create_availability(request: Request, body: AvailabilityRuleCreate,
 @app.post("/api/v1/practice-operations/scheduling/booking-links",status_code=201)
 async def create_booking_link(request: Request, body: BookingLinkCreate,
                               ctx=Depends(context), db: AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    denied=await _calendar_access(request,db,ctx,"APPOINTMENT_BOOK")
     if denied: return denied
     kind=(await db.execute(text("SELECT id FROM external_appointment_types WHERE id=:id AND tenant_id=:tenant AND active=TRUE"),
       {"id":body.appointment_type_id,"tenant":ctx["tenant_id"]})).first()
@@ -1689,7 +1696,7 @@ async def create_booking_link(request: Request, body: BookingLinkCreate,
 @app.get("/api/v1/practice-operations/scheduling/appointments")
 async def list_scheduled_appointments(request: Request, client_id: str | None=None,
                                       ctx=Depends(context), db: AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    denied=await _calendar_access(request,db,ctx,"CALENDAR_VIEW")
     if denied: return denied
     rows=(await db.execute(text("""SELECT a.id,a.client_id,a.starts_at,a.ends_at,a.status,a.attendance_status,
       t.name,t.location_type,t.location_details FROM external_scheduled_appointments a
@@ -1729,7 +1736,7 @@ async def _create_appointment(request, db, tenant_id, client_id, appointment_typ
 @app.post("/api/v1/practice-operations/scheduling/appointments",status_code=201)
 async def create_scheduled_appointment(request: Request, body: AppointmentCreate,
                                        ctx=Depends(context), db: AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    denied=await _calendar_access(request,db,ctx,"APPOINTMENT_BOOK")
     if denied: return denied
     result,denied=await _create_appointment(request,db,ctx["tenant_id"],body.client_id,
       body.appointment_type_id,body.starts_at,ctx["user_id"],"CONSULTANT")
@@ -1740,7 +1747,7 @@ async def create_scheduled_appointment(request: Request, body: AppointmentCreate
 @app.patch("/api/v1/practice-operations/scheduling/appointments/{appointment_id}")
 async def update_scheduled_appointment(request: Request, appointment_id: UUID, body: AppointmentStatusUpdate,
                                        ctx=Depends(context), db: AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    denied=await _calendar_access(request,db,ctx,"APPOINTMENT_RESCHEDULE")
     if denied: return denied
     now=datetime.now(timezone.utc); attendance="NO_SHOW" if body.status=="NO_SHOW" else "ATTENDED" if body.status=="COMPLETED" else None
     row=(await db.execute(text("""UPDATE external_scheduled_appointments SET status=:status,
@@ -1759,7 +1766,7 @@ async def update_scheduled_appointment(request: Request, appointment_id: UUID, b
 @app.post("/api/v1/practice-operations/scheduling/waitlist",status_code=201)
 async def create_waitlist_entry(request: Request, body: WaitlistCreate,
                                 ctx=Depends(context), db: AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    denied=await _calendar_access(request,db,ctx,"WAITLIST_MANAGE")
     if denied: return denied
     if body.preferred_from and body.preferred_until and body.preferred_until<body.preferred_from:
         return error(request,422,"WAITLIST_WINDOW_INVALID","Preferred end must follow its start")
@@ -1777,7 +1784,7 @@ async def create_waitlist_entry(request: Request, body: WaitlistCreate,
 
 @app.get("/api/v1/practice-operations/scheduling/waitlist")
 async def list_waitlist(request: Request, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    denied=await _calendar_access(request,db,ctx,"CALENDAR_VIEW")
     if denied: return denied
     rows=(await db.execute(text("""SELECT w.id,w.client_id,w.preferred_from,w.preferred_until,w.status,w.notes,
       t.name AS appointment_type FROM external_scheduling_waitlist w
@@ -1827,7 +1834,10 @@ async def public_booking_details(request: Request, token: str, db: AsyncSession=
 
 
 async def _billing_access(request, db, ctx):
-    return external_only(request,ctx) or await require_capability(request,db,ctx,"BILLING")
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"BILLING")
+    if denied:return denied
+    denied,_=await _team_guard(request,db,ctx,"BILLING_VIEW" if request.method=="GET" else "BILLING_MANAGE")
+    return denied
 
 
 async def _billing_audit(db, ctx, event_type, *, invoice_id=None, service_id=None,
@@ -2147,7 +2157,10 @@ async def get_receipt(request: Request,receipt_id: UUID,ctx=Depends(context),db:
 
 
 async def _p15_access(request, db, ctx, capability="RESOURCE_LIBRARY"):
-    return external_only(request, ctx) or await require_capability(request, db, ctx, capability)
+    denied=external_only(request, ctx) or await require_capability(request, db, ctx, capability)
+    if denied:return denied
+    denied,_=await _team_guard(request,db,ctx,"RESOURCE_VIEW" if request.method=="GET" else "RESOURCE_MANAGE")
+    return denied
 
 
 async def _p15_audit(db, ctx, event_type, *, client_id=None, resource_id=None,
@@ -2562,7 +2575,7 @@ async def _write_automation_version(db,ctx,automation_id,version,body,status="DR
 
 @app.get("/api/v1/practice-operations/automations")
 async def list_automations(request:Request,state:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx)
+    denied,_=await _team_guard(request,db,ctx,"AUTOMATION_VIEW")
     if denied:return denied
     rows=(await db.execute(text("""SELECT d.id,d.name,d.description,d.profession_code,d.trigger_type,d.enabled,d.current_version,d.archived_at,d.updated_at,
       v.requires_confirmation,v.max_retries,v.cooldown_minutes,v.status
@@ -2573,8 +2586,8 @@ async def list_automations(request:Request,state:str|None=None,ctx=Depends(conte
 
 
 @app.get("/api/v1/practice-operations/automations/templates")
-async def automation_templates(request:Request,ctx=Depends(context)):
-    denied=external_only(request,ctx)
+async def automation_templates(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"AUTOMATION_VIEW")
     if denied:return denied
     items=[
       {"name":"Post-session follow-up","trigger_type":"SESSION_COMPLETED","actions":["CREATE_FOLLOWUP"]},
@@ -2588,7 +2601,7 @@ async def automation_templates(request:Request,ctx=Depends(context)):
 
 @app.post("/api/v1/practice-operations/automations",status_code=201)
 async def create_automation(request:Request,body:AutomationCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx)
+    denied,_=await _team_guard(request,db,ctx,"AUTOMATION_MANAGE")
     if denied:return denied
     now=datetime.now(timezone.utc);automation_id=uuid4()
     await db.execute(text("""INSERT INTO external_automation_definitions
@@ -2603,7 +2616,7 @@ async def create_automation(request:Request,body:AutomationCreate,ctx=Depends(co
 
 @app.put("/api/v1/practice-operations/automations/{automation_id}")
 async def edit_automation(request:Request,automation_id:UUID,body:AutomationCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx)
+    denied,_=await _team_guard(request,db,ctx,"AUTOMATION_MANAGE")
     if denied:return denied
     row=(await db.execute(text("SELECT current_version FROM external_automation_definitions WHERE id=:id AND tenant_id=:tenant AND archived_at IS NULL"),{"id":automation_id,"tenant":ctx["tenant_id"]})).mappings().first()
     if not row:return error(request,404,"AUTOMATION_NOT_FOUND","Automation not found")
@@ -2618,7 +2631,7 @@ async def edit_automation(request:Request,automation_id:UUID,body:AutomationCrea
 
 @app.patch("/api/v1/practice-operations/automations/{automation_id}/state")
 async def set_automation_state(request:Request,automation_id:UUID,body:AutomationStateUpdate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx)
+    denied,_=await _team_guard(request,db,ctx,"AUTOMATION_MANAGE")
     if denied:return denied
     row=(await db.execute(text("""UPDATE external_automation_definitions SET enabled=:enabled,updated_at=:now
       WHERE id=:id AND tenant_id=:tenant AND archived_at IS NULL RETURNING current_version"""),{
@@ -2641,7 +2654,7 @@ async def _automation_version_graph(db,tenant,automation_id):
 
 @app.post("/api/v1/practice-operations/automations/{automation_id}/dry-run")
 async def dry_run_automation(request:Request,automation_id:UUID,body:AutomationDryRun,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx)
+    denied,_=await _team_guard(request,db,ctx,"AUTOMATION_MANAGE")
     if denied:return denied
     version,conditions,actions=await _automation_version_graph(db,ctx["tenant_id"],automation_id)
     if not version:return error(request,404,"AUTOMATION_NOT_FOUND","Automation not found")
@@ -2667,7 +2680,7 @@ async def _execute_safe_automation_action(db,ctx,event,action,idem):
 
 @app.post("/api/v1/practice-operations/automations/events/{event_id}/execute")
 async def execute_automations(request:Request,event_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx)
+    denied,_=await _team_guard(request,db,ctx,"AUTOMATION_MANAGE")
     if denied:return denied
     event=(await db.execute(text("SELECT id,event_type,aggregate_type,aggregate_id,payload,created_at FROM service_outbox_events WHERE id=:id AND tenant_id=:tenant"),{"id":event_id,"tenant":ctx["tenant_id"]})).mappings().first()
     if not event:return error(request,404,"OUTBOX_EVENT_NOT_FOUND","Outbox event not found")
@@ -2736,7 +2749,7 @@ async def execute_automations(request:Request,event_id:UUID,ctx=Depends(context)
 
 @app.get("/api/v1/practice-operations/automations/executions/history")
 async def automation_history(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx)
+    denied,_=await _team_guard(request,db,ctx,"AUTOMATION_VIEW")
     if denied:return denied
     rows=(await db.execute(text("""SELECT e.id,d.name AS automation,e.client_id,d.trigger_type,e.status,e.attempt_count,e.condition_results,e.error_code,e.error_summary,e.created_at
       FROM external_automation_executions e JOIN external_automation_definitions d ON d.id=e.automation_id
@@ -2746,7 +2759,7 @@ async def automation_history(request:Request,ctx=Depends(context),db:AsyncSessio
 
 @app.get("/api/v1/practice-operations/automations/actions/pending")
 async def pending_automation_actions(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx)
+    denied,_=await _team_guard(request,db,ctx,"AUTOMATION_VIEW")
     if denied:return denied
     rows=(await db.execute(text("""SELECT r.id,r.action_type,r.result_summary,r.created_at,e.client_id,d.name AS automation
       FROM external_automation_action_results r JOIN external_automation_executions e ON e.id=r.execution_id
@@ -2811,7 +2824,7 @@ async def _execute_confirmed_automation_action(db,ctx,row,configuration):
 
 @app.patch("/api/v1/practice-operations/automations/actions/{result_id}")
 async def decide_automation_action(request:Request,result_id:UUID,body:AutomationActionDecision,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx)
+    denied,_=await _team_guard(request,db,ctx,"AUTOMATION_MANAGE")
     if denied:return denied
     status="RUNNING" if body.decision=="APPROVE" else "CANCELLED";now=datetime.now(timezone.utc)
     row=(await db.execute(text("""UPDATE external_automation_action_results SET status=:status,
@@ -3045,6 +3058,16 @@ async def client_team(request:Request,client_id:str,ctx=Depends(context),db:Asyn
       JOIN external_practice_role_profiles p ON p.tenant_id=a.tenant_id AND p.user_id=a.user_id
       WHERE a.tenant_id=:tenant AND a.client_id=:client ORDER BY a.ended_at NULLS FIRST,a.assigned_at"""),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
     return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/team/client-assignments")
+async def current_user_client_assignments(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,principal=await _team_guard(request,db,ctx,"CLIENT_LIST_VIEW")
+    if denied:return denied
+    wide=bool(principal["practice_wide_client_access"] or principal["legacy_solo"])
+    rows=(await db.execute(text("""SELECT client_id,user_id,assignment_role,assigned_at FROM external_client_team_assignments
+      WHERE tenant_id=:tenant AND (:wide OR user_id=:user) AND ended_at IS NULL ORDER BY assigned_at DESC"""),{"tenant":ctx["tenant_id"],"user":ctx["user_id"],"wide":wide})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows],"practice_wide":wide,"current_user_id":ctx["user_id"]},"error":None,"request_id":request.state.correlation_id}
 
 
 @app.post("/api/v1/practice-operations/clients/{client_id}/team",status_code=201)
