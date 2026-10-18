@@ -179,6 +179,10 @@ export function createCommunicationReminder(payload){return request('/communicat
 export function listPracticeLocations(includeInactive=false){return request(`/locations?include_inactive=${includeInactive?'true':'false'}`);}
 export function createPracticeLocation(payload){return request('/locations',{method:'POST',body:JSON.stringify(payload)});}
 export function assignLocationResource(id,payload){return request(`/locations/${encodeURIComponent(id)}/resources`,{method:'POST',body:JSON.stringify(payload)});}
+export function getPaymentProviderStatus(){return request('/payments/provider');}
+export function createPaymentOrder(payload){return request('/payments/orders',{method:'POST',body:JSON.stringify(payload)});}
+export function verifyPaymentOrder(id,payload){return request(`/payments/orders/${encodeURIComponent(id)}/verify`,{method:'POST',body:JSON.stringify(payload)});}
+export function lookupPaymentOrder(id){return request(`/payments/orders/${encodeURIComponent(id)}`);}
 export async function downloadVaultDocument(id){const result=await request(`/documents/${encodeURIComponent(id)}/download`,{method:'POST'});window.open(result.download_url,'_blank','noopener,noreferrer');return result;}
 export async function downloadProgressReport(id,format){
   const send=token=>fetch(`${BASE}/progress-reports/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(format)}`,{credentials:'include',headers:token?{'X-Nuetra-Authorization':`Bearer ${token}`}:{}});

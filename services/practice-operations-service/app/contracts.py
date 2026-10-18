@@ -732,3 +732,12 @@ class LocationResourceAssign(BaseModel):
     resource_type: Literal["TEAM_MEMBER","CLIENT","APPOINTMENT","SERVICE","INVOICE","LEAD"]
     resource_id: str = Field(min_length=1,max_length=120)
     primary_location: bool = False
+
+class PaymentOrderCreate(BaseModel):
+    invoice_id: UUID
+    idempotency_key: str = Field(min_length=8,max_length=160)
+
+class PaymentVerification(BaseModel):
+    provider_order_id: str = Field(min_length=1,max_length=160)
+    provider_payment_id: str = Field(min_length=1,max_length=160)
+    signature: str = Field(min_length=1,max_length=500)

@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     document_storage_endpoint: str | None = Field(default=None, validation_alias=AliasChoices("DOCUMENT_STORAGE_ENDPOINT","document_storage_endpoint"))
     document_storage_access_key: str | None = Field(default=None, validation_alias=AliasChoices("DOCUMENT_STORAGE_ACCESS_KEY","document_storage_access_key"))
     document_storage_secret_key: str | None = Field(default=None, validation_alias=AliasChoices("DOCUMENT_STORAGE_SECRET_KEY","document_storage_secret_key"))
+    payment_provider: str | None = Field(default=None, validation_alias=AliasChoices("PAYMENT_PROVIDER","payment_provider"))
+    razorpay_key_id: str | None = Field(default=None, validation_alias=AliasChoices("RAZORPAY_KEY_ID","razorpay_key_id"))
+    razorpay_key_secret: str | None = Field(default=None, validation_alias=AliasChoices("RAZORPAY_KEY_SECRET","razorpay_key_secret"))
+    razorpay_webhook_secret: str | None = Field(default=None, validation_alias=AliasChoices("RAZORPAY_WEBHOOK_SECRET","razorpay_webhook_secret"))
 
     model_config = {"env_file": ".env", "case_sensitive": False}
 

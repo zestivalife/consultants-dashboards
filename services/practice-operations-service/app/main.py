@@ -50,6 +50,7 @@ from app.contracts import DocumentCreate, DocumentUpdate, DocumentFinalise, Docu
 from app.contracts import LeadCreate, LeadStageUpdate, LeadFollowUpCreate, LeadConvert
 from app.contracts import CommunicationPreparationCreate, CommunicationReminderCreate
 from app.contracts import PracticeLocationCreate, LocationResourceAssign
+from app.contracts import PaymentOrderCreate, PaymentVerification
 from app.document_storage import (StorageUnavailable, InvalidDocument, new_object_key,
                                   signed_upload, signed_download, validate_document,
                                   verify_uploaded_object)
@@ -63,6 +64,7 @@ from app.p19 import ALLOWED_SCOPES, referral_transition, validate_scopes
 from app.p20 import build_docx, build_pdf, checksum
 from app.p24 import assert_transition as assert_lead_transition, normal_email, normal_phone
 from app.p26 import validate_resource_type
+from app.p28 import PaymentProviderNotConfigured, canonical_payload_hash, verify_razorpay_payment, verify_razorpay_webhook
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -3871,3 +3873,50 @@ async def assign_location_resource(request:Request,location_id:UUID,body:Locatio
     now=datetime.now(timezone.utc)
     if body.primary_location:await db.execute(text("UPDATE external_location_resource_links SET primary_location=FALSE WHERE tenant_id=:tenant AND resource_type=:type AND resource_id=:resource"),{"tenant":ctx["tenant_id"],"type":body.resource_type,"resource":body.resource_id})
     await db.execute(text("INSERT INTO external_location_resource_links(id,tenant_id,location_id,resource_type,resource_id,primary_location,created_by,created_at) VALUES (:id,:tenant,:location,:type,:resource,:primary,:actor,:now) ON CONFLICT (tenant_id,resource_type,resource_id,location_id) DO UPDATE SET primary_location=EXCLUDED.primary_location"),{"id":uuid4(),"tenant":ctx["tenant_id"],"location":location_id,"type":body.resource_type,"resource":body.resource_id,"primary":body.primary_location,"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"location_id":str(location_id),"resource_type":body.resource_type,"resource_id":body.resource_id},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/payments/provider")
+async def payment_provider_status(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"BILLING_VIEW")
+    if denied:return denied
+    settings=get_settings();configured=settings.payment_provider=='RAZORPAY' and bool(settings.razorpay_key_id and settings.razorpay_key_secret and settings.razorpay_webhook_secret)
+    return {"success":True,"data":{"provider":"RAZORPAY" if configured else None,"status":"CONFIGURED" if configured else "NOT_CONFIGURED","browser_success_authoritative":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/payments/orders",status_code=201)
+async def create_payment_order(request:Request,body:PaymentOrderCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"BILLING_MANAGE")
+    if denied:return denied
+    settings=get_settings()
+    if settings.payment_provider!='RAZORPAY' or not settings.razorpay_key_secret:return error(request,503,"PAYMENT_PROVIDER_NOT_CONFIGURED","Live payment provider is not configured")
+    invoice=(await db.execute(text("SELECT id,client_id,balance_due_minor,currency,status FROM external_invoices WHERE id=:id AND tenant_id=:tenant AND status IN ('ISSUED','PART_PAID','OVERDUE')"),{"id":body.invoice_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not invoice:return error(request,404,"PAYABLE_INVOICE_NOT_FOUND","Payable invoice not found")
+    order_id=uuid4();now=datetime.now(timezone.utc);await db.execute(text("INSERT INTO external_payment_orders(id,tenant_id,invoice_id,client_id,provider,amount_minor,currency,status,idempotency_key,created_by,created_at,updated_at) VALUES (:id,:tenant,:invoice,:client,'RAZORPAY',:amount,:currency,'CREATED',:key,:actor,:now,:now) ON CONFLICT (tenant_id,idempotency_key) DO NOTHING"),{"id":order_id,"tenant":ctx["tenant_id"],"invoice":invoice["id"],"client":invoice["client_id"],"amount":invoice["balance_due_minor"],"currency":invoice["currency"],"key":body.idempotency_key,"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"id":str(order_id),"status":"CREATED","provider_order_created":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/payments/orders/{order_id}/verify")
+async def verify_payment(request:Request,order_id:UUID,body:PaymentVerification,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"PAYMENT_RECORD")
+    if denied:return denied
+    order=(await db.execute(text("SELECT id,provider_order_id,status FROM external_payment_orders WHERE id=:id AND tenant_id=:tenant"),{"id":order_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not order or order["provider_order_id"]!=body.provider_order_id:return error(request,404,"PAYMENT_ORDER_NOT_FOUND","Payment order not found")
+    try:valid=verify_razorpay_payment(body.provider_order_id,body.provider_payment_id,body.signature,get_settings().razorpay_key_secret)
+    except PaymentProviderNotConfigured as exc:return error(request,503,"PAYMENT_PROVIDER_NOT_CONFIGURED",str(exc))
+    if not valid:return error(request,403,"PAYMENT_SIGNATURE_INVALID","Payment verification failed")
+    now=datetime.now(timezone.utc);await db.execute(text("INSERT INTO external_payment_attempts(id,tenant_id,order_id,provider_payment_id,status,verification_evidence,created_at,verified_at) VALUES (:id,:tenant,:order,:payment,'VERIFIED',CAST(:evidence AS jsonb),:now,:now) ON CONFLICT (tenant_id,provider_payment_id) DO NOTHING"),{"id":uuid4(),"tenant":ctx["tenant_id"],"order":order_id,"payment":body.provider_payment_id,"evidence":json.dumps({"signature_valid":True}),"now":now});await db.execute(text("UPDATE external_payment_orders SET status='AUTHORISED',updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"now":now,"id":order_id,"tenant":ctx["tenant_id"]});await db.commit();return {"success":True,"data":{"id":str(order_id),"status":"AUTHORISED","invoice_reconciled":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/payments/orders/{order_id}")
+async def lookup_payment(request:Request,order_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"BILLING_VIEW")
+    if denied:return denied
+    row=(await db.execute(text("SELECT id,invoice_id,client_id,provider,provider_order_id,amount_minor,currency,status,created_at,updated_at FROM external_payment_orders WHERE id=:id AND tenant_id=:tenant"),{"id":order_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"PAYMENT_ORDER_NOT_FOUND","Payment order not found")
+    return {"success":True,"data":dict(row),"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/payments/webhooks/razorpay")
+async def razorpay_webhook(request:Request,x_razorpay_signature:str|None=Header(None),db:AsyncSession=Depends(get_db)):
+    payload=await request.body();settings=get_settings()
+    try:valid=verify_razorpay_webhook(payload,x_razorpay_signature or '',settings.razorpay_webhook_secret)
+    except PaymentProviderNotConfigured as exc:return error(request,503,"PAYMENT_PROVIDER_NOT_CONFIGURED",str(exc))
+    if not valid:return error(request,403,"PAYMENT_WEBHOOK_SIGNATURE_INVALID","Webhook verification failed")
+    try:event=json.loads(payload);event_id=str(event.get('event_id') or event.get('id') or canonical_payload_hash(payload))[:200]
+    except (ValueError,TypeError):return error(request,400,"PAYMENT_WEBHOOK_INVALID","Webhook payload is invalid")
+    result=await db.execute(text("INSERT INTO external_payment_webhook_events(id,provider,provider_event_id,payload_hash,signature_valid,processed,received_at) VALUES (:id,'RAZORPAY',:event,:hash,TRUE,FALSE,:now) ON CONFLICT (provider,provider_event_id) DO NOTHING"),{"id":uuid4(),"event":event_id,"hash":canonical_payload_hash(payload),"now":datetime.now(timezone.utc)})
+    await db.commit();return {"success":True,"data":{"accepted":True,"replay":result.rowcount!=1,"processed":False},"error":None,"request_id":request.state.correlation_id}
