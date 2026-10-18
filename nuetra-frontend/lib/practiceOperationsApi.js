@@ -147,6 +147,13 @@ export function publishForm(id){return request(`/forms/${encodeURIComponent(id)}
 export function assignForm(id,payload){return request(`/forms/${encodeURIComponent(id)}/assign`,{method:'POST',body:JSON.stringify(payload)});}
 export function listFormAssignments(clientId=''){return request(`/form-assignments${clientId?`?client_id=${encodeURIComponent(clientId)}`:''}`);}
 export function saveFormResponse(id,answers,submit=false){return request(`/form-assignments/${encodeURIComponent(id)}/response`,{method:'PUT',body:JSON.stringify({answers,submit})});}
+export function listConsentTemplates(){return request('/consents/templates');}
+export function createConsentTemplate(payload){return request('/consents/templates',{method:'POST',body:JSON.stringify(payload)});}
+export function publishConsentTemplate(id){return request(`/consents/templates/${encodeURIComponent(id)}/publish`,{method:'POST'});}
+export function assignConsent(id,client_id){return request(`/consents/templates/${encodeURIComponent(id)}/assign`,{method:'POST',body:JSON.stringify({client_id})});}
+export function listConsents(clientId=''){return request(`/consents${clientId?`?client_id=${encodeURIComponent(clientId)}`:''}`);}
+export function decideConsent(id,payload){return request(`/consents/${encodeURIComponent(id)}/decision`,{method:'POST',body:JSON.stringify(payload)});}
+export function revokeConsent(id){return request(`/consents/${encodeURIComponent(id)}/revoke`,{method:'POST'});}
 export async function downloadProgressReport(id,format){
   const send=token=>fetch(`${BASE}/progress-reports/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(format)}`,{credentials:'include',headers:token?{'X-Nuetra-Authorization':`Bearer ${token}`}:{}});
   let response=await send(getToken());if(response.status===401){const refreshed=await refreshAccessToken().catch(()=>null);if(refreshed)response=await send(refreshed)}

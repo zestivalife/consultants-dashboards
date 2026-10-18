@@ -45,6 +45,7 @@ from app.contracts import (TeamInvitationCreate, TeamInvitationAccept, TeamMembe
 from app.contracts import ReferralCreate, ReferralAction, ReferralConsentDecision
 from app.contracts import ProgressReportCreate, ProgressReportUpdate
 from app.contracts import FormCreate, FormAssign, FormResponseSave
+from app.contracts import ConsentTemplateCreate, ConsentAssign, ConsentDecision
 from app.billing import calculate_line
 from app.p15 import adherence_summary, homework_transition
 from app.p16 import (ACTION_TYPES, CONFIRMATION_ACTIONS, SAFE_ACTIONS,
@@ -3560,3 +3561,46 @@ async def save_form_response(request:Request,assignment_id:UUID,body:FormRespons
     now=datetime.now(timezone.utc);status="COMPLETED" if body.submit else "STARTED"
     await db.execute(text("INSERT INTO external_form_responses(id,assignment_id,tenant_id,client_id,answers,status,response_version,submitted_at,updated_at) VALUES (:id,:assignment,:tenant,:client,CAST(:answers AS jsonb),:status,1,:submitted,:now) ON CONFLICT(assignment_id) DO UPDATE SET answers=EXCLUDED.answers,status=EXCLUDED.status,response_version=external_form_responses.response_version+1,submitted_at=EXCLUDED.submitted_at,updated_at=EXCLUDED.updated_at"),{"id":uuid4(),"assignment":assignment_id,"tenant":ctx["tenant_id"],"client":row["client_id"],"answers":json.dumps(body.answers),"status":status,"submitted":now if body.submit else None,"now":now});await db.execute(text("UPDATE external_form_assignments SET status=:status,started_at=COALESCE(started_at,:now),completed_at=:completed WHERE id=:id AND tenant_id=:tenant"),{"status":status,"now":now,"completed":now if body.submit else None,"id":assignment_id,"tenant":ctx["tenant_id"]});await db.commit()
     return {"success":True,"data":{"id":str(assignment_id),"status":status},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/consents/templates")
+async def list_consent_templates(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    rows=(await db.execute(text("SELECT id,title,consent_type,profession_code,status,current_version,created_at,updated_at FROM external_consent_templates WHERE tenant_id=:tenant AND status<>'ARCHIVED' ORDER BY updated_at DESC"),{"tenant":ctx["tenant_id"]})).mappings().all();return {"success":True,"data":{"items":[dict(x) for x in rows]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/consents/templates",status_code=201)
+async def create_consent_template(request:Request,body:ConsentTemplateCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"TEMPLATE_MANAGE")
+    if denied:return denied
+    now=datetime.now(timezone.utc);tid=uuid4();vid=uuid4();tenant=ctx["tenant_id"]
+    await db.execute(text("INSERT INTO external_consent_templates(id,tenant_id,title,consent_type,profession_code,status,current_version,created_by,created_at,updated_at) VALUES (:id,:tenant,:title,:type,:profession,'DRAFT',1,:actor,:now,:now)"),{"id":tid,"tenant":tenant,"title":body.title,"type":body.consent_type,"profession":body.profession_code,"actor":ctx["user_id"],"now":now});await db.execute(text("INSERT INTO external_consent_template_versions(id,template_id,tenant_id,version,title,body,scope,required_signatories,effective_date,expires_after_days,status,created_by,created_at) VALUES (:id,:template,:tenant,1,:title,:body,CAST(:scope AS jsonb),CAST(:signatories AS jsonb),:effective,:expires,'DRAFT',:actor,:now)"),{"id":vid,"template":tid,"tenant":tenant,"title":body.title,"body":body.body,"scope":json.dumps(body.scope),"signatories":json.dumps(body.required_signatories),"effective":body.effective_date,"expires":body.expires_after_days,"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"id":str(tid),"version":1,"status":"DRAFT"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/consents/templates/{template_id}/publish")
+async def publish_consent_template(request:Request,template_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text("SELECT id,current_version FROM external_consent_templates WHERE id=:id AND tenant_id=:tenant AND status='DRAFT'"),{"id":template_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"DRAFT_CONSENT_NOT_FOUND","Draft consent template not found")
+    now=datetime.now(timezone.utc);await db.execute(text("UPDATE external_consent_template_versions SET status='PUBLISHED',published_at=:now WHERE template_id=:id AND tenant_id=:tenant AND version=:version"),{"now":now,"id":template_id,"tenant":ctx["tenant_id"],"version":row["current_version"]});await db.execute(text("UPDATE external_consent_templates SET status='PUBLISHED',updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"now":now,"id":template_id,"tenant":ctx["tenant_id"]});await db.commit();return {"success":True,"data":{"id":str(template_id),"status":"PUBLISHED"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/consents/templates/{template_id}/assign",status_code=201)
+async def assign_consent(request:Request,template_id:UUID,body:ConsentAssign,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"TEMPLATE_MANAGE",body.client_id)
+    if denied:return denied
+    row=(await db.execute(text("SELECT t.id,v.id version_id,v.scope,v.expires_after_days FROM external_consent_templates t JOIN external_consent_template_versions v ON v.template_id=t.id AND v.version=t.current_version WHERE t.id=:id AND t.tenant_id=:tenant AND t.status='PUBLISHED' AND v.status='PUBLISHED'"),{"id":template_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"PUBLISHED_CONSENT_NOT_FOUND","Published consent template not found")
+    now=datetime.now(timezone.utc);rid=uuid4();expires=now+timedelta(days=row["expires_after_days"]) if row["expires_after_days"] else None
+    await db.execute(text("INSERT INTO external_consent_records(id,tenant_id,client_id,template_id,template_version_id,status,scope,expires_at,assigned_by,created_at,updated_at) VALUES (:id,:tenant,:client,:template,:version,'PENDING',CAST(:scope AS jsonb),:expires,:actor,:now,:now)"),{"id":rid,"tenant":ctx["tenant_id"],"client":body.client_id,"template":template_id,"version":row["version_id"],"scope":json.dumps(row["scope"]),"expires":expires,"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"id":str(rid),"status":"PENDING"},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/consents")
+async def list_consents(request:Request,client_id:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    rows=(await db.execute(text("SELECT r.id,r.client_id,r.status,r.signatory_name,r.signature_method,r.scope,r.accepted_at,r.declined_at,r.revoked_at,r.expires_at,t.title,t.consent_type,v.version FROM external_consent_records r JOIN external_consent_templates t ON t.id=r.template_id JOIN external_consent_template_versions v ON v.id=r.template_version_id WHERE r.tenant_id=:tenant AND (CAST(:client AS text) IS NULL OR r.client_id=CAST(:client AS text)) ORDER BY r.created_at DESC"),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all();return {"success":True,"data":{"items":[dict(x) for x in rows]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/consents/{record_id}/decision")
+async def decide_consent(request:Request,record_id:UUID,body:ConsentDecision,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text("SELECT id,client_id,status FROM external_consent_records WHERE id=:id AND tenant_id=:tenant"),{"id":record_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"CONSENT_NOT_FOUND","Consent record not found")
+    if row["status"]!='PENDING':return error(request,409,"CONSENT_ALREADY_DECIDED","Consent has already been decided")
+    now=datetime.now(timezone.utc);status='ACCEPTED' if body.decision=='ACCEPT' else 'DECLINED';await db.execute(text("UPDATE external_consent_records SET status=:status,signatory_name=:name,signatory_type=:type,signature_method=:method,signature_evidence=CAST(:evidence AS jsonb),accepted_at=:accepted,declined_at=:declined,updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"status":status,"name":body.signatory_name,"type":body.signatory_type,"method":body.signature_method,"evidence":json.dumps(body.signature_evidence),"accepted":now if status=='ACCEPTED' else None,"declined":now if status=='DECLINED' else None,"now":now,"id":record_id,"tenant":ctx["tenant_id"]});await db.commit();return {"success":True,"data":{"id":str(record_id),"status":status,"classification":"ELECTRONIC_ACKNOWLEDGEMENT"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/consents/{record_id}/revoke")
+async def revoke_consent(request:Request,record_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    now=datetime.now(timezone.utc);result=await db.execute(text("UPDATE external_consent_records SET status='REVOKED',revoked_at=:now,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND status='ACCEPTED'"),{"now":now,"id":record_id,"tenant":ctx["tenant_id"]})
+    if result.rowcount!=1:return error(request,404,"ACTIVE_CONSENT_NOT_FOUND","Active consent not found")
+    await db.commit();return {"success":True,"data":{"id":str(record_id),"status":"REVOKED","historic_evidence_preserved":True},"error":None,"request_id":request.state.correlation_id}

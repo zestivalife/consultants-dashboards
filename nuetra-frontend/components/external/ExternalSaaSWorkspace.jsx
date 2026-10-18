@@ -44,6 +44,7 @@ const NAV = [
   ['referrals', 'Referrals', HeartPulse],
   ['progress-reports', 'Progress Reports', FileText],
   ['forms', 'Forms', ClipboardList],
+  ['consents', 'Consents', FileText],
 ];
 const SECONDARY_NAV=PRACTICE_NAV;
 const REAL_P1_VIEWS=new Set(['consultations','followups','goals','tasks','checkins','adherence','notes']);

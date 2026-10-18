@@ -637,3 +637,23 @@ class FormAssign(BaseModel):
 class FormResponseSave(BaseModel):
     answers: dict[str,Any] = Field(default_factory=dict)
     submit: bool = False
+
+class ConsentTemplateCreate(BaseModel):
+    title: str = Field(min_length=1,max_length=240)
+    consent_type: Literal["GENERAL_SERVICE","TELECONSULTATION","DATA_PRIVACY","DOCUMENT_SHARING","REFERRAL","CARE_THERAPY","PROGRAMME","GUARDIAN_DEPENDENT"]
+    body: str = Field(min_length=1,max_length=50000)
+    scope: list[str] = Field(default_factory=list,max_length=50)
+    required_signatories: list[str] = Field(default_factory=lambda:["CLIENT"],max_length=10)
+    effective_date: date
+    expires_after_days: int | None = Field(default=None,ge=1,le=3650)
+    profession_code: str | None = Field(default=None,max_length=80)
+
+class ConsentAssign(BaseModel):
+    client_id: str = Field(min_length=1,max_length=120)
+
+class ConsentDecision(BaseModel):
+    decision: Literal["ACCEPT","DECLINE"]
+    signatory_name: str = Field(min_length=1,max_length=240)
+    signatory_type: str = Field(default="CLIENT",max_length=40)
+    signature_method: Literal["TYPED","DRAWN","CHECKBOX"]
+    signature_evidence: dict[str,Any] = Field(default_factory=dict)
