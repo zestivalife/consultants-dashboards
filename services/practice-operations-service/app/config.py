@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     app_commit_sha: str = Field(default="unknown", validation_alias=AliasChoices("APP_COMMIT_SHA", "RAILWAY_GIT_COMMIT_SHA"))
     app_port: int = Field(default=8006, validation_alias=AliasChoices("PORT", "APP_PORT"))
+    auth_service_url: str = Field(default="http://auth-service:8001", validation_alias=AliasChoices("AUTH_SERVICE_URL", "auth_service_url"))
     database_url: str = "postgresql+asyncpg://nuetra:nuetra_secret@localhost:5432/nuetra_practice_operations"
     trusted_hosts: str = "*.railway.app,*.railway.internal,practice-operations-service,api-gateway,localhost,127.0.0.1"
     profession_intake_secret: str = Field(default="development-profession-intake-secret", validation_alias=AliasChoices("PROFESSION_INTAKE_SECRET", "profession_intake_secret"))

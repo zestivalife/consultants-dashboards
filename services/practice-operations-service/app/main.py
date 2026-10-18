@@ -4,7 +4,9 @@ from uuid import UUID, uuid4
 import json
 import base64
 import hashlib
+import secrets
 import structlog
+import httpx
 from urllib.parse import urlparse
 from cryptography.fernet import Fernet
 from fastapi import Depends, FastAPI, Header, Query, Request
@@ -38,10 +40,13 @@ from app.contracts import (ProfessionalResourceCreate, ProfessionalResourceUpdat
                            HomeworkStatusUpdate, HomeworkCheckinCreate)
 from app.contracts import (AutomationCreate, AutomationStateUpdate,
                            AutomationDryRun, AutomationActionDecision)
+from app.contracts import (TeamInvitationCreate, TeamInvitationAccept, TeamMemberUpdate,
+                           ClientTeamAssignmentCreate, ClientTeamAssignmentUpdate)
 from app.billing import calculate_line
 from app.p15 import adherence_summary, homework_transition
 from app.p16 import (ACTION_TYPES, CONFIRMATION_ACTIONS, SAFE_ACTIONS,
                      assert_chain_depth, evaluate_condition, idempotency_key)
+from app.p17 import PERMISSIONS, ROLE_PERMISSIONS, can_manage_role, resolve_permissions
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -145,10 +150,10 @@ def error(request: Request, status: int, code: str, message: str, retryable: boo
     return JSONResponse(status_code=status, content={"success": False, "error": {"code": code, "safe_message": message, "correlation_id": getattr(request.state, "correlation_id", None), "retryable": retryable}})
 
 
-def context(x_user_id: str | None = Header(None), x_tenant_id: str | None = Header(None), x_user_role: str | None = Header(None), x_tenant_type: str | None = Header(None)):
+def context(x_user_id: str | None = Header(None), x_tenant_id: str | None = Header(None), x_user_role: str | None = Header(None), x_tenant_type: str | None = Header(None), x_user_email: str | None = Header(None)):
     if not x_user_id or not x_tenant_id:
         return None
-    return {"user_id": x_user_id, "tenant_id": x_tenant_id, "role": x_user_role or "member", "tenant_type": x_tenant_type}
+    return {"user_id": x_user_id, "tenant_id": x_tenant_id, "role": x_user_role or "member", "tenant_type": x_tenant_type, "email": (x_user_email or "").lower()}
 
 
 def external_only(request: Request, ctx):
@@ -923,6 +928,7 @@ def _private_note_cipher():
 @app.get("/api/v1/practice-operations/clients/{client_id}/session-notes")
 async def list_session_notes(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=external_only(request,ctx) or await require_capability(request,db,ctx,"SESSION_NOTES")
+    if not denied:denied,_=await _team_guard(request,db,ctx,"PROFESSIONAL_NOTE_VIEW",client_id)
     if denied:return denied
     rows=(await db.execute(text("SELECT id,consultation_id,note_type,title,status,current_version,created_at,updated_at FROM external_session_notes WHERE tenant_id=:tenant AND client_id=:client ORDER BY updated_at DESC"),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
     return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
@@ -930,6 +936,7 @@ async def list_session_notes(request:Request,client_id:str,ctx=Depends(context),
 @app.post("/api/v1/practice-operations/session-notes",status_code=201)
 async def create_session_note(request:Request,body:SessionNoteCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=external_only(request,ctx) or await require_capability(request,db,ctx,"SESSION_NOTES")
+    if not denied:denied,_=await _team_guard(request,db,ctx,"PROFESSIONAL_NOTE_CREATE",body.client_id)
     if denied:return denied
     config=await configuration(db,ctx);note_id=uuid4();version_id=uuid4();now=datetime.now(timezone.utc)
     await db.execute(text("INSERT INTO external_session_notes(id,tenant_id,client_id,profession_code,consultation_id,note_type,title,status,current_version,created_by,created_at,updated_at) VALUES (:id,:tenant,:client,:profession,:consultation,:type,:title,'DRAFT',1,:actor,:now,:now)"),{"id":note_id,"tenant":ctx["tenant_id"],"client":body.client_id,"profession":config["profession"],"consultation":body.consultation_id,"type":body.note_type,"title":body.title,"actor":ctx["user_id"],"now":now})
@@ -980,7 +987,11 @@ async def amend_session_note(request:Request,note_id:UUID,body:SessionNoteAmendm
 async def list_private_notes(request:Request,note_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=external_only(request,ctx) or await require_capability(request,db,ctx,"PRIVATE_NOTES")
     if denied:return denied
-    rows=(await db.execute(text("SELECT id,encrypted_content,created_by,created_at,updated_at FROM external_session_private_notes WHERE note_id=:note AND tenant_id=:tenant ORDER BY created_at DESC"),{"note":note_id,"tenant":ctx["tenant_id"]})).mappings().all();cipher=_private_note_cipher()
+    note=(await db.execute(text("SELECT client_id FROM external_session_notes WHERE id=:id AND tenant_id=:tenant"),{"id":note_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not note:return error(request,404,"SESSION_NOTE_NOT_FOUND","Session note not found")
+    denied,_=await _team_guard(request,db,ctx,"PRIVATE_NOTE_VIEW",note["client_id"])
+    if denied:return denied
+    rows=(await db.execute(text("SELECT id,encrypted_content,created_by,created_at,updated_at FROM external_session_private_notes WHERE note_id=:note AND tenant_id=:tenant AND created_by=:actor ORDER BY created_at DESC"),{"note":note_id,"tenant":ctx["tenant_id"],"actor":ctx["user_id"]})).mappings().all();cipher=_private_note_cipher()
     return {"success":True,"data":{"items":[{"id":row["id"],"content":cipher.decrypt(row["encrypted_content"].encode()).decode(),"created_by":row["created_by"],"created_at":row["created_at"],"updated_at":row["updated_at"]} for row in rows]},"error":None,"request_id":request.state.correlation_id}
 
 @app.post("/api/v1/practice-operations/session-notes/{note_id}/private",status_code=201)
@@ -989,6 +1000,8 @@ async def create_private_note(request:Request,note_id:UUID,body:PrivateNoteCreat
     if denied:return denied
     note=(await db.execute(text("SELECT client_id FROM external_session_notes WHERE id=:id AND tenant_id=:tenant"),{"id":note_id,"tenant":ctx["tenant_id"]})).mappings().first()
     if not note:return error(request,404,"SESSION_NOTE_NOT_FOUND","Session note not found")
+    denied,_=await _team_guard(request,db,ctx,"PRIVATE_NOTE_CREATE",note["client_id"])
+    if denied:return denied
     item_id=uuid4();now=datetime.now(timezone.utc);encrypted=_private_note_cipher().encrypt(body.content.encode()).decode()
     await db.execute(text("INSERT INTO external_session_private_notes(id,note_id,tenant_id,client_id,encrypted_content,created_by,created_at,updated_at) VALUES (:id,:note,:tenant,:client,:content,:actor,:now,:now)"),{"id":item_id,"note":note_id,"tenant":ctx["tenant_id"],"client":note["client_id"],"content":encrypted,"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"id":str(item_id)},"error":None,"request_id":request.state.correlation_id}
 
@@ -2821,3 +2834,259 @@ async def decide_automation_action(request:Request,result_id:UUID,body:Automatio
           "summary":"Confirmed action completed" if not error_code else "Confirmed action failed validation","now":now,"id":result_id,"tenant":ctx["tenant_id"]})
     await _automation_audit(db,ctx,"ACTION_APPROVED" if body.decision=="APPROVE" else "ACTION_DISMISSED",execution_id=row["execution_id"],action_result_id=result_id)
     return {"success":True,"data":{"id":str(result_id),"status":status,"target_id":target_id,"error_code":error_code},"error":None,"request_id":request.state.correlation_id}
+
+
+# P17 External Practice RBAC. Auth identities and tenant headers remain authoritative;
+# this layer only adds External practice roles, permissions, assignments, and audit.
+async def _team_principal(db, ctx):
+    row=(await db.execute(text("""SELECT id,role,status,profession_code,permission_grants,permission_restrictions,
+      practice_wide_client_access FROM external_practice_role_profiles
+      WHERE tenant_id=:tenant AND user_id=:user"""),{"tenant":ctx["tenant_id"],"user":ctx["user_id"]})).mappings().first()
+    config=await configuration(db,ctx)
+    if not row:
+        permissions=set(resolve_permissions("PRACTICE_OWNER",capabilities=config["capabilities"]))
+        permissions.update({p for p in ("PRIVATE_NOTE_VIEW","PRIVATE_NOTE_CREATE") if "PRIVATE_NOTES" in config["capabilities"]})
+        return {"role":"PRACTICE_OWNER","status":"ACTIVE","profession_code":config["profession"],
+          "permissions":permissions,"practice_wide_client_access":True,"legacy_solo":True}
+    permissions=resolve_permissions(row["role"],row["permission_grants"] or [],row["permission_restrictions"] or [],config["capabilities"])
+    return {**dict(row),"permissions":set(permissions),"legacy_solo":False}
+
+
+async def _team_guard(request,db,ctx,permission,client_id=None):
+    denied=external_only(request,ctx)
+    if denied:return denied,None
+    principal=await _team_principal(db,ctx)
+    if principal["status"]!="ACTIVE":return error(request,403,"TEAM_MEMBERSHIP_INACTIVE","Practice membership is not active"),principal
+    if permission not in principal["permissions"]:return error(request,403,"PERMISSION_DENIED",f"{permission.replace('_',' ').title()} permission is required"),principal
+    if client_id and principal["role"]=="PRACTITIONER" and not principal["practice_wide_client_access"] and not principal["legacy_solo"]:
+        assigned=(await db.execute(text("""SELECT 1 FROM external_client_team_assignments WHERE tenant_id=:tenant
+          AND client_id=:client AND user_id=:user AND ended_at IS NULL LIMIT 1"""),{"tenant":ctx["tenant_id"],"client":client_id,"user":ctx["user_id"]})).scalar_one_or_none()
+        if not assigned:return error(request,403,"CLIENT_ASSIGNMENT_REQUIRED","This client is not assigned to the practitioner"),principal
+    return None,principal
+
+
+async def _team_audit(db,ctx,event_type,target_user_id=None,client_id=None,old_value=None,new_value=None,metadata=None):
+    await db.execute(text("""INSERT INTO external_team_audit_events
+      (id,tenant_id,event_type,actor_id,target_user_id,client_id,old_value,new_value,metadata,created_at)
+      VALUES (:id,:tenant,:event,:actor,:target,:client,CAST(:old AS jsonb),CAST(:new AS jsonb),CAST(:metadata AS jsonb),:now)"""),{
+      "id":uuid4(),"tenant":ctx["tenant_id"],"event":event_type,"actor":ctx["user_id"],"target":target_user_id,
+      "client":client_id,"old":json.dumps(old_value) if old_value is not None else None,
+      "new":json.dumps(new_value) if new_value is not None else None,"metadata":json.dumps(metadata or {}),"now":datetime.now(timezone.utc)})
+
+
+async def _authenticated_user_email(ctx):
+    if ctx.get("email"):return ctx["email"]
+    url=f"{get_settings().auth_service_url.rstrip('/')}/api/v1/auth/me"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response=await client.get(url,headers={"X-User-Id":ctx["user_id"]})
+        response.raise_for_status();payload=response.json();return str((payload.get("data") or {}).get("email") or "").lower()
+    except (httpx.HTTPError,ValueError,TypeError):
+        return ""
+
+
+@app.get("/api/v1/practice-operations/team/access")
+async def team_access(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    principal=await _team_principal(db,ctx)
+    return {"success":True,"data":{"role":principal["role"],"status":principal["status"],
+      "profession_code":principal.get("profession_code"),"permissions":sorted(principal["permissions"]),
+      "legacy_solo":principal["legacy_solo"]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/team/roles")
+async def team_roles(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"TEAM_VIEW")
+    if denied:return denied
+    return {"success":True,"data":{"roles":[{"role":role,"permissions":sorted(perms),
+      "private_notes_default":False} for role,perms in ROLE_PERMISSIONS.items()],"permission_registry":sorted(PERMISSIONS)},
+      "error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/team")
+async def list_team(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,principal=await _team_guard(request,db,ctx,"TEAM_VIEW")
+    if denied:return denied
+    rows=(await db.execute(text("""SELECT p.id,p.user_id,p.display_name,p.role,p.status,p.profession_code,p.specialisation,
+      p.location_code,p.practice_wide_client_access,p.active_from,p.active_until,
+      COUNT(a.id) FILTER (WHERE a.ended_at IS NULL) AS assigned_clients_count
+      FROM external_practice_role_profiles p LEFT JOIN external_client_team_assignments a
+      ON a.tenant_id=p.tenant_id AND a.user_id=p.user_id WHERE p.tenant_id=:tenant
+      GROUP BY p.id ORDER BY p.created_at"""),{"tenant":ctx["tenant_id"]})).mappings().all()
+    items=[dict(row) for row in rows]
+    if principal["legacy_solo"]:
+        items.insert(0,{"id":None,"user_id":ctx["user_id"],"display_name":"Practice owner","role":"PRACTICE_OWNER",
+          "status":"ACTIVE","profession_code":principal.get("profession_code"),"specialisation":None,"location_code":None,
+          "practice_wide_client_access":True,"active_from":None,"active_until":None,"assigned_clients_count":0,"legacy_solo":True})
+    return {"success":True,"data":{"items":items,"permissions":sorted(principal["permissions"])},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/team/invitations")
+async def list_team_invitations(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"TEAM_VIEW")
+    if denied:return denied
+    rows=(await db.execute(text("""SELECT id,email,display_name,role,profession_code,specialisation,location_code,status,
+      invited_by,expires_at,accepted_at,created_at FROM external_team_invitations WHERE tenant_id=:tenant ORDER BY created_at DESC"""),{"tenant":ctx["tenant_id"]})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/team/invitations",status_code=201)
+async def create_team_invitation(request:Request,body:TeamInvitationCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,principal=await _team_guard(request,db,ctx,"TEAM_MANAGE")
+    if denied:return denied
+    if body.role=="PRACTITIONER" and not body.profession_code:return error(request,409,"PRACTITIONER_PROFESSION_REQUIRED","Practitioners require a profession profile")
+    if body.role=="PRACTICE_ADMIN" and principal["role"]!="PRACTICE_OWNER":return error(request,403,"ROLE_ESCALATION_DENIED","Only a practice owner can invite an administrator")
+    invalid=(set(body.permission_grants)|set(body.permission_restrictions))-PERMISSIONS
+    if invalid:return error(request,409,"INVALID_PERMISSION","One or more permission codes are invalid")
+    token=secrets.token_urlsafe(32);now=datetime.now(timezone.utc);invitation_id=uuid4()
+    await db.execute(text("""INSERT INTO external_team_invitations
+      (id,tenant_id,email,display_name,role,profession_code,specialisation,location_code,permission_grants,permission_restrictions,
+       token_hash,status,invited_by,expires_at,created_at,updated_at)
+      VALUES (:id,:tenant,:email,:name,:role,:profession,:specialisation,:location,CAST(:grants AS jsonb),CAST(:restrictions AS jsonb),
+       :token_hash,'INVITED',:actor,:expires,:now,:now)"""),{"id":invitation_id,"tenant":ctx["tenant_id"],"email":body.email.lower(),
+      "name":body.name,"role":body.role,"profession":body.profession_code,"specialisation":body.specialisation,"location":body.location_code,
+      "grants":json.dumps(body.permission_grants),"restrictions":json.dumps(body.permission_restrictions),
+      "token_hash":hashlib.sha256(token.encode()).hexdigest(),"actor":ctx["user_id"],"expires":now+timedelta(hours=body.expires_in_hours),"now":now})
+    await _team_audit(db,ctx,"TEAM_MEMBER_INVITED",new_value={"invitation_id":str(invitation_id),"role":body.role,"email":body.email.lower()})
+    await db.commit()
+    return {"success":True,"data":{"id":str(invitation_id),"status":"INVITED","acceptance_token":token,"expires_at":now+timedelta(hours=body.expires_in_hours)},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/team/invitations/{invitation_id}/resend")
+async def resend_team_invitation(request:Request,invitation_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"TEAM_MANAGE")
+    if denied:return denied
+    token=secrets.token_urlsafe(32);now=datetime.now(timezone.utc)
+    row=(await db.execute(text("""UPDATE external_team_invitations SET token_hash=:hash,expires_at=:expires,updated_at=:now
+      WHERE id=:id AND tenant_id=:tenant AND status='INVITED' RETURNING id"""),{"hash":hashlib.sha256(token.encode()).hexdigest(),
+      "expires":now+timedelta(days=7),"now":now,"id":invitation_id,"tenant":ctx["tenant_id"]})).scalar_one_or_none()
+    if not row:return error(request,404,"INVITATION_NOT_FOUND","Active invitation not found")
+    await db.commit();return {"success":True,"data":{"id":str(invitation_id),"status":"INVITED","acceptance_token":token},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/team/invitations/accept")
+async def accept_team_invitation(request:Request,body:TeamInvitationAccept,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    now=datetime.now(timezone.utc);digest=hashlib.sha256(body.token.encode()).hexdigest()
+    invite=(await db.execute(text("""SELECT id,email,display_name,role,profession_code,specialisation,location_code,
+      permission_grants,permission_restrictions,status,invited_by,expires_at FROM external_team_invitations
+      WHERE token_hash=:hash AND tenant_id=:tenant"""),{"hash":digest,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not invite:return error(request,404,"INVITATION_NOT_FOUND","Invitation not found")
+    if invite["status"]!="INVITED":return error(request,409,"INVITATION_ALREADY_USED","Invitation has already been accepted")
+    if invite["expires_at"]<=now:return error(request,403,"INVITATION_EXPIRED","Invitation has expired")
+    authenticated_email=await _authenticated_user_email(ctx)
+    if not authenticated_email:return error(request,503,"AUTH_IDENTITY_UNAVAILABLE","Authenticated email could not be verified",True)
+    if authenticated_email!=invite["email"].lower():return error(request,403,"INVITATION_EMAIL_MISMATCH","Sign in with the invited email address")
+    await db.execute(text("""INSERT INTO external_practice_role_profiles
+      (id,tenant_id,user_id,role,status,display_name,profession_code,specialisation,location_code,permission_grants,
+       permission_restrictions,practice_wide_client_access,active_from,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:user,:role,'ACTIVE',:name,:profession,:specialisation,:location,CAST(:grants AS jsonb),
+       CAST(:restrictions AS jsonb),FALSE,:now,:invited_by,:now,:now) ON CONFLICT (tenant_id,user_id) DO NOTHING"""),{
+      "id":uuid4(),"tenant":ctx["tenant_id"],"user":ctx["user_id"],"role":invite["role"],"name":invite["display_name"],
+      "profession":invite["profession_code"],"specialisation":invite["specialisation"],"location":invite["location_code"],
+      "grants":json.dumps(invite["permission_grants"] or []),"restrictions":json.dumps(invite["permission_restrictions"] or []),
+      "now":now,"invited_by":invite["invited_by"]})
+    await db.execute(text("UPDATE external_team_invitations SET status='ACCEPTED',accepted_by=:user,accepted_at=:now,updated_at=:now WHERE id=:id"),{"user":ctx["user_id"],"now":now,"id":invite["id"]})
+    await _team_audit(db,ctx,"TEAM_MEMBER_ACTIVATED",ctx["user_id"],new_value={"role":invite["role"]});await db.commit()
+    return {"success":True,"data":{"status":"ACTIVE","role":invite["role"]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.patch("/api/v1/practice-operations/team/members/{member_id}")
+async def update_team_member(request:Request,member_id:UUID,body:TeamMemberUpdate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,principal=await _team_guard(request,db,ctx,"TEAM_MANAGE")
+    if denied:return denied
+    target=(await db.execute(text("SELECT user_id,role,status FROM external_practice_role_profiles WHERE id=:id AND tenant_id=:tenant"),{"id":member_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not target:return error(request,404,"TEAM_MEMBER_NOT_FOUND","Team member not found")
+    if target["user_id"]==ctx["user_id"]:return error(request,403,"SELF_ROLE_ESCALATION_DENIED","You cannot change your own role or permissions")
+    if not can_manage_role(principal["role"],target["role"],body.role):return error(request,403,"ROLE_ESCALATION_DENIED","This role transition is not permitted")
+    if body.role=="PRACTITIONER" and not body.profession_code:return error(request,409,"PRACTITIONER_PROFESSION_REQUIRED","Practitioners require a profession profile")
+    if (set(body.permission_grants)|set(body.permission_restrictions))-PERMISSIONS:return error(request,409,"INVALID_PERMISSION","One or more permission codes are invalid")
+    await db.execute(text("""UPDATE external_practice_role_profiles SET role=:role,profession_code=:profession,
+      specialisation=:specialisation,location_code=:location,permission_grants=CAST(:grants AS jsonb),
+      permission_restrictions=CAST(:restrictions AS jsonb),practice_wide_client_access=:wide,updated_at=:now
+      WHERE id=:id AND tenant_id=:tenant"""),{"role":body.role,"profession":body.profession_code,"specialisation":body.specialisation,
+      "location":body.location_code,"grants":json.dumps(body.permission_grants),"restrictions":json.dumps(body.permission_restrictions),
+      "wide":body.practice_wide_client_access,"now":datetime.now(timezone.utc),"id":member_id,"tenant":ctx["tenant_id"]})
+    await _team_audit(db,ctx,"ROLE_CHANGED",target["user_id"],old_value={"role":target["role"]},new_value={"role":body.role,
+      "permission_grants":body.permission_grants,"permission_restrictions":body.permission_restrictions});await db.commit()
+    return {"success":True,"data":{"id":str(member_id),"role":body.role},"error":None,"request_id":request.state.correlation_id}
+
+
+async def _set_member_status(request,member_id,status,event,ctx,db):
+    denied,principal=await _team_guard(request,db,ctx,"TEAM_MANAGE")
+    if denied:return denied
+    target=(await db.execute(text("SELECT user_id,role,status FROM external_practice_role_profiles WHERE id=:id AND tenant_id=:tenant"),{"id":member_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not target:return error(request,404,"TEAM_MEMBER_NOT_FOUND","Team member not found")
+    if target["user_id"]==ctx["user_id"] or target["role"]=="PRACTICE_OWNER":return error(request,403,"ROLE_ESCALATION_DENIED","This member cannot be changed by the current actor")
+    if principal["role"]=="PRACTICE_ADMIN" and target["role"]=="PRACTICE_ADMIN":return error(request,403,"ROLE_ESCALATION_DENIED","Administrators cannot change peer administrators")
+    now=datetime.now(timezone.utc);await db.execute(text("UPDATE external_practice_role_profiles SET status=:status,active_until=:until,updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"status":status,"until":now if status=="DEACTIVATED" else None,"now":now,"id":member_id,"tenant":ctx["tenant_id"]})
+    await _team_audit(db,ctx,event,target["user_id"],old_value={"status":target["status"]},new_value={"status":status});await db.commit()
+    return {"success":True,"data":{"id":str(member_id),"status":status},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/team/members/{member_id}/suspend")
+async def suspend_team_member(request:Request,member_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    return await _set_member_status(request,member_id,"SUSPENDED","MEMBER_SUSPENDED",ctx,db)
+
+
+@app.post("/api/v1/practice-operations/team/members/{member_id}/deactivate")
+async def deactivate_team_member(request:Request,member_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    return await _set_member_status(request,member_id,"DEACTIVATED","MEMBER_DEACTIVATED",ctx,db)
+
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/team")
+async def client_team(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"CLIENT360_VIEW",client_id)
+    if denied:return denied
+    rows=(await db.execute(text("""SELECT a.id,a.user_id,a.assignment_role,a.assigned_by,a.assigned_at,a.ended_at,a.reason,
+      p.display_name,p.role,p.profession_code,p.specialisation FROM external_client_team_assignments a
+      JOIN external_practice_role_profiles p ON p.tenant_id=a.tenant_id AND p.user_id=a.user_id
+      WHERE a.tenant_id=:tenant AND a.client_id=:client ORDER BY a.ended_at NULLS FIRST,a.assigned_at"""),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/team",status_code=201)
+async def assign_client_team(request:Request,client_id:str,body:ClientTeamAssignmentCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"CLIENT_ASSIGN")
+    if denied:return denied
+    member=(await db.execute(text("SELECT role,status FROM external_practice_role_profiles WHERE tenant_id=:tenant AND user_id=:user"),{"tenant":ctx["tenant_id"],"user":body.user_id})).mappings().first()
+    if not member:return error(request,404,"TEAM_MEMBER_NOT_FOUND","Team member not found")
+    if member["status"]!="ACTIVE":return error(request,409,"TEAM_MEMBER_INACTIVE","Only active team members can be assigned")
+    if body.assignment_role in {"PRIMARY_PRACTITIONER","SECONDARY_PRACTITIONER"} and member["role"]!="PRACTITIONER":return error(request,409,"PRACTITIONER_REQUIRED","Clinical assignments require a practitioner")
+    now=datetime.now(timezone.utc);prior=None
+    if body.assignment_role=="PRIMARY_PRACTITIONER":
+        prior=(await db.execute(text("""UPDATE external_client_team_assignments SET ended_at=:now,reason='PRIMARY_TRANSFER'
+          WHERE tenant_id=:tenant AND client_id=:client AND assignment_role='PRIMARY_PRACTITIONER' AND ended_at IS NULL
+          RETURNING user_id"""),{"now":now,"tenant":ctx["tenant_id"],"client":client_id})).scalar_one_or_none()
+    assignment_id=uuid4();await db.execute(text("""INSERT INTO external_client_team_assignments
+      (id,tenant_id,client_id,user_id,assignment_role,assigned_by,assigned_at,reason)
+      VALUES (:id,:tenant,:client,:user,:role,:actor,:now,:reason)"""),{"id":assignment_id,"tenant":ctx["tenant_id"],"client":client_id,
+      "user":body.user_id,"role":body.assignment_role,"actor":ctx["user_id"],"now":now,"reason":body.reason})
+    await _team_audit(db,ctx,"CLIENT_TRANSFERRED" if prior else "CLIENT_ASSIGNED",body.user_id,client_id,
+      old_value={"user_id":prior} if prior else None,new_value={"assignment_role":body.assignment_role});await db.commit()
+    return {"success":True,"data":{"id":str(assignment_id),"assignment_role":body.assignment_role},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.patch("/api/v1/practice-operations/clients/{client_id}/team/{assignment_id}")
+async def update_client_assignment(request:Request,client_id:str,assignment_id:UUID,body:ClientTeamAssignmentUpdate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"CLIENT_TRANSFER")
+    if denied:return denied
+    row=(await db.execute(text("SELECT user_id,assignment_role FROM external_client_team_assignments WHERE id=:id AND tenant_id=:tenant AND client_id=:client AND ended_at IS NULL"),{"id":assignment_id,"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
+    if not row:return error(request,404,"CLIENT_ASSIGNMENT_NOT_FOUND","Client assignment not found")
+    if body.assignment_role=="PRIMARY_PRACTITIONER":await db.execute(text("UPDATE external_client_team_assignments SET ended_at=:now,reason='PRIMARY_CHANGED' WHERE tenant_id=:tenant AND client_id=:client AND assignment_role='PRIMARY_PRACTITIONER' AND ended_at IS NULL AND id<>:id"),{"now":datetime.now(timezone.utc),"tenant":ctx["tenant_id"],"client":client_id,"id":assignment_id})
+    await db.execute(text("UPDATE external_client_team_assignments SET assignment_role=:role,reason=:reason WHERE id=:id AND tenant_id=:tenant"),{"role":body.assignment_role,"reason":body.reason,"id":assignment_id,"tenant":ctx["tenant_id"]})
+    await _team_audit(db,ctx,"CLIENT_TRANSFERRED",row["user_id"],client_id,old_value={"assignment_role":row["assignment_role"]},new_value={"assignment_role":body.assignment_role});await db.commit()
+    return {"success":True,"data":{"id":str(assignment_id),"assignment_role":body.assignment_role},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.delete("/api/v1/practice-operations/clients/{client_id}/team/{assignment_id}")
+async def unassign_client_team(request:Request,client_id:str,assignment_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"CLIENT_ASSIGN")
+    if denied:return denied
+    now=datetime.now(timezone.utc);row=(await db.execute(text("""UPDATE external_client_team_assignments SET ended_at=:now
+      WHERE id=:id AND tenant_id=:tenant AND client_id=:client AND ended_at IS NULL RETURNING user_id,assignment_role"""),{"now":now,"id":assignment_id,"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
+    if not row:return error(request,404,"CLIENT_ASSIGNMENT_NOT_FOUND","Client assignment not found")
+    await _team_audit(db,ctx,"CLIENT_UNASSIGNED",row["user_id"],client_id,old_value={"assignment_role":row["assignment_role"]});await db.commit()
+    return {"success":True,"data":{"id":str(assignment_id),"ended_at":now},"error":None,"request_id":request.state.correlation_id}

@@ -113,6 +113,19 @@ export function dryRunAutomation(id,payload){return request(`/automations/${enco
 export function listAutomationHistory(){return request('/automations/executions/history');}
 export function listPendingAutomationActions(){return request('/automations/actions/pending');}
 export function decideAutomationAction(id,decision,configuration){return request(`/automations/actions/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify({decision,configuration})});}
+export function getTeamAccess(){return request('/team/access');}
+export function listTeamMembers(){return request('/team');}
+export function listTeamRoles(){return request('/team/roles');}
+export function listTeamInvitations(){return request('/team/invitations');}
+export function inviteTeamMember(payload){return request('/team/invitations',{method:'POST',body:JSON.stringify(payload)});}
+export function resendTeamInvitation(id){return request(`/team/invitations/${encodeURIComponent(id)}/resend`,{method:'POST'});}
+export function updateTeamMember(id,payload){return request(`/team/members/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function suspendTeamMember(id){return request(`/team/members/${encodeURIComponent(id)}/suspend`,{method:'POST'});}
+export function deactivateTeamMember(id){return request(`/team/members/${encodeURIComponent(id)}/deactivate`,{method:'POST'});}
+export function listClientTeam(clientId){return request(`/clients/${encodeURIComponent(clientId)}/team`);}
+export function assignClientTeam(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/team`,{method:'POST',body:JSON.stringify(payload)});}
+export function updateClientTeamAssignment(clientId,id,payload){return request(`/clients/${encodeURIComponent(clientId)}/team/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function removeClientTeamAssignment(clientId,id){return request(`/clients/${encodeURIComponent(clientId)}/team/${encodeURIComponent(id)}`,{method:'DELETE'});}
 export async function getPublicBooking(token){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}`);const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Booking link is unavailable.');return body?.data;}
 export async function submitPublicBooking(token,startsAt){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}?starts_at=${encodeURIComponent(startsAt)}`,{method:'POST',headers:{'Content-Type':'application/json'}});const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Appointment could not be booked.');return body?.data;}
 export async function openWhatsApp(payload){

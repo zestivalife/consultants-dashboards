@@ -530,3 +530,40 @@ class AutomationDryRun(BaseModel):
 class AutomationActionDecision(BaseModel):
     decision: Literal["APPROVE","DISMISS"]
     configuration: dict[str, Any] | None = None
+
+
+class TeamInvitationCreate(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    name: str = Field(min_length=1, max_length=240)
+    role: Literal["PRACTICE_ADMIN", "PRACTITIONER", "ASSISTANT", "RECEPTIONIST"]
+    profession_code: str | None = Field(default=None, max_length=80)
+    specialisation: str | None = Field(default=None, max_length=160)
+    location_code: str | None = Field(default=None, max_length=120)
+    permission_grants: list[str] = Field(default_factory=list, max_length=64)
+    permission_restrictions: list[str] = Field(default_factory=list, max_length=64)
+    expires_in_hours: int = Field(default=168, ge=1, le=720)
+
+
+class TeamInvitationAccept(BaseModel):
+    token: str = Field(min_length=24, max_length=500)
+
+
+class TeamMemberUpdate(BaseModel):
+    role: Literal["PRACTICE_ADMIN", "PRACTITIONER", "ASSISTANT", "RECEPTIONIST"]
+    profession_code: str | None = Field(default=None, max_length=80)
+    specialisation: str | None = Field(default=None, max_length=160)
+    location_code: str | None = Field(default=None, max_length=120)
+    permission_grants: list[str] = Field(default_factory=list, max_length=64)
+    permission_restrictions: list[str] = Field(default_factory=list, max_length=64)
+    practice_wide_client_access: bool = False
+
+
+class ClientTeamAssignmentCreate(BaseModel):
+    user_id: str = Field(min_length=1, max_length=120)
+    assignment_role: Literal["PRIMARY_PRACTITIONER", "SECONDARY_PRACTITIONER", "CARE_TEAM_MEMBER"]
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class ClientTeamAssignmentUpdate(BaseModel):
+    assignment_role: Literal["PRIMARY_PRACTITIONER", "SECONDARY_PRACTITIONER", "CARE_TEAM_MEMBER"]
+    reason: str | None = Field(default=None, max_length=500)
