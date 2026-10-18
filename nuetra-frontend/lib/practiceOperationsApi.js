@@ -127,6 +127,7 @@ export function listMyClientAssignments(){return request('/team/client-assignmen
 export function assignClientTeam(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/team`,{method:'POST',body:JSON.stringify(payload)});}
 export function updateClientTeamAssignment(clientId,id,payload){return request(`/clients/${encodeURIComponent(clientId)}/team/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
 export function removeClientTeamAssignment(clientId,id){return request(`/clients/${encodeURIComponent(clientId)}/team/${encodeURIComponent(id)}`,{method:'DELETE'});}
+export function getPracticeAnalytics(preset='30d'){return request(`/analytics/practice?preset=${encodeURIComponent(preset)}`);}
 export async function getPublicBooking(token){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}`);const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Booking link is unavailable.');return body?.data;}
 export async function submitPublicBooking(token,startsAt){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}?starts_at=${encodeURIComponent(startsAt)}`,{method:'POST',headers:{'Content-Type':'application/json'}});const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Appointment could not be booked.');return body?.data;}
 export async function openWhatsApp(payload){

@@ -47,6 +47,7 @@ from app.p15 import adherence_summary, homework_transition
 from app.p16 import (ACTION_TYPES, CONFIRMATION_ACTIONS, SAFE_ACTIONS,
                      assert_chain_depth, evaluate_condition, idempotency_key)
 from app.p17 import PERMISSIONS, ROLE_PERMISSIONS, can_manage_role, resolve_permissions
+from app.p18 import MIN_COHORT_SIZE, analytics_window, cohort_result, rate
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -3113,3 +3114,84 @@ async def unassign_client_team(request:Request,client_id:str,assignment_id:UUID,
     if not row:return error(request,404,"CLIENT_ASSIGNMENT_NOT_FOUND","Client assignment not found")
     await _team_audit(db,ctx,"CLIENT_UNASSIGNED",row["user_id"],client_id,old_value={"assignment_role":row["assignment_role"]});await db.commit()
     return {"success":True,"data":{"id":str(assignment_id),"ended_at":now},"error":None,"request_id":request.state.correlation_id}
+
+
+# P18 reads accepted operational domains without copying their raw records.
+async def _analytics_scalar(db, sql, params):
+    return (await db.execute(text(sql),params)).scalar() or 0
+
+
+@app.get("/api/v1/practice-operations/analytics/practice")
+async def practice_analytics(request:Request,preset:str="30d",start:datetime=None,end:datetime=None,
+                             ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,principal=await _team_guard(request,db,ctx,"ANALYTICS_VIEW")
+    if denied:return denied
+    try:period_start,period_end=analytics_window(preset,start,end)
+    except ValueError as exc:return error(request,422,"INVALID_ANALYTICS_RANGE",str(exc))
+    p={"tenant":ctx["tenant_id"],"start":period_start,"end":period_end}
+    appointments=(await db.execute(text("""SELECT COUNT(*) total,
+      COUNT(*) FILTER (WHERE status='COMPLETED') completed,
+      COUNT(*) FILTER (WHERE status='CANCELLED') cancelled,
+      COUNT(*) FILTER (WHERE status='NO_SHOW' OR attendance_status='NO_SHOW') no_shows
+      FROM external_scheduled_appointments WHERE tenant_id=:tenant AND starts_at>=:start AND starts_at<:end"""),p)).mappings().one()
+    invoices=(await db.execute(text("""SELECT COUNT(*) FILTER (WHERE status<>'DRAFT' AND status<>'CANCELLED') invoice_count,
+      COALESCE(SUM(grand_total_minor) FILTER (WHERE status<>'DRAFT' AND status<>'CANCELLED'),0) invoice_total,
+      COALESCE(SUM(amount_paid_minor) FILTER (WHERE status<>'DRAFT' AND status<>'CANCELLED'),0) paid,
+      COALESCE(SUM(balance_due_minor) FILTER (WHERE status IN ('ISSUED','PART_PAID','OVERDUE')),0) outstanding,
+      COALESCE(SUM(balance_due_minor) FILTER (WHERE status='OVERDUE'),0) overdue,
+      MAX(currency) currency FROM external_invoices WHERE tenant_id=:tenant AND created_at>=:start AND created_at<:end"""),p)).mappings().one()
+    async def completion(table):
+        row=(await db.execute(text(f"""SELECT COUNT(*) total,COUNT(*) FILTER (WHERE status='COMPLETED') completed
+          FROM {table} WHERE tenant_id=:tenant AND created_at>=:start AND created_at<:end"""),p)).mappings().one()
+        return {"completed":row["completed"],"total":row["total"],"rate":rate(row["completed"],row["total"])}
+    followups=await completion("practice_follow_ups");tasks=await completion("practice_tasks")
+    homework=await completion("external_homework_assignments")
+    assessments=await completion("external_client_assessments")
+    automation=(await db.execute(text("""SELECT COUNT(*) total,COUNT(*) FILTER (WHERE status='SUCCEEDED') succeeded,
+      COUNT(*) FILTER (WHERE status='FAILED') failed FROM external_automation_executions
+      WHERE tenant_id=:tenant AND created_at>=:start AND created_at<:end"""),p)).mappings().one()
+    packages=(await db.execute(text("""SELECT COUNT(*) FILTER (WHERE created_at>=:start AND created_at<:end) sales,
+      COUNT(*) FILTER (WHERE status='ACTIVE' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE+30) ending_soon,
+      COUNT(*) FILTER (WHERE renewal_date BETWEEN CURRENT_DATE AND CURRENT_DATE+30) renewals_due,
+      COUNT(*) FILTER (WHERE status='COMPLETED' AND updated_at>=:start AND updated_at<:end) renewals_completed
+      FROM external_client_packages WHERE tenant_id=:tenant"""),p)).mappings().one()
+    waitlist=await _analytics_scalar(db,"SELECT COUNT(*) FROM external_scheduling_waitlist WHERE tenant_id=:tenant AND status='WAITING'",p)
+    engagement=(await db.execute(text("""WITH activity AS (
+      SELECT client_id,MAX(updated_at) last_at FROM practice_tasks WHERE tenant_id=:tenant GROUP BY client_id
+      UNION ALL SELECT client_id,MAX(updated_at) FROM practice_follow_ups WHERE tenant_id=:tenant GROUP BY client_id
+    ),latest AS (SELECT client_id,MAX(last_at) last_at FROM activity GROUP BY client_id)
+    SELECT COUNT(*) FILTER (WHERE last_at>=:end-INTERVAL '14 days') high,
+      COUNT(*) FILTER (WHERE last_at<:end-INTERVAL '14 days' AND last_at>=:end-INTERVAL '30 days') moderate,
+      COUNT(*) FILTER (WHERE last_at<:end-INTERVAL '30 days') needs_attention FROM latest"""),p)).mappings().one()
+    workload=[]
+    if principal["role"] in {"PRACTICE_OWNER","PRACTICE_ADMIN"}:
+        rows=(await db.execute(text("""SELECT p.user_id,p.display_name,COUNT(DISTINCT a.client_id) active_clients,
+          COUNT(DISTINCT s.id) FILTER (WHERE s.starts_at>=:start AND s.starts_at<:end) sessions
+          FROM external_practice_role_profiles p LEFT JOIN external_client_team_assignments a
+          ON a.tenant_id=p.tenant_id AND a.user_id=p.user_id AND a.ended_at IS NULL
+          LEFT JOIN external_scheduled_appointments s ON s.tenant_id=p.tenant_id AND s.created_by=p.user_id
+          WHERE p.tenant_id=:tenant AND p.status='ACTIVE' GROUP BY p.user_id,p.display_name ORDER BY p.display_name"""),p)).mappings().all()
+        workload=[dict(row) for row in rows]
+    outcome_rows=(await db.execute(text("""SELECT d.code,d.label,d.unit,d.direction,
+      COUNT(DISTINCT o.client_id) cohort_size,COUNT(o.id) observations
+      FROM external_progress_metric_definitions d JOIN external_progress_observations o
+      ON o.metric_definition_id=d.id AND o.tenant_id=d.tenant_id
+      WHERE d.tenant_id=:tenant AND o.observed_at>=:start AND o.observed_at<:end
+      GROUP BY d.code,d.label,d.unit,d.direction ORDER BY d.label"""),p)).mappings().all()
+    outcomes=[{"code":row["code"],"label":row["label"],"unit":row["unit"],"direction":row["direction"],
+      **cohort_result(row["cohort_size"],{"observations":row["observations"]})} for row in outcome_rows]
+    total_sessions=appointments["total"]
+    data={"state":"LOADED","period":{"preset":preset,"start":period_start,"end":period_end,"timezone":"practice"},
+      "business":{"active_clients":{"value":None,"state":"UNAVAILABLE_SOURCE"},"total_sessions":total_sessions,
+        "completed_sessions":appointments["completed"],"cancelled_sessions":appointments["cancelled"],"no_shows":appointments["no_shows"],
+        "session_utilisation":rate(appointments["completed"],total_sessions),"package_sales":packages["sales"],
+        "packages_ending_soon":packages["ending_soon"],"renewals_due":packages["renewals_due"],"renewals_completed":packages["renewals_completed"],
+        "invoice_total_minor":invoices["invoice_total"],"paid_amount_minor":invoices["paid"],"outstanding_amount_minor":invoices["outstanding"],
+        "overdue_amount_minor":invoices["overdue"],"average_invoice_value_minor":round(invoices["invoice_total"]/invoices["invoice_count"]) if invoices["invoice_count"] else None,"currency":invoices["currency"]},
+      "operations":{"followups":followups,"tasks":tasks,"assessments":assessments,"homework":homework,"waitlist_size":waitlist,
+        "automation":{"total":automation["total"],"execution_rate":rate(automation["succeeded"],automation["total"]),"failure_rate":rate(automation["failed"],automation["total"])}},
+      "engagement":{"HIGH":engagement["high"],"MODERATE":engagement["moderate"],"NEEDS_ATTENTION":engagement["needs_attention"],"INSUFFICIENT_DATA":0,
+        "explanation":"Operational engagement only; not medical risk."},"team":{"items":workload,"restricted":not bool(workload) and principal["role"] not in {"PRACTICE_OWNER","PRACTICE_ADMIN"}},
+      "outcomes":{"minimum_cohort_size":MIN_COHORT_SIZE,"items":outcomes},
+      "unavailable":["active_clients","new_clients","revenue_by_service","average_time_to_book","onboarding_completion_rate"]}
+    return {"success":True,"data":data,"error":None,"request_id":request.state.correlation_id}
