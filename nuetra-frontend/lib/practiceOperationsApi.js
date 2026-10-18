@@ -71,6 +71,18 @@ export function listRenewalSignals(){return request('/renewal-signals');}
 export function listProfessionIntakeProjections(){return request('/profession-intake/projections');}
 export function publishProfessionIntakeTemplate(payload){return request('/profession-intake/templates',{method:'POST',body:JSON.stringify(payload)});}
 export function listPracticeCalendar({view='AGENDA',anchor,clientId}={}){const query=new URLSearchParams({view});if(anchor)query.set('anchor',anchor);if(clientId)query.set('client_id',clientId);return request(`/calendar/events?${query}`);}
+export function listAppointmentTypes(includeInactive=false){return request(`/scheduling/appointment-types?include_inactive=${includeInactive?'true':'false'}`);}
+export function createAppointmentType(payload){return request('/scheduling/appointment-types',{method:'POST',body:JSON.stringify(payload)});}
+export function listSchedulingAvailability(){return request('/scheduling/availability');}
+export function createSchedulingAvailability(payload){return request('/scheduling/availability',{method:'POST',body:JSON.stringify(payload)});}
+export function listScheduledAppointments(clientId){const query=clientId?`?client_id=${encodeURIComponent(clientId)}`:'';return request(`/scheduling/appointments${query}`);}
+export function createScheduledAppointment(payload){return request('/scheduling/appointments',{method:'POST',body:JSON.stringify(payload)});}
+export function updateScheduledAppointment(id,payload){return request(`/scheduling/appointments/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function createBookingLink(payload){return request('/scheduling/booking-links',{method:'POST',body:JSON.stringify(payload)});}
+export function createWaitlistEntry(payload){return request('/scheduling/waitlist',{method:'POST',body:JSON.stringify(payload)});}
+export function listWaitlist(){return request('/scheduling/waitlist');}
+export async function getPublicBooking(token){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}`);const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Booking link is unavailable.');return body?.data;}
+export async function submitPublicBooking(token,startsAt){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}?starts_at=${encodeURIComponent(startsAt)}`,{method:'POST',headers:{'Content-Type':'application/json'}});const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Appointment could not be booked.');return body?.data;}
 export async function openWhatsApp(payload){
   const result=await request('/communication/whatsapp-opened',{method:'POST',body:JSON.stringify(payload)});
   const url=`https://wa.me/${result.phone}?text=${encodeURIComponent(result.message)}`;

@@ -28,6 +28,8 @@ from app.contracts import ClientPortalInvitationCreate, ClientPortalDocumentCrea
 from app.contracts import (ServicePackageCreate, ServicePackageUpdate,
                            ClientPackageAssign, ClientPackageStatusUpdate,
                            PackageSessionUse)
+from app.contracts import (AppointmentTypeCreate, AvailabilityRuleCreate, BookingLinkCreate,
+                           AppointmentCreate, AppointmentStatusUpdate, WaitlistCreate)
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -406,6 +408,11 @@ async def calendar_projection(request: Request, view: str="AGENDA", anchor: date
     rows = (await db.execute(text("""SELECT id,client_id,title,status,due_at AS starts_at,'CONSULTATION' AS source_type FROM practice_consultations WHERE tenant_id=:tenant_id AND due_at>=:start AND due_at<:end AND (CAST(:client_id AS text) IS NULL OR client_id=CAST(:client_id AS text))
       UNION ALL SELECT id,client_id,title,status,due_at,'FOLLOW_UP' FROM practice_follow_ups WHERE tenant_id=:tenant_id AND due_at>=:start AND due_at<:end AND (CAST(:client_id AS text) IS NULL OR client_id=CAST(:client_id AS text))
       UNION ALL SELECT id,client_id,title,status,due_at,'TASK' FROM practice_tasks WHERE tenant_id=:tenant_id AND due_at>=:start AND due_at<:end AND (CAST(:client_id AS text) IS NULL OR client_id=CAST(:client_id AS text))
+      UNION ALL SELECT a.id,a.client_id,t.name,a.status,a.starts_at,'APPOINTMENT'
+      FROM external_scheduled_appointments a JOIN external_appointment_types t
+        ON t.id=a.appointment_type_id AND t.tenant_id=a.tenant_id
+      WHERE a.tenant_id=:tenant_id AND a.starts_at>=:start AND a.starts_at<:end
+        AND (CAST(:client_id AS varchar) IS NULL OR a.client_id=CAST(:client_id AS varchar))
       ORDER BY starts_at,id"""), params)).mappings().all()
     return {"success": True, "data": {"view": view.upper(), "start": start, "end": end, "items": [dict(row) for row in rows], "external_adapter": None}, "error": None, "request_id": request.state.correlation_id}
 
@@ -1521,6 +1528,220 @@ async def list_renewal_signals(request: Request, ctx=Depends(context), db: Async
                           "package_name":row["name"],"signal":signal,"end_date":row["end_date"]})
     return {"success":True,"data":{"items":items},"error":None,
             "request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/scheduling/appointment-types")
+async def list_appointment_types(request: Request, include_inactive: bool=False,
+                                 ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    if denied: return denied
+    rows=(await db.execute(text("""SELECT id,name,description,duration_minutes,buffer_before_minutes,
+      buffer_after_minutes,location_type,location_details,active FROM external_appointment_types
+      WHERE tenant_id=:tenant AND (:inactive OR active=TRUE) ORDER BY name"""),
+      {"tenant":ctx["tenant_id"],"inactive":include_inactive})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,
+            "request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/scheduling/appointment-types",status_code=201)
+async def create_appointment_type(request: Request, body: AppointmentTypeCreate,
+                                  ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    if denied: return denied
+    item_id,now=uuid4(),datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_appointment_types
+      (id,tenant_id,name,description,duration_minutes,buffer_before_minutes,buffer_after_minutes,
+       location_type,location_details,active,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:name,:description,:duration,:before,:after,:location,:details,TRUE,:actor,:now,:now)"""),{
+      "id":item_id,"tenant":ctx["tenant_id"],"name":body.name,"description":body.description,
+      "duration":body.duration_minutes,"before":body.buffer_before_minutes,"after":body.buffer_after_minutes,
+      "location":body.location_type,"details":body.location_details,"actor":ctx["user_id"],"now":now})
+    return {"success":True,"data":{"id":str(item_id)},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/scheduling/availability")
+async def list_availability(request: Request, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    if denied: return denied
+    rows=(await db.execute(text("""SELECT id,weekday,start_time,end_time,timezone,effective_from,effective_until,active
+      FROM external_availability_rules WHERE tenant_id=:tenant ORDER BY weekday,start_time"""),
+      {"tenant":ctx["tenant_id"]})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/scheduling/availability",status_code=201)
+async def create_availability(request: Request, body: AvailabilityRuleCreate,
+                              ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    if denied: return denied
+    if body.end_time <= body.start_time or (body.effective_from and body.effective_until and body.effective_until<body.effective_from):
+        return error(request,422,"AVAILABILITY_WINDOW_INVALID","Availability end must follow its start")
+    item_id,now=uuid4(),datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_availability_rules
+      (id,tenant_id,weekday,start_time,end_time,timezone,effective_from,effective_until,active,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:weekday,CAST(:start AS time),CAST(:end AS time),:timezone,:effective_from,:effective_until,TRUE,:actor,:now,:now)"""),{
+      "id":item_id,"tenant":ctx["tenant_id"],"weekday":body.weekday,"start":body.start_time,"end":body.end_time,
+      "timezone":body.timezone,"effective_from":body.effective_from,"effective_until":body.effective_until,
+      "actor":ctx["user_id"],"now":now})
+    return {"success":True,"data":{"id":str(item_id)},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/scheduling/booking-links",status_code=201)
+async def create_booking_link(request: Request, body: BookingLinkCreate,
+                              ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    if denied: return denied
+    kind=(await db.execute(text("SELECT id FROM external_appointment_types WHERE id=:id AND tenant_id=:tenant AND active=TRUE"),
+      {"id":body.appointment_type_id,"tenant":ctx["tenant_id"]})).first()
+    if not kind: return error(request,404,"APPOINTMENT_TYPE_NOT_FOUND","Appointment type not found")
+    raw_token=uuid4().hex+uuid4().hex; item_id,now=uuid4(),datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_booking_links
+      (id,tenant_id,appointment_type_id,client_id,token_hash,label,expires_at,active,created_by,created_at)
+      VALUES (:id,:tenant,:type,:client,:hash,:label,:expires,TRUE,:actor,:now)"""),{
+      "id":item_id,"tenant":ctx["tenant_id"],"type":body.appointment_type_id,"client":body.client_id,
+      "hash":hashlib.sha256(raw_token.encode()).hexdigest(),"label":body.label,"expires":body.expires_at,
+      "actor":ctx["user_id"],"now":now})
+    return {"success":True,"data":{"id":str(item_id),"token":raw_token},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/scheduling/appointments")
+async def list_scheduled_appointments(request: Request, client_id: str | None=None,
+                                      ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    if denied: return denied
+    rows=(await db.execute(text("""SELECT a.id,a.client_id,a.starts_at,a.ends_at,a.status,a.attendance_status,
+      t.name,t.location_type,t.location_details FROM external_scheduled_appointments a
+      JOIN external_appointment_types t ON t.id=a.appointment_type_id AND t.tenant_id=a.tenant_id
+      WHERE a.tenant_id=:tenant AND (:client IS NULL OR a.client_id=:client) ORDER BY a.starts_at"""),
+      {"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+
+async def _create_appointment(request, db, tenant_id, client_id, appointment_type_id, starts_at,
+                              actor_id, actor_type, booking_link_id=None):
+    kind=(await db.execute(text("""SELECT id,duration_minutes,buffer_before_minutes,buffer_after_minutes
+      FROM external_appointment_types WHERE id=:id AND tenant_id=:tenant AND active=TRUE"""),
+      {"id":appointment_type_id,"tenant":tenant_id})).mappings().first()
+    if not kind: return None,error(request,404,"APPOINTMENT_TYPE_NOT_FOUND","Appointment type not found")
+    ends_at=starts_at+timedelta(minutes=kind["duration_minutes"])
+    conflict=(await db.execute(text("""SELECT id FROM external_scheduled_appointments
+      WHERE tenant_id=:tenant AND status IN ('BOOKED','CONFIRMED')
+      AND starts_at < :blocked_end AND ends_at > :blocked_start LIMIT 1"""),{
+      "tenant":tenant_id,"blocked_start":starts_at-timedelta(minutes=kind["buffer_before_minutes"]),
+      "blocked_end":ends_at+timedelta(minutes=kind["buffer_after_minutes"])})).first()
+    if conflict: return None,error(request,409,"APPOINTMENT_SLOT_UNAVAILABLE","This time is no longer available")
+    item_id,now=uuid4(),datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_scheduled_appointments
+      (id,tenant_id,client_id,appointment_type_id,booking_link_id,starts_at,ends_at,status,
+       booked_by_type,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:client,:type,:link,:start,:end,'BOOKED',:actor_type,:actor,:now,:now)"""),{
+      "id":item_id,"tenant":tenant_id,"client":client_id,"type":appointment_type_id,"link":booking_link_id,
+      "start":starts_at,"end":ends_at,"actor_type":actor_type,"actor":actor_id,"now":now})
+    await db.execute(text("""INSERT INTO external_scheduling_audit_events
+      (id,tenant_id,appointment_id,event_type,actor_id,actor_type,details,created_at)
+      VALUES (:id,:tenant,:appointment,'BOOKED',:actor,:actor_type,'{}'::jsonb,:now)"""),{
+      "id":uuid4(),"tenant":tenant_id,"appointment":item_id,"actor":actor_id,"actor_type":actor_type,"now":now})
+    return {"id":str(item_id),"starts_at":starts_at,"ends_at":ends_at,"status":"BOOKED"},None
+
+
+@app.post("/api/v1/practice-operations/scheduling/appointments",status_code=201)
+async def create_scheduled_appointment(request: Request, body: AppointmentCreate,
+                                       ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    if denied: return denied
+    result,denied=await _create_appointment(request,db,ctx["tenant_id"],body.client_id,
+      body.appointment_type_id,body.starts_at,ctx["user_id"],"CONSULTANT")
+    if denied: return denied
+    return {"success":True,"data":result,"error":None,"request_id":request.state.correlation_id}
+
+
+@app.patch("/api/v1/practice-operations/scheduling/appointments/{appointment_id}")
+async def update_scheduled_appointment(request: Request, appointment_id: UUID, body: AppointmentStatusUpdate,
+                                       ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    if denied: return denied
+    now=datetime.now(timezone.utc); attendance="NO_SHOW" if body.status=="NO_SHOW" else "ATTENDED" if body.status=="COMPLETED" else None
+    row=(await db.execute(text("""UPDATE external_scheduled_appointments SET status=:status,
+      attendance_status=:attendance,cancellation_reason=:reason,updated_at=:now
+      WHERE id=:id AND tenant_id=:tenant RETURNING id"""),{"status":body.status,"attendance":attendance,
+      "reason":body.cancellation_reason,"now":now,"id":appointment_id,"tenant":ctx["tenant_id"]})).first()
+    if not row: return error(request,404,"APPOINTMENT_NOT_FOUND","Appointment not found")
+    await db.execute(text("""INSERT INTO external_scheduling_audit_events
+      (id,tenant_id,appointment_id,event_type,actor_id,actor_type,details,created_at)
+      VALUES (:id,:tenant,:appointment,:event,:actor,'CONSULTANT',CAST(:details AS jsonb),:now)"""),{
+      "id":uuid4(),"tenant":ctx["tenant_id"],"appointment":appointment_id,"event":body.status,
+      "actor":ctx["user_id"],"details":json.dumps({"reason":body.cancellation_reason}),"now":now})
+    return {"success":True,"data":{"id":str(appointment_id),"status":body.status},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/scheduling/waitlist",status_code=201)
+async def create_waitlist_entry(request: Request, body: WaitlistCreate,
+                                ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    if denied: return denied
+    if body.preferred_from and body.preferred_until and body.preferred_until<body.preferred_from:
+        return error(request,422,"WAITLIST_WINDOW_INVALID","Preferred end must follow its start")
+    kind=(await db.execute(text("SELECT id FROM external_appointment_types WHERE id=:id AND tenant_id=:tenant"),
+      {"id":body.appointment_type_id,"tenant":ctx["tenant_id"]})).first()
+    if not kind: return error(request,404,"APPOINTMENT_TYPE_NOT_FOUND","Appointment type not found")
+    item_id,now=uuid4(),datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_scheduling_waitlist
+      (id,tenant_id,client_id,appointment_type_id,preferred_from,preferred_until,status,notes,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:client,:type,:from_at,:until,'WAITING',:notes,:actor,:now,:now)"""),{
+      "id":item_id,"tenant":ctx["tenant_id"],"client":body.client_id,"type":body.appointment_type_id,
+      "from_at":body.preferred_from,"until":body.preferred_until,"notes":body.notes,"actor":ctx["user_id"],"now":now})
+    return {"success":True,"data":{"id":str(item_id),"status":"WAITING"},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/scheduling/waitlist")
+async def list_waitlist(request: Request, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx) or await require_capability(request,db,ctx,"CALENDAR")
+    if denied: return denied
+    rows=(await db.execute(text("""SELECT w.id,w.client_id,w.preferred_from,w.preferred_until,w.status,w.notes,
+      t.name AS appointment_type FROM external_scheduling_waitlist w
+      JOIN external_appointment_types t ON t.id=w.appointment_type_id AND t.tenant_id=w.tenant_id
+      WHERE w.tenant_id=:tenant ORDER BY CASE WHEN w.status='WAITING' THEN 0 ELSE 1 END,w.created_at"""),
+      {"tenant":ctx["tenant_id"]})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/public-booking/{token}",status_code=201)
+async def public_self_booking(request: Request, token: str, starts_at: datetime=Query(...), db: AsyncSession=Depends(get_db)):
+    token_digest=hashlib.sha256(token.encode()).hexdigest()
+    link=(await db.execute(text("""SELECT id,tenant_id,client_id,appointment_type_id FROM external_booking_links
+      WHERE token_hash=:hash AND active=TRUE AND (expires_at IS NULL OR expires_at>NOW())"""),{"hash":token_digest})).mappings().first()
+    if not link or not link["client_id"]: return error(request,404,"BOOKING_LINK_INVALID","Booking link is invalid or expired")
+    available=(await db.execute(text("""SELECT id FROM external_availability_rules
+      WHERE tenant_id=:tenant AND active=TRUE
+      AND (EXTRACT(ISODOW FROM (:start AT TIME ZONE timezone))::int-1)=weekday
+      AND CAST(:start AT TIME ZONE timezone AS time)>=start_time
+      AND CAST(:start AT TIME ZONE timezone AS time)<end_time
+      AND (effective_from IS NULL OR CAST(:start AT TIME ZONE timezone AS date)>=effective_from)
+      AND (effective_until IS NULL OR CAST(:start AT TIME ZONE timezone AS date)<=effective_until)
+      LIMIT 1"""),{"tenant":link["tenant_id"],"start":starts_at})).first()
+    if not available: return error(request,409,"APPOINTMENT_OUTSIDE_AVAILABILITY","This time is outside current availability")
+    result,denied=await _create_appointment(request,db,link["tenant_id"],link["client_id"],
+      link["appointment_type_id"],starts_at,link["client_id"],"CLIENT",link["id"])
+    if denied: return denied
+    return {"success":True,"data":result,"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/public-booking/{token}")
+async def public_booking_details(request: Request, token: str, db: AsyncSession=Depends(get_db)):
+    token_digest=hashlib.sha256(token.encode()).hexdigest()
+    link=(await db.execute(text("""SELECT l.id,l.tenant_id,l.label,t.name,t.description,t.duration_minutes,
+      t.location_type,t.location_details FROM external_booking_links l
+      JOIN external_appointment_types t ON t.id=l.appointment_type_id AND t.tenant_id=l.tenant_id
+      WHERE l.token_hash=:hash AND l.active=TRUE AND l.client_id IS NOT NULL
+      AND (l.expires_at IS NULL OR l.expires_at>NOW())"""),{"hash":token_digest})).mappings().first()
+    if not link: return error(request,404,"BOOKING_LINK_INVALID","Booking link is invalid or expired")
+    rules=(await db.execute(text("""SELECT weekday,start_time,end_time,timezone,effective_from,effective_until
+      FROM external_availability_rules WHERE tenant_id=:tenant AND active=TRUE
+      ORDER BY weekday,start_time"""),{"tenant":link["tenant_id"]})).mappings().all()
+    return {"success":True,"data":{"label":link["label"],"appointment_type":link["name"],
+      "description":link["description"],"duration_minutes":link["duration_minutes"],
+      "location_type":link["location_type"],"location_details":link["location_details"],
+      "availability":[dict(row) for row in rules]},"error":None,"request_id":request.state.correlation_id}
 
 
 @app.get("/api/v1/client-portal/{token}")

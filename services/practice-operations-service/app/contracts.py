@@ -318,3 +318,48 @@ class PackageSessionUse(BaseModel):
     consultation_id: str | None = Field(default=None, max_length=120)
     occurred_at: datetime
     notes: str | None = Field(default=None, max_length=1000)
+
+
+class AppointmentTypeCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=1000)
+    duration_minutes: int = Field(ge=5, le=480)
+    buffer_before_minutes: int = Field(default=0, ge=0, le=240)
+    buffer_after_minutes: int = Field(default=0, ge=0, le=240)
+    location_type: Literal["ONLINE","IN_PERSON","PHONE","OTHER"]
+    location_details: str | None = Field(default=None, max_length=500)
+
+
+class AvailabilityRuleCreate(BaseModel):
+    weekday: int = Field(ge=0, le=6)
+    start_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    end_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    timezone: str = Field(min_length=1, max_length=80)
+    effective_from: date | None = None
+    effective_until: date | None = None
+
+
+class BookingLinkCreate(BaseModel):
+    appointment_type_id: UUID
+    client_id: str | None = Field(default=None, max_length=120)
+    label: str | None = Field(default=None, max_length=160)
+    expires_at: datetime | None = None
+
+
+class AppointmentCreate(BaseModel):
+    client_id: str = Field(min_length=1, max_length=120)
+    appointment_type_id: UUID
+    starts_at: datetime
+
+
+class AppointmentStatusUpdate(BaseModel):
+    status: Literal["CONFIRMED","COMPLETED","CANCELLED","NO_SHOW"]
+    cancellation_reason: str | None = Field(default=None, max_length=500)
+
+
+class WaitlistCreate(BaseModel):
+    client_id: str = Field(min_length=1, max_length=120)
+    appointment_type_id: UUID
+    preferred_from: datetime | None = None
+    preferred_until: datetime | None = None
+    notes: str | None = Field(default=None, max_length=1000)
