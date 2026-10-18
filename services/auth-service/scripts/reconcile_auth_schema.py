@@ -5,6 +5,7 @@ import os
 
 import asyncpg
 
+from app.core.owner_bootstrap import owner_bootstrap_users
 from app.core.security import hash_password
 
 
@@ -96,22 +97,7 @@ SERVICE_ROWS = [
     ("fiteatsy-habit-review", "Habit Review", "AI", "mentor", PRODUCT_ROWS[1]["id"]),
 ]
 
-OWNER_USERS = [
-    {
-        "id": "66f4d9d8-6f1f-4d39-a101-5355d5950001",
-        "email": "zestivapriyanshi@gmail.com",
-        "password": "Priyanshi@123",
-        "first_name": "Priyanshi",
-        "last_name": None,
-    },
-    {
-        "id": "66f4d9d8-6f1f-4d39-a101-5355d5950002",
-        "email": "lalitppaunikar26@gmail.com",
-        "password": "Lalit@123",
-        "first_name": "Lalit",
-        "last_name": "Paunikar",
-    },
-]
+OWNER_USERS = owner_bootstrap_users(required=True)
 
 
 def _database_url() -> str:

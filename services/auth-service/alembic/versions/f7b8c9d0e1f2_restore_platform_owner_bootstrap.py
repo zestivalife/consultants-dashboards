@@ -12,6 +12,7 @@ import uuid
 import sqlalchemy as sa
 from alembic import op
 
+from app.core.owner_bootstrap import owner_bootstrap_users
 from app.core.security import hash_password
 
 
@@ -21,22 +22,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-OWNER_USERS = [
-    {
-        "id": uuid.UUID("66f4d9d8-6f1f-4d39-a101-5355d5950001"),
-        "email": "zestivapriyanshi@gmail.com",
-        "password": "Priyanshi@123",
-        "first_name": "Priyanshi",
-        "last_name": None,
-    },
-    {
-        "id": uuid.UUID("66f4d9d8-6f1f-4d39-a101-5355d5950002"),
-        "email": "lalitppaunikar26@gmail.com",
-        "password": "Lalit@123",
-        "first_name": "Lalit",
-        "last_name": "Paunikar",
-    },
-]
+OWNER_USERS = owner_bootstrap_users()
 
 
 def _column_names(conn: sa.Connection, table_name: str) -> set[str]:

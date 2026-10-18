@@ -10,6 +10,7 @@ import uuid
 import sqlalchemy as sa
 from alembic import op
 
+from app.core.owner_bootstrap import owner_bootstrap_users
 from app.core.security import hash_password
 
 
@@ -21,20 +22,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 PLATFORM_OWNER_ROLE = "PLATFORM_OWNER"
 PLATFORM_OWNER_DESC = "Platform owner with full system permissions across companies, mentors, consultants, and admins"
-OWNER_USERS = [
-    {
-        "id": uuid.UUID("66f4d9d8-6f1f-4d39-a101-5355d5950001"),
-        "email": "zestivapriyanshi@gmail.com",
-        "password": "Priyanshi@123",
-        "first_name": "Priyanshi",
-    },
-    {
-        "id": uuid.UUID("66f4d9d8-6f1f-4d39-a101-5355d5950002"),
-        "email": "lalitppaunikar26@gmail.com",
-        "password": "Lalit@123",
-        "first_name": "Lalit",
-    },
-]
+OWNER_USERS = owner_bootstrap_users()
 
 
 def _has_column(conn: sa.Connection, table_name: str, column_name: str) -> bool:

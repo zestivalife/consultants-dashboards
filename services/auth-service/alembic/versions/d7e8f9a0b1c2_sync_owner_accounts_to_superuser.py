@@ -9,6 +9,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
+from app.core.owner_bootstrap import owner_bootstrap_users
 from app.core.security import hash_password
 
 
@@ -18,18 +19,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-OWNER_USERS = [
-    {
-        "email": "zestivapriyanshi@gmail.com",
-        "password": "Priyanshi@123",
-        "first_name": "Priyanshi",
-    },
-    {
-        "email": "lalitppaunikar26@gmail.com",
-        "password": "Lalit@123",
-        "first_name": "Lalit",
-    },
-]
+OWNER_USERS = owner_bootstrap_users()
 
 
 def upgrade() -> None:

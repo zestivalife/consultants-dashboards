@@ -22,12 +22,10 @@ if str(SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVICE_ROOT))
 
 from app.config import get_settings
+from app.core.owner_bootstrap import owner_bootstrap_users
 from app.core.security import verify_password
 
-OWNER_USERS = [
-    {"email": "lalitppaunikar26@gmail.com", "password": "Lalit@123"},
-    {"email": "zestivapriyanshi@gmail.com", "password": "Priyanshi@123"},
-]
+OWNER_USERS = owner_bootstrap_users(required=True)
 LOGIN_URL = "https://api.nuetra.in/api/v1/auth/login"
 
 
