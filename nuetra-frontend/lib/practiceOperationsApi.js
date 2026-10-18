@@ -81,6 +81,20 @@ export function updateScheduledAppointment(id,payload){return request(`/scheduli
 export function createBookingLink(payload){return request('/scheduling/booking-links',{method:'POST',body:JSON.stringify(payload)});}
 export function createWaitlistEntry(payload){return request('/scheduling/waitlist',{method:'POST',body:JSON.stringify(payload)});}
 export function listWaitlist(){return request('/scheduling/waitlist');}
+export function getBillingOverview(){return request('/billing/overview');}
+export function listBillableServices(includeInactive=false){return request(`/billing/services?include_inactive=${includeInactive?'true':'false'}`);}
+export function createBillableService(payload){return request('/billing/services',{method:'POST',body:JSON.stringify(payload)});}
+export function updateBillableService(id,payload){return request(`/billing/services/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function listInvoices({status,clientId,search}={}){const query=new URLSearchParams();if(status)query.set('status',status);if(clientId)query.set('client_id',clientId);if(search)query.set('search',search);return request(`/billing/invoices?${query}`);}
+export function createInvoice(payload){return request('/billing/invoices',{method:'POST',body:JSON.stringify(payload)});}
+export function updateInvoice(id,payload){return request(`/billing/invoices/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function getInvoice(id){return request(`/billing/invoices/${encodeURIComponent(id)}`);}
+export function issueInvoice(id){return request(`/billing/invoices/${encodeURIComponent(id)}/issue`,{method:'POST'});}
+export function cancelInvoice(id){return request(`/billing/invoices/${encodeURIComponent(id)}/cancel`,{method:'POST'});}
+export function recordInvoicePayment(id,payload){return request(`/billing/invoices/${encodeURIComponent(id)}/payments`,{method:'POST',body:JSON.stringify(payload)});}
+export function listPayments(clientId){const query=clientId?`?client_id=${encodeURIComponent(clientId)}`:'';return request(`/billing/payments${query}`);}
+export function getClientBilling(clientId){return request(`/billing/clients/${encodeURIComponent(clientId)}`);}
+export function getReceipt(id){return request(`/billing/receipts/${encodeURIComponent(id)}`);}
 export async function getPublicBooking(token){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}`);const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Booking link is unavailable.');return body?.data;}
 export async function submitPublicBooking(token,startsAt){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}?starts_at=${encodeURIComponent(startsAt)}`,{method:'POST',headers:{'Content-Type':'application/json'}});const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Appointment could not be booked.');return body?.data;}
 export async function openWhatsApp(payload){

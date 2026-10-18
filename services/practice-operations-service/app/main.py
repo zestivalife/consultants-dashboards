@@ -30,6 +30,9 @@ from app.contracts import (ServicePackageCreate, ServicePackageUpdate,
                            PackageSessionUse)
 from app.contracts import (AppointmentTypeCreate, AvailabilityRuleCreate, BookingLinkCreate,
                            AppointmentCreate, AppointmentStatusUpdate, WaitlistCreate)
+from app.contracts import (BillableServiceCreate, BillableServiceUpdate, InvoiceCreate,
+                           InvoiceUpdate, PaymentCreate)
+from app.billing import calculate_line
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -995,7 +998,6 @@ async def profession_intelligence_signals(request:Request,ctx=Depends(context),d
     denied=external_only(request,ctx)
     if denied:return denied
     config=await configuration(db,ctx);profession=config["profession"];codes=PROFESSION_SIGNAL_CODES.get(profession,{})
-    if not codes:return {"success":True,"data":{"profession_code":profession,"items":[]},"error":None,"request_id":request.state.correlation_id}
     tenant=ctx["tenant_id"];now=datetime.now(timezone.utc);items=[]
     def add(kind,row,reason,target):
         code=codes.get(kind)
@@ -1013,6 +1015,21 @@ async def profession_intelligence_signals(request:Request,ctx=Depends(context),d
     for row in plans:add("plan",row,"Profession plan has reached its operational review interval.","client")
     missed=(await db.execute(text("SELECT id,client_id,updated_at,due_at FROM practice_consultations WHERE tenant_id=:tenant AND status='MISSED'"),{"tenant":tenant})).mappings().all()
     for row in missed:add("missed",row,"A recorded session was missed and needs follow-up.","consultations")
+    if "BILLING" in set(config["capabilities"]):
+        billing_rows=(await db.execute(text("""SELECT id,client_id,status,due_date,updated_at,balance_due_minor,
+          CASE WHEN due_date<CURRENT_DATE THEN 'INVOICE_OVERDUE'
+               WHEN status='PART_PAID' THEN 'PART_PAYMENT_OUTSTANDING'
+               ELSE 'PAYMENT_DUE_SOON' END AS signal_code
+          FROM external_invoices WHERE tenant_id=:tenant AND status IN ('ISSUED','PART_PAID','OVERDUE')
+          AND balance_due_minor>0 AND (due_date<=CURRENT_DATE+INTERVAL '7 days' OR status='PART_PAID')"""),
+          {"tenant":tenant})).mappings().all()
+        for row in billing_rows:
+            items.append({"signal_code":row["signal_code"],"profession_code":profession,"tenant_id":tenant,
+              "client_id":row["client_id"],"source_domain":"external_invoices","source_record_id":str(row["id"]),
+              "reason":"An issued invoice has an outstanding recorded balance.","occurred_at":row["updated_at"],
+              "due_at":row["due_date"],"priority":"P3_MEDIUM" if row["signal_code"]=="INVOICE_OVERDUE" else "P4_LOW",
+              "cta":{"label":"Open Invoice","target":"billing"},
+              "provenance":{"table":"external_invoices","record_id":str(row["id"])},"resolution_state":"ACTIVE"})
     items.sort(key=lambda item:(item["priority"],str(item.get("due_at") or item.get("occurred_at") or "")))
     return {"success":True,"data":{"profession_code":profession,"items":items},"error":None,"request_id":request.state.correlation_id}
 
@@ -1744,6 +1761,326 @@ async def public_booking_details(request: Request, token: str, db: AsyncSession=
       "availability":[dict(row) for row in rules]},"error":None,"request_id":request.state.correlation_id}
 
 
+async def _billing_access(request, db, ctx):
+    return external_only(request,ctx) or await require_capability(request,db,ctx,"BILLING")
+
+
+async def _billing_audit(db, ctx, event_type, *, invoice_id=None, service_id=None,
+                         payment_id=None, receipt_id=None, details=None):
+    await db.execute(text("""INSERT INTO external_invoice_audit_events
+      (id,tenant_id,invoice_id,service_id,payment_id,receipt_id,event_type,actor_id,actor_type,details,created_at)
+      VALUES (:id,:tenant,:invoice,:service,:payment,:receipt,:event,:actor,'CONSULTANT',CAST(:details AS jsonb),:now)"""),{
+      "id":uuid4(),"tenant":ctx["tenant_id"],"invoice":invoice_id,"service":service_id,
+      "payment":payment_id,"receipt":receipt_id,"event":event_type,"actor":ctx["user_id"],
+      "details":json.dumps(details or {}),"now":datetime.now(timezone.utc)})
+
+
+def _invoice_totals(items):
+    calculated=[]
+    for position,item in enumerate(items):
+        line=calculate_line(item.quantity,item.unit_price_minor,item.discount_type,
+                            item.discount_value,item.tax_rate_bps)
+        calculated.append((position,item,line))
+    return calculated,{
+      "subtotal_minor":sum(row.subtotal_minor for _,_,row in calculated),
+      "discount_amount_minor":sum(row.discount_minor for _,_,row in calculated),
+      "tax_total_minor":sum(row.tax_minor for _,_,row in calculated),
+      "grand_total_minor":sum(row.total_minor for _,_,row in calculated),
+    }
+
+
+async def _validate_billing_links(request,db,ctx,body):
+    if body.client_package_id:
+        row=(await db.execute(text("SELECT client_id FROM external_client_packages WHERE id=:id AND tenant_id=:tenant"),
+          {"id":body.client_package_id,"tenant":ctx["tenant_id"]})).mappings().first()
+        if not row or row["client_id"] != body.client_id:
+            return error(request,404,"CLIENT_PACKAGE_NOT_FOUND","Client package not found")
+    if body.appointment_id:
+        row=(await db.execute(text("SELECT client_id FROM external_scheduled_appointments WHERE id=:id AND tenant_id=:tenant"),
+          {"id":body.appointment_id,"tenant":ctx["tenant_id"]})).mappings().first()
+        if not row or row["client_id"] != body.client_id:
+            return error(request,404,"APPOINTMENT_NOT_FOUND","Appointment not found")
+    for item in body.items:
+        if item.service_id and not (await db.execute(text("SELECT id FROM external_billable_services WHERE id=:id AND tenant_id=:tenant AND active=TRUE"),
+          {"id":item.service_id,"tenant":ctx["tenant_id"]})).first():
+            return error(request,404,"BILLABLE_SERVICE_NOT_FOUND","Billable service not found")
+    return None
+
+
+async def _replace_invoice_items(db,ctx,invoice_id,calculated):
+    await db.execute(text("DELETE FROM external_invoice_items WHERE invoice_id=:invoice AND tenant_id=:tenant"),
+                     {"invoice":invoice_id,"tenant":ctx["tenant_id"]})
+    for position,item,line in calculated:
+        await db.execute(text("""INSERT INTO external_invoice_items
+          (id,tenant_id,invoice_id,service_id,description,quantity,unit_price_minor,discount_type,
+           discount_value,discount_amount_minor,tax_type,tax_rate_bps,line_subtotal_minor,line_tax_minor,line_total_minor,display_order)
+          VALUES (:id,:tenant,:invoice,:service,:description,:quantity,:unit_price,:discount_type,
+           :discount_value,:discount_amount,:tax_type,:tax_rate,:subtotal,:tax,:total,:position)"""),{
+          "id":uuid4(),"tenant":ctx["tenant_id"],"invoice":invoice_id,"service":item.service_id,
+          "description":item.description,"quantity":item.quantity,"unit_price":item.unit_price_minor,
+          "discount_type":item.discount_type,"discount_value":item.discount_value,
+          "discount_amount":line.discount_minor,"tax_type":item.tax_type,"tax_rate":item.tax_rate_bps,
+          "subtotal":line.subtotal_minor,"tax":line.tax_minor,"total":line.total_minor,"position":position})
+
+
+@app.get("/api/v1/practice-operations/billing/services")
+async def list_billable_services(request: Request, include_inactive: bool=False,
+                                  ctx=Depends(context),db: AsyncSession=Depends(get_db)):
+    denied=await _billing_access(request,db,ctx)
+    if denied: return denied
+    rows=(await db.execute(text("""SELECT id,name,description,category,default_price_minor,currency,
+      default_tax_type,default_tax_rate_bps,active FROM external_billable_services
+      WHERE tenant_id=:tenant AND (:inactive OR active=TRUE) ORDER BY name"""),
+      {"tenant":ctx["tenant_id"],"inactive":include_inactive})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/billing/services",status_code=201)
+async def create_billable_service(request: Request, body: BillableServiceCreate,
+                                   ctx=Depends(context),db: AsyncSession=Depends(get_db)):
+    denied=await _billing_access(request,db,ctx)
+    if denied: return denied
+    item_id,now=uuid4(),datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_billable_services
+      (id,tenant_id,name,description,category,default_price_minor,currency,default_tax_type,
+       default_tax_rate_bps,active,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:name,:description,:category,:price,:currency,:tax_type,:tax_rate,:active,:actor,:now,:now)"""),{
+      "id":item_id,"tenant":ctx["tenant_id"],"name":body.name,"description":body.description,
+      "category":body.category,"price":body.default_price_minor,"currency":body.currency,
+      "tax_type":body.default_tax_type,"tax_rate":body.default_tax_rate_bps,"active":body.active,
+      "actor":ctx["user_id"],"now":now})
+    await _billing_audit(db,ctx,"SERVICE_CREATED",service_id=item_id)
+    return {"success":True,"data":{"id":str(item_id)},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.patch("/api/v1/practice-operations/billing/services/{service_id}")
+async def update_billable_service(request: Request, service_id: UUID, body: BillableServiceUpdate,
+                                   ctx=Depends(context),db: AsyncSession=Depends(get_db)):
+    denied=await _billing_access(request,db,ctx)
+    if denied: return denied
+    row=(await db.execute(text("""UPDATE external_billable_services SET name=:name,description=:description,
+      category=:category,default_price_minor=:price,currency=:currency,default_tax_type=:tax_type,
+      default_tax_rate_bps=:tax_rate,active=:active,updated_at=:now WHERE id=:id AND tenant_id=:tenant RETURNING id"""),{
+      "id":service_id,"tenant":ctx["tenant_id"],"name":body.name,"description":body.description,
+      "category":body.category,"price":body.default_price_minor,"currency":body.currency,
+      "tax_type":body.default_tax_type,"tax_rate":body.default_tax_rate_bps,"active":body.active,
+      "now":datetime.now(timezone.utc)})).first()
+    if not row: return error(request,404,"BILLABLE_SERVICE_NOT_FOUND","Billable service not found")
+    await _billing_audit(db,ctx,"SERVICE_UPDATED",service_id=service_id)
+    return {"success":True,"data":{"id":str(service_id)},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/billing/invoices")
+async def list_invoices(request: Request, status: str|None=None, client_id: str|None=None,
+                        search: str|None=None,ctx=Depends(context),db: AsyncSession=Depends(get_db)):
+    denied=await _billing_access(request,db,ctx)
+    if denied: return denied
+    rows=(await db.execute(text("""SELECT id,client_id,invoice_number,
+      CASE WHEN status IN ('ISSUED','PART_PAID') AND due_date<CURRENT_DATE AND balance_due_minor>0 THEN 'OVERDUE' ELSE status END AS status,
+      currency,issue_date,due_date,subtotal_minor,discount_amount_minor,tax_total_minor,grand_total_minor,
+      amount_paid_minor,balance_due_minor,created_at FROM external_invoices WHERE tenant_id=:tenant
+      AND (:client IS NULL OR client_id=:client) AND (:status IS NULL OR status=:status)
+      AND (:search IS NULL OR invoice_number ILIKE '%'||:search||'%' OR client_id ILIKE '%'||:search||'%')
+      ORDER BY created_at DESC"""),{"tenant":ctx["tenant_id"],"client":client_id,"status":status,"search":search})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/billing/overview")
+async def billing_overview(request: Request,ctx=Depends(context),db: AsyncSession=Depends(get_db)):
+    denied=await _billing_access(request,db,ctx)
+    if denied: return denied
+    row=(await db.execute(text("""SELECT
+      COALESCE(SUM(balance_due_minor) FILTER (WHERE status IN ('ISSUED','PART_PAID','OVERDUE')),0)::bigint AS outstanding_minor,
+      COALESCE(SUM(amount_paid_minor) FILTER (WHERE paid_at>=date_trunc('month',CURRENT_DATE)),0)::bigint AS paid_this_month_minor,
+      COUNT(*) FILTER (WHERE status IN ('ISSUED','PART_PAID','OVERDUE') AND due_date<CURRENT_DATE AND balance_due_minor>0)::int AS overdue_count,
+      COUNT(*) FILTER (WHERE status IN ('ISSUED','PART_PAID','OVERDUE'))::int AS open_count
+      FROM external_invoices WHERE tenant_id=:tenant"""),{"tenant":ctx["tenant_id"]})).mappings().one()
+    return {"success":True,"data":dict(row),"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/billing/clients/{client_id}")
+async def client_billing_projection(request: Request,client_id: str,ctx=Depends(context),db: AsyncSession=Depends(get_db)):
+    denied=await _billing_access(request,db,ctx)
+    if denied: return denied
+    invoices=(await db.execute(text("""SELECT id,invoice_number,status,currency,issue_date,due_date,grand_total_minor,
+      amount_paid_minor,balance_due_minor,client_package_id FROM external_invoices
+      WHERE tenant_id=:tenant AND client_id=:client ORDER BY created_at DESC"""),
+      {"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+    payments=(await db.execute(text("""SELECT p.id,p.invoice_id,p.amount_minor,p.currency,p.method,p.payment_date,
+      r.id AS receipt_id,r.receipt_number FROM external_payment_records p
+      JOIN external_receipts r ON r.payment_id=p.id AND r.tenant_id=p.tenant_id
+      WHERE p.tenant_id=:tenant AND p.client_id=:client ORDER BY p.payment_date DESC"""),
+      {"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+    return {"success":True,"data":{"invoices":[dict(row) for row in invoices],"payments":[dict(row) for row in payments],
+      "outstanding_minor":sum(row["balance_due_minor"] for row in invoices if row["status"] not in {"DRAFT","CANCELLED"})},
+      "error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/billing/invoices",status_code=201)
+async def create_invoice(request: Request, body: InvoiceCreate,ctx=Depends(context),db: AsyncSession=Depends(get_db)):
+    denied=await _billing_access(request,db,ctx)
+    if denied: return denied
+    denied=await _validate_billing_links(request,db,ctx,body)
+    if denied: return denied
+    calculated,totals=_invoice_totals(body.items); invoice_id,now=uuid4(),datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_invoices
+      (id,tenant_id,client_id,status,currency,issue_date,due_date,client_package_id,appointment_id,notes,terms,
+       subtotal_minor,discount_type,discount_value,discount_amount_minor,tax_total_minor,grand_total_minor,
+       amount_paid_minor,balance_due_minor,tax_snapshot,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:client,'DRAFT',:currency,:issue,:due,:package,:appointment,:notes,:terms,
+       :subtotal,'NONE',0,:discount,:tax,:total,0,:total,'{}'::jsonb,:actor,:now,:now)"""),{
+      "id":invoice_id,"tenant":ctx["tenant_id"],"client":body.client_id,"currency":body.currency,
+      "issue":body.issue_date,"due":body.due_date,"package":body.client_package_id,"appointment":body.appointment_id,
+      "notes":body.notes,"terms":body.terms,"subtotal":totals["subtotal_minor"],"discount":totals["discount_amount_minor"],
+      "tax":totals["tax_total_minor"],"total":totals["grand_total_minor"],"actor":ctx["user_id"],"now":now})
+    await _replace_invoice_items(db,ctx,invoice_id,calculated)
+    await _billing_audit(db,ctx,"INVOICE_CREATED",invoice_id=invoice_id,details=totals)
+    return {"success":True,"data":{"id":str(invoice_id),"status":"DRAFT",**totals,"balance_due_minor":totals["grand_total_minor"]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.patch("/api/v1/practice-operations/billing/invoices/{invoice_id}")
+async def update_invoice(request: Request, invoice_id: UUID, body: InvoiceUpdate,
+                         ctx=Depends(context),db: AsyncSession=Depends(get_db)):
+    denied=await _billing_access(request,db,ctx)
+    if denied: return denied
+    denied=await _validate_billing_links(request,db,ctx,body)
+    if denied: return denied
+    calculated,totals=_invoice_totals(body.items)
+    row=(await db.execute(text("""UPDATE external_invoices SET client_id=:client,currency=:currency,issue_date=:issue,
+      due_date=:due,client_package_id=:package,appointment_id=:appointment,notes=:notes,terms=:terms,
+      subtotal_minor=:subtotal,discount_amount_minor=:discount,tax_total_minor=:tax,grand_total_minor=:total,
+      balance_due_minor=:total,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND status='DRAFT' RETURNING id"""),{
+      "id":invoice_id,"tenant":ctx["tenant_id"],"client":body.client_id,"currency":body.currency,
+      "issue":body.issue_date,"due":body.due_date,"package":body.client_package_id,"appointment":body.appointment_id,
+      "notes":body.notes,"terms":body.terms,"subtotal":totals["subtotal_minor"],"discount":totals["discount_amount_minor"],
+      "tax":totals["tax_total_minor"],"total":totals["grand_total_minor"],"now":datetime.now(timezone.utc)})).first()
+    if not row: return error(request,409,"INVOICE_NOT_EDITABLE","Only draft invoices may be edited")
+    await _replace_invoice_items(db,ctx,invoice_id,calculated)
+    await _billing_audit(db,ctx,"INVOICE_UPDATED",invoice_id=invoice_id,details=totals)
+    return {"success":True,"data":{"id":str(invoice_id),**totals},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/billing/invoices/{invoice_id}")
+async def get_invoice(request: Request, invoice_id: UUID,ctx=Depends(context),db: AsyncSession=Depends(get_db)):
+    denied=await _billing_access(request,db,ctx)
+    if denied: return denied
+    invoice=(await db.execute(text("""SELECT id,tenant_id,client_id,invoice_number,status,currency,issue_date,due_date,
+      client_package_id,appointment_id,notes,terms,subtotal_minor,discount_type,discount_value,
+      discount_amount_minor,tax_total_minor,grand_total_minor,amount_paid_minor,balance_due_minor,
+      tax_snapshot,created_by,issued_by,cancelled_by,created_at,updated_at,issued_at,paid_at,cancelled_at
+      FROM external_invoices WHERE id=:id AND tenant_id=:tenant"""),
+      {"id":invoice_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not invoice: return error(request,404,"INVOICE_NOT_FOUND","Invoice not found")
+    items=(await db.execute(text("""SELECT id,service_id,description,quantity,unit_price_minor,discount_type,
+      discount_value,discount_amount_minor,tax_type,tax_rate_bps,line_subtotal_minor,line_tax_minor,
+      line_total_minor,display_order FROM external_invoice_items
+      WHERE invoice_id=:id AND tenant_id=:tenant ORDER BY display_order"""),
+      {"id":invoice_id,"tenant":ctx["tenant_id"]})).mappings().all()
+    payments=(await db.execute(text("""SELECT id,amount_minor,currency,method,provenance,reference_number,
+      provider_name,provider_reference,payment_date,notes,recorded_by,created_at
+      FROM external_payment_records WHERE invoice_id=:id AND tenant_id=:tenant ORDER BY payment_date,created_at"""),
+      {"id":invoice_id,"tenant":ctx["tenant_id"]})).mappings().all()
+    audit=(await db.execute(text("SELECT event_type,actor_id,actor_type,details,created_at FROM external_invoice_audit_events WHERE invoice_id=:id AND tenant_id=:tenant ORDER BY created_at"),
+      {"id":invoice_id,"tenant":ctx["tenant_id"]})).mappings().all()
+    return {"success":True,"data":{**dict(invoice),"items":[dict(row) for row in items],"payments":[dict(row) for row in payments],"audit":[dict(row) for row in audit]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/billing/invoices/{invoice_id}/issue")
+async def issue_invoice(request: Request, invoice_id: UUID,ctx=Depends(context),db: AsyncSession=Depends(get_db)):
+    denied=await _billing_access(request,db,ctx)
+    if denied: return denied
+    invoice=(await db.execute(text("SELECT id,issue_date,due_date FROM external_invoices WHERE id=:id AND tenant_id=:tenant AND status='DRAFT' FOR UPDATE"),
+      {"id":invoice_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not invoice: return error(request,409,"INVOICE_NOT_ISSUABLE","Only a draft invoice may be issued")
+    now=datetime.now(timezone.utc)
+    sequence=(await db.execute(text("""INSERT INTO external_invoice_sequences(tenant_id,prefix,next_number,updated_at)
+      VALUES (:tenant,'INV',2,:now) ON CONFLICT (tenant_id) DO UPDATE SET next_number=external_invoice_sequences.next_number+1,
+      updated_at=EXCLUDED.updated_at RETURNING prefix,next_number-1 AS allocated"""),{"tenant":ctx["tenant_id"],"now":now})).mappings().one()
+    number=f"{sequence['prefix']}-{now.year}-{int(sequence['allocated']):04d}"
+    row=(await db.execute(text("""UPDATE external_invoices SET invoice_number=:number,status='ISSUED',
+      issue_date=COALESCE(issue_date,CURRENT_DATE),due_date=COALESCE(due_date,CURRENT_DATE),issued_by=:actor,
+      issued_at=:now,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND status='DRAFT'
+      RETURNING id,invoice_number,status"""),{"number":number,"actor":ctx["user_id"],"now":now,"id":invoice_id,"tenant":ctx["tenant_id"]})).mappings().one()
+    await _billing_audit(db,ctx,"INVOICE_ISSUED",invoice_id=invoice_id,details={"invoice_number":number})
+    return {"success":True,"data":dict(row),"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/billing/invoices/{invoice_id}/cancel")
+async def cancel_invoice(request: Request, invoice_id: UUID,ctx=Depends(context),db: AsyncSession=Depends(get_db)):
+    denied=await _billing_access(request,db,ctx)
+    if denied: return denied
+    now=datetime.now(timezone.utc)
+    row=(await db.execute(text("""UPDATE external_invoices SET status='CANCELLED',cancelled_by=:actor,cancelled_at=:now,updated_at=:now
+      WHERE id=:id AND tenant_id=:tenant AND status IN ('DRAFT','ISSUED','PART_PAID','OVERDUE') RETURNING id"""),
+      {"actor":ctx["user_id"],"now":now,"id":invoice_id,"tenant":ctx["tenant_id"]})).first()
+    if not row: return error(request,409,"INVOICE_NOT_CANCELLABLE","Invoice cannot be cancelled")
+    await _billing_audit(db,ctx,"INVOICE_CANCELLED",invoice_id=invoice_id)
+    return {"success":True,"data":{"id":str(invoice_id),"status":"CANCELLED"},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/billing/invoices/{invoice_id}/payments",status_code=201)
+async def record_payment(request: Request, invoice_id: UUID, body: PaymentCreate,
+                         ctx=Depends(context),db: AsyncSession=Depends(get_db)):
+    denied=await _billing_access(request,db,ctx)
+    if denied: return denied
+    invoice=(await db.execute(text("""SELECT id,client_id,currency,status,balance_due_minor FROM external_invoices
+      WHERE id=:id AND tenant_id=:tenant FOR UPDATE"""),{"id":invoice_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not invoice: return error(request,404,"INVOICE_NOT_FOUND","Invoice not found")
+    if invoice["status"] not in {"ISSUED","PART_PAID","OVERDUE"}: return error(request,409,"PAYMENT_NOT_ALLOWED","Payment cannot be recorded for this invoice")
+    if invoice["currency"] != body.currency: return error(request,422,"PAYMENT_CURRENCY_MISMATCH","Payment currency must match the invoice")
+    if body.amount_minor > invoice["balance_due_minor"]: return error(request,422,"OVERPAYMENT_NOT_ALLOWED","Payment cannot exceed the outstanding balance")
+    payment_id,receipt_id,now=uuid4(),uuid4(),datetime.now(timezone.utc)
+    remaining=invoice["balance_due_minor"]-body.amount_minor; status="PAID" if remaining==0 else "PART_PAID"
+    await db.execute(text("""INSERT INTO external_payment_records
+      (id,tenant_id,client_id,invoice_id,amount_minor,currency,method,provenance,reference_number,
+       provider_name,provider_reference,payment_date,notes,recorded_by,created_at)
+      VALUES (:id,:tenant,:client,:invoice,:amount,:currency,:method,:provenance,:reference,:provider,
+       :provider_reference,:payment_date,:notes,:actor,:now)"""),{
+      "id":payment_id,"tenant":ctx["tenant_id"],"client":invoice["client_id"],"invoice":invoice_id,
+      "amount":body.amount_minor,"currency":body.currency,"method":body.method,"provenance":body.provenance,
+      "reference":body.reference_number,"provider":body.provider_name,"provider_reference":body.provider_reference,
+      "payment_date":body.payment_date,"notes":body.notes,"actor":ctx["user_id"],"now":now})
+    await db.execute(text("""UPDATE external_invoices SET amount_paid_minor=amount_paid_minor+:amount,
+      balance_due_minor=:remaining,status=:status,paid_at=CASE WHEN :status='PAID' THEN :now ELSE paid_at END,updated_at=:now
+      WHERE id=:id AND tenant_id=:tenant"""),{"amount":body.amount_minor,"remaining":remaining,"status":status,
+      "now":now,"id":invoice_id,"tenant":ctx["tenant_id"]})
+    receipt_number=f"RCT-{now:%Y%m%d}-{str(receipt_id)[:8].upper()}"
+    await db.execute(text("""INSERT INTO external_receipts
+      (id,tenant_id,client_id,payment_id,invoice_id,receipt_number,amount_minor,currency,remaining_balance_minor,created_at)
+      VALUES (:id,:tenant,:client,:payment,:invoice,:number,:amount,:currency,:remaining,:now)"""),{
+      "id":receipt_id,"tenant":ctx["tenant_id"],"client":invoice["client_id"],"payment":payment_id,
+      "invoice":invoice_id,"number":receipt_number,"amount":body.amount_minor,"currency":body.currency,
+      "remaining":remaining,"now":now})
+    await _billing_audit(db,ctx,"PAYMENT_RECORDED",invoice_id=invoice_id,payment_id=payment_id,details={"amount_minor":body.amount_minor,"provenance":body.provenance})
+    await _billing_audit(db,ctx,"RECEIPT_CREATED",invoice_id=invoice_id,payment_id=payment_id,receipt_id=receipt_id)
+    return {"success":True,"data":{"id":str(payment_id),"receipt_id":str(receipt_id),"receipt_number":receipt_number,"status":status,"balance_due_minor":remaining},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/billing/payments")
+async def list_payments(request: Request,client_id: str|None=None,ctx=Depends(context),db: AsyncSession=Depends(get_db)):
+    denied=await _billing_access(request,db,ctx)
+    if denied: return denied
+    rows=(await db.execute(text("""SELECT p.id,p.client_id,p.invoice_id,p.amount_minor,p.currency,p.method,p.provenance,
+      p.reference_number,p.payment_date,p.created_at,i.invoice_number,r.id AS receipt_id,r.receipt_number
+      FROM external_payment_records p JOIN external_invoices i ON i.id=p.invoice_id AND i.tenant_id=p.tenant_id
+      JOIN external_receipts r ON r.payment_id=p.id AND r.tenant_id=p.tenant_id
+      WHERE p.tenant_id=:tenant AND (:client IS NULL OR p.client_id=:client) ORDER BY p.payment_date DESC,p.created_at DESC"""),
+      {"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/billing/receipts/{receipt_id}")
+async def get_receipt(request: Request,receipt_id: UUID,ctx=Depends(context),db: AsyncSession=Depends(get_db)):
+    denied=await _billing_access(request,db,ctx)
+    if denied: return denied
+    row=(await db.execute(text("""SELECT r.*,i.invoice_number,p.payment_date,p.method,p.reference_number
+      FROM external_receipts r JOIN external_invoices i ON i.id=r.invoice_id AND i.tenant_id=r.tenant_id
+      JOIN external_payment_records p ON p.id=r.payment_id AND p.tenant_id=r.tenant_id
+      WHERE r.id=:id AND r.tenant_id=:tenant"""),{"id":receipt_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row: return error(request,404,"RECEIPT_NOT_FOUND","Receipt not found")
+    return {"success":True,"data":dict(row),"error":None,"request_id":request.state.correlation_id}
+
+
 @app.get("/api/v1/client-portal/{token}")
 async def client_portal_home(request: Request, token: str, db: AsyncSession=Depends(get_db)):
     scope, denied = await _portal_scope(request, token, "READ", db)
@@ -1795,11 +2132,18 @@ async def client_portal_home(request: Request, token: str, db: AsyncSession=Depe
       LEFT JOIN practice_consultations c ON c.tenant_id=cp.tenant_id AND c.client_id=cp.client_id
       WHERE cp.tenant_id=:tenant AND cp.client_id=:client AND cp.status IN ('ACTIVE','PAUSED','COMPLETED','EXPIRED')
       GROUP BY cp.id,p.id ORDER BY cp.end_date DESC"""), params)).mappings().all()]
+    invoices = [dict(row) for row in (await db.execute(text("""SELECT i.id,i.invoice_number,i.status,i.currency,
+      i.issue_date,i.due_date,i.grand_total_minor,i.amount_paid_minor,i.balance_due_minor
+      FROM external_invoices i WHERE i.tenant_id=:tenant AND i.client_id=:client
+      AND i.status IN ('ISSUED','PART_PAID','PAID','OVERDUE') ORDER BY i.issue_date DESC,i.created_at DESC"""), params)).mappings().all()]
+    receipts = [dict(row) for row in (await db.execute(text("""SELECT r.id,r.receipt_number,r.invoice_id,
+      r.amount_minor,r.currency,r.remaining_balance_minor,r.created_at FROM external_receipts r
+      WHERE r.tenant_id=:tenant AND r.client_id=:client ORDER BY r.created_at DESC"""), params)).mappings().all()]
     return {"success": True, "data": {
         "clientId": scope["client_id"], "tasks": tasks, "appointments": appointments,
         "goals": goals, "plans": plans, "assessments": assessments,
         "instructions": instructions, "progress": progress, "documents": documents,
-        "resources": [], "notifications": [], "packages": packages,
+        "resources": [], "notifications": [], "packages": packages, "invoices": invoices, "receipts": receipts,
     }, "error": None, "request_id": request.state.correlation_id}
 
 

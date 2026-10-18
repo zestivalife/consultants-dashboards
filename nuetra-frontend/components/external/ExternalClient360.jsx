@@ -11,13 +11,14 @@ import ExternalBiomarkerHistory from './ExternalBiomarkerHistory';
 import ExternalHealthRecords from './ExternalHealthRecords';
 import {ProfessionClient360} from './ProfessionClient360';
 import {ClientPackagePanel} from './ExternalPackages';
+import {ClientBillingPanel} from './ExternalBilling';
 import {createProfessionIntakeInvitation,getClientProfessionIntake,getPracticeConfiguration,listClientTimeline,openWhatsApp,revokeProfessionIntakeInvitation} from '../../lib/practiceOperationsApi';
 
 const professionIntakeCodes=new Set(['DIABETES_EDUCATOR','PSYCHOLOGIST','WELLNESS_CONSULTANT','HEALTH_COACH','BEHAVIOURAL_THERAPIST','OCCUPATIONAL_THERAPIST','PHYSIOTHERAPIST','MENTAL_WELLNESS_THERAPIST']);
 
 const externalAuthoringApi={generate:generateExternalCommonFoodCandidates,read:readExternalCommonFoodOptions,replaceSelection:replaceExternalCommonFoodSelection,replaceComponent:replaceExternalCommonFoodComponent,addComponent:addExternalCommonFoodComponent,removeComponent:removeExternalCommonFoodComponent,updateServing:updateExternalCommonFoodServing,search:searchExternalCommonFoods,saveOption:createExternalCommonFoodOption,autoBalance:async()=>{throw new Error('Use Edit quantity to select a governed serving.');}};
 
-const tabs = ['Overview', 'Health Profile', 'Health Records', 'Nutrition', 'Diet Plan', 'Measurements', 'Reports', 'Biomarkers', 'Timeline'];
+const tabs = ['Overview', 'Billing', 'Health Profile', 'Health Records', 'Nutrition', 'Diet Plan', 'Measurements', 'Reports', 'Biomarkers', 'Timeline'];
 const groups = {
   'Health Profile': ['medicalHistory', 'conditionsSymptoms', 'allergiesFamilyHistory', 'medicationsSupplements', 'lifestyle', 'sleepStress', 'activityHydration', 'womensHealth'],
   Nutrition: ['nutrition', 'goals'],
@@ -54,7 +55,7 @@ export function ExternalClient360({ client, practiceName, onBack, onStatus, init
   const [profileEvidenceReviews,setProfileEvidenceReviews]=useState([]);
   const [professionConfig,setProfessionConfig]=useState(null);const [professionIntake,setProfessionIntake]=useState(null);
   const usesProfessionWorkspace=professionIntakeCodes.has(professionConfig?.profession);
-  const clientTabs=useMemo(()=>usesProfessionWorkspace?['Overview','Profession','Programme','Health Profile','Health Records','Reports',...(professionConfig?.profession==='DIABETES_EDUCATOR'?['Biomarkers']:[]),'Timeline']:tabs,[professionConfig?.profession,usesProfessionWorkspace]);
+  const clientTabs=useMemo(()=>usesProfessionWorkspace?['Overview','Profession','Programme','Billing','Health Profile','Health Records','Reports',...(professionConfig?.profession==='DIABETES_EDUCATOR'?['Biomarkers']:[]),'Timeline']:tabs,[professionConfig?.profession,usesProfessionWorkspace]);
   const load = async () => { setLoading(true); setError(''); try { const result = await getExternalClient360(client.id); setData(result.client360); } catch (requestError) { setError(requestError.message || 'Unable to load Client 360.'); } finally { setLoading(false); } };
   useEffect(() => { void Promise.all([load(), loadBiomarkers()]); Promise.allSettled([getPracticeConfiguration(),getClientProfessionIntake(client.id)]).then(([configResult,intakeResult])=>{const config=configResult.status==='fulfilled'?configResult.value:null;setProfessionConfig(config);const projection=intakeResult.status==='fulfilled'?intakeResult.value:null;setProfessionIntake(projection);if(professionIntakeCodes.has(config?.profession)){setInvitation(projection?{status:projection.status,shareUrl:null}:null);return;}getCurrentExternalClientInvitation(client.id).then((result)=>setInvitation(result.invitation)).catch(()=>setInvitation(null));}); }, [client.id]);
   const overview = data?.overview;
@@ -103,6 +104,7 @@ export function ExternalClient360({ client, practiceName, onBack, onStatus, init
       {active === 'Overview' && !usesProfessionWorkspace && <div className="mt-4"><ClientPackagePanel clientId={client.id}/></div>}
       {active === 'Profession' && <ProfessionClient360 clientId={client.id} biomarkers={biomarkers.latest}/>}
       {active === 'Programme' && <ClientPackagePanel clientId={client.id}/>}
+      {active === 'Billing' && <ClientBillingPanel clientId={client.id}/>}
       {visibleSections.length > 0 && <div className="grid gap-4 lg:grid-cols-2">{visibleSections.filter((section) => section !== 'womensHealth' || overview.gender === 'FEMALE').map((section) => <SectionCard key={section} section={section} values={data.sections[section]} provenance={data.provenance[section]} onEdit={edit}/>)}</div>}
       {active === 'Health Profile' && <ProfileEvidencePanel completeness={overview.profileCompleteness} biomarkers={biomarkers.latest} reviews={profileEvidenceReviews} onReview={async(review,action)=>{const reason=window.prompt('Add a review reason');if(!reason)return;await reviewExternalProfileEvidence(client.id,review.id,action,reason);const result=await listExternalProfileEvidenceReviews(client.id);setProfileEvidenceReviews(result.reviews||[]);}}/>}
       {active === 'Health Records' && <ExternalHealthRecords clientId={client.id} onChanged={loadBiomarkers}/>}

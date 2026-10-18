@@ -1,4 +1,10 @@
-from enum import StrEnum
+from __future__ import annotations
+try:
+    from enum import StrEnum
+except ImportError:  # Python 3.10 test/runtime compatibility; native in Python 3.11+
+    from enum import Enum
+    class StrEnum(str, Enum):
+        pass
 from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -363,3 +369,57 @@ class WaitlistCreate(BaseModel):
     preferred_from: datetime | None = None
     preferred_until: datetime | None = None
     notes: str | None = Field(default=None, max_length=1000)
+
+
+class BillableServiceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=240)
+    description: str | None = Field(default=None, max_length=4000)
+    category: str | None = Field(default=None, max_length=120)
+    default_price_minor: int = Field(ge=0)
+    currency: str = Field(default="INR", pattern=r"^[A-Z]{3}$")
+    default_tax_type: Literal["NO_TAX","CGST_SGST","IGST","CUSTOM_TAX"] = "NO_TAX"
+    default_tax_rate_bps: int = Field(default=0, ge=0, le=10000)
+    active: bool = True
+
+
+class BillableServiceUpdate(BillableServiceCreate):
+    pass
+
+
+class InvoiceLineInput(BaseModel):
+    service_id: UUID | None = None
+    description: str = Field(min_length=1, max_length=500)
+    quantity: int = Field(default=1, ge=1, le=10000)
+    unit_price_minor: int = Field(ge=0)
+    discount_type: Literal["NONE","FIXED","PERCENTAGE"] = "NONE"
+    discount_value: int = Field(default=0, ge=0)
+    tax_type: Literal["NO_TAX","CGST_SGST","IGST","CUSTOM_TAX"] = "NO_TAX"
+    tax_rate_bps: int = Field(default=0, ge=0, le=10000)
+
+
+class InvoiceCreate(BaseModel):
+    client_id: str = Field(min_length=1, max_length=120)
+    currency: str = Field(default="INR", pattern=r"^[A-Z]{3}$")
+    issue_date: date | None = None
+    due_date: date | None = None
+    client_package_id: UUID | None = None
+    appointment_id: UUID | None = None
+    notes: str | None = Field(default=None, max_length=4000)
+    terms: str | None = Field(default=None, max_length=4000)
+    items: list[InvoiceLineInput] = Field(min_length=1, max_length=100)
+
+
+class InvoiceUpdate(InvoiceCreate):
+    pass
+
+
+class PaymentCreate(BaseModel):
+    amount_minor: int = Field(gt=0)
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    method: Literal["CASH","BANK_TRANSFER","UPI","CARD_EXTERNAL","PAYMENT_GATEWAY","CHEQUE","OTHER"]
+    provenance: Literal["MANUAL_RECORDED","PROVIDER_CONFIRMED"] = "MANUAL_RECORDED"
+    reference_number: str | None = Field(default=None, max_length=160)
+    provider_name: str | None = Field(default=None, max_length=120)
+    provider_reference: str | None = Field(default=None, max_length=160)
+    payment_date: date
+    notes: str | None = Field(default=None, max_length=4000)

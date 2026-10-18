@@ -5,7 +5,7 @@ import {completePortalTask,getClientPortal} from '../../lib/clientPortalApi';
 
 const NAV=[
   ['home','Home'],['programme','Programme'],['plan','My plan'],['tasks','Tasks'],['appointments','Appointments'],
-  ['progress','Progress'],['resources','Resources'],['documents','Documents'],
+  ['progress','Progress'],['billing','Billing'],['resources','Resources'],['documents','Documents'],
 ];
 
 function Empty({children}){return <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center text-sm text-slate-600">{children}</div>;}
@@ -45,6 +45,7 @@ export default function ClientPortal(){
       {view==='appointments'&&<Card title="Appointments" icon={CalendarDays}><Rows items={data.appointments} empty="No appointments are available." render={item=><div key={item.id} className="rounded-2xl border p-4"><p className="font-semibold">{item.title}</p><p className="mt-1 text-sm text-slate-600">{item.scheduled_at?new Date(item.scheduled_at).toLocaleString():'Time to be confirmed'} · {item.status}</p></div>}/></Card>}
       {view==='plan'&&<Card title="Published plans" icon={FileText}><Rows items={data.plans} empty="No published plan has been shared." render={item=><div key={item.id} className="rounded-2xl border p-4"><p className="font-semibold">{item.title}</p><p className="mt-1 text-sm text-slate-600">{item.plan_type.replaceAll('_',' ')} · version {item.current_version}</p></div>}/></Card>}
       {view==='progress'&&<Card title="Approved progress" icon={Target}><Rows items={data.progress} empty="No progress observations are available." render={(item,index)=><div key={`${item.label}-${index}`} className="flex justify-between rounded-xl bg-slate-50 p-4"><span className="font-medium">{item.label}</span><span>{item.numeric_value??item.text_value??'—'} {item.unit||''}</span></div>}/></Card>}
+      {view==='billing'&&<Card title="Invoices and receipts" icon={FileText}><Rows items={data.invoices} empty="No issued invoices are available." render={item=><article key={item.id} className="rounded-2xl border p-4"><div className="flex justify-between gap-3"><strong>{item.invoice_number}</strong><span className="text-xs font-bold text-blue-700">{item.status}</span></div><p className="mt-2 text-sm text-slate-600">Balance: {new Intl.NumberFormat(undefined,{style:'currency',currency:item.currency}).format(item.balance_due_minor/100)}</p></article>}/><div className="mt-5"><h3 className="font-semibold">Receipts</h3><Rows items={data.receipts} empty="No receipts are available." render={item=><div key={item.id} className="mt-3 flex justify-between rounded-xl bg-slate-50 p-4"><span>{item.receipt_number}</span><strong>{new Intl.NumberFormat(undefined,{style:'currency',currency:item.currency}).format(item.amount_minor/100)}</strong></div>}/></div></Card>}
       {view==='resources'&&<Card title="Resources" icon={FileText}><Rows items={data.resources} empty="No resources have been shared yet." render={item=><div key={item.id}>{item.title}</div>}/></Card>}
       {view==='documents'&&<Card title="Documents" icon={FileText}><Rows items={data.documents} empty="No documents have been submitted." render={item=><div key={item.id} className="rounded-xl bg-slate-50 p-4"><p className="font-semibold">{item.title}</p><p className="text-sm text-slate-500">{item.media_type} · {item.status}</p></div>}/></Card>}
     </div>
