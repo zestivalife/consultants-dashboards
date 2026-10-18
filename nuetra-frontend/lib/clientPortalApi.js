@@ -19,3 +19,4 @@ export function completePortalTask(token,taskId){return request(token,`/tasks/${
 export function submitPortalDocument(token,payload){return request(token,'/documents',{method:'POST',body:JSON.stringify(payload)});}
 export function openPortalResource(token,assignmentId){return request(token,`/resources/${assignmentId}/open`,{method:'POST'});}
 export function submitHomeworkCheckin(token,homeworkId,payload){return request(token,`/homework/${homeworkId}/check-in`,{method:'POST',body:JSON.stringify(payload)});}
+export function decideReferralConsent(token,referralId,decision,allowedDataScopes){return request(token,`/referrals/${referralId}/consent`,{method:'POST',body:JSON.stringify({decision,allowed_data_scopes:allowedDataScopes,consent_version:'P19_V1'})});}

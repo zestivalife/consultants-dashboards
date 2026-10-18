@@ -128,6 +128,10 @@ export function assignClientTeam(clientId,payload){return request(`/clients/${en
 export function updateClientTeamAssignment(clientId,id,payload){return request(`/clients/${encodeURIComponent(clientId)}/team/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
 export function removeClientTeamAssignment(clientId,id){return request(`/clients/${encodeURIComponent(clientId)}/team/${encodeURIComponent(id)}`,{method:'DELETE'});}
 export function getPracticeAnalytics(preset='30d'){return request(`/analytics/practice?preset=${encodeURIComponent(preset)}`);}
+export function listReferrals(direction='outgoing',clientId=''){return request(`/referrals?direction=${encodeURIComponent(direction)}${clientId?`&client_id=${encodeURIComponent(clientId)}`:''}`);}
+export function createReferral(payload){return request('/referrals',{method:'POST',body:JSON.stringify(payload)});}
+export function actOnReferral(id,action,message){return request(`/referrals/${encodeURIComponent(id)}/actions`,{method:'POST',body:JSON.stringify({action,message})});}
+export function getReferralSharedData(id){return request(`/referrals/${encodeURIComponent(id)}/shared-data`);}
 export async function getPublicBooking(token){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}`);const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Booking link is unavailable.');return body?.data;}
 export async function submitPublicBooking(token,startsAt){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}?starts_at=${encodeURIComponent(startsAt)}`,{method:'POST',headers:{'Content-Type':'application/json'}});const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Appointment could not be booked.');return body?.data;}
 export async function openWhatsApp(payload){

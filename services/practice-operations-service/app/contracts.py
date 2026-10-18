@@ -567,3 +567,26 @@ class ClientTeamAssignmentCreate(BaseModel):
 class ClientTeamAssignmentUpdate(BaseModel):
     assignment_role: Literal["PRIMARY_PRACTITIONER", "SECONDARY_PRACTITIONER", "CARE_TEAM_MEMBER"]
     reason: str | None = Field(default=None, max_length=500)
+
+
+class ReferralCreate(BaseModel):
+    client_id: str = Field(min_length=1,max_length=120)
+    receiving_practitioner_id: str | None = Field(default=None,max_length=120)
+    receiving_tenant_id: str | None = Field(default=None,max_length=80)
+    receiving_profession_code: str = Field(min_length=1,max_length=80)
+    destination_name: str | None = Field(default=None,max_length=240)
+    destination_contact: str | None = Field(default=None,max_length=320)
+    reason: str = Field(min_length=1,max_length=4000)
+    data_scopes: list[str] = Field(default_factory=list,max_length=16)
+    consent_version: str = Field(default="P19_V1",max_length=40)
+
+
+class ReferralAction(BaseModel):
+    action: Literal["REQUEST_CONSENT","SEND","ACCEPT","DECLINE","COMPLETE","CANCEL","REQUEST_CLARIFICATION"]
+    message: str | None = Field(default=None,max_length=4000)
+
+
+class ReferralConsentDecision(BaseModel):
+    decision: Literal["GRANT","DECLINE"]
+    allowed_data_scopes: list[str] = Field(default_factory=list,max_length=16)
+    consent_version: str = Field(default="P19_V1",max_length=40)

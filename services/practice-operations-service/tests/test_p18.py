@@ -34,10 +34,9 @@ def test_p18_migration_is_external_only_and_expand_only():
 
 def test_p18_endpoint_is_tenant_permission_and_privacy_scoped():
     source=(ROOT/"app/main.py").read_text()
-    section=source[source.index('@app.get("/api/v1/practice-operations/analytics/practice")'):]
+    section=source[source.index('@app.get("/api/v1/practice-operations/analytics/practice")'):source.index("# P19 is referral-scoped")]
     assert '"ANALYTICS_VIEW"' in section
     assert 'tenant_id=:tenant' in section
     assert "PRIVATE_NOTE" not in section
     assert "MIN_COHORT_SIZE" in section
     assert '"UNAVAILABLE_SOURCE"' in section
-

@@ -42,12 +42,14 @@ from app.contracts import (AutomationCreate, AutomationStateUpdate,
                            AutomationDryRun, AutomationActionDecision)
 from app.contracts import (TeamInvitationCreate, TeamInvitationAccept, TeamMemberUpdate,
                            ClientTeamAssignmentCreate, ClientTeamAssignmentUpdate)
+from app.contracts import ReferralCreate, ReferralAction, ReferralConsentDecision
 from app.billing import calculate_line
 from app.p15 import adherence_summary, homework_transition
 from app.p16 import (ACTION_TYPES, CONFIRMATION_ACTIONS, SAFE_ACTIONS,
                      assert_chain_depth, evaluate_condition, idempotency_key)
 from app.p17 import PERMISSIONS, ROLE_PERMISSIONS, can_manage_role, resolve_permissions
 from app.p18 import MIN_COHORT_SIZE, analytics_window, cohort_result, rate
+from app.p19 import ALLOWED_SCOPES, referral_transition, validate_scopes
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -2487,11 +2489,17 @@ async def client_portal_home(request: Request, token: str, db: AsyncSession=Depe
     receipts = [dict(row) for row in (await db.execute(text("""SELECT r.id,r.receipt_number,r.invoice_id,
       r.amount_minor,r.currency,r.remaining_balance_minor,r.created_at FROM external_receipts r
       WHERE r.tenant_id=:tenant AND r.client_id=:client ORDER BY r.created_at DESC"""), params)).mappings().all()]
+    referral_consents = [dict(row) for row in (await db.execute(text("""SELECT r.id,r.receiving_profession_code,
+      r.destination_name,r.reason,r.status,c.consent_version,c.allowed_data_scopes,c.expires_at
+      FROM external_referrals r JOIN external_referral_consents c ON c.referral_id=r.id AND c.tenant_id=r.tenant_id
+      WHERE r.tenant_id=:tenant AND r.client_id=:client AND r.status='CONSENT_PENDING' AND c.status='PENDING'
+      ORDER BY r.created_at DESC"""), params)).mappings().all()]
     return {"success": True, "data": {
         "clientId": scope["client_id"], "tasks": tasks, "appointments": appointments,
         "goals": goals, "plans": plans, "assessments": assessments,
         "instructions": instructions, "progress": progress, "documents": documents,
         "resources": resources, "homework": homework, "notifications": [], "packages": packages, "invoices": invoices, "receipts": receipts,
+        "referralConsents": referral_consents,
     }, "error": None, "request_id": request.state.correlation_id}
 
 
@@ -3195,3 +3203,138 @@ async def practice_analytics(request:Request,preset:str="30d",start:datetime=Non
       "outcomes":{"minimum_cohort_size":MIN_COHORT_SIZE,"items":outcomes},
       "unavailable":["active_clients","new_clients","revenue_by_service","average_time_to_book","onboarding_completion_rate"]}
     return {"success":True,"data":data,"error":None,"request_id":request.state.correlation_id}
+
+
+# P19 is referral-scoped. It never grants Client360 or changes client ownership.
+async def _referral_event(db,row,event,actor_id,actor_type="PRACTITIONER",message=None,old_value=None,new_value=None):
+    now=datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_referral_events
+      (id,tenant_id,referral_id,event_type,actor_id,actor_type,message,metadata,created_at)
+      VALUES (:id,:tenant,:referral,:event,:actor,:actor_type,:message,'{}'::jsonb,:now)"""),{
+      "id":uuid4(),"tenant":row["tenant_id"],"referral":row["id"],"event":event,"actor":actor_id,"actor_type":actor_type,"message":message,"now":now})
+    await db.execute(text("""INSERT INTO external_referral_audit_events
+      (id,tenant_id,referral_id,event_type,actor_id,actor_type,old_value,new_value,created_at)
+      VALUES (:id,:tenant,:referral,:event,:actor,:actor_type,CAST(:old AS jsonb),CAST(:new AS jsonb),:now)"""),{
+      "id":uuid4(),"tenant":row["tenant_id"],"referral":row["id"],"event":event,"actor":actor_id,"actor_type":actor_type,
+      "old":json.dumps(old_value) if old_value is not None else None,"new":json.dumps(new_value) if new_value is not None else None,"now":now})
+
+
+@app.get("/api/v1/practice-operations/referrals")
+async def list_referrals(request:Request,direction:str="outgoing",client_id:str=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"REFERRAL_VIEW",client_id)
+    if denied:return denied
+    if direction=="incoming":
+        clause="r.receiving_tenant_id=:tenant AND (r.receiving_practitioner_id IS NULL OR r.receiving_practitioner_id=:actor)"
+    else:clause="r.tenant_id=:tenant"
+    if client_id:clause+=" AND r.client_id=:client"
+    rows=(await db.execute(text(f"""SELECT r.id,r.tenant_id,r.client_id,r.referring_practitioner_id,r.receiving_practitioner_id,
+      r.receiving_tenant_id,r.receiving_profession_code,r.destination_name,r.reason,r.status,r.created_at,r.sent_at,r.accepted_at,
+      c.status consent_status,c.allowed_data_scopes,c.expires_at FROM external_referrals r
+      LEFT JOIN external_referral_consents c ON c.referral_id=r.id AND c.tenant_id=r.tenant_id
+      WHERE {clause} ORDER BY r.created_at DESC"""),{"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"client":client_id})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows],"direction":direction},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/referrals",status_code=201)
+async def create_referral(request:Request,body:ReferralCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"REFERRAL_MANAGE",body.client_id)
+    if denied:return denied
+    try:scopes=validate_scopes(body.data_scopes)
+    except ValueError as exc:return error(request,422,"REFERRAL_SCOPE_DENIED",str(exc))
+    now=datetime.now(timezone.utc);referral_id=uuid4();row={"id":referral_id,"tenant_id":ctx["tenant_id"]}
+    await db.execute(text("""INSERT INTO external_referrals
+      (id,tenant_id,client_id,referring_practitioner_id,receiving_practitioner_id,receiving_tenant_id,
+       receiving_profession_code,destination_name,destination_contact,reason,status,created_at,updated_at)
+      VALUES (:id,:tenant,:client,:actor,:recipient,:receiving_tenant,:profession,:name,:contact,:reason,'DRAFT',:now,:now)"""),{
+      "id":referral_id,"tenant":ctx["tenant_id"],"client":body.client_id,"actor":ctx["user_id"],"recipient":body.receiving_practitioner_id,
+      "receiving_tenant":body.receiving_tenant_id,"profession":body.receiving_profession_code,"name":body.destination_name,
+      "contact":body.destination_contact,"reason":body.reason,"now":now})
+    for scope_code in scopes:
+        await db.execute(text("""INSERT INTO external_referral_shared_scopes
+          (id,tenant_id,referral_id,scope_code,selected_resource_ids,created_by,created_at)
+          VALUES (:id,:tenant,:referral,:scope,'[]'::jsonb,:actor,:now)"""),{"id":uuid4(),"tenant":ctx["tenant_id"],"referral":referral_id,"scope":scope_code,"actor":ctx["user_id"],"now":now})
+    await _referral_event(db,row,"REFERRAL_CREATED",ctx["user_id"],new_value={"status":"DRAFT","scopes":scopes});await db.commit()
+    return {"success":True,"data":{"id":str(referral_id),"status":"DRAFT","data_scopes":scopes},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/referrals/{referral_id}/actions")
+async def referral_action(request:Request,referral_id:UUID,body:ReferralAction,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"REFERRAL_MANAGE")
+    if denied:return denied
+    row=(await db.execute(text("""SELECT id,tenant_id,client_id,referring_practitioner_id,receiving_practitioner_id,
+      receiving_tenant_id,receiving_profession_code,destination_name,destination_contact,reason,status,
+      created_at,sent_at,accepted_at,completed_at,declined_at,cancelled_at,updated_at FROM external_referrals WHERE id=:id AND
+      (tenant_id=:tenant OR (receiving_tenant_id=:tenant AND (receiving_practitioner_id IS NULL OR receiving_practitioner_id=:actor)))"""),{
+      "id":referral_id,"tenant":ctx["tenant_id"],"actor":ctx["user_id"]})).mappings().first()
+    if not row:return error(request,404,"REFERRAL_NOT_FOUND","Referral not found")
+    incoming=row["tenant_id"]!=ctx["tenant_id"]
+    if body.action=="REQUEST_CLARIFICATION":
+        if not incoming or row["status"] not in {"SENT","ACCEPTED"}:return error(request,409,"REFERRAL_TRANSITION_DENIED","Clarification is not available")
+        await _referral_event(db,row,"CLARIFICATION_REQUESTED",ctx["user_id"],message=body.message);await db.commit()
+        return {"success":True,"data":{"id":str(referral_id),"status":row["status"]},"error":None,"request_id":request.state.correlation_id}
+    if incoming and body.action not in {"ACCEPT","DECLINE","COMPLETE"}:return error(request,403,"REFERRAL_ACTION_DENIED","Recipient action is not permitted")
+    if not incoming and body.action in {"ACCEPT","DECLINE","COMPLETE"}:return error(request,403,"REFERRAL_ACTION_DENIED","Source practice cannot perform the recipient action")
+    try:target=referral_transition(row["status"],body.action)
+    except ValueError as exc:return error(request,409,"REFERRAL_TRANSITION_DENIED",str(exc))
+    if body.action=="SEND":
+        consent=(await db.execute(text("""SELECT status,expires_at FROM external_referral_consents
+          WHERE tenant_id=:tenant AND referral_id=:id"""),{"tenant":row["tenant_id"],"id":referral_id})).mappings().first()
+        if not consent or consent["status"]!="GRANTED" or (consent["expires_at"] and consent["expires_at"]<=datetime.now(timezone.utc)):
+            return error(request,403,"REFERRAL_CONSENT_REQUIRED","Current client consent is required before sending")
+    now=datetime.now(timezone.utc);timestamps={"SENT":"sent_at","ACCEPTED":"accepted_at","DECLINED":"declined_at","COMPLETED":"completed_at","CANCELLED":"cancelled_at"}
+    stamp=timestamps.get(target);set_stamp=f",{stamp}=:now" if stamp else ""
+    await db.execute(text(f"UPDATE external_referrals SET status=:status,updated_at=:now{set_stamp} WHERE id=:id AND tenant_id=:source"),{
+      "status":target,"now":now,"id":referral_id,"source":row["tenant_id"]})
+    if body.action=="REQUEST_CONSENT":
+        scopes=(await db.execute(text("SELECT scope_code FROM external_referral_shared_scopes WHERE tenant_id=:tenant AND referral_id=:id AND revoked_at IS NULL"),{"tenant":row["tenant_id"],"id":referral_id})).scalars().all()
+        await db.execute(text("""INSERT INTO external_referral_consents
+          (id,tenant_id,referral_id,client_id,consent_version,status,allowed_data_scopes,created_at,updated_at)
+          VALUES (:cid,:tenant,:referral,:client,'P19_V1','PENDING',CAST(:scopes AS jsonb),:now,:now)
+          ON CONFLICT (tenant_id,referral_id) DO UPDATE SET status='PENDING',allowed_data_scopes=EXCLUDED.allowed_data_scopes,updated_at=:now"""),{
+          "cid":uuid4(),"tenant":row["tenant_id"],"referral":referral_id,"client":row["client_id"],"scopes":json.dumps(list(scopes)),"now":now})
+    event={"REQUEST_CONSENT":"CONSENT_REQUESTED","SEND":"REFERRAL_SENT","ACCEPT":"REFERRAL_ACCEPTED","DECLINE":"REFERRAL_DECLINED","COMPLETE":"REFERRAL_COMPLETED","CANCEL":"REFERRAL_CANCELLED"}[body.action]
+    await _referral_event(db,row,event,ctx["user_id"],message=body.message,old_value={"status":row["status"]},new_value={"status":target});await db.commit()
+    return {"success":True,"data":{"id":str(referral_id),"status":target},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/referrals/{referral_id}/shared-data")
+async def referral_shared_data(request:Request,referral_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"REFERRAL_VIEW")
+    if denied:return denied
+    row=(await db.execute(text("""SELECT r.*,c.status consent_status,c.allowed_data_scopes,c.expires_at FROM external_referrals r
+      JOIN external_referral_consents c ON c.referral_id=r.id AND c.tenant_id=r.tenant_id
+      WHERE r.id=:id AND r.receiving_tenant_id=:tenant AND (r.receiving_practitioner_id IS NULL OR r.receiving_practitioner_id=:actor)
+      AND r.status IN ('SENT','ACCEPTED','COMPLETED')"""),{"id":referral_id,"tenant":ctx["tenant_id"],"actor":ctx["user_id"]})).mappings().first()
+    if not row:return error(request,404,"REFERRAL_NOT_FOUND","Referral not found")
+    if row["consent_status"]!="GRANTED" or (row["expires_at"] and row["expires_at"]<=datetime.now(timezone.utc)):
+        return error(request,403,"REFERRAL_CONSENT_REQUIRED","Current client consent is required")
+    scopes=set(row["allowed_data_scopes"] or []);params={"tenant":row["tenant_id"],"client":row["client_id"]};projection={}
+    if "GOALS" in scopes:projection["goals"]=[dict(x) for x in (await db.execute(text("SELECT id,title,status,due_at FROM practice_goals WHERE tenant_id=:tenant AND client_id=:client"),params)).mappings().all()]
+    if "PROGRESS_SUMMARY" in scopes:projection["progress"]=[dict(x) for x in (await db.execute(text("""SELECT d.label,d.unit,o.numeric_value,o.text_value,o.observed_at FROM external_progress_observations o
+      JOIN external_progress_metric_definitions d ON d.id=o.metric_definition_id AND d.tenant_id=o.tenant_id
+      WHERE o.tenant_id=:tenant AND o.client_id=:client ORDER BY o.observed_at DESC LIMIT 50"""),params)).mappings().all()]
+    if "PUBLISHED_PLAN" in scopes:projection["published_plans"]=[dict(x) for x in (await db.execute(text("SELECT id,title,plan_type,current_version FROM external_profession_plans WHERE tenant_id=:tenant AND client_id=:client AND status='PUBLISHED'"),params)).mappings().all()]
+    return {"success":True,"data":{"referral_id":str(referral_id),"client_id":row["client_id"],"scopes":sorted(scopes),"projection":projection,"excluded":["PRIVATE_NOTES","RAW_SESSION_NOTES","BILLING","TEAM_NOTES"]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/client-portal/{token}/referrals/{referral_id}/consent")
+async def portal_referral_consent(request:Request,token:str,referral_id:UUID,body:ReferralConsentDecision,db:AsyncSession=Depends(get_db)):
+    scope,denied=await _portal_scope(request,token,"READ",db)
+    if denied:return denied
+    row=(await db.execute(text("""SELECT r.id,r.tenant_id,r.client_id,r.status,c.allowed_data_scopes FROM external_referrals r
+      JOIN external_referral_consents c ON c.referral_id=r.id AND c.tenant_id=r.tenant_id
+      WHERE r.id=:id AND r.tenant_id=:tenant AND r.client_id=:client AND r.status='CONSENT_PENDING' AND c.status='PENDING'"""),{
+      "id":referral_id,"tenant":scope["tenant_id"],"client":scope["client_id"]})).mappings().first()
+    if not row:return error(request,404,"REFERRAL_CONSENT_NOT_FOUND","Referral consent request not found")
+    requested=set(row["allowed_data_scopes"] or [])
+    try:allowed=set(validate_scopes(body.allowed_data_scopes))
+    except ValueError as exc:return error(request,422,"REFERRAL_SCOPE_DENIED",str(exc))
+    if body.decision=="GRANT" and not allowed.issubset(requested):return error(request,403,"REFERRAL_SCOPE_DENIED","Consent cannot expand the requested sharing scope")
+    now=datetime.now(timezone.utc);consent_status="GRANTED" if body.decision=="GRANT" else "DECLINED";referral_status="READY_TO_SEND" if body.decision=="GRANT" else "DRAFT"
+    await db.execute(text("""UPDATE external_referral_consents SET status=:status,consent_version=:version,
+      allowed_data_scopes=CAST(:scopes AS jsonb),consented_at=CASE WHEN :status='GRANTED' THEN :now END,
+      declined_at=CASE WHEN :status='DECLINED' THEN :now END,updated_at=:now WHERE tenant_id=:tenant AND referral_id=:id"""),{
+      "status":consent_status,"version":body.consent_version,"scopes":json.dumps(sorted(allowed) if body.decision=="GRANT" else []),"now":now,"tenant":row["tenant_id"],"id":referral_id})
+    await db.execute(text("UPDATE external_referrals SET status=:status,updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"status":referral_status,"now":now,"id":referral_id,"tenant":row["tenant_id"]})
+    await _referral_event(db,row,"CONSENT_GRANTED" if body.decision=="GRANT" else "CONSENT_DECLINED",None,"CLIENT",new_value={"scopes":sorted(allowed)});await db.commit()
+    return {"success":True,"data":{"status":consent_status,"referral_status":referral_status},"error":None,"request_id":request.state.correlation_id}
