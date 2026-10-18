@@ -69,6 +69,7 @@ from app.p26 import validate_resource_type
 from app.p28 import PaymentProviderNotConfigured, canonical_payload_hash, verify_razorpay_payment, verify_razorpay_webhook
 from app.p29 import classify_output, validate_ai_request
 from app.p30 import EXCLUDED_BY_DEFAULT, export_checksum, validate_export_sections
+from app.command_centre import next_action, operational_priority, section as command_section, sort_work
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -3984,3 +3985,104 @@ async def export_client_data(request:Request,client_id:str,body:ClientExportRequ
     }
     for section in sections:payload["sections"][section]=[dict(row) for row in (await db.execute(text(queries[section]),params)).mappings().all()]
     export_id=uuid4();now=datetime.now(timezone.utc);checksum_value=export_checksum(payload);await db.execute(text("INSERT INTO external_data_export_requests(id,tenant_id,client_id,sections,status,private_notes_included,requested_by,created_at,completed_at,content_checksum) VALUES (:id,:tenant,:client,CAST(:sections AS jsonb),'COMPLETED',FALSE,:actor,:now,:now,:checksum)"),{"id":export_id,"tenant":ctx["tenant_id"],"client":client_id,"sections":json.dumps(sections),"actor":ctx["user_id"],"now":now,"checksum":checksum_value});await db.execute(text("INSERT INTO external_compliance_audit_events(id,tenant_id,client_id,event_type,actor_id,resource_type,resource_id,metadata,created_at) VALUES (:id,:tenant,:client,'CLIENT_EXPORT_CREATED',:actor,'EXPORT',:resource,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"tenant":ctx["tenant_id"],"client":client_id,"actor":ctx["user_id"],"resource":str(export_id),"metadata":json.dumps({"sections":sections,"private_notes_included":False}),"now":now});await db.commit();return {"success":True,"data":{"id":str(export_id),"checksum":checksum_value,"private_notes_included":False,"payload":payload},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/dashboard/command-centre")
+async def dashboard_command_centre(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    """Bounded, tenant-scoped operational read model. Sections fail independently."""
+    denied=external_only(request,ctx)
+    if denied:return denied
+    principal=await _team_principal(db,ctx)
+    if principal["status"]!="ACTIVE":return error(request,403,"TEAM_MEMBERSHIP_INACTIVE","Practice membership is not active")
+    permissions=set(principal["permissions"]);tenant=ctx["tenant_id"];actor=ctx["user_id"]
+    practice_wide=bool(principal["practice_wide_client_access"] or principal["legacy_solo"] or principal["role"] in {"PRACTICE_OWNER","PRACTICE_ADMIN","RECEPTIONIST"})
+    params={"tenant":tenant,"actor":actor,"practice_wide":practice_wide}
+
+    async def read(name,sql,*,allowed=True):
+        if not allowed:return command_section([],restricted=True)
+        try:
+            async with db.begin_nested(): rows=(await db.execute(text(sql),params)).mappings().all()
+            return command_section([dict(row) for row in rows])
+        except Exception as exc:
+            logger.warning("command_centre_section_failed",section=name,error_type=type(exc).__name__)
+            return command_section([],failed=True)
+
+    scope="(:practice_wide OR EXISTS (SELECT 1 FROM external_client_team_assignments ca WHERE ca.tenant_id=:tenant AND ca.client_id=q.client_id AND ca.user_id=:actor AND ca.ended_at IS NULL))"
+    schedule=await read("schedule",f"""SELECT q.id::text,q.client_id,q.starts_at AS due_at,q.ends_at,q.status,
+      q.attendance_status,t.name AS title,t.location_type,t.location_details
+      FROM external_scheduled_appointments q JOIN external_appointment_types t ON t.id=q.appointment_type_id AND t.tenant_id=q.tenant_id
+      WHERE q.tenant_id=:tenant AND q.starts_at>=date_trunc('day',NOW()) AND q.starts_at<date_trunc('day',NOW())+INTERVAL '1 day'
+      AND q.status NOT IN ('CANCELLED') AND {scope} ORDER BY q.starts_at LIMIT 20""",allowed="CALENDAR_VIEW" in permissions)
+    work=await read("my_work",f"""SELECT id,client_id,title,status,due_at,updated_at,source_module FROM (
+      SELECT q.id::text,q.client_id,q.title,q.status,q.due_at,q.updated_at,'TASK' source_module FROM practice_tasks q
+      WHERE q.tenant_id=:tenant AND q.status NOT IN ('COMPLETED','CANCELLED') AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,q.title,q.status,q.due_at,q.updated_at,'FOLLOW_UP' source_module FROM practice_follow_ups q
+      WHERE q.tenant_id=:tenant AND q.status NOT IN ('COMPLETED','CANCELLED') AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,q.title,q.status,q.due_date::timestamptz,q.updated_at,'HOMEWORK' source_module FROM external_homework_assignments q
+      WHERE q.tenant_id=:tenant AND q.status IN ('NOT_STARTED','IN_PROGRESS','MISSED') AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,q.title,q.status,q.period_end::timestamptz,q.updated_at,'REPORT' source_module FROM external_progress_reports q
+      WHERE q.tenant_id=:tenant AND q.status IN ('DRAFT','GENERATED') AND {scope}
+    ) work_items ORDER BY due_at NULLS LAST,updated_at DESC LIMIT 40""",allowed=bool({"TASK_VIEW","FOLLOWUP_VIEW","RESOURCE_VIEW","REPORT_VIEW"}&permissions))
+    if work["status"] in {"READY","EMPTY_CONFIRMED"} and not work.get("restricted"):
+        mapped=[]
+        for row in work["items"]:
+            signal=f"{row['source_module']}_OVERDUE" if row.get("due_at") and row["due_at"]<datetime.now(timezone.utc) else row["source_module"]
+            mapped.append({**row,"signal":signal,"priority":operational_priority(row.get("due_at"),signal),"action":next_action(signal)})
+        work["items"]=sort_work(mapped)
+    attention=await read("clients_needing_attention",f"""SELECT id,client_id,signal,context,due_at FROM (
+      SELECT q.id::text,q.client_id,'FOLLOWUP_OVERDUE' signal,'Follow-up is overdue' context,q.due_at FROM practice_follow_ups q WHERE q.tenant_id=:tenant AND q.status NOT IN ('COMPLETED','CANCELLED') AND q.due_at<NOW() AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,'TASK_OVERDUE','Task is overdue',q.due_at FROM practice_tasks q WHERE q.tenant_id=:tenant AND q.status NOT IN ('COMPLETED','CANCELLED') AND q.due_at<NOW() AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,'HOMEWORK_OVERDUE','Homework needs review',q.due_date::timestamptz FROM external_homework_assignments q WHERE q.tenant_id=:tenant AND q.status IN ('NOT_STARTED','IN_PROGRESS','MISSED') AND q.due_date<CURRENT_DATE AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,'CONSENT_PENDING','Consent is pending',q.expires_at FROM external_consent_records q WHERE q.tenant_id=:tenant AND q.status='PENDING' AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,'INVOICE_OVERDUE','Invoice has an overdue balance',q.due_date::timestamptz FROM external_invoices q WHERE q.tenant_id=:tenant AND q.status IN ('ISSUED','PART_PAID','OVERDUE') AND q.balance_due_minor>0 AND q.due_date<CURRENT_DATE AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,'REPORT_PENDING','Progress report remains incomplete',q.period_end::timestamptz FROM external_progress_reports q WHERE q.tenant_id=:tenant AND q.status IN ('DRAFT','GENERATED') AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,'REFERRAL_PENDING','Referral needs an operational decision',q.updated_at FROM external_referrals q WHERE q.tenant_id=:tenant AND q.status IN ('DRAFT','CONSENT_PENDING','READY_TO_SEND','SENT') AND {scope}
+    ) signals ORDER BY due_at NULLS LAST LIMIT 30""",allowed="CLIENT_LIST_VIEW" in permissions)
+    if attention["status"] in {"READY","EMPTY_CONFIRMED"} and not attention.get("restricted"):
+        attention["items"]=[{**row,"priority":operational_priority(row.get("due_at"),row["signal"]),"action":next_action(row["signal"])} for row in attention["items"]]
+    onboarding=await read("onboarding",f"""SELECT q.id::text,q.client_id,q.status,q.completion_percent,q.updated_at,
+      CASE WHEN q.completion_percent=100 THEN 'READY_FOR_CONSULTATION' ELSE 'ONBOARDING_INCOMPLETE' END signal
+      FROM external_client_intake_instances q WHERE q.tenant_id=:tenant AND q.status NOT IN ('REVOKED') AND {scope}
+      ORDER BY q.updated_at DESC LIMIT 20""",allowed="CLIENT_LIST_VIEW" in permissions)
+    recent=await read("recent_changes",f"""SELECT q.id::text,q.client_id,q.event_type,q.title,q.created_at
+      FROM practice_notifications q WHERE q.tenant_id=:tenant AND {scope} ORDER BY q.created_at DESC LIMIT 12""",allowed="PRACTICE_VIEW" in permissions or "CLIENT_LIST_VIEW" in permissions)
+    leads=await read("leads",f"""SELECT q.id::text,NULL::varchar client_id,(q.first_name||COALESCE(' '||q.last_name,'')) title,q.stage,q.next_follow_up_at AS due_at,q.updated_at,
+      CASE WHEN q.stage='NEW' THEN 'NEW_LEAD' WHEN q.next_follow_up_at<NOW() THEN 'LEAD_FOLLOWUP_OVERDUE' ELSE 'LEAD_FOLLOWUP' END signal
+      FROM external_leads q WHERE q.tenant_id=:tenant AND q.stage NOT IN ('CONVERTED','NOT_INTERESTED','LOST')
+      ORDER BY q.next_follow_up_at NULLS LAST,q.updated_at DESC LIMIT 15""",allowed=principal["role"] in {"PRACTICE_OWNER","PRACTICE_ADMIN","PRACTITIONER","RECEPTIONIST"})
+    renewals=await read("renewals",f"""SELECT q.id::text,q.client_id,p.name title,q.status,q.end_date::timestamptz due_at,q.renewal_date,q.sessions_total,
+      CASE WHEN q.renewal_date<=CURRENT_DATE+14 THEN 'RENEWAL_DUE' ELSE 'PROGRAMME_ENDING' END signal
+      FROM external_client_packages q JOIN external_service_packages p ON p.id=q.package_id AND p.tenant_id=q.tenant_id
+      WHERE q.tenant_id=:tenant AND q.status IN ('ACTIVE','PAUSED') AND (q.renewal_date<=CURRENT_DATE+14 OR q.end_date<=CURRENT_DATE+30) AND {scope}
+      ORDER BY q.renewal_date NULLS LAST,q.end_date NULLS LAST LIMIT 15""",allowed="PACKAGE_VIEW" in permissions)
+    revenue=await read("revenue_attention","""SELECT COUNT(*) FILTER (WHERE status IN ('ISSUED','PART_PAID','OVERDUE') AND balance_due_minor>0)::int open_invoices,
+      COUNT(*) FILTER (WHERE status IN ('ISSUED','PART_PAID','OVERDUE') AND due_date<CURRENT_DATE AND balance_due_minor>0)::int overdue_invoices,
+      COUNT(*) FILTER (WHERE status='PART_PAID')::int part_paid_invoices,
+      COALESCE(SUM(balance_due_minor) FILTER (WHERE status IN ('ISSUED','PART_PAID','OVERDUE')),0)::bigint outstanding_minor
+      FROM external_invoices WHERE tenant_id=:tenant""",allowed="BILLING_VIEW" in permissions)
+    confirmations=await read("automation_confirmations","""SELECT r.id::text,e.client_id,r.action_type,r.result_summary,r.created_at,d.name title
+      FROM external_automation_action_results r JOIN external_automation_executions e ON e.id=r.execution_id AND e.tenant_id=r.tenant_id
+      JOIN external_automation_definitions d ON d.id=e.automation_id AND d.tenant_id=e.tenant_id
+      WHERE r.tenant_id=:tenant AND r.status='PENDING_CONFIRMATION' ORDER BY r.created_at LIMIT 15""",allowed="AUTOMATION_VIEW" in permissions)
+    drafts=await read("continue_working",f"""SELECT id,client_id,title,status,updated_at,source_module FROM (
+      SELECT q.id::text,q.client_id,q.title,q.status,q.updated_at,'SESSION_NOTE' source_module FROM external_session_notes q WHERE q.tenant_id=:tenant AND q.created_by=:actor AND q.status='DRAFT' AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,q.title,q.status,q.updated_at,'REPORT' source_module FROM external_progress_reports q WHERE q.tenant_id=:tenant AND q.created_by=:actor AND q.status='DRAFT' AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,COALESCE(q.invoice_number,'Draft invoice') title,q.status,q.updated_at,'INVOICE' source_module FROM external_invoices q WHERE q.tenant_id=:tenant AND q.created_by=:actor AND q.status='DRAFT' AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,q.purpose title,q.status,q.updated_at,'COMMUNICATION' source_module FROM external_communication_preparations q WHERE q.tenant_id=:tenant AND q.created_by=:actor AND q.status='PREPARED' AND {scope}
+    ) drafts ORDER BY updated_at DESC LIMIT 15""",allowed=bool({"SESSION_VIEW","REPORT_VIEW","BILLING_VIEW","COMMUNICATION_VIEW"}&permissions))
+
+    sections={"schedule":schedule,"my_work":work,"clients_needing_attention":attention,"onboarding":onboarding,
+      "recent_changes":recent,"leads":leads,"renewals":renewals,"revenue_attention":revenue,
+      "automation_confirmations":confirmations,"continue_working":drafts}
+    failed=[name for name,value in sections.items() if value["status"]=="FAILED"]
+    daily_counts={
+      "appointments_today":len(schedule["items"]) if schedule["status"]!="FAILED" and not schedule.get("restricted") else None,
+      "work_due":len(work["items"]) if work["status"]!="FAILED" and not work.get("restricted") else None,
+      "clients_needing_attention":len({row.get("client_id") for row in attention["items"] if row.get("client_id")}) if attention["status"]!="FAILED" and not attention.get("restricted") else None,
+      "new_leads":sum(1 for row in leads["items"] if row.get("stage")=="NEW") if leads["status"]!="FAILED" and not leads.get("restricted") else None,
+      "automation_confirmations":len(confirmations["items"]) if confirmations["status"]!="FAILED" and not confirmations.get("restricted") else None,
+    }
+    overall="PARTIAL_DATA" if failed else "READY" if any(value is not None and value>0 for value in daily_counts.values()) else "CONFIRMED_EMPTY"
+    return {"success":True,"data":{"state":overall,"role":principal["role"],"profession_code":principal.get("profession_code"),
+      "daily_brief":daily_counts,"sections":sections,"failed_sections":failed,"generated_at":datetime.now(timezone.utc)},
+      "error":None,"request_id":request.state.correlation_id}
