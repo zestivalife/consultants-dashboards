@@ -50,3 +50,36 @@ def test_portal_task_update_is_cross_client_safe():
     fragment = source[source.index("async def client_portal_complete_task"):]
     assert "id=:id AND tenant_id=:tenant AND client_id=:client" in fragment
     assert "PORTAL_TASK_NOT_FOUND" in fragment
+
+
+def test_portal_token_rejects_malformed_bad_signature_and_expired_values():
+    valid = issue_portal_token(
+        secret="test-secret", tenant_id="tenant-a", client_id="client-a",
+        grant_id="grant-a", expires_at=2_000_000_000,
+        allowed_actions=("READ",),
+    )
+    rejected = (
+        "not-a-portal-token",
+        valid[:-1] + ("a" if valid[-1] != "a" else "b"),
+        issue_portal_token(
+            secret="test-secret", tenant_id="tenant-a", client_id="client-a",
+            grant_id="grant-a", expires_at=1_800_000_000,
+            allowed_actions=("READ",),
+        ),
+    )
+    for token in rejected:
+        try:
+            validate_portal_token(token, secret="test-secret", required_action="READ", now=1_900_000_000)
+        except PortalTokenError:
+            pass
+        else:
+            raise AssertionError("Invalid portal token was accepted")
+
+
+def test_persisted_grant_validation_is_complete_and_fail_closed():
+    source = (ROOT / "app/main.py").read_text()
+    fragment = source[source.index("async def _portal_scope"):source.index('@app.post("/api/v1/practice-operations/clients/{client_id}/portal-invitations"')]
+    for field in ("tenant_id", "client_id", "token_hash", "token_version", "allowed_actions", "expires_at", "revoked_at"):
+        assert field in fragment
+    assert "CLIENT_PORTAL_LINK_INVALID" in fragment
+    assert "CLIENT_PORTAL_ACTION_DENIED" in fragment
