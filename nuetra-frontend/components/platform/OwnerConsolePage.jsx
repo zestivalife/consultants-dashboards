@@ -21,6 +21,7 @@ import {
 } from './OwnerConsoleModules';
 import MasterDataModule from './MasterDataModule';
 import GrievanceManagementModule from './GrievanceManagementModule';
+import MarketplaceGovernanceModule from './MarketplaceGovernanceModule';
 import OwnerConsoleLayout from './OwnerConsoleLayout';
 import { platformOwnerConsoleData } from '../../data/platformOwnerConsoleData';
 import { getOwnerBreadcrumbs, getOwnerRouteBySlug } from '../../lib/ownerConsoleRoutes';
@@ -150,6 +151,8 @@ export default function OwnerConsolePage({ moduleSlug = 'command-center' }) {
         return <PractitionersModule practitioners={platformOwnerConsoleData.practitioners} />;
       case 'consultants':
         return <ConsultantsModule consultants={consultants} />;
+      case 'marketplace':
+        return <MarketplaceGovernanceModule />;
       case 'mentors':
         return <MentorsModule mentors={platformOwnerConsoleData.mentors} />;
       case 'reports':

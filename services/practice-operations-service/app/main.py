@@ -70,6 +70,10 @@ from app.p28 import PaymentProviderNotConfigured, canonical_payload_hash, verify
 from app.p29 import classify_output, validate_ai_request
 from app.p30 import EXCLUDED_BY_DEFAULT, export_checksum, validate_export_sections
 from app.command_centre import next_action, operational_priority, section as command_section, sort_work
+from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,EnrolmentAction,EnrolmentCreate,ProfileSave,
+                             QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
+                             can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
+                             publicly_visible,slug_base)
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -4086,3 +4090,238 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
     return {"success":True,"data":{"state":overall,"role":principal["role"],"profession_code":principal.get("profession_code"),
       "daily_brief":daily_counts,"sections":sections,"failed_sections":failed,"generated_at":datetime.now(timezone.utc)},
       "error":None,"request_id":request.state.correlation_id}
+
+
+# P31 Consultant Marketplace — additive External-only domain.
+def _platform_admin(request,ctx):
+    role=str((ctx or {}).get("role") or "").upper()
+    if role not in {"SUPER_ADMIN","SUPERUSER","PLATFORM_OWNER"}:return error(request,403,"PLATFORM_ADMIN_REQUIRED","Platform Super Admin authority is required")
+
+async def _marketplace_profile(db,ctx,lock=False):
+    suffix=" FOR UPDATE" if lock else ""
+    return (await db.execute(text("SELECT id,tenant_id,consultant_user_id,slug,status,public_visibility,accepting_new_clients,current_published_version,working_version,approved_version,approval_valid,suspended_at,created_at,updated_at FROM external_consultant_public_profiles WHERE tenant_id=:tenant AND consultant_user_id=:actor"+suffix),{"tenant":ctx["tenant_id"],"actor":ctx["user_id"]})).mappings().first()
+
+async def _marketplace_audit(db,profile,tenant,event,actor,role,reason=None,metadata=None):
+    await db.execute(text("INSERT INTO external_consultant_marketplace_audit_events(id,profile_id,tenant_id,event_type,actor_id,actor_role,reason,metadata,created_at) VALUES (:id,:profile,:tenant,:event,:actor,:role,:reason,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"profile":profile,"tenant":tenant,"event":event,"actor":actor,"role":role,"reason":reason,"metadata":json.dumps(metadata or {}),"now":datetime.now(timezone.utc)})
+
+@app.get("/api/v1/practice-operations/marketplace/profile")
+async def marketplace_profile(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    profile=await _marketplace_profile(db,ctx)
+    if not profile:return {"success":True,"data":{"state":"CONFIRMED_EMPTY","profile":None,"qualifications":[],"analytics":None},"error":None,"request_id":request.state.correlation_id}
+    version=(await db.execute(text("SELECT version,status,projection,completeness,missing_fields,submitted_at,approved_at,published_at FROM external_consultant_public_profile_versions WHERE profile_id=:profile AND version=:version"),{"profile":profile["id"],"version":profile["working_version"]})).mappings().first()
+    qualifications=[dict(row) for row in (await db.execute(text("SELECT id,qualification_type,title,institution,award_year,country,registration_number,issuing_body,expiry_date,verification_status,credential_document_id,created_at,updated_at FROM external_consultant_qualifications WHERE profile_id=:profile ORDER BY created_at DESC"),{"profile":profile["id"]})).mappings().all()]
+    analytics=(await db.execute(text("SELECT COUNT(*) FILTER(WHERE event_type='PROFILE_VIEW')::int profile_views,COUNT(*) FILTER(WHERE event_type='ENROL_CLICK')::int enrol_clicks,COUNT(*) FILTER(WHERE event_type='BOOK_CLICK')::int booking_clicks FROM external_consultant_marketplace_events WHERE profile_id=:profile"),{"profile":profile["id"]})).mappings().one()
+    review=(await db.execute(text("SELECT COUNT(*)::int review_count,AVG(overall_rating)::numeric(3,2) average_rating FROM external_consultant_reviews WHERE profile_id=:profile AND verified_engagement=TRUE AND status='PUBLISHED'"),{"profile":profile["id"]})).mappings().one()
+    enrolments=(await db.execute(text("SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE status='NEW')::int new_count FROM external_consultant_marketplace_enrolments WHERE profile_id=:profile"),{"profile":profile["id"]})).mappings().one()
+    return {"success":True,"data":{"state":"READY","profile":dict(profile),"version":dict(version) if version else None,"qualifications":qualifications,"analytics":{**dict(analytics),**dict(review),"enrolments":dict(enrolments)}},"error":None,"request_id":request.state.correlation_id}
+
+@app.put("/api/v1/practice-operations/marketplace/profile")
+async def save_marketplace_profile(request:Request,body:ProfileSave,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    now=datetime.now(timezone.utc);payload=public_projection(body.model_dump());existing=await _marketplace_profile(db,ctx,True)
+    if existing:
+        if existing["status"] in {"SUBMITTED_FOR_REVIEW","UNDER_REVIEW"}:return error(request,409,"PROFILE_LOCKED_FOR_REVIEW","Withdraw or wait for review before editing")
+        version=existing["working_version"]+1 if existing["status"] in {"PUBLISHED","APPROVED","UNPUBLISHED"} and existing["working_version"]==existing["current_published_version"] else existing["working_version"]
+        profile_id=existing["id"];status="DRAFT";slug=existing["slug"]
+    else:
+        base=slug_base(body.display_name);candidate=base;suffix=1
+        while (await db.execute(text("SELECT 1 FROM external_consultant_public_profiles WHERE slug=:slug"),{"slug":candidate})).first():suffix+=1;candidate=f"{base}-{suffix}"
+        profile_id=uuid4();version=1;status="DRAFT";slug=candidate
+        await db.execute(text("INSERT INTO external_consultant_public_profiles(id,tenant_id,consultant_user_id,slug,status,public_visibility,accepting_new_clients,working_version,approval_valid,created_at,updated_at) VALUES (:id,:tenant,:actor,:slug,'DRAFT',FALSE,:accepting,1,FALSE,:now,:now)"),{"id":profile_id,"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"slug":slug,"accepting":body.accepting_new_clients,"now":now})
+        await _marketplace_audit(db,profile_id,ctx["tenant_id"],"PROFILE_DRAFT_CREATED",ctx["user_id"],ctx["role"])
+    verified=(await db.execute(text("SELECT COUNT(*) FROM external_consultant_qualifications WHERE profile_id=:profile AND verification_status='VERIFIED' AND (expiry_date IS NULL OR expiry_date>=CURRENT_DATE)"),{"profile":profile_id})).scalar_one()
+    score,missing=completeness(payload,verified)
+    await db.execute(text("INSERT INTO external_consultant_public_profile_versions(id,profile_id,tenant_id,version,status,projection,completeness,missing_fields,created_by,created_at) VALUES (:id,:profile,:tenant,:version,'DRAFT',CAST(:projection AS jsonb),:score,CAST(:missing AS jsonb),:actor,:now) ON CONFLICT(profile_id,version) DO UPDATE SET projection=EXCLUDED.projection,completeness=EXCLUDED.completeness,missing_fields=EXCLUDED.missing_fields,status='DRAFT'"),{"id":uuid4(),"profile":profile_id,"tenant":ctx["tenant_id"],"version":version,"projection":json.dumps(payload),"score":score,"missing":json.dumps(missing),"actor":ctx["user_id"],"now":now})
+    live_approval=bool(existing and existing["current_published_version"] and existing["approval_valid"])
+    await db.execute(text("UPDATE external_consultant_public_profiles SET status=:status,working_version=:version,accepting_new_clients=:accepting,approval_valid=:live_approval,approved_version=NULL,updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"status":status,"version":version,"accepting":body.accepting_new_clients,"live_approval":live_approval,"now":now,"id":profile_id,"tenant":ctx["tenant_id"]})
+    await _marketplace_audit(db,profile_id,ctx["tenant_id"],"PROFILE_UPDATED",ctx["user_id"],ctx["role"],metadata={"version":version,"completeness":score});await db.commit()
+    return {"success":True,"data":{"id":str(profile_id),"slug":slug,"status":status,"version":version,"completeness":score,"missing_fields":missing},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/marketplace/profile/submit")
+async def submit_marketplace_profile(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    profile=await _marketplace_profile(db,ctx,True)
+    if not profile:return error(request,404,"PROFILE_NOT_FOUND","Create the public profile draft first")
+    version=(await db.execute(text("SELECT completeness FROM external_consultant_public_profile_versions WHERE profile_id=:profile AND version=:version"),{"profile":profile["id"],"version":profile["working_version"]})).mappings().first()
+    if not version or version["completeness"]<100:return error(request,422,"PROFILE_INCOMPLETE","Complete every required marketplace field before submission")
+    try:assert_transition(profile["status"],"SUBMITTED_FOR_REVIEW")
+    except ValueError as exc:return error(request,409,"INVALID_PROFILE_TRANSITION",str(exc))
+    now=datetime.now(timezone.utc);await db.execute(text("UPDATE external_consultant_public_profiles SET status='SUBMITTED_FOR_REVIEW',updated_at=:now WHERE id=:id"),{"now":now,"id":profile["id"]});await db.execute(text("UPDATE external_consultant_public_profile_versions SET status='SUBMITTED_FOR_REVIEW',submitted_at=:now WHERE profile_id=:id AND version=:version"),{"now":now,"id":profile["id"],"version":profile["working_version"]});await _marketplace_audit(db,profile["id"],ctx["tenant_id"],"PROFILE_SUBMITTED",ctx["user_id"],ctx["role"]);await db.commit()
+    return {"success":True,"data":{"status":"SUBMITTED_FOR_REVIEW"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/marketplace/qualifications")
+async def add_marketplace_qualification(request:Request,body:QualificationCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    profile=await _marketplace_profile(db,ctx)
+    if not profile:return error(request,404,"PROFILE_NOT_FOUND","Create the public profile draft first")
+    document=UUID(body.credential_document_id) if body.credential_document_id else None
+    if document:
+        owned=(await db.execute(text("SELECT 1 FROM external_documents WHERE id=:id AND tenant_id=:tenant AND visibility IN ('PRACTITIONER_PRIVATE','PRACTICE_ADMINISTRATIVE')"),{"id":document,"tenant":ctx["tenant_id"]})).first()
+        if not owned:return error(request,422,"PRIVATE_CREDENTIAL_DOCUMENT_REQUIRED","Credential evidence must be a private governed document")
+    item=uuid4();now=datetime.now(timezone.utc);await db.execute(text("INSERT INTO external_consultant_qualifications(id,profile_id,tenant_id,qualification_type,title,institution,award_year,country,registration_number,issuing_body,expiry_date,verification_status,credential_document_id,created_at,updated_at) VALUES (:id,:profile,:tenant,:type,:title,:institution,:year,:country,:registration,:issuer,:expiry,'PENDING',:document,:now,:now)"),{"id":item,"profile":profile["id"],"tenant":ctx["tenant_id"],"type":body.qualification_type,"title":body.title,"institution":body.institution,"year":body.award_year,"country":body.country,"registration":body.registration_number,"issuer":body.issuing_body,"expiry":body.expiry_date,"document":document,"now":now});await _marketplace_audit(db,profile["id"],ctx["tenant_id"],"QUALIFICATION_ADDED",ctx["user_id"],ctx["role"],metadata={"qualification_id":str(item)});await db.commit();return {"success":True,"data":{"id":str(item),"verification_status":"PENDING"},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/marketplace/enrolments")
+async def marketplace_enrolments(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    profile=await _marketplace_profile(db,ctx)
+    if not profile:return {"success":True,"data":{"state":"CONFIRMED_EMPTY","items":[]},"error":None,"request_id":request.state.correlation_id}
+    rows=[dict(row) for row in (await db.execute(text("SELECT id,lead_id,service_id,programme_id,full_name,email,phone,consultation_mode,location_id,preferred_at,message,status,created_at,updated_at FROM external_consultant_marketplace_enrolments WHERE profile_id=:profile AND tenant_id=:tenant ORDER BY created_at DESC LIMIT 100"),{"profile":profile["id"],"tenant":ctx["tenant_id"]})).mappings().all()]
+    return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/marketplace/enrolments/{enrolment_id}/action")
+async def marketplace_enrolment_action(enrolment_id:UUID,request:Request,body:EnrolmentAction,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    profile=await _marketplace_profile(db,ctx)
+    if not profile:return error(request,404,"PROFILE_NOT_FOUND","Marketplace profile was not found")
+    row=(await db.execute(text("SELECT id,lead_id,status FROM external_consultant_marketplace_enrolments WHERE id=:id AND profile_id=:profile AND tenant_id=:tenant FOR UPDATE"),{"id":enrolment_id,"profile":profile["id"],"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"ENROLMENT_NOT_FOUND","Enrolment was not found")
+    action=body.action.upper();target={"CONTACT":"CONTACTED","ACCEPT":"ACCEPTED","BOOK":"BOOKED","DECLINE":"DECLINED","CANCEL":"CANCELLED","CONVERT":"CONVERTED"}.get(action)
+    allowed={"NEW":{"CONTACTED","ACCEPTED","DECLINED","CANCELLED"},"CONTACTED":{"ACCEPTED","BOOKED","DECLINED","CANCELLED"},"ACCEPTED":{"BOOKED","DECLINED","CANCELLED"},"BOOKED":{"CONVERTED","DECLINED","CANCELLED"}}
+    if target not in allowed.get(row["status"],set()):return error(request,409,"INVALID_ENROLMENT_TRANSITION","Enrolment transition is not permitted")
+    if target=="CONVERTED":
+        converted=(await db.execute(text("SELECT converted_client_id FROM external_leads WHERE id=:lead AND tenant_id=:tenant AND stage='CONVERTED'"),{"lead":row["lead_id"],"tenant":ctx["tenant_id"]})).scalar_one_or_none()
+        if not converted:return error(request,409,"CLIENT_CORE_CONVERSION_REQUIRED","Convert the linked P24 lead through the governed Client Core flow first")
+    lead_stage={"CONTACTED":"CONTACTED","ACCEPTED":"QUALIFIED","BOOKED":"CONSULTATION_BOOKED","DECLINED":"NOT_INTERESTED"}.get(target)
+    if lead_stage:await db.execute(text("UPDATE external_leads SET stage=:stage,updated_at=:now WHERE id=:lead AND tenant_id=:tenant"),{"stage":lead_stage,"now":datetime.now(timezone.utc),"lead":row["lead_id"],"tenant":ctx["tenant_id"]})
+    await db.execute(text("UPDATE external_consultant_marketplace_enrolments SET status=:status,updated_at=:now WHERE id=:id"),{"status":target,"now":datetime.now(timezone.utc),"id":enrolment_id});await _marketplace_audit(db,profile["id"],ctx["tenant_id"],f"ENROLMENT_{target}",ctx["user_id"],ctx["role"],body.reason,{"enrolment_id":str(enrolment_id)});await db.commit();return {"success":True,"data":{"status":target},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/admin/marketplace")
+async def admin_marketplace(request:Request,status:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    params={"status":status};rows=[dict(row) for row in (await db.execute(text("SELECT p.id,p.tenant_id,p.consultant_user_id,p.slug,p.status,p.public_visibility,p.accepting_new_clients,p.current_published_version,p.working_version,p.approved_version,p.approval_valid,p.updated_at,v.projection,v.completeness,v.missing_fields FROM external_consultant_public_profiles p JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.working_version WHERE (CAST(:status AS text) IS NULL OR p.status=CAST(:status AS text)) ORDER BY p.updated_at DESC LIMIT 200"),params)).mappings().all()]
+    return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/admin/marketplace/profiles/{profile_id}/decision")
+async def admin_marketplace_decision(profile_id:UUID,request:Request,body:AdminDecision,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    action=body.action.upper();target=ADMIN_ACTIONS.get(action)
+    if not target:return error(request,422,"UNKNOWN_MARKETPLACE_ACTION","Marketplace action is not recognised")
+    if action in REASON_REQUIRED and not body.reason:return error(request,422,"REASON_REQUIRED","A reason is required")
+    profile=(await db.execute(text("SELECT id,tenant_id,status,public_visibility,working_version,approved_version,approval_valid,current_published_version FROM external_consultant_public_profiles WHERE id=:id FOR UPDATE"),{"id":profile_id})).mappings().first()
+    if not profile:return error(request,404,"PROFILE_NOT_FOUND","Profile was not found")
+    if action=="PUBLISH_PROFILE" and not can_publish(profile):return error(request,409,"PROFILE_NOT_APPROVED_FOR_PUBLICATION","Approval and publication are separate; approve this exact version first")
+    try:assert_transition(profile["status"],target)
+    except ValueError as exc:return error(request,409,"INVALID_PROFILE_TRANSITION",str(exc))
+    now=datetime.now(timezone.utc);fields={"status":target,"visibility":profile["public_visibility"],"valid":profile["approval_valid"],"approved":profile["approved_version"],"published":profile["current_published_version"],"suspended":now if target=="SUSPENDED" else None}
+    if target=="APPROVED":fields.update(valid=True,approved=profile["working_version"])
+    if target=="PUBLISHED":fields.update(published=profile["working_version"],visibility=True,suspended=None)
+    if target in {"UNPUBLISHED","SUSPENDED"}:fields.update(visibility=False)
+    if target in {"CHANGES_REQUIRED","REJECTED"}:fields.update(valid=bool(profile["current_published_version"]),approved=None)
+    await db.execute(text("UPDATE external_consultant_public_profiles SET status=:status,public_visibility=:visibility,approval_valid=:valid,approved_version=:approved,current_published_version=:published,suspended_at=:suspended,updated_at=:now WHERE id=:id"),{**fields,"now":now,"id":profile_id})
+    await db.execute(text("UPDATE external_consultant_public_profile_versions SET status=:status,approved_at=CASE WHEN :status='APPROVED' THEN :now ELSE approved_at END,published_at=CASE WHEN :status='PUBLISHED' THEN :now ELSE published_at END WHERE profile_id=:id AND version=:version"),{"status":target,"now":now,"id":profile_id,"version":profile["working_version"]})
+    await _marketplace_audit(db,profile_id,profile["tenant_id"],action.replace("_PROFILE","") if action.startswith("PROFILE_") else action,ctx["user_id"],ctx["role"],body.reason,{"version":profile["working_version"]});await db.commit()
+    return {"success":True,"data":{"status":target,"published":target=="PUBLISHED"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/admin/marketplace/qualifications/{qualification_id}/decision")
+async def admin_qualification_decision(qualification_id:UUID,request:Request,body:QualificationDecision,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    action=body.action.upper();status={"VERIFY_QUALIFICATION":"VERIFIED","REJECT_QUALIFICATION":"REJECTED"}.get(action)
+    if not status:return error(request,422,"UNKNOWN_QUALIFICATION_ACTION","Qualification action is not recognised")
+    if action in REASON_REQUIRED and not body.reason:return error(request,422,"REASON_REQUIRED","A reason is required")
+    row=(await db.execute(text("UPDATE external_consultant_qualifications SET verification_status=:status,verified_by=:actor,verified_at=:now,rejection_reason=:reason,updated_at=:now WHERE id=:id RETURNING profile_id,tenant_id"),{"status":status,"actor":ctx["user_id"],"now":datetime.now(timezone.utc),"reason":body.reason,"id":qualification_id})).mappings().first()
+    if not row:return error(request,404,"QUALIFICATION_NOT_FOUND","Qualification was not found")
+    current=(await db.execute(text("SELECT p.working_version,v.projection FROM external_consultant_public_profiles p JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.working_version WHERE p.id=:profile"),{"profile":row["profile_id"]})).mappings().first()
+    verified=(await db.execute(text("SELECT COUNT(*) FROM external_consultant_qualifications WHERE profile_id=:profile AND verification_status='VERIFIED' AND (expiry_date IS NULL OR expiry_date>=CURRENT_DATE)"),{"profile":row["profile_id"]})).scalar_one()
+    if current:
+        score,missing=completeness(dict(current["projection"]),verified);await db.execute(text("UPDATE external_consultant_public_profile_versions SET completeness=:score,missing_fields=CAST(:missing AS jsonb) WHERE profile_id=:profile AND version=:version"),{"score":score,"missing":json.dumps(missing),"profile":row["profile_id"],"version":current["working_version"]})
+    await _marketplace_audit(db,row["profile_id"],row["tenant_id"],"QUALIFICATION_VERIFIED" if status=="VERIFIED" else "QUALIFICATION_REJECTED",ctx["user_id"],ctx["role"],body.reason,{"qualification_id":str(qualification_id)});await db.commit();return {"success":True,"data":{"verification_status":status},"error":None,"request_id":request.state.correlation_id}
+
+def _public_profile_sql(extra=""):
+    return """SELECT p.id,p.tenant_id,p.slug,p.accepting_new_clients,v.projection,
+      COALESCE(r.average_rating,0) average_rating,COALESCE(r.review_count,0)::int review_count
+      FROM external_consultant_public_profiles p JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.current_published_version
+      LEFT JOIN (SELECT profile_id,AVG(overall_rating)::numeric(3,2) average_rating,COUNT(*) review_count FROM external_consultant_reviews WHERE verified_engagement=TRUE AND status='PUBLISHED' GROUP BY profile_id) r ON r.profile_id=p.id
+      WHERE v.status='PUBLISHED' AND p.public_visibility=TRUE AND p.approval_valid=TRUE AND p.suspended_at IS NULL """+extra
+
+@app.get("/api/v1/public/consultants")
+async def public_consultants(request:Request,q:str|None=None,profession:str|None=None,mode:str|None=None,language:str|None=None,location:str|None=None,accepting:bool|None=None,sort:str="recommended",limit:int=Query(24,ge=1,le=60),db:AsyncSession=Depends(get_db)):
+    filters=[];params={"q":f"%{(q or '').lower()}%","profession":profession,"mode":mode,"language":language,"location":f"%{(location or '').lower()}%","accepting":accepting,"limit":limit}
+    if q:filters.append("(lower(v.projection->>'display_name') LIKE :q OR lower(v.projection->>'professional_title') LIKE :q OR lower(v.projection::text) LIKE :q)")
+    if profession:filters.append("v.projection->>'profession_code'=:profession")
+    if mode:filters.append("v.projection->'consultation_modes' ? :mode")
+    if language:filters.append("v.projection->'languages' ? :language")
+    if location:filters.append("lower((v.projection->'public_locations')::text) LIKE :location")
+    if accepting is not None:filters.append("p.accepting_new_clients=:accepting")
+    ordering={"experience":"(v.projection->>'experience_years')::int DESC","rating":"average_rating DESC","most_reviewed":"review_count DESC"}.get(sort,"p.updated_at DESC")
+    sql=_public_profile_sql((" AND "+" AND ".join(filters) if filters else "")+f" ORDER BY {ordering} LIMIT :limit")
+    rows=[{**dict(row),"projection":dict(row["projection"])} for row in (await db.execute(text(sql),params)).mappings().all()]
+    for row in rows:await db.execute(text("INSERT INTO external_consultant_marketplace_events(id,profile_id,tenant_id,event_type,metadata,created_at) VALUES (:id,:profile,:tenant,'PROFILE_IMPRESSION','{}'::jsonb,:now)"),{"id":uuid4(),"profile":row["id"],"tenant":row["tenant_id"],"now":datetime.now(timezone.utc)})
+    await db.commit();return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/public/consultants/{slug}")
+async def public_consultant(slug:str,request:Request,db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text(_public_profile_sql(" AND p.slug=:slug")),{"slug":slug})).mappings().first()
+    if not row:return error(request,404,"CONSULTANT_NOT_FOUND","Consultant profile was not found")
+    qualifications=[dict(item) for item in (await db.execute(text("SELECT qualification_type,title,institution,award_year,country,issuing_body,expiry_date FROM external_consultant_qualifications WHERE profile_id=:profile AND verification_status='VERIFIED' AND (expiry_date IS NULL OR expiry_date>=CURRENT_DATE) ORDER BY award_year DESC"),{"profile":row["id"]})).mappings().all()]
+    reviews=[dict(item) for item in (await db.execute(text("SELECT overall_rating,review_text,communication_rating,professionalism_rating,support_experience_rating,created_at FROM external_consultant_reviews WHERE profile_id=:profile AND verified_engagement=TRUE AND status='PUBLISHED' ORDER BY created_at DESC LIMIT 30"),{"profile":row["id"]})).mappings().all()]
+    await db.execute(text("INSERT INTO external_consultant_marketplace_events(id,profile_id,tenant_id,event_type,metadata,created_at) VALUES (:id,:profile,:tenant,'PROFILE_VIEW','{}'::jsonb,:now)"),{"id":uuid4(),"profile":row["id"],"tenant":row["tenant_id"],"now":datetime.now(timezone.utc)});await db.commit()
+    return {"success":True,"data":{**dict(row),"projection":dict(row["projection"]),"qualifications":qualifications,"reviews":reviews,"review_state":"READY" if reviews else "CONFIRMED_EMPTY"},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/public/consultants/{slug}/availability")
+async def public_consultant_availability(slug:str,request:Request,db:AsyncSession=Depends(get_db)):
+    profile=(await db.execute(text("SELECT p.id,p.tenant_id,p.consultant_user_id FROM external_consultant_public_profiles p JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.current_published_version WHERE p.slug=:slug AND v.status='PUBLISHED' AND p.public_visibility=TRUE AND p.approval_valid=TRUE AND p.suspended_at IS NULL"),{"slug":slug})).mappings().first()
+    if not profile:return error(request,404,"CONSULTANT_NOT_FOUND","Consultant profile was not found")
+    rules=[dict(row) for row in (await db.execute(text("SELECT weekday,start_time,end_time,timezone FROM external_availability_rules WHERE tenant_id=:tenant AND active=TRUE ORDER BY weekday,start_time"),{"tenant":profile["tenant_id"]})).mappings().all()]
+    return {"success":True,"data":{"state":"READY" if rules else "CONFIRMED_EMPTY","rules":rules},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/public/consultants/{slug}/enrolments")
+async def public_consultant_enrolment(slug:str,request:Request,body:EnrolmentCreate,db:AsyncSession=Depends(get_db)):
+    if not body.consent_acknowledged:return error(request,422,"PRIVACY_ACKNOWLEDGEMENT_REQUIRED","Privacy acknowledgement is required")
+    profile=(await db.execute(text("SELECT p.id,p.tenant_id,p.consultant_user_id,p.accepting_new_clients FROM external_consultant_public_profiles p JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.current_published_version WHERE p.slug=:slug AND v.status='PUBLISHED' AND p.public_visibility=TRUE AND p.approval_valid=TRUE AND p.suspended_at IS NULL"),{"slug":slug})).mappings().first()
+    if not profile:return error(request,404,"CONSULTANT_NOT_FOUND","Consultant profile was not found")
+    if not profile["accepting_new_clients"]:return error(request,409,"NOT_ACCEPTING_NEW_CLIENTS","This consultant is not accepting new clients")
+    key=dedupe_key(profile["id"],body.email,body.phone,body.service_id);existing=(await db.execute(text("SELECT id,status FROM external_consultant_marketplace_enrolments WHERE profile_id=:profile AND deduplication_key=:key"),{"profile":profile["id"],"key":key})).mappings().first()
+    if existing:return {"success":True,"data":{"id":str(existing["id"]),"status":existing["status"],"duplicate":True},"error":None,"request_id":request.state.correlation_id}
+    now=datetime.now(timezone.utc);lead_id=uuid4();enrolment_id=uuid4();email_key=normal_email(body.email);phone_key=normal_phone(body.phone)
+    await db.execute(text("INSERT INTO external_leads(id,tenant_id,first_name,last_name,email,phone,email_key,phone_key,source,stage,assigned_practitioner_id,notes,created_by,created_at,updated_at) VALUES (:id,:tenant,:first,:last,:email,:phone,:email_key,:phone_key,'PUBLIC_CONSULTANT_DIRECTORY','NEW',:actor,:notes,'PUBLIC_MARKETPLACE',:now,:now)"),{"id":lead_id,"tenant":profile["tenant_id"],"first":body.full_name.split()[0],"last":" ".join(body.full_name.split()[1:]) or None,"email":body.email,"phone":body.phone,"email_key":email_key,"phone_key":phone_key,"actor":profile["consultant_user_id"],"notes":"Marketplace enrolment request","now":now})
+    await db.execute(text("INSERT INTO external_consultant_marketplace_enrolments(id,profile_id,tenant_id,lead_id,service_id,programme_id,full_name,email,phone,consultation_mode,location_id,preferred_at,message,consent_acknowledged,status,deduplication_key,created_at,updated_at) VALUES (:id,:profile,:tenant,:lead,:service,:programme,:name,:email,:phone,:mode,:location,:preferred,:message,TRUE,'NEW',:key,:now,:now)"),{"id":enrolment_id,"profile":profile["id"],"tenant":profile["tenant_id"],"lead":lead_id,"service":UUID(body.service_id) if body.service_id else None,"programme":UUID(body.programme_id) if body.programme_id else None,"name":body.full_name,"email":body.email,"phone":body.phone,"mode":body.consultation_mode,"location":UUID(body.location_id) if body.location_id else None,"preferred":body.preferred_at,"message":body.message,"key":key,"now":now})
+    await _marketplace_audit(db,profile["id"],profile["tenant_id"],"ENROLMENT_CREATED","PUBLIC_PROSPECT","PUBLIC",metadata={"enrolment_id":str(enrolment_id),"lead_id":str(lead_id)});await db.execute(text("INSERT INTO external_consultant_marketplace_events(id,profile_id,tenant_id,event_type,metadata,created_at) VALUES (:id,:profile,:tenant,'ENROLMENT_SUBMITTED',CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"profile":profile["id"],"tenant":profile["tenant_id"],"metadata":json.dumps({"enrolment_id":str(enrolment_id)}),"now":now});await db.commit()
+    return {"success":True,"data":{"id":str(enrolment_id),"status":"NEW","duplicate":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/marketplace/profiles/{profile_id}/reviews")
+async def submit_marketplace_review(profile_id:UUID,request:Request,body:ReviewCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    if not ctx:return error(request,401,"AUTHENTICATION_REQUIRED","A verified client relationship is required")
+    profile=(await db.execute(text("SELECT id,tenant_id FROM external_consultant_public_profiles WHERE id=:id AND status='PUBLISHED'"),{"id":profile_id})).mappings().first()
+    if not profile:return error(request,404,"CONSULTANT_NOT_FOUND","Consultant profile was not found")
+    eligible=(await db.execute(text("SELECT 1 FROM external_scheduled_appointments WHERE tenant_id=:tenant AND client_id=:client AND status='COMPLETED' LIMIT 1"),{"tenant":profile["tenant_id"],"client":ctx["user_id"]})).first()
+    if not eligible:return error(request,403,"REVIEW_NOT_ELIGIBLE","A completed verified engagement is required")
+    review_id=uuid4();now=datetime.now(timezone.utc);await db.execute(text("INSERT INTO external_consultant_reviews(id,profile_id,tenant_id,client_id,overall_rating,review_text,communication_rating,professionalism_rating,support_experience_rating,verified_engagement,status,created_at,updated_at) VALUES (:id,:profile,:tenant,:client,:overall,:review,:communication,:professionalism,:support,TRUE,'UNDER_MODERATION',:now,:now)"),{"id":review_id,"profile":profile_id,"tenant":profile["tenant_id"],"client":ctx["user_id"],"overall":body.overall_rating,"review":body.review_text,"communication":body.communication_rating,"professionalism":body.professionalism_rating,"support":body.support_experience_rating,"now":now});await db.execute(text("INSERT INTO external_consultant_review_events(id,review_id,tenant_id,event_type,actor_id,created_at) VALUES (:id,:review,:tenant,'REVIEW_SUBMITTED',:actor,:now)"),{"id":uuid4(),"review":review_id,"tenant":profile["tenant_id"],"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"id":str(review_id),"status":"UNDER_MODERATION"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/admin/marketplace/reviews/{review_id}/decision")
+async def moderate_marketplace_review(review_id:UUID,request:Request,body:AdminDecision,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    action=body.action.upper();status={"PUBLISH_REVIEW":"PUBLISHED","REJECT_REVIEW":"REJECTED","HIDE_REVIEW":"HIDDEN","RESTORE_REVIEW":"PUBLISHED"}.get(action)
+    if not status:return error(request,422,"UNKNOWN_REVIEW_ACTION","Review action is not recognised")
+    if action in REASON_REQUIRED and not body.reason:return error(request,422,"REASON_REQUIRED","A reason is required")
+    row=(await db.execute(text("UPDATE external_consultant_reviews SET status=:status,updated_at=:now WHERE id=:id RETURNING tenant_id"),{"status":status,"now":datetime.now(timezone.utc),"id":review_id})).mappings().first()
+    if not row:return error(request,404,"REVIEW_NOT_FOUND","Review was not found")
+    await db.execute(text("INSERT INTO external_consultant_review_events(id,review_id,tenant_id,event_type,actor_id,reason,created_at) VALUES (:id,:review,:tenant,:event,:actor,:reason,:now)"),{"id":uuid4(),"review":review_id,"tenant":row["tenant_id"],"event":action,"actor":ctx["user_id"],"reason":body.reason,"now":datetime.now(timezone.utc)});await db.commit();return {"success":True,"data":{"status":status},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/marketplace/reviews/{review_id}/report")
+async def report_marketplace_review(review_id:UUID,request:Request,body:ReviewReport,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    profile=await _marketplace_profile(db,ctx)
+    if not profile:return error(request,404,"PROFILE_NOT_FOUND","Marketplace profile was not found")
+    row=(await db.execute(text("UPDATE external_consultant_reviews SET reported_at=:now,updated_at=:now WHERE id=:id AND profile_id=:profile RETURNING tenant_id"),{"now":datetime.now(timezone.utc),"id":review_id,"profile":profile["id"]})).mappings().first()
+    if not row:return error(request,404,"REVIEW_NOT_FOUND","Review was not found")
+    await db.execute(text("INSERT INTO external_consultant_review_events(id,review_id,tenant_id,event_type,actor_id,reason,created_at) VALUES (:id,:review,:tenant,'REVIEW_REPORTED',:actor,:reason,:now)"),{"id":uuid4(),"review":review_id,"tenant":row["tenant_id"],"actor":ctx["user_id"],"reason":body.reason,"now":datetime.now(timezone.utc)});await db.commit();return {"success":True,"data":{"reported":True},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/admin/marketplace/analytics")
+async def admin_marketplace_analytics(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    summary=(await db.execute(text("SELECT COUNT(*) FILTER(WHERE status='PUBLISHED')::int published_consultants,COUNT(*) FILTER(WHERE status IN ('SUBMITTED_FOR_REVIEW','UNDER_REVIEW'))::int pending_approvals,COUNT(*) FILTER(WHERE status='PUBLISHED' AND accepting_new_clients=TRUE)::int accepting_clients FROM external_consultant_public_profiles"))).mappings().one()
+    events=[dict(row) for row in (await db.execute(text("SELECT event_type,COUNT(*)::int count FROM external_consultant_marketplace_events GROUP BY event_type"))).mappings().all()]
+    return {"success":True,"data":{"state":"READY","summary":dict(summary),"events":events},"error":None,"request_id":request.state.correlation_id}

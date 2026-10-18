@@ -32,10 +32,14 @@ def test_command_centre_is_external_tenant_scoped_and_migration_free():
     root = Path(__file__).parents[1]
     main = (root / "app/main.py").read_text()
     route = main[main.index('@app.get("/api/v1/practice-operations/dashboard/command-centre")'):]
+    route = route.split("\n# P31 Consultant Marketplace", 1)[0]
     assert "external_only(request,ctx)" in route
     assert "tenant_id=:tenant" in route
     assert "external_client_team_assignments" in route
     assert 'overall="PARTIAL_DATA" if failed' in route
     assert 'else "CONFIRMED_EMPTY"' in route
     assert "clinical" not in route.lower()
-    assert not any(path.name.startswith("0031") for path in (root / "alembic/versions").iterdir())
+    # The command centre itself remains migration-free. Later additive migrations
+    # may exist, but this route must not depend on their marketplace tables.
+    assert "external_consultant_public_profiles" not in route
+    assert "external_consultant_marketplace_events" not in route

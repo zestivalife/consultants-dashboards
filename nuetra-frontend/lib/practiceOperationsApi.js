@@ -186,6 +186,18 @@ export function lookupPaymentOrder(id){return request(`/payments/orders/${encode
 export function getAiCopilotStatus(){return request('/ai-copilot/status');}
 export function createAiDraft(payload){return request('/ai-copilot/drafts',{method:'POST',body:JSON.stringify(payload)});}
 export function getDashboardCommandCentre(){return request('/dashboard/command-centre');}
+export function getMarketplaceProfile(){return request('/marketplace/profile');}
+export function saveMarketplaceProfile(payload){return request('/marketplace/profile',{method:'PUT',body:JSON.stringify(payload)});}
+export function submitMarketplaceProfile(){return request('/marketplace/profile/submit',{method:'POST'});}
+export function addMarketplaceQualification(payload){return request('/marketplace/qualifications',{method:'POST',body:JSON.stringify(payload)});}
+export function listMarketplaceEnrolments(){return request('/marketplace/enrolments');}
+export function actOnMarketplaceEnrolment(id,action,reason){return request(`/marketplace/enrolments/${encodeURIComponent(id)}/action`,{method:'POST',body:JSON.stringify({action,reason})});}
+export function reportMarketplaceReview(id,reason){return request(`/marketplace/reviews/${encodeURIComponent(id)}/report`,{method:'POST',body:JSON.stringify({reason})});}
+export function listAdminMarketplace(status=''){return request(`/admin/marketplace${status?`?status=${encodeURIComponent(status)}`:''}`);}
+export function decideMarketplaceProfile(id,action,reason){return request(`/admin/marketplace/profiles/${encodeURIComponent(id)}/decision`,{method:'POST',body:JSON.stringify({action,reason})});}
+export function decideMarketplaceQualification(id,action,reason){return request(`/admin/marketplace/qualifications/${encodeURIComponent(id)}/decision`,{method:'POST',body:JSON.stringify({action,reason})});}
+export function decideMarketplaceReview(id,action,reason){return request(`/admin/marketplace/reviews/${encodeURIComponent(id)}/decision`,{method:'POST',body:JSON.stringify({action,reason})});}
+export function getAdminMarketplaceAnalytics(){return request('/admin/marketplace/analytics');}
 export function listComplianceAudit(clientId=''){return request(`/compliance/audit${clientId?`?client_id=${encodeURIComponent(clientId)}`:''}`);}
 export function exportClientData(clientId,sections){return request(`/compliance/exports/clients/${encodeURIComponent(clientId)}`,{method:'POST',body:JSON.stringify({sections})});}
 export async function downloadVaultDocument(id){const result=await request(`/documents/${encodeURIComponent(id)}/download`,{method:'POST'});window.open(result.download_url,'_blank','noopener,noreferrer');return result;}
