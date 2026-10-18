@@ -293,6 +293,18 @@ async def template_collection_create_route(request:Request,body:TemplateCreate,c
     return await create_template(request,body,ctx,db)
 
 
+# Keep the P23 literal collection route ahead of the legacy one-segment
+# resource route for the same Starlette registration-order reason.
+@app.get("/api/v1/practice-operations/documents")
+async def document_collection_route(request:Request,client_id:str|None=None,category:str|None=None,status:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    return await list_documents(request,client_id,category,status,ctx,db)
+
+
+@app.post("/api/v1/practice-operations/documents",status_code=201)
+async def document_collection_create_route(request:Request,body:DocumentCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    return await create_document(request,body,ctx,db)
+
+
 @app.get("/api/v1/practice-operations/{resource}")
 async def list_resources(request: Request, resource: str, client_id: str | None = None, status: str | None = None, cursor: UUID | None = None, limit: int = Query(25, ge=1, le=100), ctx=Depends(context), db: AsyncSession=Depends(get_db)):
     denied=external_only(request,ctx)

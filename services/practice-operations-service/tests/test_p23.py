@@ -30,3 +30,9 @@ def test_p23_versions_are_pending_verified_and_immutable():
     assert "v.status version_status" in MAIN
     assert "UPDATE external_document_versions SET status='AVAILABLE'" in MAIN
     assert "UNIQUE(document_id,version)" in MIG
+
+def test_p23_literal_collection_routes_precede_legacy_resource_router():
+    literal=MAIN.index('@app.get("/api/v1/practice-operations/documents")')
+    generic=MAIN.index('@app.get("/api/v1/practice-operations/{resource}")')
+    assert literal < generic
+    assert 'document_collection_create_route' in MAIN[:generic]
