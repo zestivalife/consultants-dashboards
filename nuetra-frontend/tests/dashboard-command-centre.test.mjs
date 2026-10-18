@@ -11,6 +11,7 @@ test('command centre exposes the agreed consultant journey',()=>{
   for(const tab of ['TODAY','UPCOMING','OVERDUE','COMPLETED']) assert.match(home,new RegExp(tab));
   assert.match(home,/operational priorities from confirmed data/i);
   assert.match(home,/No clinical-risk scoring/i);
+  for(const source of ['schedule.items','sections.leads','sections.renewals','sections.automation_confirmations','DOCUMENT']) assert.match(home,new RegExp(source.replace('.','\\.')));
 });
 
 test('failed, loading, restricted and confirmed-empty states remain truthful',()=>{

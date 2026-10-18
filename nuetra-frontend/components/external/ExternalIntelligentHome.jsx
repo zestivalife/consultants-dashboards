@@ -38,7 +38,18 @@ export function ExternalIntelligentHome({clients,user,profession,data,state,erro
   const[startOpen,setStartOpen]=useState(false);const[createOpen,setCreateOpen]=useState(false);const command=data.commandCentre;
   const sections=command?.sections||{};const schedule=sectionValue(command,'schedule');const work=sectionValue(command,'my_work');const attention=sectionValue(command,'clients_needing_attention');
   const model=buildDashboardIntelligence({clients,resources:data.resources,notifications:data.notifications});
-  const startItems=useMemo(()=>[...(work.items||[]),...(attention.items||[])].sort((a,b)=>(['URGENT_OPERATIONAL','TODAY','UPCOMING','LOW'].indexOf(a.priority)-['URGENT_OPERATIONAL','TODAY','UPCOMING','LOW'].indexOf(b.priority))).slice(0,12),[work,attention]);
+  const startItems=useMemo(()=>{
+    const decorate=(items,defaults)=>items.map(item=>({...defaults,...item,priority:item.priority||defaults.priority,action:item.action||defaults.action}));
+    const documentChanges=(sections.recent_changes?.items||[]).filter(item=>String(item.event_type||'').includes('DOCUMENT'));
+    return [
+      ...decorate(schedule.items||[],{priority:'TODAY',source_module:'APPOINTMENT',action:{label:'Open appointment',target:'calendar'}}),
+      ...(work.items||[]),...(attention.items||[]),
+      ...decorate(sections.leads?.items||[],{priority:'TODAY',source_module:'LEAD',action:{label:'Open lead',target:'leads'}}),
+      ...decorate(sections.renewals?.items||[],{priority:'UPCOMING',source_module:'RENEWAL',action:{label:'Prepare renewal',target:'packages'}}),
+      ...decorate(sections.automation_confirmations?.items||[],{priority:'TODAY',source_module:'AUTOMATION',action:{label:'Review confirmation',target:'automations'}}),
+      ...decorate(documentChanges,{priority:'TODAY',source_module:'DOCUMENT',action:{label:'Review document',target:'documents'}}),
+    ].sort((a,b)=>(['URGENT_OPERATIONAL','TODAY','UPCOMING','LOW'].indexOf(a.priority)-['URGENT_OPERATIONAL','TODAY','UPCOMING','LOW'].indexOf(b.priority))).slice(0,20);
+  },[schedule,work,attention,sections]);
   if(state==='loading')return <div aria-label="Loading dashboard intelligence" className="space-y-5"><LoadingSkeleton height="13rem"/><LoadingSkeleton height="24rem"/></div>;
   if(state==='error')return <Surface><FeedbackState kind="error" title="Dashboard intelligence unavailable" copy={`${error}. No source failure is presented as zero.`} action={<Button icon={RefreshCw} onClick={onRetry}>Retry</Button>}/></Surface>;
   return <div className="space-y-6 pb-24"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold text-slate-500">Welcome back, {user?.name?.split(' ')[0]||'Consultant'}</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Practice command centre</h1><p className="mt-1 text-sm text-slate-500">{profession?.replaceAll('_',' ')} · {PROFESSION_METRICS[profession]||'operational priorities from confirmed data'}</p></div><div className="relative"><button onClick={()=>setCreateOpen(value=>!value)} aria-expanded={createOpen} className="min-h-12 rounded-xl bg-blue-700 px-5 font-bold text-white"><Plus className="mr-2 inline" size={18}/>Create</button>{createOpen&&<div className="absolute right-0 top-14 z-20 grid w-64 grid-cols-2 gap-1 rounded-2xl border bg-white p-2 shadow-xl">{[['Client','clients'],['Lead','leads'],['Appointment','calendar'],['Task','tasks'],['Invoice','billing'],['Homework','resources'],['Form','forms'],['Referral','referrals'],['Report','progress-reports'],['Session note','notes']].map(([label,target])=><button key={label} onClick={()=>{setCreateOpen(false);onNavigate(target)}} className="min-h-11 rounded-xl px-3 text-left text-xs font-bold hover:bg-slate-50">{label}</button>)}</div>}</div></div>
