@@ -718,3 +718,15 @@ class CommunicationReminderCreate(BaseModel):
     preparation_id: UUID | None = None
     automation_id: UUID | None = None
     idempotency_key: str = Field(min_length=8,max_length=160)
+
+class PracticeLocationCreate(BaseModel):
+    code: str = Field(min_length=1,max_length=80,pattern=r"^[A-Z0-9_-]+$")
+    name: str = Field(min_length=1,max_length=240)
+    address: dict[str,Any] = Field(default_factory=dict)
+    timezone: str = Field(min_length=1,max_length=80)
+    phone: str | None = Field(default=None,max_length=60)
+
+class LocationResourceAssign(BaseModel):
+    resource_type: Literal["TEAM_MEMBER","CLIENT","APPOINTMENT","SERVICE","INVOICE","LEAD"]
+    resource_id: str = Field(min_length=1,max_length=120)
+    primary_location: bool = False

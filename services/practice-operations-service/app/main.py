@@ -49,6 +49,7 @@ from app.contracts import ConsentTemplateCreate, ConsentAssign, ConsentDecision
 from app.contracts import DocumentCreate, DocumentUpdate, DocumentFinalise, DocumentVersionCreate
 from app.contracts import LeadCreate, LeadStageUpdate, LeadFollowUpCreate, LeadConvert
 from app.contracts import CommunicationPreparationCreate, CommunicationReminderCreate
+from app.contracts import PracticeLocationCreate, LocationResourceAssign
 from app.document_storage import (StorageUnavailable, InvalidDocument, new_object_key,
                                   signed_upload, signed_download, validate_document,
                                   verify_uploaded_object)
@@ -61,6 +62,7 @@ from app.p18 import MIN_COHORT_SIZE, analytics_window, cohort_result, rate
 from app.p19 import ALLOWED_SCOPES, referral_transition, validate_scopes
 from app.p20 import build_docx, build_pdf, checksum
 from app.p24 import assert_transition as assert_lead_transition, normal_email, normal_phone
+from app.p26 import validate_resource_type
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -3808,3 +3810,28 @@ async def create_communication_reminder(request:Request,body:CommunicationRemind
     item_id=uuid4();result=await db.execute(text("INSERT INTO external_communication_reminders(id,tenant_id,client_id,preparation_id,channel,due_at,status,automation_id,idempotency_key,created_by,created_at) VALUES (:id,:tenant,:client,:preparation,:channel,:due,'SCHEDULED',:automation,:key,:actor,:now) ON CONFLICT (tenant_id,idempotency_key) DO NOTHING"),{"id":item_id,"tenant":ctx["tenant_id"],"client":body.client_id,"preparation":body.preparation_id,"channel":body.channel,"due":body.due_at,"automation":body.automation_id,"key":body.idempotency_key,"actor":ctx["user_id"],"now":datetime.now(timezone.utc)})
     if result.rowcount!=1:return error(request,409,"REMINDER_ALREADY_EXISTS","This reminder was already scheduled")
     await db.commit();return {"success":True,"data":{"id":str(item_id),"status":"SCHEDULED","automation_execution":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/locations")
+async def list_locations(request:Request,include_inactive:bool=False,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"PRACTICE_VIEW")
+    if denied:return denied
+    rows=(await db.execute(text("""SELECT l.id,l.code,l.name,l.address,l.timezone,l.phone,l.active,l.created_at,l.updated_at,COUNT(r.id) FILTER(WHERE r.resource_type='TEAM_MEMBER') team_members,COUNT(r.id) FILTER(WHERE r.resource_type='CLIENT') clients,COUNT(r.id) FILTER(WHERE r.resource_type='APPOINTMENT') appointments,COUNT(r.id) FILTER(WHERE r.resource_type='SERVICE') services,COUNT(r.id) FILTER(WHERE r.resource_type='INVOICE') invoices,COUNT(r.id) FILTER(WHERE r.resource_type='LEAD') leads FROM external_practice_locations l LEFT JOIN external_location_resource_links r ON r.location_id=l.id AND r.tenant_id=l.tenant_id WHERE l.tenant_id=:tenant AND (:inactive OR l.active=TRUE) GROUP BY l.id ORDER BY l.name"""),{"tenant":ctx["tenant_id"],"inactive":include_inactive})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows],"tenant_id":ctx["tenant_id"],"model":"ONE_TENANT_MULTI_LOCATION"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/locations",status_code=201)
+async def create_location(request:Request,body:PracticeLocationCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"PRACTICE_EDIT")
+    if denied:return denied
+    item_id=uuid4();now=datetime.now(timezone.utc);await db.execute(text("INSERT INTO external_practice_locations(id,tenant_id,code,name,address,timezone,phone,active,created_by,created_at,updated_at) VALUES (:id,:tenant,:code,:name,CAST(:address AS jsonb),:timezone,:phone,TRUE,:actor,:now,:now)"),{"id":item_id,"tenant":ctx["tenant_id"],"code":body.code,"name":body.name,"address":json.dumps(body.address),"timezone":body.timezone,"phone":body.phone,"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"id":str(item_id),"tenant_id":ctx["tenant_id"]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/locations/{location_id}/resources",status_code=201)
+async def assign_location_resource(request:Request,location_id:UUID,body:LocationResourceAssign,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"PRACTICE_EDIT")
+    if denied:return denied
+    try:validate_resource_type(body.resource_type)
+    except ValueError as exc:return error(request,422,"LOCATION_RESOURCE_INVALID",str(exc))
+    exists=(await db.execute(text("SELECT 1 FROM external_practice_locations WHERE id=:id AND tenant_id=:tenant AND active=TRUE"),{"id":location_id,"tenant":ctx["tenant_id"]})).scalar_one_or_none()
+    if not exists:return error(request,404,"LOCATION_NOT_FOUND","Active location not found")
+    now=datetime.now(timezone.utc)
+    if body.primary_location:await db.execute(text("UPDATE external_location_resource_links SET primary_location=FALSE WHERE tenant_id=:tenant AND resource_type=:type AND resource_id=:resource"),{"tenant":ctx["tenant_id"],"type":body.resource_type,"resource":body.resource_id})
+    await db.execute(text("INSERT INTO external_location_resource_links(id,tenant_id,location_id,resource_type,resource_id,primary_location,created_by,created_at) VALUES (:id,:tenant,:location,:type,:resource,:primary,:actor,:now) ON CONFLICT (tenant_id,resource_type,resource_id,location_id) DO UPDATE SET primary_location=EXCLUDED.primary_location"),{"id":uuid4(),"tenant":ctx["tenant_id"],"location":location_id,"type":body.resource_type,"resource":body.resource_id,"primary":body.primary_location,"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"location_id":str(location_id),"resource_type":body.resource_type,"resource_id":body.resource_id},"error":None,"request_id":request.state.correlation_id}
