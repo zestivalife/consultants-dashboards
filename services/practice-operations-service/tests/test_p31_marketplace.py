@@ -81,6 +81,22 @@ def test_operational_endpoints_cover_readiness_credentials_reviews_and_enrolment
     for domain in ["external_service_packages","external_appointment_types","external_practice_locations","external_availability_rules","external_documents"]:assert domain in main[main.index('async def marketplace_readiness'):main.index('@app.put("/api/v1/practice-operations/marketplace/profile")')]
     assert '"EXPIRE_QUALIFICATION":"EXPIRED"' in main
 
+def test_directory_filters_are_bounded_composable_and_privacy_safe():
+    main=(ROOT/"app/main.py").read_text()
+    section=main[main.index('@app.get("/api/v1/public/consultants")'):main.index('@app.get("/api/v1/public/consultants/{slug}")')]
+    for parameter in ["profession:list[str]","specialisation:list[str]","mode:list[str]","location:list[str]","language:list[str]","experience_min:int","experience_max:int","availability:str","rating_min:float","fee_min:int","fee_max:int","fee_currency:str","accepting_new_clients:bool","service:list[str]","page:int","page_size:int"]:
+        assert parameter in section
+    for contract in ["=ANY(:professions)","=ANY(:specialisations)","=ANY(:modes)","=ANY(:locations)","=ANY(:languages)","r.review_count>0","external_availability_rules","LIMIT :limit OFFSET :offset","FEE_CURRENCY_REQUIRED","CONFIRMED_EMPTY"]:
+        assert contract in section
+    assert 'item.pop("_tenant_id",None)' in main
+
+def test_directory_sorting_is_deterministic_and_non_clinical():
+    main=(ROOT/"app/main.py").read_text()
+    section=main[main.index('@app.get("/api/v1/public/consultants")'):main.index('@app.get("/api/v1/public/consultants/{slug}")')]
+    for sort in ["recommended","next_available","rating_desc","most_reviewed","experience_desc","fee_asc","fee_desc"]:assert sort in section
+    assert "p.accepting_new_clients DESC" in section
+    assert "lower(v.projection->>'display_name') ASC" in section
+
 def test_fixture_import_is_draft_only_repeatable_and_contains_no_reviews():
     fixture=(ROOT.parents[1]/"docs/fixtures/p31-marketplace-profile-drafts.csv").read_text()
     assert fixture.count("P31-QA-")==4

@@ -31,6 +31,7 @@ PUBLIC_PREFIXES: list[str] = [
     "/api/v1/auth/logout",
     "/api/v1/profession-intake/",
     "/api/v1/client-portal/",
+    "/api/v1/public/consultants",
 ]
 
 DELEGATED_AUTH_PREFIXES: list[str] = [
@@ -50,7 +51,10 @@ DELEGATED_AUTH_PREFIXES: list[str] = [
 def _is_public(path: str) -> bool:
     if path in PUBLIC_PATHS:
         return True
-    return any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES)
+    return any(
+        path.startswith(prefix) if prefix.endswith("/") else path == prefix or path.startswith(prefix + "/")
+        for prefix in PUBLIC_PREFIXES
+    )
 
 
 def _is_delegated_auth(path: str) -> bool:

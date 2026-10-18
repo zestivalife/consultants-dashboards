@@ -100,6 +100,22 @@ class ServiceRoutesTest(unittest.TestCase):
         self.assertFalse(_is_public("/api/v1/owner/unknown"))
         self.assertFalse(_is_public("/api/v1/unknown-public-path"))
 
+    def test_marketplace_has_one_narrow_public_prefix_and_practice_upstream(self):
+        from app.middleware.jwt import _is_public
+
+        settings = Settings(practice_operations_service_url="http://practice-operations-service:8006")
+        routes = {route["prefix"]: route["upstream"] for route in settings.get_service_routes()}
+
+        self.assertEqual(routes["/api/v1/public/consultants"], "http://practice-operations-service:8006")
+        self.assertTrue(_is_public("/api/v1/public/consultants"))
+        self.assertTrue(_is_public("/api/v1/public/consultants/safe-slug"))
+        self.assertTrue(_is_public("/api/v1/public/consultants/safe-slug/availability"))
+        self.assertTrue(_is_public("/api/v1/public/consultants/safe-slug/enrolments"))
+        self.assertFalse(_is_public("/api/v1/public/consultant"))
+        self.assertFalse(_is_public("/api/v1/public/consultants-admin"))
+        self.assertFalse(_is_public("/api/v1/practice-operations/admin/marketplace"))
+        self.assertFalse(_is_public("/api/v1/practice-operations/marketplace/profile"))
+
     def test_retired_invitation_onboarding_paths_are_not_public(self):
         jwt_source = Path("app/middleware/jwt.py").read_text()
 

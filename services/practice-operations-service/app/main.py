@@ -4279,26 +4279,50 @@ async def admin_marketplace_operations(request:Request,ctx=Depends(context),db:A
     return {"success":True,"data":{"state":"READY","qualifications":qualifications,"reviews":reviews,"enrolments":enrolments},"error":None,"request_id":request.state.correlation_id}
 
 def _public_profile_sql(extra=""):
-    return """SELECT p.id,p.tenant_id,p.slug,p.accepting_new_clients,v.projection,
+    return """SELECT p.id,p.tenant_id AS _tenant_id,p.slug,p.accepting_new_clients,v.projection,
       COALESCE(r.average_rating,0) average_rating,COALESCE(r.review_count,0)::int review_count
       FROM external_consultant_public_profiles p JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.current_published_version
       LEFT JOIN (SELECT profile_id,AVG(overall_rating)::numeric(3,2) average_rating,COUNT(*) review_count FROM external_consultant_reviews WHERE verified_engagement=TRUE AND status='PUBLISHED' GROUP BY profile_id) r ON r.profile_id=p.id
       WHERE v.status='PUBLISHED' AND p.public_visibility=TRUE AND p.approval_valid=TRUE AND p.suspended_at IS NULL """+extra
 
+def _public_marketplace_item(row):
+    item=dict(row);item.pop("_tenant_id",None);item["projection"]=dict(item["projection"]);return item
+
 @app.get("/api/v1/public/consultants")
-async def public_consultants(request:Request,q:str|None=None,profession:str|None=None,mode:str|None=None,language:str|None=None,location:str|None=None,accepting:bool|None=None,sort:str="recommended",limit:int=Query(24,ge=1,le=60),db:AsyncSession=Depends(get_db)):
-    filters=[];params={"q":f"%{(q or '').lower()}%","profession":profession,"mode":mode,"language":language,"location":f"%{(location or '').lower()}%","accepting":accepting,"limit":limit}
-    if q:filters.append("(lower(v.projection->>'display_name') LIKE :q OR lower(v.projection->>'professional_title') LIKE :q OR lower(v.projection::text) LIKE :q)")
-    if profession:filters.append("v.projection->>'profession_code'=:profession")
-    if mode:filters.append("v.projection->'consultation_modes' ? :mode")
-    if language:filters.append("v.projection->'languages' ? :language")
-    if location:filters.append("lower((v.projection->'public_locations')::text) LIKE :location")
-    if accepting is not None:filters.append("p.accepting_new_clients=:accepting")
-    ordering={"experience":"(v.projection->>'experience_years')::int DESC","rating":"average_rating DESC","most_reviewed":"review_count DESC"}.get(sort,"p.updated_at DESC")
-    sql=_public_profile_sql((" AND "+" AND ".join(filters) if filters else "")+f" ORDER BY {ordering} LIMIT :limit")
-    rows=[{**dict(row),"projection":dict(row["projection"])} for row in (await db.execute(text(sql),params)).mappings().all()]
-    for row in rows:await db.execute(text("INSERT INTO external_consultant_marketplace_events(id,profile_id,tenant_id,event_type,metadata,created_at) VALUES (:id,:profile,:tenant,'PROFILE_IMPRESSION','{}'::jsonb,:now)"),{"id":uuid4(),"profile":row["id"],"tenant":row["tenant_id"],"now":datetime.now(timezone.utc)})
-    await db.commit();return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows},"error":None,"request_id":request.state.correlation_id}
+async def public_consultants(request:Request,q:str|None=None,profession:list[str]|None=Query(None),specialisation:list[str]|None=Query(None),mode:list[str]|None=Query(None),location:list[str]|None=Query(None),language:list[str]|None=Query(None),experience_min:int|None=Query(None,ge=0,le=80),experience_max:int|None=Query(None,ge=0,le=80),availability:str|None=Query(None,pattern="^(NEXT_AVAILABLE|TODAY|NEXT_3_DAYS|NEXT_7_DAYS)$"),rating_min:float|None=Query(None,ge=1,le=5),fee_min:int|None=Query(None,ge=0),fee_max:int|None=Query(None,ge=0),fee_currency:str|None=Query(None,pattern="^[A-Z]{3}$"),accepting_new_clients:bool|None=None,service:list[str]|None=Query(None),sort:str=Query("recommended",pattern="^(recommended|next_available|rating_desc|most_reviewed|experience_desc|fee_asc|fee_desc)$"),page:int=Query(1,ge=1),page_size:int=Query(24,ge=1,le=60),db:AsyncSession=Depends(get_db)):
+    if experience_min is not None and experience_max is not None and experience_min>experience_max:return error(request,422,"INVALID_EXPERIENCE_RANGE","Minimum experience cannot exceed maximum experience")
+    if fee_min is not None and fee_max is not None and fee_min>fee_max:return error(request,422,"INVALID_FEE_RANGE","Minimum fee cannot exceed maximum fee")
+    filters=[];params={"q":f"%{(q or '').lower()}%","professions":profession or [],"specialisations":specialisation or [],"modes":mode or [],"locations":[item.lower() for item in (location or [])],"languages":language or [],"experience_min":experience_min,"experience_max":experience_max,"rating_min":rating_min,"fee_min":fee_min,"fee_max":fee_max,"fee_currency":fee_currency,"accepting":accepting_new_clients,"services":[item.lower() for item in (service or [])],"limit":page_size,"offset":(page-1)*page_size}
+    if q:filters.append("(lower(v.projection->>'display_name') LIKE :q OR lower(v.projection->>'professional_title') LIKE :q OR lower(v.projection->>'bio') LIKE :q OR lower((v.projection->'specialisations')::text) LIKE :q OR lower((v.projection->'services')::text) LIKE :q OR lower((v.projection->'programmes')::text) LIKE :q)")
+    if profession:filters.append("v.projection->>'profession_code'=ANY(:professions)")
+    if specialisation:filters.append("EXISTS(SELECT 1 FROM jsonb_array_elements_text(COALESCE(v.projection->'specialisations','[]'::jsonb)) x(value) WHERE x.value=ANY(:specialisations))")
+    if mode:filters.append("EXISTS(SELECT 1 FROM jsonb_array_elements_text(COALESCE(v.projection->'consultation_modes','[]'::jsonb)) x(value) WHERE x.value=ANY(:modes) OR x.value='BOTH')")
+    if location:filters.append("EXISTS(SELECT 1 FROM jsonb_array_elements(COALESCE(v.projection->'public_locations','[]'::jsonb)) x(value) WHERE lower(x.value->>'name')=ANY(:locations))")
+    if language:filters.append("EXISTS(SELECT 1 FROM jsonb_array_elements_text(COALESCE(v.projection->'languages','[]'::jsonb)) x(value) WHERE x.value=ANY(:languages))")
+    if experience_min is not None:filters.append("(v.projection->>'experience_years')::int>=:experience_min")
+    if experience_max is not None:filters.append("(v.projection->>'experience_years')::int<=:experience_max")
+    if rating_min is not None:filters.append("r.review_count>0 AND r.average_rating>=:rating_min")
+    if fee_min is not None or fee_max is not None:
+        filters.append("v.projection->>'public_fee_currency'=:fee_currency")
+        if not fee_currency:return error(request,422,"FEE_CURRENCY_REQUIRED","Currency is required for fee filtering")
+        if fee_min is not None:filters.append("(v.projection->>'public_fee_from')::bigint>=:fee_min")
+        if fee_max is not None:filters.append("(v.projection->>'public_fee_from')::bigint<=:fee_max")
+    if accepting_new_clients is not None:filters.append("p.accepting_new_clients=:accepting")
+    if service:filters.append("EXISTS(SELECT 1 FROM jsonb_array_elements(COALESCE(v.projection->'services','[]'::jsonb)||COALESCE(v.projection->'programmes','[]'::jsonb)) x(value) WHERE COALESCE((x.value->>'active')::boolean,TRUE)=TRUE AND (lower(x.value->>'name')=ANY(:services) OR x.value->>'id'=ANY(:services)))")
+    if availability:
+        days={"TODAY":1,"NEXT_AVAILABLE":7,"NEXT_3_DAYS":3,"NEXT_7_DAYS":7}[availability];today=date.today();weekdays=[(today+timedelta(days=i)).weekday() for i in range(days)];params["weekdays"]=weekdays
+        filters.append("EXISTS(SELECT 1 FROM external_availability_rules ar WHERE ar.tenant_id=p.tenant_id AND ar.active=TRUE AND ar.weekday=ANY(:weekdays) AND (ar.effective_from IS NULL OR ar.effective_from<=CURRENT_DATE) AND (ar.effective_until IS NULL OR ar.effective_until>=CURRENT_DATE))")
+    where=" AND "+" AND ".join(filters) if filters else ""
+    fee="NULLIF(v.projection->>'public_fee_from','')::bigint"
+    availability_order="(SELECT MIN(((ar.weekday-EXTRACT(ISODOW FROM CURRENT_DATE)::int+7)%7)*1440+EXTRACT(HOUR FROM ar.start_time)*60+EXTRACT(MINUTE FROM ar.start_time)) FROM external_availability_rules ar WHERE ar.tenant_id=p.tenant_id AND ar.active=TRUE)"
+    ordering={"next_available":f"{availability_order} ASC NULLS LAST","rating_desc":"average_rating DESC,review_count DESC","most_reviewed":"review_count DESC,average_rating DESC","experience_desc":"(v.projection->>'experience_years')::int DESC","fee_asc":f"{fee} ASC NULLS LAST","fee_desc":f"{fee} DESC NULLS LAST"}.get(sort,"p.accepting_new_clients DESC,"+availability_order+" ASC NULLS LAST,lower(v.projection->>'display_name') ASC")
+    count_sql="SELECT COUNT(*) FROM ("+_public_profile_sql(where)+") visible"
+    total=int((await db.execute(text(count_sql),params)).scalar_one())
+    sql=_public_profile_sql(where)+f" ORDER BY {ordering},p.id LIMIT :limit OFFSET :offset"
+    raw=list((await db.execute(text(sql),params)).mappings().all());rows=[_public_marketplace_item(row) for row in raw]
+    for row in raw:await db.execute(text("INSERT INTO external_consultant_marketplace_events(id,profile_id,tenant_id,event_type,metadata,created_at) VALUES (:id,:profile,:tenant,'PROFILE_IMPRESSION','{}'::jsonb,:now)"),{"id":uuid4(),"profile":row["id"],"tenant":row["_tenant_id"],"now":datetime.now(timezone.utc)})
+    facets={"professions":sorted({item["projection"].get("profession_code") for item in rows if item["projection"].get("profession_code")}),"specialisations":sorted({value for item in rows for value in item["projection"].get("specialisations",[])}),"locations":sorted({loc.get("name") for item in rows for loc in item["projection"].get("public_locations",[]) if loc.get("name")}),"languages":sorted({value for item in rows for value in item["projection"].get("languages",[])}),"modes":sorted({value for item in rows for value in item["projection"].get("consultation_modes",[])}),"services":sorted({offering.get("name") for item in rows for key in ("services","programmes") for offering in item["projection"].get(key,[]) if offering.get("active",True) and offering.get("name")})}
+    await db.commit();return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows,"total":total,"page":page,"page_size":page_size,"pages":max(1,(total+page_size-1)//page_size),"facets":facets},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/public/consultants/{slug}")
 async def public_consultant(slug:str,request:Request,db:AsyncSession=Depends(get_db)):
@@ -4306,8 +4330,8 @@ async def public_consultant(slug:str,request:Request,db:AsyncSession=Depends(get
     if not row:return error(request,404,"CONSULTANT_NOT_FOUND","Consultant profile was not found")
     qualifications=[dict(item) for item in (await db.execute(text("SELECT qualification_type,title,institution,award_year,country,issuing_body,expiry_date FROM external_consultant_qualifications WHERE profile_id=:profile AND verification_status='VERIFIED' AND (expiry_date IS NULL OR expiry_date>=CURRENT_DATE) ORDER BY award_year DESC"),{"profile":row["id"]})).mappings().all()]
     reviews=[dict(item) for item in (await db.execute(text("SELECT overall_rating,review_text,communication_rating,professionalism_rating,support_experience_rating,created_at FROM external_consultant_reviews WHERE profile_id=:profile AND verified_engagement=TRUE AND status='PUBLISHED' ORDER BY created_at DESC LIMIT 30"),{"profile":row["id"]})).mappings().all()]
-    await db.execute(text("INSERT INTO external_consultant_marketplace_events(id,profile_id,tenant_id,event_type,metadata,created_at) VALUES (:id,:profile,:tenant,'PROFILE_VIEW','{}'::jsonb,:now)"),{"id":uuid4(),"profile":row["id"],"tenant":row["tenant_id"],"now":datetime.now(timezone.utc)});await db.commit()
-    return {"success":True,"data":{**dict(row),"projection":dict(row["projection"]),"qualifications":qualifications,"reviews":reviews,"review_state":"READY" if reviews else "CONFIRMED_EMPTY"},"error":None,"request_id":request.state.correlation_id}
+    await db.execute(text("INSERT INTO external_consultant_marketplace_events(id,profile_id,tenant_id,event_type,metadata,created_at) VALUES (:id,:profile,:tenant,'PROFILE_VIEW','{}'::jsonb,:now)"),{"id":uuid4(),"profile":row["id"],"tenant":row["_tenant_id"],"now":datetime.now(timezone.utc)});await db.commit()
+    return {"success":True,"data":{**_public_marketplace_item(row),"qualifications":qualifications,"reviews":reviews,"review_state":"READY" if reviews else "CONFIRMED_EMPTY"},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/public/consultants/{slug}/availability")
 async def public_consultant_availability(slug:str,request:Request,db:AsyncSession=Depends(get_db)):
