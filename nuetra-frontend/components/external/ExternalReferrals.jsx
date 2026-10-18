@@ -2,7 +2,7 @@ import {useEffect,useState} from 'react';
 import {ArrowRight,RefreshCw,Send,ShieldCheck,UserRoundPlus} from 'lucide-react';
 import {actOnReferral,createReferral,listReferrals} from '../../lib/practiceOperationsApi';
 
-const scopeOptions=['BASIC_PROFILE','CONTACT_DETAILS','PUBLISHED_PLAN','ASSESSMENT_SUMMARY','PROGRESS_SUMMARY','SELECTED_HEALTH_RECORDS','SELECTED_DOCUMENTS','GOALS'];
+const scopeOptions=['BASIC_PROFILE','CONTACT_DETAILS','PUBLISHED_PLAN','ASSESSMENT_SUMMARY','PROGRESS_SUMMARY','PROGRESS_REPORT','SELECTED_HEALTH_RECORDS','SELECTED_DOCUMENTS','GOALS'];
 const tabs=[['outgoing','Outgoing'],['incoming','Incoming'],['drafts','Drafts'],['completed','Completed']];
 export function ExternalReferrals({clients=[],clientId=''}){
   const[tab,setTab]=useState(clientId?'outgoing':'outgoing'),[items,setItems]=useState([]),[state,setState]=useState('loading'),[error,setError]=useState(''),[open,setOpen]=useState(false);

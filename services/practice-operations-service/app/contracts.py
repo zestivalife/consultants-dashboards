@@ -590,3 +590,19 @@ class ReferralConsentDecision(BaseModel):
     decision: Literal["GRANT","DECLINE"]
     allowed_data_scopes: list[str] = Field(default_factory=list,max_length=16)
     consent_version: str = Field(default="P19_V1",max_length=40)
+
+
+class ProgressReportCreate(BaseModel):
+    client_id: str = Field(min_length=1,max_length=120)
+    profession_code: str = Field(min_length=1,max_length=80)
+    report_type: Literal["CLIENT_PROGRESS_REPORT","PROGRAMME_COMPLETION_REPORT","ASSESSMENT_PROGRESS_REPORT","REHAB_PROGRESS_REPORT","COACHING_PROGRESS_REPORT","WELLNESS_PROGRESS_REPORT","THERAPY_PROGRESS_REPORT","BEHAVIOUR_PROGRESS_REPORT","DIABETES_EDUCATION_PROGRESS_REPORT","OT_PROGRESS_REPORT"]
+    title: str = Field(min_length=1,max_length=240)
+    period_start: date
+    period_end: date
+    included_sections: list[str] = Field(min_length=1,max_length=30)
+    consultant_summary: str | None = Field(default=None,max_length=10000)
+
+
+class ProgressReportUpdate(BaseModel):
+    included_sections: list[str] = Field(min_length=1,max_length=30)
+    consultant_summary: str | None = Field(default=None,max_length=10000)

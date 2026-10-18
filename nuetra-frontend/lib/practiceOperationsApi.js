@@ -132,6 +132,18 @@ export function listReferrals(direction='outgoing',clientId=''){return request(`
 export function createReferral(payload){return request('/referrals',{method:'POST',body:JSON.stringify(payload)});}
 export function actOnReferral(id,action,message){return request(`/referrals/${encodeURIComponent(id)}/actions`,{method:'POST',body:JSON.stringify({action,message})});}
 export function getReferralSharedData(id){return request(`/referrals/${encodeURIComponent(id)}/shared-data`);}
+export function listProgressReports(clientId=''){return request(`/progress-reports${clientId?`?client_id=${encodeURIComponent(clientId)}`:''}`);}
+export function createProgressReport(payload){return request('/progress-reports',{method:'POST',body:JSON.stringify(payload)});}
+export function previewProgressReport(id){return request(`/progress-reports/${encodeURIComponent(id)}/preview`);}
+export function updateProgressReport(id,payload){return request(`/progress-reports/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function generateProgressReport(id){return request(`/progress-reports/${encodeURIComponent(id)}/generate`,{method:'POST'});}
+export function shareProgressReport(id){return request(`/progress-reports/${encodeURIComponent(id)}/share`,{method:'POST'});}
+export function revokeProgressReport(id){return request(`/progress-reports/${encodeURIComponent(id)}/revoke`,{method:'POST'});}
+export async function downloadProgressReport(id,format){
+  const send=token=>fetch(`${BASE}/progress-reports/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(format)}`,{credentials:'include',headers:token?{'X-Nuetra-Authorization':`Bearer ${token}`}:{}});
+  let response=await send(getToken());if(response.status===401){const refreshed=await refreshAccessToken().catch(()=>null);if(refreshed)response=await send(refreshed)}
+  if(!response.ok)throw new Error('Report artifact could not be downloaded.');const blob=await response.blob();const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=`progress-report.${format.toLowerCase()}`;link.click();URL.revokeObjectURL(url);
+}
 export async function getPublicBooking(token){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}`);const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Booking link is unavailable.');return body?.data;}
 export async function submitPublicBooking(token,startsAt){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}?starts_at=${encodeURIComponent(startsAt)}`,{method:'POST',headers:{'Content-Type':'application/json'}});const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Appointment could not be booked.');return body?.data;}
 export async function openWhatsApp(payload){

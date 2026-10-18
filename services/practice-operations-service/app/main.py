@@ -10,7 +10,7 @@ import httpx
 from urllib.parse import urlparse
 from cryptography.fernet import Fernet
 from fastapi import Depends, FastAPI, Header, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
@@ -43,6 +43,7 @@ from app.contracts import (AutomationCreate, AutomationStateUpdate,
 from app.contracts import (TeamInvitationCreate, TeamInvitationAccept, TeamMemberUpdate,
                            ClientTeamAssignmentCreate, ClientTeamAssignmentUpdate)
 from app.contracts import ReferralCreate, ReferralAction, ReferralConsentDecision
+from app.contracts import ProgressReportCreate, ProgressReportUpdate
 from app.billing import calculate_line
 from app.p15 import adherence_summary, homework_transition
 from app.p16 import (ACTION_TYPES, CONFIRMATION_ACTIONS, SAFE_ACTIONS,
@@ -50,6 +51,7 @@ from app.p16 import (ACTION_TYPES, CONFIRMATION_ACTIONS, SAFE_ACTIONS,
 from app.p17 import PERMISSIONS, ROLE_PERMISSIONS, can_manage_role, resolve_permissions
 from app.p18 import MIN_COHORT_SIZE, analytics_window, cohort_result, rate
 from app.p19 import ALLOWED_SCOPES, referral_transition, validate_scopes
+from app.p20 import build_docx, build_pdf, checksum
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -2494,12 +2496,16 @@ async def client_portal_home(request: Request, token: str, db: AsyncSession=Depe
       FROM external_referrals r JOIN external_referral_consents c ON c.referral_id=r.id AND c.tenant_id=r.tenant_id
       WHERE r.tenant_id=:tenant AND r.client_id=:client AND r.status='CONSENT_PENDING' AND c.status='PENDING'
       ORDER BY r.created_at DESC"""), params)).mappings().all()]
+    shared_reports = [dict(row) for row in (await db.execute(text("""SELECT r.id,r.title,r.report_type,r.period_start,r.period_end,
+      r.current_version,v.source_snapshot,v.generated_at FROM external_progress_reports r
+      JOIN external_progress_report_versions v ON v.report_id=r.id AND v.tenant_id=r.tenant_id AND v.version=r.current_version
+      WHERE r.tenant_id=:tenant AND r.client_id=:client AND r.status='SHARED' AND r.revoked_at IS NULL ORDER BY r.shared_at DESC"""), params)).mappings().all()]
     return {"success": True, "data": {
         "clientId": scope["client_id"], "tasks": tasks, "appointments": appointments,
         "goals": goals, "plans": plans, "assessments": assessments,
         "instructions": instructions, "progress": progress, "documents": documents,
         "resources": resources, "homework": homework, "notifications": [], "packages": packages, "invoices": invoices, "receipts": receipts,
-        "referralConsents": referral_consents,
+        "referralConsents": referral_consents, "sharedReports": shared_reports,
     }, "error": None, "request_id": request.state.correlation_id}
 
 
@@ -3314,6 +3320,9 @@ async def referral_shared_data(request:Request,referral_id:UUID,ctx=Depends(cont
       JOIN external_progress_metric_definitions d ON d.id=o.metric_definition_id AND d.tenant_id=o.tenant_id
       WHERE o.tenant_id=:tenant AND o.client_id=:client ORDER BY o.observed_at DESC LIMIT 50"""),params)).mappings().all()]
     if "PUBLISHED_PLAN" in scopes:projection["published_plans"]=[dict(x) for x in (await db.execute(text("SELECT id,title,plan_type,current_version FROM external_profession_plans WHERE tenant_id=:tenant AND client_id=:client AND status='PUBLISHED'"),params)).mappings().all()]
+    if "PROGRESS_REPORT" in scopes:projection["progress_reports"]=[dict(x) for x in (await db.execute(text("""SELECT r.id,r.title,r.report_type,r.current_version,v.source_snapshot
+      FROM external_progress_reports r JOIN external_progress_report_versions v ON v.report_id=r.id AND v.tenant_id=r.tenant_id AND v.version=r.current_version
+      WHERE r.tenant_id=:tenant AND r.client_id=:client AND r.status='SHARED' AND r.revoked_at IS NULL"""),params)).mappings().all()]
     return {"success":True,"data":{"referral_id":str(referral_id),"client_id":row["client_id"],"scopes":sorted(scopes),"projection":projection,"excluded":["PRIVATE_NOTES","RAW_SESSION_NOTES","BILLING","TEAM_NOTES"]},"error":None,"request_id":request.state.correlation_id}
 
 
@@ -3338,3 +3347,145 @@ async def portal_referral_consent(request:Request,token:str,referral_id:UUID,bod
     await db.execute(text("UPDATE external_referrals SET status=:status,updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"status":referral_status,"now":now,"id":referral_id,"tenant":row["tenant_id"]})
     await _referral_event(db,row,"CONSENT_GRANTED" if body.decision=="GRANT" else "CONSENT_DECLINED",None,"CLIENT",new_value={"scopes":sorted(allowed)});await db.commit()
     return {"success":True,"data":{"status":consent_status,"referral_status":referral_status},"error":None,"request_id":request.state.correlation_id}
+
+
+# P20 is a separate reporting domain; the sealed Diet Plan document generator is not used.
+REPORT_SECTIONS={"goals","sessions","assessments","progress","plans","homework","milestones","consultant_summary"}
+async def _report_snapshot(db,row):
+    params={"tenant":row["tenant_id"],"client":row["client_id"],"start":row["period_start"],"end":row["period_end"]+timedelta(days=1)}
+    requested=set(row["included_sections"] or []) & REPORT_SECTIONS;sections=[]
+    if "goals" in requested:
+        rows=(await db.execute(text("SELECT title,status,due_at FROM practice_goals WHERE tenant_id=:tenant AND client_id=:client AND created_at>=:start AND created_at<:end"),params)).mappings().all()
+        sections.append({"key":"goals","title":"Goals","items":[{"label":x["title"],"value":x["status"],"provenance":"PRACTITIONER_ENTERED"} for x in rows]})
+    if "sessions" in requested:
+        rows=(await db.execute(text("SELECT title,status,due_at FROM practice_consultations WHERE tenant_id=:tenant AND client_id=:client AND created_at>=:start AND created_at<:end"),params)).mappings().all()
+        sections.append({"key":"sessions","title":"Sessions","items":[{"label":x["title"],"value":f"{x['status']} · {x['due_at'] or 'date unavailable'}","provenance":"SYSTEM_DERIVED"} for x in rows]})
+    if "assessments" in requested:
+        rows=(await db.execute(text("""SELECT d.title,i.status,i.completed_at FROM external_assessment_instances i JOIN external_assessment_definitions d ON d.id=i.definition_id
+          WHERE i.tenant_id=:tenant AND i.client_id=:client AND i.assigned_at>=:start AND i.assigned_at<:end AND i.status IN ('COMPLETED','REVIEWED')"""),params)).mappings().all()
+        sections.append({"key":"assessments","title":"Assessments","items":[{"label":x["title"],"value":x["status"],"provenance":"CLIENT_REPORTED"} for x in rows]})
+    if "progress" in requested:
+        rows=(await db.execute(text("""SELECT d.label,d.unit,o.numeric_value,o.text_value,o.source_type,o.observed_at
+          FROM external_progress_observations o JOIN external_progress_metric_definitions d ON d.id=o.metric_definition_id AND d.tenant_id=o.tenant_id
+          WHERE o.tenant_id=:tenant AND o.client_id=:client AND o.observed_at>=:start AND o.observed_at<:end ORDER BY o.observed_at"""),params)).mappings().all()
+        provenance={"MANUAL":"PRACTITIONER_ENTERED","ASSESSMENT":"CLIENT_REPORTED","BIOMARKER_REFERENCE":"LAB_CONFIRMED"}
+        sections.append({"key":"progress","title":"Progress trends","items":[{"label":x["label"],"value":f"{x['numeric_value'] if x['numeric_value'] is not None else x['text_value'] or '—'} {x['unit'] or ''}".strip(),"provenance":provenance.get(x["source_type"],"SYSTEM_DERIVED")} for x in rows]})
+    if "plans" in requested:
+        rows=(await db.execute(text("SELECT title,plan_type,current_version FROM external_profession_plans WHERE tenant_id=:tenant AND client_id=:client AND status='PUBLISHED'"),params)).mappings().all()
+        sections.append({"key":"plans","title":"Published plans","items":[{"label":x["title"],"value":f"{x['plan_type']} · version {x['current_version']}","provenance":"PRACTITIONER_ENTERED"} for x in rows]})
+    if "homework" in requested:
+        rows=(await db.execute(text("SELECT title,status,due_date FROM external_homework_assignments WHERE tenant_id=:tenant AND client_id=:client AND assigned_at>=:start AND assigned_at<:end AND status<>'CANCELLED'"),params)).mappings().all()
+        sections.append({"key":"homework","title":"Homework and adherence","items":[{"label":x["title"],"value":x["status"],"provenance":"SYSTEM_DERIVED"} for x in rows]})
+    if "milestones" in requested:
+        rows=(await db.execute(text("SELECT title,status,target_date FROM external_progress_milestones WHERE tenant_id=:tenant AND client_id=:client AND created_at>=:start AND created_at<:end AND status<>'CANCELLED'"),params)).mappings().all()
+        sections.append({"key":"milestones","title":"Milestones","items":[{"label":x["title"],"value":x["status"],"provenance":"PRACTITIONER_ENTERED"} for x in rows]})
+    return {"report_id":str(row["id"]),"title":row["title"],"report_type":row["report_type"],"profession_code":row["profession_code"],
+      "client_id":row["client_id"],"period_start":row["period_start"].isoformat(),"period_end":row["period_end"].isoformat(),
+      "consultant_id":row["created_by"],"consultant_summary":row["consultant_summary"] if "consultant_summary" in requested else None,
+      "sections":sections,"excluded":["PRIVATE_NOTES","RAW_SESSION_NOTES","DRAFT_PLANS","INTERNAL_INTELLIGENCE"],"generated_at":datetime.now(timezone.utc).isoformat()}
+
+async def _report_audit(db,row,event,actor,version_id=None,metadata=None):
+    await db.execute(text("""INSERT INTO external_progress_report_audit_events
+      (id,tenant_id,client_id,report_id,report_version_id,event_type,actor_id,metadata,created_at)
+      VALUES (:id,:tenant,:client,:report,:version,:event,:actor,CAST(:metadata AS jsonb),:now)"""),{
+      "id":uuid4(),"tenant":row["tenant_id"],"client":row["client_id"],"report":row["id"],"version":version_id,"event":event,"actor":actor,"metadata":json.dumps(metadata or {}),"now":datetime.now(timezone.utc)})
+
+@app.get("/api/v1/practice-operations/progress-reports")
+async def list_progress_reports(request:Request,client_id:str=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"REPORT_VIEW",client_id)
+    if denied:return denied
+    clause="tenant_id=:tenant"+(" AND client_id=:client" if client_id else "")
+    rows=(await db.execute(text(f"""SELECT id,client_id,profession_code,report_type,title,period_start,period_end,
+      included_sections,status,current_version,created_at,shared_at,revoked_at FROM external_progress_reports
+      WHERE {clause} ORDER BY created_at DESC"""),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/progress-reports",status_code=201)
+async def create_progress_report(request:Request,body:ProgressReportCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"REPORT_GENERATE",body.client_id)
+    if denied:return denied
+    invalid=set(body.included_sections)-REPORT_SECTIONS
+    if invalid:return error(request,422,"INVALID_REPORT_SECTION","One or more report sections are not supported")
+    if body.period_end<body.period_start:return error(request,422,"INVALID_REPORT_PERIOD","Report end date must not precede start date")
+    now=datetime.now(timezone.utc);report_id=uuid4();row={"id":report_id,"tenant_id":ctx["tenant_id"],"client_id":body.client_id}
+    await db.execute(text("""INSERT INTO external_progress_reports
+      (id,tenant_id,client_id,profession_code,report_type,title,period_start,period_end,included_sections,
+       consultant_summary,status,current_version,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:client,:profession,:type,:title,:start,:end,CAST(:sections AS jsonb),:summary,'DRAFT',0,:actor,:now,:now)"""),{
+      "id":report_id,"tenant":ctx["tenant_id"],"client":body.client_id,"profession":body.profession_code,"type":body.report_type,
+      "title":body.title,"start":body.period_start,"end":body.period_end,"sections":json.dumps(body.included_sections),"summary":body.consultant_summary,"actor":ctx["user_id"],"now":now})
+    await _report_audit(db,row,"REPORT_CREATED",ctx["user_id"]);await db.commit()
+    return {"success":True,"data":{"id":str(report_id),"status":"DRAFT","version":0},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/progress-reports/{report_id}/preview")
+async def preview_progress_report(request:Request,report_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text("SELECT id,tenant_id,client_id,profession_code,report_type,title,period_start,period_end,included_sections,consultant_summary,created_by,status FROM external_progress_reports WHERE id=:id AND tenant_id=:tenant"),{"id":report_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"PROGRESS_REPORT_NOT_FOUND","Progress report not found")
+    denied,_=await _team_guard(request,db,ctx,"REPORT_VIEW",row["client_id"])
+    if denied:return denied
+    return {"success":True,"data":{"status":row["status"],"preview":await _report_snapshot(db,row)},"error":None,"request_id":request.state.correlation_id}
+
+@app.patch("/api/v1/practice-operations/progress-reports/{report_id}")
+async def update_progress_report(request:Request,report_id:UUID,body:ProgressReportUpdate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text("SELECT id,tenant_id,client_id,status FROM external_progress_reports WHERE id=:id AND tenant_id=:tenant"),{"id":report_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"PROGRESS_REPORT_NOT_FOUND","Progress report not found")
+    denied,_=await _team_guard(request,db,ctx,"REPORT_GENERATE",row["client_id"])
+    if denied:return denied
+    if row["status"]!="DRAFT":return error(request,409,"REPORT_IMMUTABLE","Generated reports are immutable; create a new version")
+    if set(body.included_sections)-REPORT_SECTIONS:return error(request,422,"INVALID_REPORT_SECTION","One or more report sections are not supported")
+    await db.execute(text("UPDATE external_progress_reports SET included_sections=CAST(:sections AS jsonb),consultant_summary=:summary,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND status='DRAFT'"),{
+      "sections":json.dumps(body.included_sections),"summary":body.consultant_summary,"now":datetime.now(timezone.utc),"id":report_id,"tenant":ctx["tenant_id"]});await db.commit()
+    return {"success":True,"data":{"id":str(report_id),"status":"DRAFT"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/progress-reports/{report_id}/generate")
+async def generate_progress_report(request:Request,report_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text("SELECT id,tenant_id,client_id,profession_code,report_type,title,period_start,period_end,included_sections,consultant_summary,created_by,status,current_version FROM external_progress_reports WHERE id=:id AND tenant_id=:tenant"),{"id":report_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"PROGRESS_REPORT_NOT_FOUND","Progress report not found")
+    denied,_=await _team_guard(request,db,ctx,"REPORT_GENERATE",row["client_id"])
+    if denied:return denied
+    if row["status"]!="DRAFT":return error(request,409,"REPORT_IMMUTABLE","Generated reports are immutable; create a new report version")
+    snapshot=await _report_snapshot(db,row);snapshot_bytes=json.dumps(snapshot,sort_keys=True,default=str).encode();digest=checksum(snapshot_bytes)
+    now=datetime.now(timezone.utc);version=row["current_version"]+1;version_id=uuid4()
+    await db.execute(text("""INSERT INTO external_progress_report_versions
+      (id,report_id,tenant_id,client_id,version,source_snapshot,checksum,generated_by,generated_at)
+      VALUES (:id,:report,:tenant,:client,:version,CAST(:snapshot AS jsonb),:checksum,:actor,:now)"""),{
+      "id":version_id,"report":report_id,"tenant":ctx["tenant_id"],"client":row["client_id"],"version":version,"snapshot":snapshot_bytes.decode(),"checksum":digest,"actor":ctx["user_id"],"now":now})
+    artifacts=[("PDF","application/pdf",build_pdf(snapshot)),("DOCX","application/vnd.openxmlformats-officedocument.wordprocessingml.document",build_docx(snapshot))]
+    for fmt,media,content in artifacts:
+        await db.execute(text("""INSERT INTO external_progress_report_artifacts
+          (id,report_version_id,tenant_id,format,media_type,content_bytes,checksum,created_at)
+          VALUES (:id,:version,:tenant,:format,:media,:content,:checksum,:now)"""),{"id":uuid4(),"version":version_id,"tenant":ctx["tenant_id"],"format":fmt,"media":media,"content":content,"checksum":checksum(content),"now":now})
+    await db.execute(text("UPDATE external_progress_reports SET status='GENERATED',current_version=:version,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND status='DRAFT'"),{"version":version,"now":now,"id":report_id,"tenant":ctx["tenant_id"]})
+    await _report_audit(db,row,"REPORT_GENERATED",ctx["user_id"],version_id,{"checksum":digest,"formats":["PDF","DOCX"]});await db.commit()
+    return {"success":True,"data":{"id":str(report_id),"status":"GENERATED","version":version,"checksum":digest,"formats":["PDF","DOCX"]},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/progress-reports/{report_id}/artifacts/{format_code}")
+async def download_progress_report(request:Request,report_id:UUID,format_code:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text("""SELECT r.client_id,r.title,a.media_type,a.content_bytes,a.format FROM external_progress_reports r
+      JOIN external_progress_report_versions v ON v.report_id=r.id AND v.version=r.current_version AND v.tenant_id=r.tenant_id
+      JOIN external_progress_report_artifacts a ON a.report_version_id=v.id AND a.tenant_id=r.tenant_id
+      WHERE r.id=:id AND r.tenant_id=:tenant AND a.format=:format"""),{"id":report_id,"tenant":ctx["tenant_id"],"format":format_code.upper()})).mappings().first()
+    if not row:return error(request,404,"REPORT_ARTIFACT_NOT_FOUND","Report artifact not found")
+    denied,_=await _team_guard(request,db,ctx,"REPORT_VIEW",row["client_id"])
+    if denied:return denied
+    filename="progress-report."+row["format"].lower()
+    return Response(content=bytes(row["content_bytes"]),media_type=row["media_type"],headers={"Content-Disposition":f'attachment; filename="{filename}"'})
+
+@app.post("/api/v1/practice-operations/progress-reports/{report_id}/share")
+async def share_progress_report(request:Request,report_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text("SELECT id,tenant_id,client_id,status FROM external_progress_reports WHERE id=:id AND tenant_id=:tenant"),{"id":report_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"PROGRESS_REPORT_NOT_FOUND","Progress report not found")
+    denied,_=await _team_guard(request,db,ctx,"REPORT_GENERATE",row["client_id"])
+    if denied:return denied
+    if row["status"] not in {"GENERATED","SHARED"}:return error(request,409,"REPORT_NOT_GENERATED","Generate the report before sharing")
+    now=datetime.now(timezone.utc);await db.execute(text("UPDATE external_progress_reports SET status='SHARED',shared_at=:now,shared_by=:actor,revoked_at=NULL,updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"now":now,"actor":ctx["user_id"],"id":report_id,"tenant":ctx["tenant_id"]})
+    await _report_audit(db,row,"REPORT_SHARED",ctx["user_id"]);await db.commit();return {"success":True,"data":{"id":str(report_id),"status":"SHARED"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/progress-reports/{report_id}/revoke")
+async def revoke_progress_report(request:Request,report_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text("SELECT id,tenant_id,client_id,status FROM external_progress_reports WHERE id=:id AND tenant_id=:tenant"),{"id":report_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"PROGRESS_REPORT_NOT_FOUND","Progress report not found")
+    denied,_=await _team_guard(request,db,ctx,"REPORT_GENERATE",row["client_id"])
+    if denied:return denied
+    now=datetime.now(timezone.utc);await db.execute(text("UPDATE external_progress_reports SET status='REVOKED',revoked_at=:now,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND status='SHARED'"),{"now":now,"id":report_id,"tenant":ctx["tenant_id"]})
+    await _report_audit(db,row,"REPORT_REVOKED",ctx["user_id"]);await db.commit();return {"success":True,"data":{"id":str(report_id),"status":"REVOKED"},"error":None,"request_id":request.state.correlation_id}
