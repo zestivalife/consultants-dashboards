@@ -8,4 +8,25 @@ def test_p23_uses_short_lived_authorised_object_access():
     assert 'DOCUMENT_STORAGE_NOT_CONFIGURED' in MAIN and 'object_key_exposed":False' in MAIN
 def test_p23_direct_resources_are_tenant_scoped_and_quarantine_denies_download():
     assert 'd.id=:id AND d.tenant_id=:tenant' in MAIN
-    assert 'DOCUMENT_QUARANTINED' in MAIN and "'DOWNLOADED'" in MAIN
+    assert 'DOCUMENT_NOT_AVAILABLE' in MAIN and "'DOWNLOADED'" in MAIN
+    assert "row[\"status\"]!='AVAILABLE'" in MAIN
+
+def test_p23_upload_is_pending_until_storage_verification():
+    assert "'PENDING_UPLOAD'" in MAIN and 'verify_uploaded_object' in MAIN
+    assert "status='AVAILABLE'" in MAIN and 'UPLOAD_VERIFIED' in MAIN
+    assert "status VARCHAR(24) NOT NULL DEFAULT 'PENDING_UPLOAD'" in MIG
+
+def test_p23_content_policy_and_limits_are_enforced():
+    assert 'MAX_DOCUMENT_BYTES = 50 * 1024 * 1024' in STORAGE
+    assert 'ALLOWED_CONTENT_TYPES' in STORAGE and 'extension does not match' in STORAGE
+    assert 'Empty documents are not allowed' in STORAGE
+
+def test_p23_object_paths_include_version_and_are_not_browser_selected():
+    assert 'external-vault/{tenant_id}/{document_id}/{version_id}/' in STORAGE
+    assert 'object_key_exposed":False' in MAIN
+
+def test_p23_versions_are_pending_verified_and_immutable():
+    assert '/documents/{document_id}/versions' in MAIN
+    assert "v.status version_status" in MAIN
+    assert "UPDATE external_document_versions SET status='AVAILABLE'" in MAIN
+    assert "UNIQUE(document_id,version)" in MIG

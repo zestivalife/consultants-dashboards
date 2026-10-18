@@ -674,3 +674,10 @@ class DocumentUpdate(BaseModel):
     category: str = Field(min_length=1,max_length=60)
     visibility: Literal["CLIENT_VISIBLE","CARE_TEAM_SHARED","PRACTITIONER_PRIVATE","PRACTICE_ADMINISTRATIVE"]
     tags: list[str] = Field(default_factory=list,max_length=30)
+class DocumentFinalise(BaseModel):
+    version_id: UUID
+class DocumentVersionCreate(BaseModel):
+    filename: str = Field(min_length=1,max_length=500)
+    content_type: str = Field(min_length=1,max_length=160)
+    size_bytes: int = Field(gt=0,le=52428800)
+    checksum_sha256: str | None = Field(default=None,min_length=64,max_length=64)

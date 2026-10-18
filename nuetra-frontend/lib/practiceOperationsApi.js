@@ -154,6 +154,21 @@ export function assignConsent(id,client_id){return request(`/consents/templates/
 export function listConsents(clientId=''){return request(`/consents${clientId?`?client_id=${encodeURIComponent(clientId)}`:''}`);}
 export function decideConsent(id,payload){return request(`/consents/${encodeURIComponent(id)}/decision`,{method:'POST',body:JSON.stringify(payload)});}
 export function revokeConsent(id){return request(`/consents/${encodeURIComponent(id)}/revoke`,{method:'POST'});}
+export function listVaultDocuments(filters={}){const query=new URLSearchParams();Object.entries(filters).forEach(([key,value])=>{if(value!==undefined&&value!==null&&value!=='')query.set(key==='clientId'?'client_id':key,value)});return request(`/documents?${query}`);}
+export async function uploadVaultDocument(payload,file){
+  const pending=await request('/documents',{method:'POST',body:JSON.stringify({...payload,filename:file.name,content_type:file.type,size_bytes:file.size})});
+  const response=await fetch(pending.upload.url,{method:'PUT',headers:{'Content-Type':file.type},body:file});
+  if(!response.ok)throw new Error('Private storage upload failed. The pending record was not made available.');
+  return request(`/documents/${encodeURIComponent(pending.id)}/finalise`,{method:'POST',body:JSON.stringify({version_id:pending.version_id})});
+}
+export async function uploadVaultDocumentVersion(documentId,file){
+  const pending=await request(`/documents/${encodeURIComponent(documentId)}/versions`,{method:'POST',body:JSON.stringify({filename:file.name,content_type:file.type,size_bytes:file.size})});
+  const response=await fetch(pending.upload.url,{method:'PUT',headers:{'Content-Type':file.type},body:file});
+  if(!response.ok)throw new Error('Private storage upload failed. The existing document remains unchanged.');
+  return request(`/documents/${encodeURIComponent(documentId)}/finalise`,{method:'POST',body:JSON.stringify({version_id:pending.version_id})});
+}
+export function changeVaultDocumentState(id,action){return request(`/documents/${encodeURIComponent(id)}/${encodeURIComponent(action)}`,{method:'POST'});}
+export async function downloadVaultDocument(id){const result=await request(`/documents/${encodeURIComponent(id)}/download`,{method:'POST'});window.open(result.download_url,'_blank','noopener,noreferrer');return result;}
 export async function downloadProgressReport(id,format){
   const send=token=>fetch(`${BASE}/progress-reports/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(format)}`,{credentials:'include',headers:token?{'X-Nuetra-Authorization':`Bearer ${token}`}:{}});
   let response=await send(getToken());if(response.status===401){const refreshed=await refreshAccessToken().catch(()=>null);if(refreshed)response=await send(refreshed)}
