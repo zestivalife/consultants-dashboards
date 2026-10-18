@@ -657,3 +657,20 @@ class ConsentDecision(BaseModel):
     signatory_type: str = Field(default="CLIENT",max_length=40)
     signature_method: Literal["TYPED","DRAWN","CHECKBOX"]
     signature_evidence: dict[str,Any] = Field(default_factory=dict)
+
+class DocumentCreate(BaseModel):
+    client_id: str | None = Field(default=None,max_length=120)
+    title: str = Field(min_length=1,max_length=240)
+    category: Literal["CONSENT","REFERRAL","PRESCRIPTION_COPY","LAB_REPORT","PROGRESS_REPORT","ASSESSMENT_ATTACHMENT","SESSION_ATTACHMENT","WORKSHEET","EXERCISE_DOCUMENT","CLIENT_UPLOADED","INVOICE","RECEIPT","IDENTITY_DOCUMENT","PROFESSIONAL_DOCUMENT","OTHER"]
+    visibility: Literal["CLIENT_VISIBLE","CARE_TEAM_SHARED","PRACTITIONER_PRIVATE","PRACTICE_ADMINISTRATIVE"]
+    filename: str = Field(min_length=1,max_length=500)
+    content_type: str = Field(min_length=1,max_length=160)
+    size_bytes: int = Field(gt=0,le=52428800)
+    checksum_sha256: str | None = Field(default=None,min_length=64,max_length=64)
+    tags: list[str] = Field(default_factory=list,max_length=30)
+    links: list[dict[str,str]] = Field(default_factory=list,max_length=20)
+class DocumentUpdate(BaseModel):
+    title: str = Field(min_length=1,max_length=240)
+    category: str = Field(min_length=1,max_length=60)
+    visibility: Literal["CLIENT_VISIBLE","CARE_TEAM_SHARED","PRACTITIONER_PRIVATE","PRACTICE_ADMINISTRATIVE"]
+    tags: list[str] = Field(default_factory=list,max_length=30)

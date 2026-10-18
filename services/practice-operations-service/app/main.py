@@ -46,6 +46,8 @@ from app.contracts import ReferralCreate, ReferralAction, ReferralConsentDecisio
 from app.contracts import ProgressReportCreate, ProgressReportUpdate
 from app.contracts import FormCreate, FormAssign, FormResponseSave
 from app.contracts import ConsentTemplateCreate, ConsentAssign, ConsentDecision
+from app.contracts import DocumentCreate, DocumentUpdate
+from app.document_storage import StorageUnavailable,new_object_key,signed_upload,signed_download
 from app.billing import calculate_line
 from app.p15 import adherence_summary, homework_transition
 from app.p16 import (ACTION_TYPES, CONFIRMATION_ACTIONS, SAFE_ACTIONS,
@@ -3604,3 +3606,43 @@ async def revoke_consent(request:Request,record_id:UUID,ctx=Depends(context),db:
     now=datetime.now(timezone.utc);result=await db.execute(text("UPDATE external_consent_records SET status='REVOKED',revoked_at=:now,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND status='ACCEPTED'"),{"now":now,"id":record_id,"tenant":ctx["tenant_id"]})
     if result.rowcount!=1:return error(request,404,"ACTIVE_CONSENT_NOT_FOUND","Active consent not found")
     await db.commit();return {"success":True,"data":{"id":str(record_id),"status":"REVOKED","historic_evidence_preserved":True},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/documents")
+async def list_documents(request:Request,client_id:str|None=None,category:str|None=None,status:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    rows=(await db.execute(text("SELECT id,client_id,title,category,visibility,status,tags,current_version,created_by,created_at,updated_at FROM external_documents WHERE tenant_id=:tenant AND (CAST(:client AS text) IS NULL OR client_id=CAST(:client AS text)) AND (CAST(:category AS text) IS NULL OR category=CAST(:category AS text)) AND (CAST(:status AS text) IS NULL OR status=CAST(:status AS text)) ORDER BY updated_at DESC"),{"tenant":ctx["tenant_id"],"client":client_id,"category":category,"status":status})).mappings().all();return {"success":True,"data":{"items":[dict(x) for x in rows]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/documents",status_code=201)
+async def create_document(request:Request,body:DocumentCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    if body.client_id:
+        denied,_=await _team_guard(request,db,ctx,"DOCUMENT_UPLOAD",body.client_id)
+        if denied:return denied
+    document_id=uuid4();version_id=uuid4();key=new_object_key(ctx["tenant_id"],document_id,body.filename)
+    try:url=signed_upload(key,body.content_type)
+    except StorageUnavailable as exc:return error(request,503,"DOCUMENT_STORAGE_NOT_CONFIGURED",str(exc),retryable=False)
+    now=datetime.now(timezone.utc);await db.execute(text("INSERT INTO external_documents(id,tenant_id,client_id,title,category,visibility,status,tags,current_version,created_by,created_at,updated_at) VALUES (:id,:tenant,:client,:title,:category,:visibility,'UPLOADED',CAST(:tags AS jsonb),1,:actor,:now,:now)"),{"id":document_id,"tenant":ctx["tenant_id"],"client":body.client_id,"title":body.title,"category":body.category,"visibility":body.visibility,"tags":json.dumps(body.tags),"actor":ctx["user_id"],"now":now});await db.execute(text("INSERT INTO external_document_versions(id,document_id,tenant_id,version,object_key,filename,content_type,size_bytes,checksum_sha256,uploaded_by,uploaded_at) VALUES (:id,:document,:tenant,1,:key,:filename,:content_type,:size,:checksum,:actor,:now)"),{"id":version_id,"document":document_id,"tenant":ctx["tenant_id"],"key":key,"filename":body.filename,"content_type":body.content_type,"size":body.size_bytes,"checksum":body.checksum_sha256,"actor":ctx["user_id"],"now":now})
+    for link in body.links:
+        if link.get("link_type") and link.get("linked_id"):await db.execute(text("INSERT INTO external_document_links(id,document_id,tenant_id,link_type,linked_id,created_at) VALUES (:id,:document,:tenant,:type,:linked,:now)"),{"id":uuid4(),"document":document_id,"tenant":ctx["tenant_id"],"type":link["link_type"],"linked":link["linked_id"],"now":now})
+    await db.commit();return {"success":True,"data":{"id":str(document_id),"upload":{"url":url,"method":"PUT","expires_in":600},"object_key_exposed":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.patch("/api/v1/practice-operations/documents/{document_id}")
+async def update_document(request:Request,document_id:UUID,body:DocumentUpdate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    result=await db.execute(text("UPDATE external_documents SET title=:title,category=:category,visibility=:visibility,tags=CAST(:tags AS jsonb),updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"title":body.title,"category":body.category,"visibility":body.visibility,"tags":json.dumps(body.tags),"now":datetime.now(timezone.utc),"id":document_id,"tenant":ctx["tenant_id"]})
+    if result.rowcount!=1:return error(request,404,"DOCUMENT_NOT_FOUND","Document not found")
+    await db.commit();return {"success":True,"data":{"id":str(document_id)},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/documents/{document_id}/{action}")
+async def document_state(request:Request,document_id:UUID,action:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    states={"archive":"ARCHIVED","restore":"UPLOADED","quarantine":"QUARANTINED"}
+    if action not in states:return error(request,400,"DOCUMENT_ACTION_INVALID","Unsupported document action")
+    result=await db.execute(text("UPDATE external_documents SET status=:status,updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"status":states[action],"now":datetime.now(timezone.utc),"id":document_id,"tenant":ctx["tenant_id"]})
+    if result.rowcount!=1:return error(request,404,"DOCUMENT_NOT_FOUND","Document not found")
+    await db.commit();return {"success":True,"data":{"id":str(document_id),"status":states[action]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/documents/{document_id}/download")
+async def document_download(request:Request,document_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text("SELECT d.id,d.client_id,d.visibility,d.status,v.object_key,v.filename FROM external_documents d JOIN external_document_versions v ON v.document_id=d.id AND v.version=d.current_version WHERE d.id=:id AND d.tenant_id=:tenant AND v.tenant_id=:tenant"),{"id":document_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"DOCUMENT_NOT_FOUND","Document not found")
+    if row["status"]=='QUARANTINED':return error(request,403,"DOCUMENT_QUARANTINED","Quarantined document cannot be downloaded")
+    try:url=signed_download(row["object_key"],row["filename"])
+    except StorageUnavailable as exc:return error(request,503,"DOCUMENT_STORAGE_NOT_CONFIGURED",str(exc),retryable=False)
+    now=datetime.now(timezone.utc);await db.execute(text("INSERT INTO external_document_access_events(id,document_id,tenant_id,event_type,actor_id,created_at) VALUES (:id,:document,:tenant,'DOWNLOADED',:actor,:now)"),{"id":uuid4(),"document":document_id,"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"download_url":url,"expires_in":300},"error":None,"request_id":request.state.correlation_id}

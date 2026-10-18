@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     qa_delegation_public_key: str | None = Field(default=None, validation_alias=AliasChoices("QA_DELEGATION_PUBLIC_KEY", "qa_delegation_public_key"))
     qa_delegation_issuer: str = Field(default="consultant-auth-service", validation_alias=AliasChoices("QA_DELEGATION_ISSUER", "qa_delegation_issuer"))
     qa_delegation_audience: str = Field(default="practice-operations-service", validation_alias=AliasChoices("QA_DELEGATION_AUDIENCE", "qa_delegation_audience"))
+    document_storage_bucket: str | None = Field(default=None, validation_alias=AliasChoices("DOCUMENT_STORAGE_BUCKET","document_storage_bucket"))
+    document_storage_region: str = Field(default="ap-south-1", validation_alias=AliasChoices("DOCUMENT_STORAGE_REGION","document_storage_region"))
+    document_storage_endpoint: str | None = Field(default=None, validation_alias=AliasChoices("DOCUMENT_STORAGE_ENDPOINT","document_storage_endpoint"))
+    document_storage_access_key: str | None = Field(default=None, validation_alias=AliasChoices("DOCUMENT_STORAGE_ACCESS_KEY","document_storage_access_key"))
+    document_storage_secret_key: str | None = Field(default=None, validation_alias=AliasChoices("DOCUMENT_STORAGE_SECRET_KEY","document_storage_secret_key"))
 
     model_config = {"env_file": ".env", "case_sensitive": False}
 
