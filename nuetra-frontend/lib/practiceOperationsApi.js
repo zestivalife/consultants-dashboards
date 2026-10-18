@@ -139,6 +139,14 @@ export function updateProgressReport(id,payload){return request(`/progress-repor
 export function generateProgressReport(id){return request(`/progress-reports/${encodeURIComponent(id)}/generate`,{method:'POST'});}
 export function shareProgressReport(id){return request(`/progress-reports/${encodeURIComponent(id)}/share`,{method:'POST'});}
 export function revokeProgressReport(id){return request(`/progress-reports/${encodeURIComponent(id)}/revoke`,{method:'POST'});}
+export function listForms(status=''){return request(`/forms${status?`?status=${encodeURIComponent(status)}`:''}`);}
+export function getForm(id){return request(`/forms/${encodeURIComponent(id)}`);}
+export function createForm(payload){return request('/forms',{method:'POST',body:JSON.stringify(payload)});}
+export function updateForm(id,payload){return request(`/forms/${encodeURIComponent(id)}`,{method:'PUT',body:JSON.stringify(payload)});}
+export function publishForm(id){return request(`/forms/${encodeURIComponent(id)}/publish`,{method:'POST'});}
+export function assignForm(id,payload){return request(`/forms/${encodeURIComponent(id)}/assign`,{method:'POST',body:JSON.stringify(payload)});}
+export function listFormAssignments(clientId=''){return request(`/form-assignments${clientId?`?client_id=${encodeURIComponent(clientId)}`:''}`);}
+export function saveFormResponse(id,answers,submit=false){return request(`/form-assignments/${encodeURIComponent(id)}/response`,{method:'PUT',body:JSON.stringify({answers,submit})});}
 export async function downloadProgressReport(id,format){
   const send=token=>fetch(`${BASE}/progress-reports/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(format)}`,{credentials:'include',headers:token?{'X-Nuetra-Authorization':`Bearer ${token}`}:{}});
   let response=await send(getToken());if(response.status===401){const refreshed=await refreshAccessToken().catch(()=>null);if(refreshed)response=await send(refreshed)}

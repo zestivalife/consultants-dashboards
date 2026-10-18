@@ -606,3 +606,34 @@ class ProgressReportCreate(BaseModel):
 class ProgressReportUpdate(BaseModel):
     included_sections: list[str] = Field(min_length=1,max_length=30)
     consultant_summary: str | None = Field(default=None,max_length=10000)
+
+class FormField(BaseModel):
+    key: str = Field(min_length=1,max_length=120)
+    label: str = Field(min_length=1,max_length=500)
+    field_type: Literal["SHORT_TEXT","LONG_TEXT","NUMBER","DATE","TIME","YES_NO","SINGLE_SELECT","MULTI_SELECT","CHECKBOX","RATING_SCALE","NUMERIC_SCALE","EMAIL","PHONE","FILE_UPLOAD","SECTION_INFO","CONSENT_CHECKBOX","BODY_REGION","REPEAT_GROUP"]
+    required: bool = False
+    config: dict[str,Any] = Field(default_factory=dict)
+    condition: dict[str,Any] | None = None
+
+class FormSection(BaseModel):
+    key: str = Field(min_length=1,max_length=120)
+    title: str = Field(min_length=1,max_length=240)
+    description: str | None = Field(default=None,max_length=2000)
+    fields: list[FormField] = Field(default_factory=list,max_length=100)
+
+class FormCreate(BaseModel):
+    title: str = Field(min_length=1,max_length=240)
+    form_type: Literal["INTAKE","FOLLOW_UP","CHECK_IN","ASSESSMENT","FEEDBACK","CONSENT_PREPARATION","PROGRAMME_QUESTIONNAIRE","CUSTOM"]
+    sections: list[FormSection] = Field(min_length=1,max_length=30)
+    settings: dict[str,Any] = Field(default_factory=dict)
+
+class FormAssign(BaseModel):
+    client_id: str = Field(min_length=1,max_length=120)
+    linked_type: str | None = Field(default=None,max_length=40)
+    linked_id: str | None = Field(default=None,max_length=120)
+    due_at: datetime | None = None
+    expires_at: datetime | None = None
+
+class FormResponseSave(BaseModel):
+    answers: dict[str,Any] = Field(default_factory=dict)
+    submit: bool = False

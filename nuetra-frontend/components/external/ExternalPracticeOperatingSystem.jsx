@@ -1,4 +1,5 @@
 import { Activity, CalendarDays, ChevronRight, ClipboardList, FileText, Settings, Sparkles, UsersRound } from 'lucide-react';
+import {ExternalForms} from './ExternalForms';
 
 /**
  * @typedef {Object} ExternalModuleVM
@@ -64,6 +65,7 @@ function StatePanel({ title, body, icon:Icon=Sparkles }) {
 }
 
 export function ExternalPracticeModule({ view, clients=[] }) {
+  if(view==='forms') return <ExternalForms/>;
   const module = EXTERNAL_MODULES[view] || EXTERNAL_MODULES.tasks;
   const group = GROUPS[module.group];
   const GroupIcon = group.icon;

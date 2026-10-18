@@ -44,6 +44,7 @@ from app.contracts import (TeamInvitationCreate, TeamInvitationAccept, TeamMembe
                            ClientTeamAssignmentCreate, ClientTeamAssignmentUpdate)
 from app.contracts import ReferralCreate, ReferralAction, ReferralConsentDecision
 from app.contracts import ProgressReportCreate, ProgressReportUpdate
+from app.contracts import FormCreate, FormAssign, FormResponseSave
 from app.billing import calculate_line
 from app.p15 import adherence_summary, homework_transition
 from app.p16 import (ACTION_TYPES, CONFIRMATION_ACTIONS, SAFE_ACTIONS,
@@ -3489,3 +3490,73 @@ async def revoke_progress_report(request:Request,report_id:UUID,ctx=Depends(cont
     if denied:return denied
     now=datetime.now(timezone.utc);await db.execute(text("UPDATE external_progress_reports SET status='REVOKED',revoked_at=:now,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND status='SHARED'"),{"now":now,"id":report_id,"tenant":ctx["tenant_id"]})
     await _report_audit(db,row,"REPORT_REVOKED",ctx["user_id"]);await db.commit();return {"success":True,"data":{"id":str(report_id),"status":"REVOKED"},"error":None,"request_id":request.state.correlation_id}
+
+async def _write_form_structure(db,tenant,version_id,sections):
+    for si,section in enumerate(sections):
+        sid=uuid4();await db.execute(text("INSERT INTO external_form_sections(id,form_version_id,tenant_id,section_key,title,description,sort_order) VALUES (:id,:version,:tenant,:key,:title,:description,:sort)"),{"id":sid,"version":version_id,"tenant":tenant,"key":section.key,"title":section.title,"description":section.description,"sort":si})
+        for fi,field in enumerate(section.fields):
+            await db.execute(text("INSERT INTO external_form_fields(id,section_id,tenant_id,field_key,label,field_type,required,config,condition,sort_order) VALUES (:id,:section,:tenant,:key,:label,:type,:required,CAST(:config AS jsonb),CAST(:condition AS jsonb),:sort)"),{"id":uuid4(),"section":sid,"tenant":tenant,"key":field.key,"label":field.label,"type":field.field_type,"required":field.required,"config":json.dumps(field.config),"condition":json.dumps(field.condition) if field.condition is not None else None,"sort":fi})
+
+@app.get("/api/v1/practice-operations/forms")
+async def list_forms(request:Request,status:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"TEMPLATE_VIEW")
+    if denied:return denied
+    rows=(await db.execute(text("SELECT id,title,form_type,status,current_version,created_at,updated_at FROM external_form_definitions WHERE tenant_id=:tenant AND (CAST(:status AS text) IS NULL OR status=CAST(:status AS text)) ORDER BY updated_at DESC"),{"tenant":ctx["tenant_id"],"status":status})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/forms",status_code=201)
+async def create_form(request:Request,body:FormCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"TEMPLATE_MANAGE")
+    if denied:return denied
+    now=datetime.now(timezone.utc);definition=uuid4();version=uuid4();tenant=ctx["tenant_id"]
+    await db.execute(text("INSERT INTO external_form_definitions(id,tenant_id,title,form_type,status,current_version,created_by,created_at,updated_at) VALUES (:id,:tenant,:title,:type,'DRAFT',1,:actor,:now,:now)"),{"id":definition,"tenant":tenant,"title":body.title,"type":body.form_type,"actor":ctx["user_id"],"now":now})
+    await db.execute(text("INSERT INTO external_form_versions(id,definition_id,tenant_id,version,status,title,settings,created_by,created_at) VALUES (:id,:definition,:tenant,1,'DRAFT',:title,CAST(:settings AS jsonb),:actor,:now)"),{"id":version,"definition":definition,"tenant":tenant,"title":body.title,"settings":json.dumps(body.settings),"actor":ctx["user_id"],"now":now});await _write_form_structure(db,tenant,version,body.sections)
+    await db.execute(text("INSERT INTO external_form_audit_events(id,tenant_id,definition_id,event_type,actor_id,created_at) VALUES (:id,:tenant,:definition,'FORM_CREATED',:actor,:now)"),{"id":uuid4(),"tenant":tenant,"definition":definition,"actor":ctx["user_id"],"now":now});await db.commit()
+    return {"success":True,"data":{"id":str(definition),"version":1,"status":"DRAFT"},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/forms/{form_id}")
+async def get_form(request:Request,form_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text("SELECT id,tenant_id,title,form_type,status,current_version,created_by,created_at,updated_at FROM external_form_definitions WHERE id=:id AND tenant_id=:tenant"),{"id":form_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"FORM_NOT_FOUND","Form not found")
+    version=(await db.execute(text("SELECT id,definition_id,tenant_id,version,status,title,settings,published_at,created_by,created_at FROM external_form_versions WHERE definition_id=:id AND version=:version AND tenant_id=:tenant"),{"id":form_id,"version":row["current_version"],"tenant":ctx["tenant_id"]})).mappings().one();sections=[dict(x) for x in (await db.execute(text("SELECT id,form_version_id,tenant_id,section_key,title,description,sort_order FROM external_form_sections WHERE form_version_id=:version AND tenant_id=:tenant ORDER BY sort_order"),{"version":version["id"],"tenant":ctx["tenant_id"]})).mappings().all()]
+    fields=[dict(x) for x in (await db.execute(text("SELECT f.id,f.section_id,f.tenant_id,f.field_key,f.label,f.field_type,f.required,f.config,f.condition,f.sort_order FROM external_form_fields f JOIN external_form_sections s ON s.id=f.section_id WHERE s.form_version_id=:version AND f.tenant_id=:tenant ORDER BY s.sort_order,f.sort_order"),{"version":version["id"],"tenant":ctx["tenant_id"]})).mappings().all()]
+    for section in sections:section["fields"]=[field for field in fields if field["section_id"]==section["id"]]
+    return {"success":True,"data":{"definition":dict(row),"version":dict(version),"sections":sections},"error":None,"request_id":request.state.correlation_id}
+
+@app.put("/api/v1/practice-operations/forms/{form_id}")
+async def update_form(request:Request,form_id:UUID,body:FormCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text("SELECT status,current_version FROM external_form_definitions WHERE id=:id AND tenant_id=:tenant AND status<>'ARCHIVED'"),{"id":form_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"FORM_NOT_FOUND","Editable form not found")
+    now=datetime.now(timezone.utc);number=row["current_version"]+1;version=uuid4();tenant=ctx["tenant_id"]
+    await db.execute(text("UPDATE external_form_versions SET status='SUPERSEDED' WHERE definition_id=:id AND status='DRAFT'"),{"id":form_id});await db.execute(text("INSERT INTO external_form_versions(id,definition_id,tenant_id,version,status,title,settings,created_by,created_at) VALUES (:id,:definition,:tenant,:number,'DRAFT',:title,CAST(:settings AS jsonb),:actor,:now)"),{"id":version,"definition":form_id,"tenant":tenant,"number":number,"title":body.title,"settings":json.dumps(body.settings),"actor":ctx["user_id"],"now":now});await _write_form_structure(db,tenant,version,body.sections)
+    await db.execute(text("UPDATE external_form_definitions SET title=:title,form_type=:type,status='DRAFT',current_version=:version,updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"title":body.title,"type":body.form_type,"version":number,"now":now,"id":form_id,"tenant":tenant});await db.commit()
+    return {"success":True,"data":{"id":str(form_id),"version":number,"status":"DRAFT"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/forms/{form_id}/publish")
+async def publish_form(request:Request,form_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text("SELECT id,current_version FROM external_form_definitions WHERE id=:id AND tenant_id=:tenant AND status='DRAFT'"),{"id":form_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"DRAFT_FORM_NOT_FOUND","Draft form not found")
+    now=datetime.now(timezone.utc);await db.execute(text("UPDATE external_form_versions SET status='SUPERSEDED' WHERE definition_id=:id AND status='PUBLISHED'"),{"id":form_id});await db.execute(text("UPDATE external_form_versions SET status='PUBLISHED',published_at=:now WHERE definition_id=:id AND version=:version AND tenant_id=:tenant"),{"now":now,"id":form_id,"version":row["current_version"],"tenant":ctx["tenant_id"]});await db.execute(text("UPDATE external_form_definitions SET status='PUBLISHED',updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"now":now,"id":form_id,"tenant":ctx["tenant_id"]});await db.commit()
+    return {"success":True,"data":{"id":str(form_id),"status":"PUBLISHED","version":row["current_version"]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/forms/{form_id}/assign",status_code=201)
+async def assign_form(request:Request,form_id:UUID,body:FormAssign,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"TEMPLATE_MANAGE",body.client_id)
+    if denied:return denied
+    row=(await db.execute(text("SELECT d.id,v.id version_id FROM external_form_definitions d JOIN external_form_versions v ON v.definition_id=d.id AND v.version=d.current_version WHERE d.id=:id AND d.tenant_id=:tenant AND d.status='PUBLISHED' AND v.status='PUBLISHED'"),{"id":form_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"PUBLISHED_FORM_NOT_FOUND","Published form not found")
+    aid=uuid4();now=datetime.now(timezone.utc);await db.execute(text("INSERT INTO external_form_assignments(id,tenant_id,client_id,form_definition_id,form_version_id,linked_type,linked_id,status,due_at,assigned_by,assigned_at,expires_at) VALUES (:id,:tenant,:client,:definition,:version,:linked_type,:linked_id,'ASSIGNED',:due,:actor,:now,:expires)"),{"id":aid,"tenant":ctx["tenant_id"],"client":body.client_id,"definition":form_id,"version":row["version_id"],"linked_type":body.linked_type,"linked_id":body.linked_id,"due":body.due_at,"actor":ctx["user_id"],"now":now,"expires":body.expires_at});await db.commit()
+    return {"success":True,"data":{"id":str(aid),"status":"ASSIGNED"},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/form-assignments")
+async def list_form_assignments(request:Request,client_id:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    rows=(await db.execute(text("SELECT a.*,d.title,d.form_type FROM external_form_assignments a JOIN external_form_definitions d ON d.id=a.form_definition_id WHERE a.tenant_id=:tenant AND (CAST(:client AS text) IS NULL OR a.client_id=CAST(:client AS text)) ORDER BY a.assigned_at DESC"),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all();return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+@app.put("/api/v1/practice-operations/form-assignments/{assignment_id}/response")
+async def save_form_response(request:Request,assignment_id:UUID,body:FormResponseSave,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text("SELECT id,tenant_id,client_id,status,expires_at FROM external_form_assignments WHERE id=:id AND tenant_id=:tenant"),{"id":assignment_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"FORM_ASSIGNMENT_NOT_FOUND","Form assignment not found")
+    if row["status"]=="COMPLETED":return error(request,409,"FORM_RESPONSE_IMMUTABLE","Completed form responses are immutable")
+    now=datetime.now(timezone.utc);status="COMPLETED" if body.submit else "STARTED"
+    await db.execute(text("INSERT INTO external_form_responses(id,assignment_id,tenant_id,client_id,answers,status,response_version,submitted_at,updated_at) VALUES (:id,:assignment,:tenant,:client,CAST(:answers AS jsonb),:status,1,:submitted,:now) ON CONFLICT(assignment_id) DO UPDATE SET answers=EXCLUDED.answers,status=EXCLUDED.status,response_version=external_form_responses.response_version+1,submitted_at=EXCLUDED.submitted_at,updated_at=EXCLUDED.updated_at"),{"id":uuid4(),"assignment":assignment_id,"tenant":ctx["tenant_id"],"client":row["client_id"],"answers":json.dumps(body.answers),"status":status,"submitted":now if body.submit else None,"now":now});await db.execute(text("UPDATE external_form_assignments SET status=:status,started_at=COALESCE(started_at,:now),completed_at=:completed WHERE id=:id AND tenant_id=:tenant"),{"status":status,"now":now,"completed":now if body.submit else None,"id":assignment_id,"tenant":ctx["tenant_id"]});await db.commit()
+    return {"success":True,"data":{"id":str(assignment_id),"status":status},"error":None,"request_id":request.state.correlation_id}

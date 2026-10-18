@@ -26,6 +26,7 @@ import {ExternalTeam} from './ExternalTeam';
 import {ExternalPracticeAnalytics} from './ExternalPracticeAnalytics';
 import {ExternalReferrals} from './ExternalReferrals';
 import {ExternalProgressReports} from './ExternalProgressReports';
+import {ExternalForms} from './ExternalForms';
 import { getPracticeConfiguration,getProfessionIntelligence,getTeamAccess,listMyClientAssignments,listPracticeNotifications,listPracticeResources,listProfessionIntakeProjections,listRenewalSignals } from '../../lib/practiceOperationsApi';
 import { Button, PageHeader, ProgressBar, Surface, externalWorkspaceClass } from './ui/ExternalUI';
 import {resolveProfessionExperience} from '../../lib/professionExperience';
@@ -42,6 +43,7 @@ const NAV = [
   ['automations', 'Automations', Workflow],
   ['referrals', 'Referrals', HeartPulse],
   ['progress-reports', 'Progress Reports', FileText],
+  ['forms', 'Forms', ClipboardList],
 ];
 const SECONDARY_NAV=PRACTICE_NAV;
 const REAL_P1_VIEWS=new Set(['consultations','followups','goals','tasks','checkins','adherence','notes']);
@@ -98,7 +100,7 @@ export function ExternalSaaSWorkspace(){
     if(id==='analytics') return teamAccess?.permissions?.includes('ANALYTICS_VIEW');
     return true;
   }).map(item=>item[0]==='consultations'?[item[0],`${professionExperience.terminology.consultation}s`,item[2]]:item[0]==='goals'?[item[0],`${professionExperience.terminology.goal}s & Progress`,item[2]]:item),[professionExperience,teamAccess]);
-  const visibleNav=useMemo(()=>{const items=NAV.filter(([id])=>(id!=='referrals'||teamAccess?.permissions?.includes('REFERRAL_VIEW'))&&(id!=='progress-reports'||teamAccess?.permissions?.includes('REPORT_VIEW')));if(teamAccess?.permissions?.includes('TEAM_VIEW'))items.push(['team','Team',UsersRound]);return items},[teamAccess]);
+  const visibleNav=useMemo(()=>{const items=NAV.filter(([id])=>(id!=='referrals'||teamAccess?.permissions?.includes('REFERRAL_VIEW'))&&(id!=='progress-reports'||teamAccess?.permissions?.includes('REPORT_VIEW'))&&(id!=='forms'||teamAccess?.permissions?.includes('TEMPLATE_VIEW')));if(teamAccess?.permissions?.includes('TEAM_VIEW'))items.push(['team','Team',UsersRound]);return items},[teamAccess]);
   const navigationItems=useMemo(()=>[...NAV,...professionNav].filter(([id])=>(id!=='referrals'||teamAccess?.permissions?.includes('REFERRAL_VIEW'))&&(id!=='progress-reports'||teamAccess?.permissions?.includes('REPORT_VIEW'))).concat(teamAccess?.permissions?.includes('TEAM_VIEW')?[['team','Team',UsersRound]]:[]),[professionNav,teamAccess]);
   const pageTitle=selected?.displayName||navigationItems.find(item=>item[0]===view)?.[1]||'Workspace';
   const pageSubtitle=selected?'Client 360':view==='clients'?'Manage authorised clients and onboarding progress.':view==='communication'?'WhatsApp templates and communication activity.':view==='plans'?'Current and historical client Diet Plans.':view==='reports'?'Transient lab analysis for an authorised client.':practiceName;
