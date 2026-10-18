@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     razorpay_key_id: str | None = Field(default=None, validation_alias=AliasChoices("RAZORPAY_KEY_ID","razorpay_key_id"))
     razorpay_key_secret: str | None = Field(default=None, validation_alias=AliasChoices("RAZORPAY_KEY_SECRET","razorpay_key_secret"))
     razorpay_webhook_secret: str | None = Field(default=None, validation_alias=AliasChoices("RAZORPAY_WEBHOOK_SECRET","razorpay_webhook_secret"))
+    ai_runtime_provider: str | None = Field(default=None, validation_alias=AliasChoices("AI_RUNTIME_PROVIDER","ai_runtime_provider"))
 
     model_config = {"env_file": ".env", "case_sensitive": False}
 

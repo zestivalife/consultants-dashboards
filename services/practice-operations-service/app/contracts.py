@@ -741,3 +741,9 @@ class PaymentVerification(BaseModel):
     provider_order_id: str = Field(min_length=1,max_length=160)
     provider_payment_id: str = Field(min_length=1,max_length=160)
     signature: str = Field(min_length=1,max_length=500)
+
+class AiDraftRequest(BaseModel):
+    client_id: str | None = Field(default=None,max_length=120)
+    purpose: Literal["DRAFT","SUMMARISE","PREPARE","SUGGEST"]
+    instruction: str = Field(min_length=1,max_length=10000)
+    source_references: list[dict[str,str]] = Field(default_factory=list,max_length=50)

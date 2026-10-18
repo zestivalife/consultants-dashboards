@@ -183,6 +183,8 @@ export function getPaymentProviderStatus(){return request('/payments/provider');
 export function createPaymentOrder(payload){return request('/payments/orders',{method:'POST',body:JSON.stringify(payload)});}
 export function verifyPaymentOrder(id,payload){return request(`/payments/orders/${encodeURIComponent(id)}/verify`,{method:'POST',body:JSON.stringify(payload)});}
 export function lookupPaymentOrder(id){return request(`/payments/orders/${encodeURIComponent(id)}`);}
+export function getAiCopilotStatus(){return request('/ai-copilot/status');}
+export function createAiDraft(payload){return request('/ai-copilot/drafts',{method:'POST',body:JSON.stringify(payload)});}
 export async function downloadVaultDocument(id){const result=await request(`/documents/${encodeURIComponent(id)}/download`,{method:'POST'});window.open(result.download_url,'_blank','noopener,noreferrer');return result;}
 export async function downloadProgressReport(id,format){
   const send=token=>fetch(`${BASE}/progress-reports/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(format)}`,{credentials:'include',headers:token?{'X-Nuetra-Authorization':`Bearer ${token}`}:{}});

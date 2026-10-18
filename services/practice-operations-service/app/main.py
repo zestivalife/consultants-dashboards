@@ -51,6 +51,7 @@ from app.contracts import LeadCreate, LeadStageUpdate, LeadFollowUpCreate, LeadC
 from app.contracts import CommunicationPreparationCreate, CommunicationReminderCreate
 from app.contracts import PracticeLocationCreate, LocationResourceAssign
 from app.contracts import PaymentOrderCreate, PaymentVerification
+from app.contracts import AiDraftRequest
 from app.document_storage import (StorageUnavailable, InvalidDocument, new_object_key,
                                   signed_upload, signed_download, validate_document,
                                   verify_uploaded_object)
@@ -65,6 +66,7 @@ from app.p20 import build_docx, build_pdf, checksum
 from app.p24 import assert_transition as assert_lead_transition, normal_email, normal_phone
 from app.p26 import validate_resource_type
 from app.p28 import PaymentProviderNotConfigured, canonical_payload_hash, verify_razorpay_payment, verify_razorpay_webhook
+from app.p29 import classify_output, validate_ai_request
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -3920,3 +3922,21 @@ async def razorpay_webhook(request:Request,x_razorpay_signature:str|None=Header(
     except (ValueError,TypeError):return error(request,400,"PAYMENT_WEBHOOK_INVALID","Webhook payload is invalid")
     result=await db.execute(text("INSERT INTO external_payment_webhook_events(id,provider,provider_event_id,payload_hash,signature_valid,processed,received_at) VALUES (:id,'RAZORPAY',:event,:hash,TRUE,FALSE,:now) ON CONFLICT (provider,provider_event_id) DO NOTHING"),{"id":uuid4(),"event":event_id,"hash":canonical_payload_hash(payload),"now":datetime.now(timezone.utc)})
     await db.commit();return {"success":True,"data":{"accepted":True,"replay":result.rowcount!=1,"processed":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/ai-copilot/status")
+async def ai_copilot_status(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"PRACTICE_VIEW")
+    if denied:return denied
+    provider=get_settings().ai_runtime_provider
+    return {"success":True,"data":{"provider":provider,"status":"CONFIGURED" if provider else "NOT_CONFIGURED","classification":"AI_DRAFT","autonomous_actions":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/ai-copilot/drafts",status_code=201)
+async def create_ai_draft(request:Request,body:AiDraftRequest,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"PRACTICE_EDIT",body.client_id)
+    if denied:return denied
+    try:validate_ai_request(body.purpose,body.instruction)
+    except ValueError as exc:return error(request,422,"AI_REQUEST_OUT_OF_SCOPE",str(exc))
+    provider=get_settings().ai_runtime_provider
+    if not provider:return error(request,503,"AI_RUNTIME_NOT_CONFIGURED","AI runtime provider is not configured")
+    request_id=uuid4();now=datetime.now(timezone.utc);await db.execute(text("INSERT INTO external_ai_draft_requests(id,tenant_id,client_id,purpose,instruction,source_references,status,requested_by,created_at) VALUES (:id,:tenant,:client,:purpose,:instruction,CAST(:sources AS jsonb),'PENDING',:actor,:now)"),{"id":request_id,"tenant":ctx["tenant_id"],"client":body.client_id,"purpose":body.purpose,"instruction":body.instruction,"sources":json.dumps(body.source_references),"actor":ctx["user_id"],"now":now});await db.commit()
+    return {"success":True,"data":{"id":str(request_id),**classify_output(''),"status":"PENDING","provider_execution":"QUEUED"},"error":None,"request_id":request.state.correlation_id}
