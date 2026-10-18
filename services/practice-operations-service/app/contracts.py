@@ -264,3 +264,15 @@ class SessionSuggestionDecision(BaseModel):
 
 class EngagementProjectionRequest(BaseModel):
     client_ids: list[str] = Field(min_length=1,max_length=100)
+
+
+class ClientPortalInvitationCreate(BaseModel):
+    expires_in_hours: int = Field(default=168, ge=1, le=2160)
+    allow_task_completion: bool = True
+    allow_document_upload: bool = True
+
+
+class ClientPortalDocumentCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=240)
+    document_reference: str = Field(min_length=1, max_length=500)
+    media_type: Literal["PDF", "DOCUMENT", "IMAGE", "OTHER"]

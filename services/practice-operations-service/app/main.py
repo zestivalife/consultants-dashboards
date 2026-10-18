@@ -24,6 +24,8 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
 from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest
+from app.contracts import ClientPortalInvitationCreate, ClientPortalDocumentCreate
+from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
 from app.profession_intake import (FROZEN_PROFESSIONS, SUPPORTED_PROFESSIONS,
@@ -1254,3 +1256,174 @@ async def submit_profession_intake(request: Request, token: str, body: Professio
       (id,intake_instance_id,tenant_id,client_id,event_type,actor_id,metadata,created_at)
       VALUES (:id,:instance,:tenant,:client,'INTAKE_SUBMITTED',NULL,CAST(:metadata AS jsonb),:now)"""), {"id":uuid4(),"instance":scope["id"],"tenant":scope["tenant_id"],"client":scope["client_id"],"metadata":json.dumps({"consent_version":body.consent_version}),"now":now})
     return {"success":True,"data":{"status":"COMPLETED","completionPercent":100,"submittedAt":now},"error":None,"request_id":request.state.correlation_id}
+
+
+async def _portal_scope(request: Request, token: str, action: str, db: AsyncSession):
+    try:
+        claims = validate_portal_token(
+            token, secret=get_settings().client_portal_secret, required_action=action
+        )
+    except PortalTokenError as exc:
+        return None, error(request, 401, "CLIENT_PORTAL_LINK_INVALID", str(exc))
+    row = (await db.execute(text("""SELECT id,tenant_id,client_id,allowed_actions,expires_at,revoked_at,token_version
+      FROM external_client_portal_access_grants
+      WHERE id=:grant AND tenant_id=:tenant AND client_id=:client AND token_hash=:token_hash"""), {
+        "grant": claims.grant_id, "tenant": claims.tenant_id, "client": claims.client_id,
+        "token_hash": portal_token_hash(token),
+    })).mappings().first()
+    now = datetime.now(timezone.utc)
+    if not row or row["revoked_at"] or row["expires_at"] <= now:
+        return None, error(request, 401, "CLIENT_PORTAL_LINK_INVALID", "This client portal link is unavailable")
+    if row["token_version"] != claims.token_version or action not in set(row["allowed_actions"]):
+        return None, error(request, 403, "CLIENT_PORTAL_ACTION_DENIED", "This portal action is not permitted")
+    await db.execute(text("UPDATE external_client_portal_access_grants SET last_used_at=:now WHERE id=:grant AND tenant_id=:tenant AND client_id=:client"), {
+        "now": now, "grant": row["id"], "tenant": row["tenant_id"], "client": row["client_id"],
+    })
+    return dict(row), None
+
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/portal-invitations", status_code=201)
+async def create_client_portal_invitation(request: Request, client_id: str, body: ClientPortalInvitationCreate,
+                                          ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied = external_only(request, ctx)
+    if denied:
+        return denied
+    denied = await require_capability(request, db, ctx, "CLIENT_CRM")
+    if denied:
+        return denied
+    grant_id, now = uuid4(), datetime.now(timezone.utc)
+    expires_at = now + timedelta(hours=body.expires_in_hours)
+    actions = ["READ"]
+    if body.allow_task_completion:
+        actions.append("COMPLETE_TASK")
+    if body.allow_document_upload:
+        actions.append("UPLOAD_DOCUMENT")
+    token = issue_portal_token(
+        secret=get_settings().client_portal_secret, tenant_id=ctx["tenant_id"],
+        client_id=client_id, grant_id=str(grant_id), expires_at=int(expires_at.timestamp()),
+        allowed_actions=tuple(actions),
+    )
+    await db.execute(text("""INSERT INTO external_client_portal_access_grants
+      (id,tenant_id,client_id,token_hash,token_version,allowed_actions,expires_at,created_by,created_at)
+      VALUES (:id,:tenant,:client,:token_hash,1,CAST(:actions AS jsonb),:expires,:actor,:now)"""), {
+        "id": grant_id, "tenant": ctx["tenant_id"], "client": client_id,
+        "token_hash": portal_token_hash(token), "actions": json.dumps(actions),
+        "expires": expires_at, "actor": ctx["user_id"], "now": now,
+    })
+    await db.execute(text("""INSERT INTO external_client_portal_audit_events
+      (id,tenant_id,client_id,access_grant_id,event_type,actor_type,metadata,created_at)
+      VALUES (:id,:tenant,:client,:grant,'PORTAL_INVITATION_CREATED','PRACTITIONER',CAST(:metadata AS jsonb),:now)"""), {
+        "id": uuid4(), "tenant": ctx["tenant_id"], "client": client_id, "grant": grant_id,
+        "metadata": json.dumps({"allowed_actions": actions, "expires_at": expires_at.isoformat()}), "now": now,
+    })
+    return {"success": True, "data": {
+        "url": f"{get_settings().client_portal_public_url.rstrip('/')}/{token}",
+        "expiresAt": expires_at, "allowedActions": actions,
+    }, "error": None, "request_id": request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/portal-invitations/revoke")
+async def revoke_client_portal_invitations(request: Request, client_id: str, ctx=Depends(context),
+                                            db: AsyncSession=Depends(get_db)):
+    denied = external_only(request, ctx)
+    if denied:
+        return denied
+    now = datetime.now(timezone.utc)
+    result = await db.execute(text("""UPDATE external_client_portal_access_grants
+      SET revoked_at=:now WHERE tenant_id=:tenant AND client_id=:client AND revoked_at IS NULL"""), {
+        "now": now, "tenant": ctx["tenant_id"], "client": client_id,
+    })
+    return {"success": True, "data": {"revoked": result.rowcount}, "error": None,
+            "request_id": request.state.correlation_id}
+
+
+@app.get("/api/v1/client-portal/{token}")
+async def client_portal_home(request: Request, token: str, db: AsyncSession=Depends(get_db)):
+    scope, denied = await _portal_scope(request, token, "READ", db)
+    if denied:
+        return denied
+    params = {"tenant": scope["tenant_id"], "client": scope["client_id"]}
+    tasks = [dict(row) for row in (await db.execute(text("""SELECT id,title,status,due_at,payload
+      FROM practice_tasks WHERE tenant_id=:tenant AND client_id=:client AND status NOT IN ('CANCELLED')
+      ORDER BY due_at NULLS LAST,created_at DESC LIMIT 100"""), params)).mappings().all()]
+    appointments = [dict(row) for row in (await db.execute(text("""SELECT id,title,status,due_at AS scheduled_at,payload
+      FROM practice_consultations WHERE tenant_id=:tenant AND client_id=:client
+      AND status IN ('SCHEDULED','COMPLETED','CANCELLED','NO_SHOW')
+      ORDER BY due_at DESC NULLS LAST LIMIT 50"""), params)).mappings().all()]
+    goals = [dict(row) for row in (await db.execute(text("""SELECT id,title,status,due_at,payload
+      FROM practice_goals WHERE tenant_id=:tenant AND client_id=:client
+      AND status NOT IN ('CANCELLED') ORDER BY updated_at DESC LIMIT 50"""), params)).mappings().all()]
+    plans = [dict(row) for row in (await db.execute(text("""SELECT p.id,p.plan_type,p.title,p.status,p.current_version,v.published_at
+      FROM external_profession_plans p JOIN external_profession_plan_versions v
+        ON v.plan_id=p.id AND v.tenant_id=p.tenant_id AND v.client_id=p.client_id
+       AND v.version=p.current_version AND v.status='PUBLISHED'
+      WHERE p.tenant_id=:tenant AND p.client_id=:client AND p.status='PUBLISHED'
+      ORDER BY v.published_at DESC"""), params)).mappings().all()]
+    assessments = [dict(row) for row in (await db.execute(text("""SELECT i.id,d.title,i.status,i.due_at,i.completed_at
+      FROM external_assessment_instances i JOIN external_assessment_definitions d ON d.id=i.definition_id
+      WHERE i.tenant_id=:tenant AND i.client_id=:client
+      AND i.status IN ('ASSIGNED','IN_PROGRESS','COMPLETED','REVIEWED')
+      ORDER BY i.assigned_at DESC"""), params)).mappings().all()]
+    instructions = [dict(row) for row in (await db.execute(text("""SELECT n.id,n.title,s.title AS section_title,s.content,n.updated_at
+      FROM external_session_notes n JOIN external_session_note_versions v
+        ON v.note_id=n.id AND v.tenant_id=n.tenant_id AND v.client_id=n.client_id
+       AND v.version=n.current_version AND v.status IN ('FINALISED','AMENDED')
+      JOIN external_session_note_sections s ON s.note_version_id=v.id AND s.tenant_id=n.tenant_id
+      WHERE n.tenant_id=:tenant AND n.client_id=:client AND s.visibility='CLIENT_INSTRUCTION'
+      ORDER BY n.updated_at DESC"""), params)).mappings().all()]
+    progress = [dict(row) for row in (await db.execute(text("""SELECT m.label,m.unit,m.direction,o.numeric_value,o.text_value,o.observed_at
+      FROM external_progress_observations o JOIN external_progress_metric_definitions m
+        ON m.id=o.metric_definition_id AND m.tenant_id=o.tenant_id
+      WHERE o.tenant_id=:tenant AND o.client_id=:client ORDER BY o.observed_at DESC LIMIT 100"""), params)).mappings().all()]
+    documents = [dict(row) for row in (await db.execute(text("""SELECT id,title,media_type,status,submitted_at
+      FROM external_client_portal_documents WHERE tenant_id=:tenant AND client_id=:client
+      AND status NOT IN ('REMOVED','QUARANTINED') ORDER BY submitted_at DESC"""), params)).mappings().all()]
+    return {"success": True, "data": {
+        "clientId": scope["client_id"], "tasks": tasks, "appointments": appointments,
+        "goals": goals, "plans": plans, "assessments": assessments,
+        "instructions": instructions, "progress": progress, "documents": documents,
+        "resources": [], "notifications": [],
+    }, "error": None, "request_id": request.state.correlation_id}
+
+
+@app.post("/api/v1/client-portal/{token}/tasks/{task_id}/complete")
+async def client_portal_complete_task(request: Request, token: str, task_id: UUID,
+                                      db: AsyncSession=Depends(get_db)):
+    scope, denied = await _portal_scope(request, token, "COMPLETE_TASK", db)
+    if denied:
+        return denied
+    now = datetime.now(timezone.utc)
+    row = (await db.execute(text("""UPDATE practice_tasks SET status='COMPLETED',version=version+1,updated_at=:now
+      WHERE id=:id AND tenant_id=:tenant AND client_id=:client
+      AND status IN ('TODO','IN_PROGRESS','OVERDUE')
+      RETURNING id,title,status,version"""), {
+        "now": now, "id": task_id, "tenant": scope["tenant_id"], "client": scope["client_id"],
+    })).mappings().first()
+    if not row:
+        return error(request, 404, "PORTAL_TASK_NOT_FOUND", "Task not found")
+    await db.execute(text("""INSERT INTO external_client_portal_audit_events
+      (id,tenant_id,client_id,access_grant_id,event_type,actor_type,resource_type,resource_id,created_at)
+      VALUES (:id,:tenant,:client,:grant,'TASK_COMPLETED','CLIENT','TASK',:resource,:now)"""), {
+        "id": uuid4(), "tenant": scope["tenant_id"], "client": scope["client_id"],
+        "grant": scope["id"], "resource": str(task_id), "now": now,
+    })
+    return {"success": True, "data": dict(row), "error": None,
+            "request_id": request.state.correlation_id}
+
+
+@app.post("/api/v1/client-portal/{token}/documents", status_code=201)
+async def client_portal_submit_document(request: Request, token: str, body: ClientPortalDocumentCreate,
+                                        db: AsyncSession=Depends(get_db)):
+    scope, denied = await _portal_scope(request, token, "UPLOAD_DOCUMENT", db)
+    if denied:
+        return denied
+    document_id, now = uuid4(), datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_client_portal_documents
+      (id,tenant_id,client_id,access_grant_id,title,document_reference,media_type,status,submitted_at)
+      VALUES (:id,:tenant,:client,:grant,:title,:reference,:media_type,'SUBMITTED',:now)"""), {
+        "id": document_id, "tenant": scope["tenant_id"], "client": scope["client_id"],
+        "grant": scope["id"], "title": body.title, "reference": body.document_reference,
+        "media_type": body.media_type, "now": now,
+    })
+    return {"success": True, "data": {"id": str(document_id), "status": "SUBMITTED"},
+            "error": None, "request_id": request.state.correlation_id}

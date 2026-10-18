@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     trusted_hosts: str = "*.railway.app,*.railway.internal,practice-operations-service,api-gateway,localhost,127.0.0.1"
     profession_intake_secret: str = Field(default="development-profession-intake-secret", validation_alias=AliasChoices("PROFESSION_INTAKE_SECRET", "profession_intake_secret"))
     profession_intake_public_url: str = Field(default="http://localhost:3000/profession-intake", validation_alias=AliasChoices("PROFESSION_INTAKE_PUBLIC_URL", "profession_intake_public_url"))
+    client_portal_secret: str = Field(default="development-client-portal-secret", validation_alias=AliasChoices("CLIENT_PORTAL_SECRET", "client_portal_secret"))
+    client_portal_public_url: str = Field(default="http://localhost:3000/client-portal", validation_alias=AliasChoices("CLIENT_PORTAL_PUBLIC_URL", "client_portal_public_url"))
     private_notes_encryption_key: str = Field(default="development-private-notes-key", validation_alias=AliasChoices("PRIVATE_NOTES_ENCRYPTION_KEY", "private_notes_encryption_key"))
     qa_delegation_public_key: str | None = Field(default=None, validation_alias=AliasChoices("QA_DELEGATION_PUBLIC_KEY", "qa_delegation_public_key"))
     qa_delegation_issuer: str = Field(default="consultant-auth-service", validation_alias=AliasChoices("QA_DELEGATION_ISSUER", "qa_delegation_issuer"))
@@ -34,6 +36,8 @@ class Settings(BaseSettings):
             raise ValueError("DATABASE_URL must use production PostgreSQL")
         if self.app_env.lower() == "production" and self.profession_intake_secret == "development-profession-intake-secret":
             raise ValueError("PROFESSION_INTAKE_SECRET must be set in production")
+        if self.app_env.lower() == "production" and self.client_portal_secret == "development-client-portal-secret":
+            raise ValueError("CLIENT_PORTAL_SECRET must be set in production")
         if self.app_env.lower() == "production" and self.private_notes_encryption_key == "development-private-notes-key":
             raise ValueError("PRIVATE_NOTES_ENCRYPTION_KEY must be set in production")
         if self.app_env.lower() == "production" and not self.qa_delegation_public_key:

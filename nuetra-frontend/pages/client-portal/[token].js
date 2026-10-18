@@ -1,0 +1,51 @@
+import {useEffect,useMemo,useState} from 'react';
+import {useRouter} from 'next/router';
+import {CalendarDays,CheckCircle2,ClipboardCheck,FileText,Loader2,ShieldCheck,Target} from 'lucide-react';
+import {completePortalTask,getClientPortal} from '../../lib/clientPortalApi';
+
+const NAV=[
+  ['home','Home'],['plan','My plan'],['tasks','Tasks'],['appointments','Appointments'],
+  ['progress','Progress'],['resources','Resources'],['documents','Documents'],
+];
+
+function Empty({children}){return <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center text-sm text-slate-600">{children}</div>;}
+function Card({title,icon:Icon,children}){
+  return <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+    <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-2xl bg-emerald-50 text-emerald-700"><Icon size={20}/></span><h2 className="text-lg font-semibold text-slate-950">{title}</h2></div>
+    <div className="mt-5">{children}</div>
+  </section>;
+}
+function Rows({items,empty,render}){
+  if(!items?.length)return <Empty>{empty}</Empty>;
+  return <div className="space-y-3">{items.map(render)}</div>;
+}
+
+export default function ClientPortal(){
+  const router=useRouter();
+  const token=typeof router.query.token==='string'?router.query.token:'';
+  const [data,setData]=useState(null);
+  const [view,setView]=useState('home');
+  const [state,setState]=useState('loading');
+  const [error,setError]=useState('');
+  const load=async()=>{setState('loading');setError('');try{setData(await getClientPortal(token));setState('ready');}catch(reason){setError(reason.message);setState('error');}};
+  useEffect(()=>{if(token)load();},[token]);
+  const dueTasks=useMemo(()=>data?.tasks?.filter(item=>item.status!=='COMPLETED')||[],[data]);
+  const nextAppointment=useMemo(()=>data?.appointments?.find(item=>item.status==='SCHEDULED'),[data]);
+  const complete=async id=>{setError('');try{await completePortalTask(token,id);await load();setView('tasks');}catch(reason){setError(reason.message);}};
+  if(state==='loading')return <main className="grid min-h-screen place-items-center bg-slate-50"><div className="text-center"><Loader2 className="mx-auto animate-spin text-emerald-700"/><p className="mt-3 text-sm text-slate-600">Loading your secure workspace…</p></div></main>;
+  if(state==='error')return <main className="grid min-h-screen place-items-center bg-slate-50 px-5"><section className="max-w-md rounded-3xl border bg-white p-8 text-center shadow-sm"><ShieldCheck className="mx-auto text-slate-500" size={36}/><h1 className="mt-4 text-2xl font-semibold">Portal unavailable</h1><p className="mt-2 text-slate-600">{error}</p><button onClick={load} className="mt-6 min-h-11 rounded-xl bg-slate-950 px-5 font-semibold text-white">Try again</button></section></main>;
+  const taskRows=<Rows items={data.tasks} empty="No tasks have been assigned." render={item=><article key={item.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-slate-900">{item.title}</p><p className="mt-1 text-sm text-slate-500">{item.due_at?new Date(item.due_at).toLocaleDateString():'No due date'} · {item.status.replaceAll('_',' ').toLowerCase()}</p></div>{item.status!=='COMPLETED'&&<button onClick={()=>complete(item.id)} className="min-h-11 rounded-xl bg-emerald-700 px-4 font-semibold text-white">Mark complete</button>}</article>}/>;
+  return <main className="min-h-screen bg-slate-50 text-slate-900">
+    <header className="bg-slate-950 px-4 pb-8 pt-6 text-white"><div className="mx-auto max-w-6xl"><div className="flex items-center gap-3"><ShieldCheck className="text-emerald-300"/><div><p className="text-xs font-semibold uppercase tracking-[.2em] text-emerald-300">Secure client portal</p><h1 className="mt-1 text-2xl font-semibold sm:text-3xl">Your care workspace</h1></div></div><p className="mt-4 max-w-xl text-sm leading-6 text-slate-300">See what needs attention, what is coming next, and what your practitioner has shared.</p></div></header>
+    <nav aria-label="Client portal" className="sticky top-0 z-10 overflow-x-auto border-b border-slate-200 bg-white/95 px-3 backdrop-blur"><div className="mx-auto flex min-w-max max-w-6xl gap-1 py-2">{NAV.map(([key,label])=><button key={key} onClick={()=>setView(key)} aria-current={view===key?'page':undefined} className={`min-h-11 rounded-xl px-4 text-sm font-semibold ${view===key?'bg-slate-950 text-white':'text-slate-600 hover:bg-slate-100'}`}>{label}</button>)}</div></nav>
+    <div className="mx-auto max-w-6xl px-4 py-6 sm:py-8">{error&&<p role="alert" className="mb-5 rounded-xl bg-red-50 p-4 text-sm text-red-700">{error}</p>}
+      {view==='home'&&<div className="grid gap-5 lg:grid-cols-2"><Card title="What needs attention" icon={ClipboardCheck}><Rows items={dueTasks.slice(0,4)} empty="You are all caught up." render={item=><button key={item.id} onClick={()=>setView('tasks')} className="flex min-h-12 w-full items-center justify-between rounded-xl bg-slate-50 px-4 text-left"><span className="font-medium">{item.title}</span><span className="text-sm text-slate-500">{item.status.replaceAll('_',' ')}</span></button>}/></Card><Card title="Coming next" icon={CalendarDays}>{nextAppointment?<div className="rounded-2xl bg-slate-50 p-5"><p className="font-semibold">{nextAppointment.title}</p><p className="mt-1 text-sm text-slate-600">{nextAppointment.scheduled_at?new Date(nextAppointment.scheduled_at).toLocaleString():'Time to be confirmed'}</p></div>:<Empty>No upcoming appointment is scheduled.</Empty>}</Card><Card title="Your goals" icon={Target}><Rows items={data.goals?.slice(0,4)} empty="No goals have been shared." render={item=><div key={item.id} className="rounded-xl bg-slate-50 p-4"><p className="font-semibold">{item.title}</p><p className="mt-1 text-sm text-slate-500">{item.status}</p></div>}/></Card><Card title="Practitioner instructions" icon={FileText}><Rows items={data.instructions?.slice(0,4)} empty="No new instructions have been shared." render={item=><div key={`${item.id}-${item.section_title}`} className="rounded-xl bg-slate-50 p-4"><p className="font-semibold">{item.section_title}</p><p className="mt-1 text-sm text-slate-600">{typeof item.content==='string'?item.content:JSON.stringify(item.content)}</p></div>}/></Card></div>}
+      {view==='tasks'&&<Card title="Tasks and homework" icon={ClipboardCheck}>{taskRows}</Card>}
+      {view==='appointments'&&<Card title="Appointments" icon={CalendarDays}><Rows items={data.appointments} empty="No appointments are available." render={item=><div key={item.id} className="rounded-2xl border p-4"><p className="font-semibold">{item.title}</p><p className="mt-1 text-sm text-slate-600">{item.scheduled_at?new Date(item.scheduled_at).toLocaleString():'Time to be confirmed'} · {item.status}</p></div>}/></Card>}
+      {view==='plan'&&<Card title="Published plans" icon={FileText}><Rows items={data.plans} empty="No published plan has been shared." render={item=><div key={item.id} className="rounded-2xl border p-4"><p className="font-semibold">{item.title}</p><p className="mt-1 text-sm text-slate-600">{item.plan_type.replaceAll('_',' ')} · version {item.current_version}</p></div>}/></Card>}
+      {view==='progress'&&<Card title="Approved progress" icon={Target}><Rows items={data.progress} empty="No progress observations are available." render={(item,index)=><div key={`${item.label}-${index}`} className="flex justify-between rounded-xl bg-slate-50 p-4"><span className="font-medium">{item.label}</span><span>{item.numeric_value??item.text_value??'—'} {item.unit||''}</span></div>}/></Card>}
+      {view==='resources'&&<Card title="Resources" icon={FileText}><Rows items={data.resources} empty="No resources have been shared yet." render={item=><div key={item.id}>{item.title}</div>}/></Card>}
+      {view==='documents'&&<Card title="Documents" icon={FileText}><Rows items={data.documents} empty="No documents have been submitted." render={item=><div key={item.id} className="rounded-xl bg-slate-50 p-4"><p className="font-semibold">{item.title}</p><p className="text-sm text-slate-500">{item.media_type} · {item.status}</p></div>}/></Card>}
+    </div>
+  </main>;
+}
