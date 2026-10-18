@@ -747,3 +747,6 @@ class AiDraftRequest(BaseModel):
     purpose: Literal["DRAFT","SUMMARISE","PREPARE","SUGGEST"]
     instruction: str = Field(min_length=1,max_length=10000)
     source_references: list[dict[str,str]] = Field(default_factory=list,max_length=50)
+
+class ClientExportRequest(BaseModel):
+    sections: list[Literal["CONSENTS","PORTAL_ACTIVITY","BILLING","DOCUMENTS","REFERRALS","AUTOMATIONS","AI_DRAFTS","FORMS","GOALS","TASKS","APPOINTMENTS","PROGRESS"]] = Field(min_length=1,max_length=20)

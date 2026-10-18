@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity, Bell, Building2, CalendarDays, CheckCircle2, ChevronRight, CircleAlert, ClipboardList, FileClock,
   FileText, FolderLock, HeartPulse, LayoutDashboard, Menu, MessageCircle, Plus, Search, Settings,
-  Sparkles, UserRound, UserRoundPlus, UsersRound, X, PackageOpen, ReceiptIndianRupee, Library, Workflow,
+  Sparkles, UserRound, UserRoundPlus, UsersRound, X, PackageOpen, ReceiptIndianRupee, Library, Workflow, ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTenant } from '../../context/TenantContext';
@@ -47,6 +47,7 @@ const NAV = [
   ['billing', 'Billing', ReceiptIndianRupee],
   ['payments', 'Payments', ReceiptIndianRupee],
   ['ai-copilot', 'AI Copilot', Sparkles],
+  ['audit-centre', 'Audit Centre', ShieldCheck],
   ['resources', 'Resources', Library],
   ['automations', 'Automations', Workflow],
   ['referrals', 'Referrals', HeartPulse],

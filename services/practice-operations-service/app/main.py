@@ -52,6 +52,7 @@ from app.contracts import CommunicationPreparationCreate, CommunicationReminderC
 from app.contracts import PracticeLocationCreate, LocationResourceAssign
 from app.contracts import PaymentOrderCreate, PaymentVerification
 from app.contracts import AiDraftRequest
+from app.contracts import ClientExportRequest
 from app.document_storage import (StorageUnavailable, InvalidDocument, new_object_key,
                                   signed_upload, signed_download, validate_document,
                                   verify_uploaded_object)
@@ -67,6 +68,7 @@ from app.p24 import assert_transition as assert_lead_transition, normal_email, n
 from app.p26 import validate_resource_type
 from app.p28 import PaymentProviderNotConfigured, canonical_payload_hash, verify_razorpay_payment, verify_razorpay_webhook
 from app.p29 import classify_output, validate_ai_request
+from app.p30 import EXCLUDED_BY_DEFAULT, export_checksum, validate_export_sections
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -3940,3 +3942,45 @@ async def create_ai_draft(request:Request,body:AiDraftRequest,ctx=Depends(contex
     if not provider:return error(request,503,"AI_RUNTIME_NOT_CONFIGURED","AI runtime provider is not configured")
     request_id=uuid4();now=datetime.now(timezone.utc);await db.execute(text("INSERT INTO external_ai_draft_requests(id,tenant_id,client_id,purpose,instruction,source_references,status,requested_by,created_at) VALUES (:id,:tenant,:client,:purpose,:instruction,CAST(:sources AS jsonb),'PENDING',:actor,:now)"),{"id":request_id,"tenant":ctx["tenant_id"],"client":body.client_id,"purpose":body.purpose,"instruction":body.instruction,"sources":json.dumps(body.source_references),"actor":ctx["user_id"],"now":now});await db.commit()
     return {"success":True,"data":{"id":str(request_id),**classify_output(''),"status":"PENDING","provider_execution":"QUEUED"},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/compliance/audit")
+async def compliance_audit(request:Request,client_id:str|None=None,limit:int=Query(100,ge=1,le=500),ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"SETTINGS_VIEW",client_id)
+    if denied:return denied
+    params={"tenant":ctx["tenant_id"],"client":client_id,"limit":limit}
+    rows=(await db.execute(text("""SELECT domain,event_type,actor_id,resource_id,created_at FROM (
+      SELECT 'CONSENT' domain,a.event_type,a.actor_id,COALESCE(a.consent_record_id::text,a.template_id::text) resource_id,a.created_at FROM external_consent_audit_events a WHERE a.tenant_id=:tenant AND (CAST(:client AS text) IS NULL OR EXISTS (SELECT 1 FROM external_consent_records r WHERE r.id=a.consent_record_id AND r.tenant_id=:tenant AND r.client_id=CAST(:client AS text)))
+      UNION ALL SELECT 'PORTAL',event_type,COALESCE(actor_type,'UNKNOWN'),resource_id,created_at FROM external_client_portal_audit_events WHERE tenant_id=:tenant AND (CAST(:client AS text) IS NULL OR client_id=CAST(:client AS text))
+      UNION ALL SELECT 'TEAM',event_type,actor_id,COALESCE(target_user_id,client_id),created_at FROM external_team_audit_events WHERE tenant_id=:tenant AND (CAST(:client AS text) IS NULL OR client_id=CAST(:client AS text))
+      UNION ALL SELECT 'BILLING',a.event_type,a.actor_id,COALESCE(a.invoice_id::text,a.payment_id::text),a.created_at FROM external_invoice_audit_events a WHERE a.tenant_id=:tenant AND (CAST(:client AS text) IS NULL OR EXISTS (SELECT 1 FROM external_invoices i WHERE i.id=a.invoice_id AND i.tenant_id=:tenant AND i.client_id=CAST(:client AS text)))
+      UNION ALL SELECT 'DOCUMENT',a.event_type,a.actor_id,a.document_id::text,a.created_at FROM external_document_audit_events a WHERE a.tenant_id=:tenant AND (CAST(:client AS text) IS NULL OR EXISTS (SELECT 1 FROM external_documents d WHERE d.id=a.document_id AND d.tenant_id=:tenant AND d.client_id=CAST(:client AS text)))
+      UNION ALL SELECT 'REFERRAL',e.event_type,COALESCE(e.actor_id,'UNKNOWN'),e.referral_id::text,e.created_at FROM external_referral_events e WHERE e.tenant_id=:tenant AND (CAST(:client AS text) IS NULL OR EXISTS (SELECT 1 FROM external_referrals r WHERE r.id=e.referral_id AND r.tenant_id=:tenant AND r.client_id=CAST(:client AS text)))
+      UNION ALL SELECT 'AUTOMATION',a.event_type,a.actor_id,COALESCE(a.automation_id::text,a.execution_id::text),a.created_at FROM external_automation_audit_events a WHERE a.tenant_id=:tenant AND (CAST(:client AS text) IS NULL OR EXISTS (SELECT 1 FROM external_automation_executions e WHERE e.id=a.execution_id AND e.tenant_id=:tenant AND e.client_id=CAST(:client AS text)))
+      UNION ALL SELECT 'AI',a.event_type,a.actor_id,COALESCE(a.output_id::text,a.request_id::text),a.created_at FROM external_ai_audit_events a WHERE a.tenant_id=:tenant AND (CAST(:client AS text) IS NULL OR EXISTS (SELECT 1 FROM external_ai_draft_requests r WHERE r.id=a.request_id AND r.tenant_id=:tenant AND r.client_id=CAST(:client AS text)))
+      UNION ALL SELECT 'COMPLIANCE',event_type,actor_id,resource_id,created_at FROM external_compliance_audit_events WHERE tenant_id=:tenant AND (CAST(:client AS text) IS NULL OR client_id=CAST(:client AS text))
+    ) evidence ORDER BY created_at DESC LIMIT :limit"""),params)).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows],"classification":"OPERATIONAL_AUDIT_EVIDENCE","legal_compliance_certification":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/compliance/exports/clients/{client_id}",status_code=201)
+async def export_client_data(request:Request,client_id:str,body:ClientExportRequest,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"CLIENT360_VIEW",client_id)
+    if denied:return denied
+    try:sections=validate_export_sections(body.sections)
+    except ValueError as exc:return error(request,422,"EXPORT_SCOPE_DENIED",str(exc))
+    params={"tenant":ctx["tenant_id"],"client":client_id};payload={"client_id":client_id,"sections":{},"excluded":sorted(EXCLUDED_BY_DEFAULT)}
+    queries={
+      'CONSENTS':"SELECT id,status,scope,accepted_at,declined_at,revoked_at,expires_at,created_at FROM external_consent_records WHERE tenant_id=:tenant AND client_id=:client",
+      'PORTAL_ACTIVITY':"SELECT event_type,resource_type,resource_id,created_at FROM external_client_portal_audit_events WHERE tenant_id=:tenant AND client_id=:client AND actor_type='CLIENT'",
+      'BILLING':"SELECT id,invoice_number,status,currency,grand_total_minor,amount_paid_minor,balance_due_minor,issue_date,due_date FROM external_invoices WHERE tenant_id=:tenant AND client_id=:client",
+      'DOCUMENTS':"SELECT id,title,category,visibility,status,current_version,created_at,updated_at FROM external_documents WHERE tenant_id=:tenant AND client_id=:client",
+      'REFERRALS':"SELECT id,receiving_profession_code,destination_name,reason,status,created_at,updated_at FROM external_referrals WHERE tenant_id=:tenant AND client_id=:client",
+      'AUTOMATIONS':"SELECT r.action_type,r.status,r.result_summary,r.created_at FROM external_automation_action_results r JOIN external_automation_executions e ON e.id=r.execution_id AND e.tenant_id=r.tenant_id WHERE r.tenant_id=:tenant AND e.client_id=:client",
+      'AI_DRAFTS':"SELECT id,purpose,status,created_at,completed_at FROM external_ai_draft_requests WHERE tenant_id=:tenant AND client_id=:client",
+      'FORMS':"SELECT id,status,due_at,assigned_at,started_at,completed_at FROM external_form_assignments WHERE tenant_id=:tenant AND client_id=:client",
+      'GOALS':"SELECT id,title,status,due_at,created_at,updated_at FROM practice_goals WHERE tenant_id=:tenant AND client_id=:client",
+      'TASKS':"SELECT id,title,status,due_at,created_at,updated_at FROM practice_tasks WHERE tenant_id=:tenant AND client_id=:client",
+      'APPOINTMENTS':"SELECT id,title,status,due_at,created_at,updated_at FROM practice_consultations WHERE tenant_id=:tenant AND client_id=:client",
+      'PROGRESS':"SELECT id,numeric_value,text_value,source_type,observed_at,created_at FROM external_progress_observations WHERE tenant_id=:tenant AND client_id=:client",
+    }
+    for section in sections:payload["sections"][section]=[dict(row) for row in (await db.execute(text(queries[section]),params)).mappings().all()]
+    export_id=uuid4();now=datetime.now(timezone.utc);checksum_value=export_checksum(payload);await db.execute(text("INSERT INTO external_data_export_requests(id,tenant_id,client_id,sections,status,private_notes_included,requested_by,created_at,completed_at,content_checksum) VALUES (:id,:tenant,:client,CAST(:sections AS jsonb),'COMPLETED',FALSE,:actor,:now,:now,:checksum)"),{"id":export_id,"tenant":ctx["tenant_id"],"client":client_id,"sections":json.dumps(sections),"actor":ctx["user_id"],"now":now,"checksum":checksum_value});await db.execute(text("INSERT INTO external_compliance_audit_events(id,tenant_id,client_id,event_type,actor_id,resource_type,resource_id,metadata,created_at) VALUES (:id,:tenant,:client,'CLIENT_EXPORT_CREATED',:actor,'EXPORT',:resource,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"tenant":ctx["tenant_id"],"client":client_id,"actor":ctx["user_id"],"resource":str(export_id),"metadata":json.dumps({"sections":sections,"private_notes_included":False}),"now":now});await db.commit();return {"success":True,"data":{"id":str(export_id),"checksum":checksum_value,"private_notes_included":False,"payload":payload},"error":None,"request_id":request.state.correlation_id}
