@@ -278,6 +278,8 @@ class ClientPortalInvitationCreate(BaseModel):
     allow_document_upload: bool = True
     allow_resource_access: bool = True
     allow_homework_checkin: bool = True
+    allow_form_response: bool = True
+    allow_consent_decision: bool = True
 
 
 class ClientPortalDocumentCreate(BaseModel):

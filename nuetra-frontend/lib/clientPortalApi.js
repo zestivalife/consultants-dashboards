@@ -21,3 +21,5 @@ export async function downloadPortalVaultDocument(token,documentId){const result
 export function openPortalResource(token,assignmentId){return request(token,`/resources/${assignmentId}/open`,{method:'POST'});}
 export function submitHomeworkCheckin(token,homeworkId,payload){return request(token,`/homework/${homeworkId}/check-in`,{method:'POST',body:JSON.stringify(payload)});}
 export function decideReferralConsent(token,referralId,decision,allowedDataScopes){return request(token,`/referrals/${referralId}/consent`,{method:'POST',body:JSON.stringify({decision,allowed_data_scopes:allowedDataScopes,consent_version:'P19_V1'})});}
+export function savePortalForm(token,assignmentId,answers,submit=false){return request(token,`/forms/${encodeURIComponent(assignmentId)}/response`,{method:'PUT',body:JSON.stringify({answers,submit})});}
+export function decidePortalConsent(token,recordId,payload){return request(token,`/consents/${encodeURIComponent(recordId)}/decision`,{method:'POST',body:JSON.stringify(payload)});}

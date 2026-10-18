@@ -1418,6 +1418,10 @@ async def create_client_portal_invitation(request: Request, client_id: str, body
         actions.append("READ_RESOURCES")
     if body.allow_homework_checkin:
         actions.extend(["READ_HOMEWORK", "SUBMIT_HOMEWORK_CHECKIN"])
+    if body.allow_form_response:
+        actions.append("SUBMIT_FORM")
+    if body.allow_consent_decision:
+        actions.append("DECIDE_CONSENT")
     token = issue_portal_token(
         secret=get_settings().client_portal_secret, tenant_id=ctx["tenant_id"],
         client_id=client_id, grant_id=str(grant_id), expires_at=int(expires_at.timestamp()),
@@ -2528,13 +2532,45 @@ async def client_portal_home(request: Request, token: str, db: AsyncSession=Depe
       r.current_version,v.source_snapshot,v.generated_at FROM external_progress_reports r
       JOIN external_progress_report_versions v ON v.report_id=r.id AND v.tenant_id=r.tenant_id AND v.version=r.current_version
       WHERE r.tenant_id=:tenant AND r.client_id=:client AND r.status='SHARED' AND r.revoked_at IS NULL ORDER BY r.shared_at DESC"""), params)).mappings().all()]
+    forms = [dict(row) for row in (await db.execute(text("""SELECT a.id,a.status,a.due_at,a.assigned_at,d.title,d.form_type,v.version,COALESCE(r.answers,'{}'::jsonb) answers
+      FROM external_form_assignments a JOIN external_form_definitions d ON d.id=a.form_definition_id AND d.tenant_id=a.tenant_id
+      JOIN external_form_versions v ON v.id=a.form_version_id AND v.tenant_id=a.tenant_id
+      LEFT JOIN external_form_responses r ON r.assignment_id=a.id AND r.tenant_id=a.tenant_id AND r.client_id=a.client_id
+      WHERE a.tenant_id=:tenant AND a.client_id=:client AND a.status IN ('ASSIGNED','STARTED','COMPLETED') ORDER BY a.assigned_at DESC"""),params)).mappings().all()]
+    consents = [dict(row) for row in (await db.execute(text("""SELECT r.id,r.status,r.scope,r.expires_at,r.created_at,t.title,t.consent_type,v.body,v.version
+      FROM external_consent_records r JOIN external_consent_templates t ON t.id=r.template_id AND t.tenant_id=r.tenant_id
+      JOIN external_consent_template_versions v ON v.id=r.template_version_id AND v.tenant_id=r.tenant_id
+      WHERE r.tenant_id=:tenant AND r.client_id=:client AND r.status IN ('PENDING','ACCEPTED','DECLINED','REVOKED') ORDER BY r.created_at DESC"""),params)).mappings().all()]
+    notifications = [dict(row) for row in (await db.execute(text("""SELECT p.id,p.purpose,p.subject,p.body,p.created_at,(n.read_at IS NOT NULL) is_read
+      FROM external_communication_preparations p LEFT JOIN external_client_portal_notification_reads n ON n.preparation_id=p.id AND n.tenant_id=p.tenant_id AND n.client_id=p.client_id
+      WHERE p.tenant_id=:tenant AND p.client_id=:client AND p.channel='CLIENT_PORTAL_NOTIFICATION' AND p.status='PREPARED' ORDER BY p.created_at DESC LIMIT 100"""),params)).mappings().all()]
+    activity = [dict(row) for row in (await db.execute(text("""SELECT event_type,resource_type,resource_id,created_at FROM external_client_portal_audit_events
+      WHERE tenant_id=:tenant AND client_id=:client AND actor_type='CLIENT' ORDER BY created_at DESC LIMIT 100"""),params)).mappings().all()]
     return {"success": True, "data": {
         "clientId": scope["client_id"], "tasks": tasks, "appointments": appointments,
         "goals": goals, "plans": plans, "assessments": assessments,
         "instructions": instructions, "progress": progress, "documents": documents,
-        "resources": resources, "homework": homework, "notifications": [], "packages": packages, "invoices": invoices, "receipts": receipts,
-        "referralConsents": referral_consents, "sharedReports": shared_reports,
+        "resources": resources, "homework": homework, "notifications": notifications, "packages": packages, "invoices": invoices, "receipts": receipts,
+        "referralConsents": referral_consents, "sharedReports": shared_reports, "forms": forms, "consents": consents, "activity": activity,
+        "documentsConfigured": bool(get_settings().document_storage_bucket),
     }, "error": None, "request_id": request.state.correlation_id}
+
+@app.put("/api/v1/client-portal/{token}/forms/{assignment_id}/response")
+async def portal_form_response(request:Request,token:str,assignment_id:UUID,body:FormResponseSave,db:AsyncSession=Depends(get_db)):
+    scope,denied=await _portal_scope(request,token,"SUBMIT_FORM",db)
+    if denied:return denied
+    assignment=(await db.execute(text("SELECT id,status FROM external_form_assignments WHERE id=:id AND tenant_id=:tenant AND client_id=:client AND status IN ('ASSIGNED','STARTED')"),{"id":assignment_id,"tenant":scope["tenant_id"],"client":scope["client_id"]})).mappings().first()
+    if not assignment:return error(request,404,"PORTAL_FORM_NOT_FOUND","Available form assignment not found")
+    now=datetime.now(timezone.utc);status='COMPLETED' if body.submit else 'STARTED';await db.execute(text("""INSERT INTO external_form_responses(id,assignment_id,tenant_id,client_id,answers,status,response_version,submitted_at,updated_at)
+      VALUES (:id,:assignment,:tenant,:client,CAST(:answers AS jsonb),:status,1,:submitted,:now) ON CONFLICT (assignment_id) DO UPDATE SET answers=EXCLUDED.answers,status=EXCLUDED.status,response_version=external_form_responses.response_version+1,submitted_at=EXCLUDED.submitted_at,updated_at=EXCLUDED.updated_at"""),{"id":uuid4(),"assignment":assignment_id,"tenant":scope["tenant_id"],"client":scope["client_id"],"answers":json.dumps(body.answers),"status":status,"submitted":now if body.submit else None,"now":now});await db.execute(text("UPDATE external_form_assignments SET status=:status,started_at=COALESCE(started_at,:now),completed_at=CASE WHEN :status='COMPLETED' THEN :now ELSE completed_at END WHERE id=:id AND tenant_id=:tenant AND client_id=:client"),{"status":status,"now":now,"id":assignment_id,"tenant":scope["tenant_id"],"client":scope["client_id"]});await db.commit();return {"success":True,"data":{"id":str(assignment_id),"status":status},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/client-portal/{token}/consents/{record_id}/decision")
+async def portal_consent_decision(request:Request,token:str,record_id:UUID,body:ConsentDecision,db:AsyncSession=Depends(get_db)):
+    scope,denied=await _portal_scope(request,token,"DECIDE_CONSENT",db)
+    if denied:return denied
+    now=datetime.now(timezone.utc);status='ACCEPTED' if body.decision=='ACCEPT' else 'DECLINED';result=await db.execute(text("UPDATE external_consent_records SET status=:status,signatory_name=:name,signatory_type=:type,signature_method=:method,signature_evidence=CAST(:evidence AS jsonb),accepted_at=CASE WHEN :status='ACCEPTED' THEN :now END,declined_at=CASE WHEN :status='DECLINED' THEN :now END,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND client_id=:client AND status='PENDING'"),{"status":status,"name":body.signatory_name,"type":body.signatory_type,"method":body.signature_method,"evidence":json.dumps(body.signature_evidence),"now":now,"id":record_id,"tenant":scope["tenant_id"],"client":scope["client_id"]})
+    if result.rowcount!=1:return error(request,404,"PORTAL_CONSENT_NOT_FOUND","Pending consent not found")
+    await db.commit();return {"success":True,"data":{"id":str(record_id),"status":status,"classification":"ELECTRONIC_ACKNOWLEDGEMENT"},"error":None,"request_id":request.state.correlation_id}
 
 
 @app.post("/api/v1/client-portal/{token}/vault-documents/{document_id}/download")
