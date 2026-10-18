@@ -47,6 +47,7 @@ from app.contracts import ProgressReportCreate, ProgressReportUpdate
 from app.contracts import FormCreate, FormAssign, FormResponseSave
 from app.contracts import ConsentTemplateCreate, ConsentAssign, ConsentDecision
 from app.contracts import DocumentCreate, DocumentUpdate, DocumentFinalise, DocumentVersionCreate
+from app.contracts import LeadCreate, LeadStageUpdate, LeadFollowUpCreate, LeadConvert
 from app.document_storage import (StorageUnavailable, InvalidDocument, new_object_key,
                                   signed_upload, signed_download, validate_document,
                                   verify_uploaded_object)
@@ -58,6 +59,7 @@ from app.p17 import PERMISSIONS, ROLE_PERMISSIONS, can_manage_role, resolve_perm
 from app.p18 import MIN_COHORT_SIZE, analytics_window, cohort_result, rate
 from app.p19 import ALLOWED_SCOPES, referral_transition, validate_scopes
 from app.p20 import build_docx, build_pdf, checksum
+from app.p24 import assert_transition as assert_lead_transition, normal_email, normal_phone
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -3734,3 +3736,51 @@ async def document_download(request:Request,document_id:UUID,ctx=Depends(context
     try:url=signed_download(row["object_key"],row["filename"])
     except StorageUnavailable as exc:return error(request,503,"DOCUMENT_STORAGE_NOT_CONFIGURED",str(exc),retryable=False)
     now=datetime.now(timezone.utc);await db.execute(text("INSERT INTO external_document_access_events(id,document_id,tenant_id,event_type,actor_id,created_at) VALUES (:id,:document,:tenant,'DOWNLOADED',:actor,:now)"),{"id":uuid4(),"document":document_id,"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"download_url":url,"expires_in":300},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/leads")
+async def list_leads(request:Request,stage:str|None=None,search:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"CLIENT_LIST_VIEW")
+    if denied:return denied
+    rows=(await db.execute(text("""SELECT l.id,l.first_name,l.last_name,l.email,l.phone,l.source,l.stage,l.assigned_practitioner_id,l.next_follow_up_at,l.notes,l.converted_client_id,l.created_at,l.updated_at,(SELECT COUNT(*) FROM external_leads d WHERE d.tenant_id=l.tenant_id AND d.id<>l.id AND ((l.email_key IS NOT NULL AND d.email_key=l.email_key) OR (l.phone_key IS NOT NULL AND d.phone_key=l.phone_key))) duplicate_count FROM external_leads l WHERE l.tenant_id=:tenant AND (CAST(:stage AS text) IS NULL OR l.stage=CAST(:stage AS text)) AND (CAST(:search AS text) IS NULL OR CONCAT_WS(' ',l.first_name,l.last_name,l.email,l.phone) ILIKE '%'||CAST(:search AS text)||'%') ORDER BY l.updated_at DESC"""),{"tenant":ctx["tenant_id"],"stage":stage,"search":search})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/leads",status_code=201)
+async def create_lead(request:Request,body:LeadCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"CLIENT_CREATE")
+    if denied:return denied
+    email_key,phone_key=normal_email(body.email),normal_phone(body.phone)
+    if not email_key and not phone_key:return error(request,422,"LEAD_CONTACT_REQUIRED","An email address or phone number is required")
+    duplicate=(await db.execute(text("SELECT id,first_name,last_name,stage FROM external_leads WHERE tenant_id=:tenant AND ((:email IS NOT NULL AND email_key=:email) OR (:phone IS NOT NULL AND phone_key=:phone)) ORDER BY updated_at DESC LIMIT 1"),{"tenant":ctx["tenant_id"],"email":email_key,"phone":phone_key})).mappings().first()
+    if duplicate:return JSONResponse(status_code=409,content={"success":False,"error":{"code":"POSSIBLE_DUPLICATE_LEAD","safe_message":"A matching lead already exists in this practice.","duplicate":{"id":str(duplicate["id"]),"name":f'{duplicate["first_name"]} {duplicate["last_name"] or ""}'.strip(),"stage":duplicate["stage"]}}})
+    lead_id=uuid4();now=datetime.now(timezone.utc);params={"id":lead_id,"tenant":ctx["tenant_id"],"first":body.first_name.strip(),"last":body.last_name,"email":body.email,"phone":body.phone,"email_key":email_key,"phone_key":phone_key,"source":body.source,"assigned":body.assigned_practitioner_id,"follow_up":body.next_follow_up_at,"notes":body.notes,"actor":ctx["user_id"],"now":now}
+    await db.execute(text("INSERT INTO external_leads(id,tenant_id,first_name,last_name,email,phone,email_key,phone_key,source,stage,assigned_practitioner_id,next_follow_up_at,notes,created_by,created_at,updated_at) VALUES (:id,:tenant,:first,:last,:email,:phone,:email_key,:phone_key,:source,'NEW',:assigned,:follow_up,:notes,:actor,:now,:now)"),params)
+    await db.execute(text("INSERT INTO external_lead_stage_history(id,lead_id,tenant_id,previous_stage,resulting_stage,actor_id,created_at) VALUES (:id,:lead,:tenant,NULL,'NEW',:actor,:now)"),{"id":uuid4(),"lead":lead_id,"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"now":now});await db.commit()
+    return {"success":True,"data":{"id":str(lead_id),"stage":"NEW"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/leads/{lead_id}/stage")
+async def update_lead_stage(request:Request,lead_id:UUID,body:LeadStageUpdate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"CLIENT_EDIT")
+    if denied:return denied
+    current=(await db.execute(text("SELECT stage FROM external_leads WHERE id=:id AND tenant_id=:tenant FOR UPDATE"),{"id":lead_id,"tenant":ctx["tenant_id"]})).scalar_one_or_none()
+    if not current:return error(request,404,"LEAD_NOT_FOUND","Lead not found")
+    try:assert_lead_transition(current,body.stage)
+    except ValueError as exc:return error(request,409,"LEAD_TRANSITION_DENIED",str(exc))
+    now=datetime.now(timezone.utc);await db.execute(text("UPDATE external_leads SET stage=:stage,updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"stage":body.stage,"now":now,"id":lead_id,"tenant":ctx["tenant_id"]});await db.execute(text("INSERT INTO external_lead_stage_history(id,lead_id,tenant_id,previous_stage,resulting_stage,reason,actor_id,created_at) VALUES (:id,:lead,:tenant,:previous,:resulting,:reason,:actor,:now)"),{"id":uuid4(),"lead":lead_id,"tenant":ctx["tenant_id"],"previous":current,"resulting":body.stage,"reason":body.reason,"actor":ctx["user_id"],"now":now});await db.commit()
+    return {"success":True,"data":{"id":str(lead_id),"stage":body.stage},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/leads/{lead_id}/follow-ups",status_code=201)
+async def create_lead_follow_up(request:Request,lead_id:UUID,body:LeadFollowUpCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"FOLLOWUP_MANAGE")
+    if denied:return denied
+    follow_id=uuid4();now=datetime.now(timezone.utc);result=await db.execute(text("INSERT INTO external_lead_follow_ups(id,lead_id,tenant_id,due_at,status,note,created_by,created_at) SELECT :id,id,:tenant,:due,'OPEN',:note,:actor,:now FROM external_leads WHERE id=:lead AND tenant_id=:tenant"),{"id":follow_id,"lead":lead_id,"tenant":ctx["tenant_id"],"due":body.due_at,"note":body.note,"actor":ctx["user_id"],"now":now})
+    if result.rowcount!=1:return error(request,404,"LEAD_NOT_FOUND","Lead not found")
+    await db.execute(text("UPDATE external_leads SET next_follow_up_at=:due,updated_at=:now WHERE id=:lead AND tenant_id=:tenant"),{"due":body.due_at,"now":now,"lead":lead_id,"tenant":ctx["tenant_id"]});await db.commit();return {"success":True,"data":{"id":str(follow_id)},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/leads/{lead_id}/convert")
+async def convert_lead(request:Request,lead_id:UUID,body:LeadConvert,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"CLIENT_CREATE")
+    if denied:return denied
+    current=(await db.execute(text("SELECT stage FROM external_leads WHERE id=:id AND tenant_id=:tenant FOR UPDATE"),{"id":lead_id,"tenant":ctx["tenant_id"]})).scalar_one_or_none()
+    if not current:return error(request,404,"LEAD_NOT_FOUND","Lead not found")
+    if current!="CONSULTATION_BOOKED":return error(request,409,"LEAD_NOT_READY","Only a consultation-booked lead can be converted")
+    now=datetime.now(timezone.utc);await db.execute(text("UPDATE external_leads SET stage='CONVERTED',converted_client_id=:client,updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"client":body.client_id,"now":now,"id":lead_id,"tenant":ctx["tenant_id"]});await db.execute(text("INSERT INTO external_lead_stage_history(id,lead_id,tenant_id,previous_stage,resulting_stage,reason,actor_id,created_at) VALUES (:id,:lead,:tenant,:previous,'CONVERTED','Created through existing Client Core',:actor,:now)"),{"id":uuid4(),"lead":lead_id,"tenant":ctx["tenant_id"],"previous":current,"actor":ctx["user_id"],"now":now});await db.commit();return {"success":True,"data":{"id":str(lead_id),"stage":"CONVERTED","client_id":body.client_id},"error":None,"request_id":request.state.correlation_id}

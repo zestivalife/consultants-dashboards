@@ -168,6 +168,11 @@ export async function uploadVaultDocumentVersion(documentId,file){
   return request(`/documents/${encodeURIComponent(documentId)}/finalise`,{method:'POST',body:JSON.stringify({version_id:pending.version_id})});
 }
 export function changeVaultDocumentState(id,action){return request(`/documents/${encodeURIComponent(id)}/${encodeURIComponent(action)}`,{method:'POST'});}
+export function listLeads({stage,search}={}){const query=new URLSearchParams();if(stage)query.set('stage',stage);if(search)query.set('search',search);return request(`/leads?${query}`);}
+export function createLead(payload){return request('/leads',{method:'POST',body:JSON.stringify(payload)});}
+export function updateLeadStage(id,stage,reason){return request(`/leads/${encodeURIComponent(id)}/stage`,{method:'POST',body:JSON.stringify({stage,reason})});}
+export function createLeadFollowUp(id,payload){return request(`/leads/${encodeURIComponent(id)}/follow-ups`,{method:'POST',body:JSON.stringify(payload)});}
+export function convertLead(id,clientId){return request(`/leads/${encodeURIComponent(id)}/convert`,{method:'POST',body:JSON.stringify({client_id:clientId})});}
 export async function downloadVaultDocument(id){const result=await request(`/documents/${encodeURIComponent(id)}/download`,{method:'POST'});window.open(result.download_url,'_blank','noopener,noreferrer');return result;}
 export async function downloadProgressReport(id,format){
   const send=token=>fetch(`${BASE}/progress-reports/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(format)}`,{credentials:'include',headers:token?{'X-Nuetra-Authorization':`Bearer ${token}`}:{}});

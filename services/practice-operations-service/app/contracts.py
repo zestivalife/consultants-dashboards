@@ -681,3 +681,24 @@ class DocumentVersionCreate(BaseModel):
     content_type: str = Field(min_length=1,max_length=160)
     size_bytes: int = Field(gt=0,le=52428800)
     checksum_sha256: str | None = Field(default=None,min_length=64,max_length=64)
+
+class LeadCreate(BaseModel):
+    first_name: str = Field(min_length=1,max_length=120)
+    last_name: str | None = Field(default=None,max_length=120)
+    email: str | None = Field(default=None,max_length=320)
+    phone: str | None = Field(default=None,max_length=60)
+    source: str = Field(min_length=1,max_length=80)
+    assigned_practitioner_id: str | None = Field(default=None,max_length=120)
+    next_follow_up_at: datetime | None = None
+    notes: str | None = Field(default=None,max_length=4000)
+
+class LeadStageUpdate(BaseModel):
+    stage: Literal["NEW","CONTACTED","QUALIFIED","CONSULTATION_BOOKED","NOT_INTERESTED","LOST"]
+    reason: str | None = Field(default=None,max_length=500)
+
+class LeadFollowUpCreate(BaseModel):
+    due_at: datetime
+    note: str | None = Field(default=None,max_length=1000)
+
+class LeadConvert(BaseModel):
+    client_id: str = Field(min_length=1,max_length=120)
