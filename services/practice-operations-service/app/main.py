@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from uuid import UUID, uuid4
 import json
 import base64
 import hashlib
 import structlog
+from urllib.parse import urlparse
 from cryptography.fernet import Fernet
 from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.responses import JSONResponse
@@ -32,7 +33,11 @@ from app.contracts import (AppointmentTypeCreate, AvailabilityRuleCreate, Bookin
                            AppointmentCreate, AppointmentStatusUpdate, WaitlistCreate)
 from app.contracts import (BillableServiceCreate, BillableServiceUpdate, InvoiceCreate,
                            InvoiceUpdate, PaymentCreate)
+from app.contracts import (ProfessionalResourceCreate, ProfessionalResourceUpdate,
+                           ResourceAssignmentCreate, HomeworkCreate,
+                           HomeworkStatusUpdate, HomeworkCheckinCreate)
 from app.billing import calculate_line
+from app.p15 import adherence_summary, homework_transition
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -67,7 +72,7 @@ ALL_CAPABILITIES = {
     "CARE_PLAN", "THERAPY_PLAN", "BEHAVIOURAL_PLAN", "EXERCISE_PLAN",
     "REHAB_PLAN", "HABIT_PLAN", "LAB_ANALYSIS", "BIOMARKERS", "MEASUREMENTS",
     "TEMPLATES", "PROGRESS_REPORTS", "PRACTICE_TEAM", "PACKAGES", "BILLING",
-    "RENEWALS", "ANALYTICS", "CLIENT_PORTAL",
+    "RENEWALS", "ANALYTICS", "CLIENT_PORTAL", "RESOURCE_LIBRARY", "HOMEWORK", "ADHERENCE",
 }
 RESOURCE_CAPABILITY = {"consultations":"CONSULTATIONS", "follow-ups":"FOLLOW_UPS", "goals":"GOALS_PROGRESS", "tasks":"TASKS"}
 PROFESSION_DEFAULTS = {
@@ -83,6 +88,8 @@ PROFESSION_DEFAULTS = {
     "OCCUPATIONAL_THERAPIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "MENTAL_WELLNESS_THERAPIST": {"CONSULTATIONS","SESSION_NOTES","PRIVATE_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
 }
+for _profession_capabilities in PROFESSION_DEFAULTS.values():
+    _profession_capabilities.update({"RESOURCE_LIBRARY", "HOMEWORK", "ADHERENCE"})
 TERMINOLOGY = {
     "DIETITIAN":{"consultation":"Consultation","plan":"Diet Plan","goal":"Nutrition Goal"},
     "NUTRITIONIST":{"consultation":"Consultation","plan":"Nutrition Plan","goal":"Nutrition Goal"},
@@ -1030,6 +1037,41 @@ async def profession_intelligence_signals(request:Request,ctx=Depends(context),d
               "due_at":row["due_date"],"priority":"P3_MEDIUM" if row["signal_code"]=="INVOICE_OVERDUE" else "P4_LOW",
               "cta":{"label":"Open Invoice","target":"billing"},
               "provenance":{"table":"external_invoices","record_id":str(row["id"])},"resolution_state":"ACTIVE"})
+    if "HOMEWORK" in set(config["capabilities"]):
+        homework_rows=(await db.execute(text("""SELECT id,client_id,status,due_date,updated_at,
+          CASE WHEN status='MISSED' THEN 'HOMEWORK_MISSED'
+               WHEN due_date<CURRENT_DATE THEN 'HOMEWORK_OVERDUE' ELSE 'HOMEWORK_DUE' END AS signal_code
+          FROM external_homework_assignments WHERE tenant_id=:tenant
+          AND status IN ('NOT_STARTED','IN_PROGRESS','MISSED')
+          AND (status='MISSED' OR due_date<=CURRENT_DATE+INTERVAL '3 days')"""),{"tenant":tenant})).mappings().all()
+        for row in homework_rows:
+            items.append({"signal_code":row["signal_code"],"profession_code":profession,"tenant_id":tenant,
+              "client_id":row["client_id"],"source_domain":"external_homework_assignments","source_record_id":str(row["id"]),
+              "reason":"Client homework is due or has a recorded missed status.","occurred_at":row["updated_at"],
+              "due_at":row["due_date"],"priority":"P3_MEDIUM" if row["signal_code"]!="HOMEWORK_DUE" else "P4_LOW",
+              "cta":{"label":"Review Homework","target":"client"},
+              "provenance":{"table":"external_homework_assignments","record_id":str(row["id"])},"resolution_state":"ACTIVE"})
+        unopened=(await db.execute(text("""SELECT id,client_id,assigned_at FROM external_resource_assignments
+          WHERE tenant_id=:tenant AND status='ASSIGNED' AND assigned_at<:cutoff"""),
+          {"tenant":tenant,"cutoff":now-timedelta(days=7)})).mappings().all()
+        for row in unopened:
+            items.append({"signal_code":"RESOURCE_ASSIGNED_NOT_OPENED","profession_code":profession,"tenant_id":tenant,
+              "client_id":row["client_id"],"source_domain":"external_resource_assignments","source_record_id":str(row["id"]),
+              "reason":"An assigned resource has no explicit open event after seven days.","occurred_at":row["assigned_at"],
+              "due_at":None,"priority":"P4_LOW","cta":{"label":"Review Resource","target":"client"},
+              "provenance":{"table":"external_resource_assignments","record_id":str(row["id"])},"resolution_state":"ACTIVE"})
+        adherence_rows=(await db.execute(text("""SELECT client_id,MAX(updated_at) AS updated_at,
+          COUNT(*)::int AS assigned_count,COUNT(*) FILTER (WHERE status='COMPLETED')::int AS completed_count
+          FROM external_homework_assignments WHERE tenant_id=:tenant AND start_date>=CURRENT_DATE-INTERVAL '29 days'
+          GROUP BY client_id HAVING COUNT(*)>=2 AND
+          (COUNT(*) FILTER (WHERE status='COMPLETED')::numeric/COUNT(*))<0.5"""),{"tenant":tenant})).mappings().all()
+        for row in adherence_rows:
+            items.append({"signal_code":"ADHERENCE_NEEDS_ATTENTION","profession_code":profession,"tenant_id":tenant,
+              "client_id":row["client_id"],"source_domain":"external_homework_assignments","source_record_id":row["client_id"],
+              "reason":f"{row['completed_count']} of {row['assigned_count']} assigned activities were completed in the last 30 days.",
+              "occurred_at":row["updated_at"],"due_at":None,"priority":"P3_MEDIUM",
+              "cta":{"label":"Review Adherence","target":"client"},
+              "provenance":{"table":"external_homework_assignments","client_id":row["client_id"],"window":"30_DAY"},"resolution_state":"ACTIVE"})
     items.sort(key=lambda item:(item["priority"],str(item.get("due_at") or item.get("occurred_at") or "")))
     return {"success":True,"data":{"profession_code":profession,"items":items},"error":None,"request_id":request.state.correlation_id}
 
@@ -1325,6 +1367,10 @@ async def create_client_portal_invitation(request: Request, client_id: str, body
         actions.append("COMPLETE_TASK")
     if body.allow_document_upload:
         actions.append("UPLOAD_DOCUMENT")
+    if body.allow_resource_access:
+        actions.append("READ_RESOURCES")
+    if body.allow_homework_checkin:
+        actions.extend(["READ_HOMEWORK", "SUBMIT_HOMEWORK_CHECKIN"])
     token = issue_portal_token(
         secret=get_settings().client_portal_secret, tenant_id=ctx["tenant_id"],
         client_id=client_id, grant_id=str(grant_id), expires_at=int(expires_at.timestamp()),
@@ -2081,6 +2127,255 @@ async def get_receipt(request: Request,receipt_id: UUID,ctx=Depends(context),db:
     return {"success":True,"data":dict(row),"error":None,"request_id":request.state.correlation_id}
 
 
+async def _p15_access(request, db, ctx, capability="RESOURCE_LIBRARY"):
+    return external_only(request, ctx) or await require_capability(request, db, ctx, capability)
+
+
+async def _p15_audit(db, ctx, event_type, *, client_id=None, resource_id=None,
+                     assignment_id=None, homework_id=None, actor_type="PRACTITIONER", metadata=None):
+    await db.execute(text("""INSERT INTO external_resource_audit_events
+      (id,tenant_id,client_id,resource_id,assignment_id,homework_id,event_type,actor_id,actor_type,metadata,created_at)
+      VALUES (:id,:tenant,:client,:resource,:assignment,:homework,:event,:actor,:actor_type,CAST(:metadata AS jsonb),:now)"""), {
+        "id":uuid4(),"tenant":ctx.get("tenant_id"),"client":client_id,"resource":resource_id,
+        "assignment":assignment_id,"homework":homework_id,"event":event_type,
+        "actor":ctx.get("user_id"),"actor_type":actor_type,"metadata":json.dumps(metadata or {}),
+        "now":datetime.now(timezone.utc),
+    })
+
+
+def _validate_resource_reference(body):
+    if body.resource_type.endswith("_LINK"):
+        parsed=urlparse(body.content_reference)
+        if parsed.scheme != "https" or not parsed.netloc:
+            raise ValueError("External resource links must use HTTPS")
+
+
+@app.get("/api/v1/practice-operations/resources")
+async def list_professional_resources(request:Request, scope:str|None=None, resource_type:str|None=None,
+                                      active:bool|None=True, ctx=Depends(context), db:AsyncSession=Depends(get_db)):
+    denied=await _p15_access(request,db,ctx)
+    if denied:return denied
+    rows=(await db.execute(text("""SELECT d.*,v.id AS version_id,v.version,v.content_reference,v.media_type,
+      v.duration_minutes,v.instructions,v.tags,v.capability_required
+      FROM external_resource_definitions d JOIN LATERAL
+       (SELECT rv.id,rv.resource_id,rv.tenant_id,rv.version,rv.content_reference,rv.media_type,
+        rv.duration_minutes,rv.instructions,rv.tags,rv.capability_required,rv.created_by,rv.created_at
+        FROM external_resource_versions rv WHERE rv.resource_id=d.id ORDER BY rv.version DESC LIMIT 1) v ON TRUE
+      WHERE (d.tenant_id=:tenant OR (d.scope='SYSTEM' AND d.tenant_id IS NULL))
+      AND (:scope IS NULL OR d.scope=:scope) AND (:type IS NULL OR d.resource_type=:type)
+      AND (:active IS NULL OR d.active=:active) ORDER BY d.scope,d.title"""),{
+        "tenant":ctx["tenant_id"],"scope":scope,"type":resource_type,"active":active})).mappings().all()
+    return {"success":True,"data":{"items":[dict(r) for r in rows]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/resources",status_code=201)
+async def create_professional_resource(request:Request,body:ProfessionalResourceCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _p15_access(request,db,ctx)
+    if denied:return denied
+    try:_validate_resource_reference(body)
+    except ValueError as exc:return error(request,422,"RESOURCE_REFERENCE_INVALID",str(exc))
+    now,rid,vid=datetime.now(timezone.utc),uuid4(),uuid4()
+    owner=ctx["user_id"] if body.scope=="PRACTITIONER" else None
+    await db.execute(text("""INSERT INTO external_resource_definitions
+      (id,tenant_id,scope,profession_code,title,description,resource_type,active,owner_practitioner_id,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:scope,:profession,:title,:description,:type,TRUE,:owner,:actor,:now,:now)"""),{
+      "id":rid,"tenant":ctx["tenant_id"],"scope":body.scope,"profession":body.profession_code,"title":body.title,
+      "description":body.description,"type":body.resource_type,"owner":owner,"actor":ctx["user_id"],"now":now})
+    await db.execute(text("""INSERT INTO external_resource_versions
+      (id,resource_id,tenant_id,version,content_reference,media_type,duration_minutes,instructions,tags,capability_required,created_by,created_at)
+      VALUES (:id,:resource,:tenant,1,:reference,:media,:duration,:instructions,CAST(:tags AS jsonb),:capability,:actor,:now)"""),{
+      "id":vid,"resource":rid,"tenant":ctx["tenant_id"],"reference":body.content_reference,"media":body.media_type,
+      "duration":body.duration_minutes,"instructions":body.instructions,"tags":json.dumps(body.tags),
+      "capability":body.capability_required,"actor":ctx["user_id"],"now":now})
+    await _p15_audit(db,ctx,"RESOURCE_CREATED",resource_id=rid)
+    return {"success":True,"data":{"id":rid,"version":1},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/resources/{resource_id}")
+async def get_professional_resource(request:Request,resource_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _p15_access(request,db,ctx)
+    if denied:return denied
+    row=(await db.execute(text("""SELECT d.*,v.id AS version_id,v.version,v.content_reference,v.media_type,v.duration_minutes,
+      v.instructions,v.tags,v.capability_required FROM external_resource_definitions d JOIN external_resource_versions v ON v.resource_id=d.id
+      WHERE d.id=:id AND (d.tenant_id=:tenant OR (d.scope='SYSTEM' AND d.tenant_id IS NULL)) ORDER BY v.version DESC LIMIT 1"""),
+      {"id":resource_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"RESOURCE_NOT_FOUND","Resource not found")
+    return {"success":True,"data":dict(row),"error":None,"request_id":request.state.correlation_id}
+
+
+@app.patch("/api/v1/practice-operations/resources/{resource_id}")
+async def update_professional_resource(request:Request,resource_id:UUID,body:ProfessionalResourceUpdate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _p15_access(request,db,ctx)
+    if denied:return denied
+    row=(await db.execute(text("""SELECT d.scope,d.resource_type,COALESCE(MAX(v.version),0) AS version FROM external_resource_definitions d
+      LEFT JOIN external_resource_versions v ON v.resource_id=d.id WHERE d.id=:id AND d.tenant_id=:tenant GROUP BY d.scope,d.resource_type"""),
+      {"id":resource_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"RESOURCE_NOT_FOUND","Resource not found")
+    if row["scope"]=="SYSTEM":return error(request,403,"SYSTEM_RESOURCE_IMMUTABLE","System resources cannot be edited")
+    if row["resource_type"].endswith("_LINK"):
+        parsed=urlparse(body.content_reference)
+        if parsed.scheme!="https" or not parsed.netloc:return error(request,422,"RESOURCE_REFERENCE_INVALID","External resource links must use HTTPS")
+    now,version=datetime.now(timezone.utc),row["version"]+1
+    await db.execute(text("UPDATE external_resource_definitions SET title=:title,description=:description,updated_at=:now WHERE id=:id AND tenant_id=:tenant"),
+      {"title":body.title,"description":body.description,"now":now,"id":resource_id,"tenant":ctx["tenant_id"]})
+    await db.execute(text("""INSERT INTO external_resource_versions
+      (id,resource_id,tenant_id,version,content_reference,media_type,duration_minutes,instructions,tags,capability_required,created_by,created_at)
+      VALUES (:id,:resource,:tenant,:version,:reference,:media,:duration,:instructions,CAST(:tags AS jsonb),:capability,:actor,:now)"""),{
+      "id":uuid4(),"resource":resource_id,"tenant":ctx["tenant_id"],"version":version,"reference":body.content_reference,
+      "media":body.media_type,"duration":body.duration_minutes,"instructions":body.instructions,"tags":json.dumps(body.tags),
+      "capability":body.capability_required,"actor":ctx["user_id"],"now":now})
+    await _p15_audit(db,ctx,"RESOURCE_UPDATED",resource_id=resource_id,metadata={"version":version})
+    return {"success":True,"data":{"id":resource_id,"version":version},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/resources/{resource_id}/archive")
+async def archive_professional_resource(request:Request,resource_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _p15_access(request,db,ctx)
+    if denied:return denied
+    row=(await db.execute(text("UPDATE external_resource_definitions SET active=FALSE,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND scope<>'SYSTEM' RETURNING id"),
+      {"now":datetime.now(timezone.utc),"id":resource_id,"tenant":ctx["tenant_id"]})).first()
+    if not row:return error(request,404,"RESOURCE_NOT_FOUND","Resource not found")
+    await _p15_audit(db,ctx,"RESOURCE_ARCHIVED",resource_id=resource_id)
+    return {"success":True,"data":{"id":resource_id,"active":False},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/resources",status_code=201)
+async def assign_professional_resource(request:Request,client_id:str,body:ResourceAssignmentCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _p15_access(request,db,ctx)
+    if denied:return denied
+    version=(await db.execute(text("""SELECT v.id FROM external_resource_definitions d JOIN external_resource_versions v ON v.resource_id=d.id
+      WHERE d.id=:id AND d.active=TRUE AND (d.tenant_id=:tenant OR (d.scope='SYSTEM' AND d.tenant_id IS NULL))
+      ORDER BY v.version DESC LIMIT 1"""),{"id":body.resource_id,"tenant":ctx["tenant_id"]})).first()
+    if not version:return error(request,404,"RESOURCE_NOT_FOUND","Resource not found")
+    context_tables={"SESSION":"practice_consultations","PLAN":"external_profession_plans","TASK":"practice_tasks","HOMEWORK":"external_homework_assignments","FOLLOWUP":"practice_follow_ups"}
+    if body.context_type in context_tables:
+        if not body.context_id:return error(request,422,"RESOURCE_CONTEXT_REQUIRED","Context identifier is required")
+        linked=(await db.execute(text(f"SELECT id FROM {context_tables[body.context_type]} WHERE id=:id AND tenant_id=:tenant AND client_id=:client"),
+          {"id":body.context_id,"tenant":ctx["tenant_id"],"client":client_id})).first()
+        if not linked:return error(request,404,"RESOURCE_CONTEXT_NOT_FOUND","Assignment context not found")
+    aid,now=uuid4(),datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_resource_assignments
+      (id,tenant_id,resource_id,resource_version_id,client_id,context_type,context_id,assigned_by,assigned_at,due_at,instructions,required,status)
+      VALUES (:id,:tenant,:resource,:version,:client,:context,:context_id,:actor,:now,:due,:instructions,:required,'ASSIGNED')"""),{
+      "id":aid,"tenant":ctx["tenant_id"],"resource":body.resource_id,"version":version[0],"client":client_id,
+      "context":body.context_type,"context_id":body.context_id,"actor":ctx["user_id"],"now":now,"due":body.due_at,
+      "instructions":body.instructions,"required":body.required})
+    await _p15_audit(db,ctx,"RESOURCE_ASSIGNED",client_id=client_id,resource_id=body.resource_id,assignment_id=aid)
+    return {"success":True,"data":{"id":aid,"status":"ASSIGNED"},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/homework")
+async def list_client_homework(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _p15_access(request,db,ctx,"HOMEWORK")
+    if denied:return denied
+    rows=(await db.execute(text("""SELECT id,tenant_id,client_id,profession_code,title,description,homework_type,instructions,
+      assigned_by,assigned_at,start_date,due_date,cadence,every_n_days,target_count,status,resource_assignment_id,
+      goal_id,plan_id,session_id,completed_at,cancelled_at,updated_at FROM external_homework_assignments
+      WHERE tenant_id=:tenant AND client_id=:client ORDER BY due_date NULLS LAST,assigned_at DESC"""),
+      {"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+    return {"success":True,"data":{"items":[dict(r) for r in rows]},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/homework",status_code=201)
+async def create_client_homework(request:Request,client_id:str,body:HomeworkCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _p15_access(request,db,ctx,"HOMEWORK")
+    if denied:return denied
+    if (body.cadence=="CUSTOM_INTERVAL") != (body.every_n_days is not None):
+        return error(request,422,"HOMEWORK_CADENCE_INVALID","Custom interval requires every_n_days")
+    for value,table,code in ((body.goal_id,"practice_goals","GOAL"),(body.plan_id,"external_profession_plans","PLAN"),(body.session_id,"practice_consultations","SESSION"),(body.resource_assignment_id,"external_resource_assignments","RESOURCE_ASSIGNMENT")):
+        if value is not None:
+            linked=(await db.execute(text(f"SELECT id FROM {table} WHERE id=:id AND tenant_id=:tenant AND client_id=:client"),
+              {"id":value,"tenant":ctx["tenant_id"],"client":client_id})).first()
+            if not linked:return error(request,404,f"HOMEWORK_{code}_NOT_FOUND",f"{code.replace('_',' ').title()} not found")
+    hid,now=uuid4(),datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_homework_assignments
+      (id,tenant_id,client_id,profession_code,title,description,homework_type,instructions,assigned_by,assigned_at,start_date,due_date,cadence,every_n_days,target_count,status,resource_assignment_id,goal_id,plan_id,session_id,updated_at)
+      VALUES (:id,:tenant,:client,:profession,:title,:description,:type,:instructions,:actor,:now,:start,:due,:cadence,:interval,:target,'NOT_STARTED',:resource,:goal,:plan,:session,:now)"""),{
+      "id":hid,"tenant":ctx["tenant_id"],"client":client_id,"profession":body.profession_code,"title":body.title,
+      "description":body.description,"type":body.homework_type,"instructions":body.instructions,"actor":ctx["user_id"],
+      "now":now,"start":body.start_date,"due":body.due_date,"cadence":body.cadence,"interval":body.every_n_days,
+      "target":body.target_count,"resource":body.resource_assignment_id,"goal":body.goal_id,"plan":body.plan_id,"session":body.session_id})
+    await _p15_audit(db,ctx,"HOMEWORK_ASSIGNED",client_id=client_id,homework_id=hid)
+    return {"success":True,"data":{"id":hid,"status":"NOT_STARTED"},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.patch("/api/v1/practice-operations/clients/{client_id}/homework/{homework_id}")
+async def update_client_homework(request:Request,client_id:str,homework_id:UUID,body:HomeworkStatusUpdate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _p15_access(request,db,ctx,"HOMEWORK")
+    if denied:return denied
+    row=(await db.execute(text("SELECT status,due_date FROM external_homework_assignments WHERE id=:id AND tenant_id=:tenant AND client_id=:client"),
+      {"id":homework_id,"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
+    if not row:return error(request,404,"HOMEWORK_NOT_FOUND","Homework not found")
+    if body.status=="MISSED" and (row["due_date"] is None or row["due_date"]>=date.today()):
+        return error(request,409,"HOMEWORK_NOT_DUE","Homework cannot be marked missed before its due-date policy applies")
+    try:status=homework_transition(row["status"],body.status)
+    except ValueError as exc:return error(request,409,"HOMEWORK_TRANSITION_INVALID",str(exc))
+    now=datetime.now(timezone.utc)
+    await db.execute(text("""UPDATE external_homework_assignments SET status=:status,updated_at=:now,
+      completed_at=CASE WHEN :status='COMPLETED' THEN :now ELSE completed_at END,
+      cancelled_at=CASE WHEN :status='CANCELLED' THEN :now ELSE cancelled_at END
+      WHERE id=:id AND tenant_id=:tenant AND client_id=:client"""),{
+      "status":status,"now":now,"id":homework_id,"tenant":ctx["tenant_id"],"client":client_id})
+    await _p15_audit(db,ctx,"HOMEWORK_"+status,client_id=client_id,homework_id=homework_id)
+    return {"success":True,"data":{"id":homework_id,"status":status},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/adherence")
+async def get_client_adherence(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _p15_access(request,db,ctx,"ADHERENCE")
+    if denied:return denied
+    rows=[dict(r) for r in (await db.execute(text("SELECT start_date,due_date,status,completed_at,updated_at FROM external_homework_assignments WHERE tenant_id=:tenant AND client_id=:client"),
+      {"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()]
+    today=date.today(); summaries=[]
+    for window,days in (("7_DAY",7),("30_DAY",30)):
+        summary=adherence_summary(rows,today=today,days=days);summary.update({"window_type":window,"window_start":today-timedelta(days=days-1),"window_end":today})
+        summaries.append(summary)
+    return {"success":True,"data":{"client_id":client_id,"windows":summaries},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/client-portal/{token}/resources/{assignment_id}/open")
+async def portal_open_resource(request:Request,token:str,assignment_id:UUID,db:AsyncSession=Depends(get_db)):
+    scope,denied=await _portal_scope(request,token,"READ_RESOURCES",db)
+    if denied:return denied
+    row=(await db.execute(text("""UPDATE external_resource_assignments SET status=CASE WHEN status='ASSIGNED' THEN 'OPENED' ELSE status END
+      WHERE id=:id AND tenant_id=:tenant AND client_id=:client AND status<>'CANCELLED'
+      RETURNING id,resource_id,content_reference""".replace(",content_reference","")),{
+      "id":assignment_id,"tenant":scope["tenant_id"],"client":scope["client_id"]})).mappings().first()
+    if not row:return error(request,404,"RESOURCE_ASSIGNMENT_NOT_FOUND","Resource assignment not found")
+    now=datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_resource_view_events
+      (id,tenant_id,client_id,assignment_id,event_type,actor_type,actor_id,evidence,created_at)
+      VALUES (:id,:tenant,:client,:assignment,'OPENED','CLIENT',NULL,CAST(:evidence AS jsonb),:now)"""),{
+      "id":uuid4(),"tenant":scope["tenant_id"],"client":scope["client_id"],"assignment":assignment_id,
+      "evidence":json.dumps({"action":"explicit_open"}),"now":now})
+    return {"success":True,"data":{"id":assignment_id,"status":"OPENED"},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/client-portal/{token}/homework/{homework_id}/check-in",status_code=201)
+async def portal_homework_checkin(request:Request,token:str,homework_id:UUID,body:HomeworkCheckinCreate,db:AsyncSession=Depends(get_db)):
+    scope,denied=await _portal_scope(request,token,"SUBMIT_HOMEWORK_CHECKIN",db)
+    if denied:return denied
+    row=(await db.execute(text("SELECT status FROM external_homework_assignments WHERE id=:id AND tenant_id=:tenant AND client_id=:client"),
+      {"id":homework_id,"tenant":scope["tenant_id"],"client":scope["client_id"]})).mappings().first()
+    if not row:return error(request,404,"HOMEWORK_NOT_FOUND","Homework not found")
+    if row["status"] in {"MISSED","CANCELLED"}:return error(request,409,"HOMEWORK_CHECKIN_CLOSED","Homework is closed")
+    cid,now=uuid4(),datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_homework_checkins
+      (id,tenant_id,client_id,homework_id,actor_type,actor_id,done,completion_count,numeric_adherence,reflection_text,note,difficulty_rating,created_at)
+      VALUES (:id,:tenant,:client,:homework,'CLIENT',NULL,:done,:count,:numeric,:reflection,:note,:difficulty,:now)"""),{
+      "id":cid,"tenant":scope["tenant_id"],"client":scope["client_id"],"homework":homework_id,"done":body.done,
+      "count":body.completion_count,"numeric":body.numeric_adherence,"reflection":body.reflection_text,"note":body.note,
+      "difficulty":body.difficulty_rating,"now":now})
+    status="COMPLETED" if body.done is True else "IN_PROGRESS"
+    await db.execute(text("""UPDATE external_homework_assignments SET status=:status,updated_at=:now,
+      completed_at=CASE WHEN :status='COMPLETED' THEN :now ELSE completed_at END
+      WHERE id=:id AND tenant_id=:tenant AND client_id=:client AND status IN ('NOT_STARTED','IN_PROGRESS')"""),{
+      "status":status,"now":now,"id":homework_id,"tenant":scope["tenant_id"],"client":scope["client_id"]})
+    await _p15_audit(db,{"tenant_id":scope["tenant_id"],"user_id":None},"HOMEWORK_CHECKIN",client_id=scope["client_id"],homework_id=homework_id,actor_type="CLIENT")
+    if status=="COMPLETED":await _p15_audit(db,{"tenant_id":scope["tenant_id"],"user_id":None},"HOMEWORK_COMPLETED",client_id=scope["client_id"],homework_id=homework_id,actor_type="CLIENT")
+    return {"success":True,"data":{"id":cid,"homework_id":homework_id,"status":status},"error":None,"request_id":request.state.correlation_id}
+
+
 @app.get("/api/v1/client-portal/{token}")
 async def client_portal_home(request: Request, token: str, db: AsyncSession=Depends(get_db)):
     scope, denied = await _portal_scope(request, token, "READ", db)
@@ -2122,6 +2417,16 @@ async def client_portal_home(request: Request, token: str, db: AsyncSession=Depe
     documents = [dict(row) for row in (await db.execute(text("""SELECT id,title,media_type,status,submitted_at
       FROM external_client_portal_documents WHERE tenant_id=:tenant AND client_id=:client
       AND status NOT IN ('REMOVED','QUARANTINED') ORDER BY submitted_at DESC"""), params)).mappings().all()]
+    resources = [dict(row) for row in (await db.execute(text("""SELECT a.id,a.status,a.assigned_at,a.due_at,a.instructions,a.required,
+      d.title,d.description,d.resource_type,v.content_reference,v.media_type,v.duration_minutes
+      FROM external_resource_assignments a JOIN external_resource_definitions d
+        ON d.id=a.resource_id JOIN external_resource_versions v ON v.id=a.resource_version_id
+      WHERE a.tenant_id=:tenant AND a.client_id=:client AND a.status<>'CANCELLED'
+      ORDER BY a.assigned_at DESC"""), params)).mappings().all()] if "READ_RESOURCES" in set(scope["allowed_actions"]) else []
+    homework = [dict(row) for row in (await db.execute(text("""SELECT id,title,description,homework_type,instructions,
+      start_date,due_date,cadence,target_count,status,goal_id,plan_id,session_id,completed_at
+      FROM external_homework_assignments WHERE tenant_id=:tenant AND client_id=:client AND status<>'CANCELLED'
+      ORDER BY due_date NULLS LAST,assigned_at DESC"""), params)).mappings().all()] if "READ_HOMEWORK" in set(scope["allowed_actions"]) else []
     packages = [dict(row) for row in (await db.execute(text("""SELECT cp.id,p.name,cp.start_date,cp.end_date,
       cp.status,cp.sessions_total,COUNT(s.id)::int AS sessions_used,
       GREATEST(cp.sessions_total-COUNT(s.id)::int,0) AS sessions_remaining,
@@ -2143,7 +2448,7 @@ async def client_portal_home(request: Request, token: str, db: AsyncSession=Depe
         "clientId": scope["client_id"], "tasks": tasks, "appointments": appointments,
         "goals": goals, "plans": plans, "assessments": assessments,
         "instructions": instructions, "progress": progress, "documents": documents,
-        "resources": [], "notifications": [], "packages": packages, "invoices": invoices, "receipts": receipts,
+        "resources": resources, "homework": homework, "notifications": [], "packages": packages, "invoices": invoices, "receipts": receipts,
     }, "error": None, "request_id": request.state.correlation_id}
 
 

@@ -1,0 +1,10 @@
+import test from 'node:test';import assert from 'node:assert/strict';import{readFileSync}from'node:fs';
+const component=readFileSync(new URL('../components/external/ExternalResourcesHomework.jsx',import.meta.url),'utf8');
+const portal=readFileSync(new URL('../pages/client-portal/[token].js',import.meta.url),'utf8');
+const api=readFileSync(new URL('../lib/practiceOperationsApi.js',import.meta.url),'utf8');
+const workspace=readFileSync(new URL('../components/external/ExternalSaaSWorkspace.jsx',import.meta.url),'utf8');
+const client360=readFileSync(new URL('../components/external/ExternalClient360.jsx',import.meta.url),'utf8');
+test('resource library has filters, custom resources, assignment, and truthful state boundaries',()=>{for(const value of ['ResourceLibrary','All scopes','All types','Create custom','Assign','loading','error'])assert.match(component,new RegExp(value,'i'));assert.match(api,/assignProfessionalResource/);});
+test('homework and adherence are separate client-facing domains',()=>{for(const value of ['ClientHomeworkAdherence','NOT_STARTED','COMPLETED','MISSED','CANCELLED','completion_rate'])assert.match(component,new RegExp(value));assert.match(client360,/Resources & Homework/);});
+test('portal records explicit resource open and homework check-in',()=>{assert.match(portal,/openPortalResource/);assert.match(portal,/submitHomeworkCheckin/);assert.match(portal,/Open resource/);assert.match(portal,/No homework has been assigned/);});
+test('P15 surfaces are additive to consultant navigation',()=>{assert.match(workspace,/ResourceLibrary/);assert.match(workspace,/\['resources', 'Resources', Library\]/);});

@@ -276,6 +276,8 @@ class ClientPortalInvitationCreate(BaseModel):
     expires_in_hours: int = Field(default=168, ge=1, le=2160)
     allow_task_completion: bool = True
     allow_document_upload: bool = True
+    allow_resource_access: bool = True
+    allow_homework_checkin: bool = True
 
 
 class ClientPortalDocumentCreate(BaseModel):
@@ -423,3 +425,67 @@ class PaymentCreate(BaseModel):
     provider_reference: str | None = Field(default=None, max_length=160)
     payment_date: date
     notes: str | None = Field(default=None, max_length=4000)
+
+
+class ProfessionalResourceCreate(BaseModel):
+    scope: Literal["PRACTICE","PRACTITIONER"] = "PRACTICE"
+    profession_code: str | None = Field(default=None, max_length=80)
+    title: str = Field(min_length=1, max_length=240)
+    description: str | None = Field(default=None, max_length=4000)
+    resource_type: Literal["PDF","DOCUMENT","VIDEO_LINK","ARTICLE_LINK","WORKSHEET","EXERCISE","INSTRUCTION","CHECKLIST","AUDIO_LINK","FORM_LINK"]
+    content_reference: str = Field(min_length=1, max_length=4000)
+    media_type: str | None = Field(default=None, max_length=120)
+    duration_minutes: int | None = Field(default=None, gt=0, le=1440)
+    instructions: str | None = Field(default=None, max_length=4000)
+    tags: list[str] = Field(default_factory=list, max_length=50)
+    capability_required: str | None = Field(default=None, max_length=80)
+
+
+class ProfessionalResourceUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=240)
+    description: str | None = Field(default=None, max_length=4000)
+    content_reference: str = Field(min_length=1, max_length=4000)
+    media_type: str | None = Field(default=None, max_length=120)
+    duration_minutes: int | None = Field(default=None, gt=0, le=1440)
+    instructions: str | None = Field(default=None, max_length=4000)
+    tags: list[str] = Field(default_factory=list, max_length=50)
+    capability_required: str | None = Field(default=None, max_length=80)
+
+
+class ResourceAssignmentCreate(BaseModel):
+    resource_id: UUID
+    context_type: Literal["CLIENT","SESSION","PLAN","TASK","HOMEWORK","FOLLOWUP"] = "CLIENT"
+    context_id: str | None = Field(default=None, max_length=120)
+    due_at: datetime | None = None
+    instructions: str | None = Field(default=None, max_length=4000)
+    required: bool = False
+
+
+class HomeworkCreate(BaseModel):
+    profession_code: str | None = Field(default=None, max_length=80)
+    title: str = Field(min_length=1, max_length=240)
+    description: str | None = Field(default=None, max_length=4000)
+    homework_type: Literal["CHECKLIST","REFLECTION","JOURNAL","EXERCISE","HABIT","OBSERVATION_LOG","EDUCATION_TASK","PRACTICE_ACTIVITY","CUSTOM"]
+    instructions: str | None = Field(default=None, max_length=4000)
+    start_date: date
+    due_date: date | None = None
+    cadence: Literal["ONE_TIME","DAILY","WEEKLY","CUSTOM_INTERVAL"] = "ONE_TIME"
+    every_n_days: int | None = Field(default=None, gt=0, le=365)
+    target_count: int | None = Field(default=None, gt=0, le=10000)
+    resource_assignment_id: UUID | None = None
+    goal_id: str | None = Field(default=None, max_length=120)
+    plan_id: UUID | None = None
+    session_id: str | None = Field(default=None, max_length=120)
+
+
+class HomeworkStatusUpdate(BaseModel):
+    status: Literal["IN_PROGRESS","COMPLETED","MISSED","CANCELLED"]
+
+
+class HomeworkCheckinCreate(BaseModel):
+    done: bool | None = None
+    completion_count: int | None = Field(default=None, ge=0, le=10000)
+    numeric_adherence: float | None = Field(default=None, ge=0, le=100)
+    reflection_text: str | None = Field(default=None, max_length=10000)
+    note: str | None = Field(default=None, max_length=4000)
+    difficulty_rating: int | None = Field(default=None, ge=1, le=5)

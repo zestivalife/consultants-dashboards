@@ -95,6 +95,15 @@ export function recordInvoicePayment(id,payload){return request(`/billing/invoic
 export function listPayments(clientId){const query=clientId?`?client_id=${encodeURIComponent(clientId)}`:'';return request(`/billing/payments${query}`);}
 export function getClientBilling(clientId){return request(`/billing/clients/${encodeURIComponent(clientId)}`);}
 export function getReceipt(id){return request(`/billing/receipts/${encodeURIComponent(id)}`);}
+export function listProfessionalResources(filters={}){const query=new URLSearchParams();Object.entries(filters).forEach(([key,value])=>{if(value!==undefined&&value!==null&&value!=='')query.set(key,value)});return request(`/resources?${query}`);}
+export function createProfessionalResource(payload){return request('/resources',{method:'POST',body:JSON.stringify(payload)});}
+export function updateProfessionalResource(id,payload){return request(`/resources/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function archiveProfessionalResource(id){return request(`/resources/${encodeURIComponent(id)}/archive`,{method:'POST'});}
+export function assignProfessionalResource(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/resources`,{method:'POST',body:JSON.stringify(payload)});}
+export function listClientHomework(clientId){return request(`/clients/${encodeURIComponent(clientId)}/homework`);}
+export function createClientHomework(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/homework`,{method:'POST',body:JSON.stringify(payload)});}
+export function updateClientHomework(clientId,id,status){return request(`/clients/${encodeURIComponent(clientId)}/homework/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify({status})});}
+export function getClientAdherence(clientId){return request(`/clients/${encodeURIComponent(clientId)}/adherence`);}
 export async function getPublicBooking(token){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}`);const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Booking link is unavailable.');return body?.data;}
 export async function submitPublicBooking(token,startsAt){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}?starts_at=${encodeURIComponent(startsAt)}`,{method:'POST',headers:{'Content-Type':'application/json'}});const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Appointment could not be booked.');return body?.data;}
 export async function openWhatsApp(payload){

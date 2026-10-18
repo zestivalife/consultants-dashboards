@@ -17,3 +17,5 @@ async function request(token,path='',options={}){
 export function getClientPortal(token){return request(token);}
 export function completePortalTask(token,taskId){return request(token,`/tasks/${taskId}/complete`,{method:'POST'});}
 export function submitPortalDocument(token,payload){return request(token,'/documents',{method:'POST',body:JSON.stringify(payload)});}
+export function openPortalResource(token,assignmentId){return request(token,`/resources/${assignmentId}/open`,{method:'POST'});}
+export function submitHomeworkCheckin(token,homeworkId,payload){return request(token,`/homework/${homeworkId}/check-in`,{method:'POST',body:JSON.stringify(payload)});}
