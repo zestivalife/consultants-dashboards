@@ -1,6 +1,7 @@
 """P31 marketplace lifecycle and public-projection policy."""
 import hashlib,re
 from datetime import date,datetime,timezone
+from uuid import UUID
 from pydantic import BaseModel,Field,field_validator
 
 PUBLIC_FIELDS={"profile_photo_url","display_name","professional_title","profession_code","specialisations","experience_years","bio","languages","consultation_modes","areas_of_focus","public_locations","services","programmes","session_duration","public_fee_from","public_fee_currency","accepting_new_clients"}
@@ -60,6 +61,14 @@ class PublicBookingCreate(EnrolmentCreate):
 class PublicWaitlistCreate(EnrolmentCreate):
     preferred_until:datetime|None=None
     time_preference:str|None=Field(default=None,max_length=120)
+
+class PromotionQuote(BaseModel):
+    code:str=Field(min_length=1,max_length=80)
+    amount_minor:int=Field(ge=0)
+    currency:str=Field(min_length=3,max_length=3)
+    service_id:str|None=Field(default=None,max_length=160)
+    user_reference:str=Field(min_length=1,max_length=120)
+    existing_promotion_ids:list[UUID]=Field(default_factory=list,max_length=10)
 
 class BookingManagementAction(BaseModel):
     action:str=Field(pattern="^(CANCEL|RESCHEDULE)$")

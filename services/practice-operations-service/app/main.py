@@ -79,7 +79,8 @@ from app.p41 import validate_message
 from app.p42 import external_change_action, project_busy_block, provider_state
 from app.p43 import assert_paid_evidence
 from app.p44 import downgrade_policy, provider_status as subscription_provider_status
-from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
+from app.p45 import discount_minor, validate_rule
+from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,PromotionQuote,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
                              publicly_visible,slug_base)
@@ -5343,6 +5344,17 @@ async def admin_saas_plans(request:Request,ctx=Depends(context),db:AsyncSession=
     if denied:return denied
     rows=[dict(row) for row in (await db.execute(text("SELECT id,code,name,monthly_price_minor,annual_price_minor,currency,included_practitioners,included_locations,storage_bytes,feature_entitlements,usage_limits,active FROM external_saas_plans ORDER BY code"))).mappings().all()]
     return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/public/consultants/{slug}/promotions/quote")
+async def public_promotion_quote(slug:str,request:Request,body:PromotionQuote,db:AsyncSession=Depends(get_db)):
+    profile=(await db.execute(text("SELECT id,tenant_id,consultant_user_id FROM external_consultant_public_profiles WHERE slug=:slug AND status='PUBLISHED' AND public_visibility=TRUE AND approval_valid=TRUE AND suspended_at IS NULL"),{"slug":slug})).mappings().first()
+    if not profile:return error(request,404,"CONSULTANT_NOT_FOUND","Consultant profile was not found")
+    rule=(await db.execute(text("SELECT id,tenant_id,promotion_type,value,valid_from,valid_until,usage_limit,per_user_limit,service_id,consultant_id,minimum_amount_minor,maximum_discount_minor,stackable,active FROM external_promotions WHERE UPPER(code)=UPPER(:code) AND active=TRUE AND (tenant_id IS NULL OR tenant_id=:tenant) ORDER BY tenant_id NULLS LAST,created_at DESC LIMIT 1"),{"code":body.code,"tenant":profile["tenant_id"]})).mappings().first()
+    if not rule:return error(request,404,"PROMOTION_NOT_FOUND","Promotion was not found")
+    counts=(await db.execute(text("SELECT COUNT(*) total,COUNT(*) FILTER(WHERE user_id=:user) user_total FROM external_promotion_redemptions WHERE promotion_id=:id"),{"user":body.user_reference,"id":rule["id"]})).mappings().one()
+    try:validate_rule(dict(rule),now=datetime.now(timezone.utc),tenant_id=profile["tenant_id"],user_id=body.user_reference,service_id=body.service_id,consultant_id=profile["consultant_user_id"],total_uses=counts["total"],user_uses=counts["user_total"],stacked=bool(body.existing_promotion_ids),amount_minor=body.amount_minor);discount=discount_minor(rule["promotion_type"],rule["value"],body.amount_minor,rule["maximum_discount_minor"])
+    except ValueError as exc:return error(request,409,"PROMOTION_NOT_APPLICABLE",str(exc))
+    return {"success":True,"data":{"promotionId":str(rule["id"]),"discountMinor":discount,"amountAfterMinor":body.amount_minor-discount,"currency":body.currency,"applied":True},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/practice-operations/admin/marketplace/finder-config")
 async def admin_finder_config(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):

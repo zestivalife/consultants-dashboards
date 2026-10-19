@@ -1,0 +1,9 @@
+"""P45 governed promotions, credits and redemptions."""
+from alembic import op
+revision='0045_promotions';down_revision='0044_practice_subscriptions';branch_labels=None;depends_on=None
+def upgrade():
+ op.execute("""CREATE TABLE external_promotions(id UUID PRIMARY KEY,tenant_id VARCHAR(80),code VARCHAR(80) NOT NULL,promotion_type VARCHAR(30) NOT NULL CHECK(promotion_type IN ('PERCENTAGE_DISCOUNT','FIXED_DISCOUNT','CREDIT','REFERRAL_CODE')),value NUMERIC(14,4) NOT NULL,currency CHAR(3),valid_from TIMESTAMPTZ NOT NULL,valid_until TIMESTAMPTZ,usage_limit INTEGER,per_user_limit INTEGER,service_id VARCHAR(160),consultant_id VARCHAR(120),minimum_amount_minor BIGINT NOT NULL DEFAULT 0,maximum_discount_minor BIGINT,stackable BOOLEAN NOT NULL DEFAULT FALSE,active BOOLEAN NOT NULL DEFAULT TRUE,created_by VARCHAR(120) NOT NULL,created_at TIMESTAMPTZ NOT NULL,UNIQUE(tenant_id,code),CHECK(value>=0),CHECK(valid_until IS NULL OR valid_until>valid_from))""")
+ op.execute("CREATE INDEX ix_promotions_lookup ON external_promotions(code,tenant_id,active,valid_from,valid_until)")
+ op.execute("""CREATE TABLE external_promotion_redemptions(id UUID PRIMARY KEY,promotion_id UUID NOT NULL REFERENCES external_promotions(id) ON DELETE RESTRICT,tenant_id VARCHAR(80) NOT NULL,user_id VARCHAR(120) NOT NULL,invoice_id UUID,marketplace_transaction_id UUID REFERENCES external_marketplace_transactions(id) ON DELETE RESTRICT,amount_before_minor BIGINT NOT NULL,discount_minor BIGINT NOT NULL,amount_after_minor BIGINT NOT NULL,currency CHAR(3) NOT NULL,rule_snapshot JSONB NOT NULL,redeemed_at TIMESTAMPTZ NOT NULL,CHECK(amount_before_minor>=0 AND discount_minor>=0 AND amount_after_minor>=0 AND amount_after_minor=amount_before_minor-discount_minor))""")
+ op.execute("CREATE INDEX ix_promotion_redemptions_limits ON external_promotion_redemptions(promotion_id,user_id,redeemed_at)")
+def downgrade():raise RuntimeError('Promotions are expand-only')
