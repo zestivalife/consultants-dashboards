@@ -5,6 +5,9 @@ export function listFeaturedConsultants(limit=6){return publicRequest(`/featured
 export function trackHomepageMarketplaceEvent(payload){return publicRequest('/homepage-events',{method:'POST',body:JSON.stringify(payload)})}
 export function comparePublicConsultants(slugs=[]){const query=new URLSearchParams();slugs.forEach(slug=>query.append('c',slug));return publicRequest(`/compare?${query}`)}
 export function trackComparisonEvent(payload){return publicRequest('/comparison-events',{method:'POST',body:JSON.stringify(payload)})}
+export function getFinderConfig(){return publicRequest('/finder/config')}
+export function findConsultants(payload){return publicRequest('/finder/matches',{method:'POST',body:JSON.stringify(payload)})}
+export function trackFinderEvent(payload){return publicRequest('/finder/events',{method:'POST',body:JSON.stringify(payload)})}
 export function getPublicConsultant(slug){return publicRequest(`/${encodeURIComponent(slug)}`)}
 export function getPublicAvailability(slug){return publicRequest(`/${encodeURIComponent(slug)}/availability`)}
 export function createPublicEnrolment(slug,payload){const source=typeof window!=='undefined'?new URLSearchParams(window.location.search).get('source'):null;return publicRequest(`/${encodeURIComponent(slug)}/enrolments`,{method:'POST',body:JSON.stringify({...payload,source:source||payload.source||'PUBLIC_CONSULTANT_DIRECTORY'})})}

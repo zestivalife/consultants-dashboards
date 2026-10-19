@@ -74,6 +74,7 @@ from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,Enrolme
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
                              publicly_visible,slug_base)
+from app.finder import FINDER_EVENTS,SUPPORT_TAXONOMY,FinderEvent,FinderRequest,explain_and_score
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
@@ -4394,6 +4395,35 @@ async def public_compare_consultants(request:Request,c:list[str]=Query(...,min_l
         items.append({**_public_marketplace_item(row),"verified_qualifications":qualifications,"availability_state":"AVAILABLE_WINDOWS" if availability else "NOT_SHOWN"})
     return {"success":True,"data":{"state":"READY" if items else "CONFIRMED_EMPTY","items":items,"unavailable_count":len(slugs)-len(items)},"error":None,"request_id":request.state.correlation_id}
 
+@app.get("/api/v1/public/consultants/finder/config")
+async def public_finder_config(request:Request,db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text("SELECT config FROM external_marketplace_finder_config WHERE config_key='PUBLIC_FINDER' AND active=TRUE"))).mappings().first()
+    config=dict(row["config"]) if row else {"support_areas":SUPPORT_TAXONOMY,"questions":["support_area","mode","location","languages","availability","budget","experience"]}
+    return {"success":True,"data":config,"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/public/consultants/finder/matches")
+async def public_finder_matches(request:Request,body:FinderRequest,db:AsyncSession=Depends(get_db)):
+    config=(await public_finder_config(request,db))["data"];area=(config.get("support_areas") or {}).get(body.support_area)
+    if not area:return error(request,422,"UNKNOWN_SUPPORT_AREA","Choose a governed support area")
+    professions=area.get("professions") or [];params={"professions":professions,"limit":24};extra=" AND v.projection->>'profession_code'=ANY(:professions)"
+    if body.mode!="EITHER":extra+=" AND EXISTS(SELECT 1 FROM jsonb_array_elements_text(COALESCE(v.projection->'consultation_modes','[]'::jsonb)) m(value) WHERE m.value IN (:mode,'BOTH'))";params["mode"]=body.mode
+    rows=list((await db.execute(text(_public_profile_sql(extra)+" ORDER BY p.accepting_new_clients DESC,p.id LIMIT :limit"),params)).mappings().all());items=[]
+    for row in rows:
+        projection=dict(row["projection"]);available=(await db.execute(text("SELECT 1 FROM external_availability_rules WHERE tenant_id=:tenant AND active=TRUE LIMIT 1"),{"tenant":row["_tenant_id"]})).first() is not None
+        score,reasons=explain_and_score(projection,body,available);items.append({**_public_marketplace_item(row),"match_reasons":reasons,"match_strength":"Strong match" if score>=140 else "Matches most preferences" if score>=115 else "Matches some preferences","availability_state":"PUBLIC_AVAILABILITY" if available else "NOT_SHOWN","_score":score})
+    items.sort(key=lambda x:(-x.pop("_score"),x["slug"]))
+    return {"success":True,"data":{"state":"READY" if items else "CONFIRMED_EMPTY","items":items,"professions":professions,"relaxed_preferences":[]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/public/consultants/finder/events")
+async def public_finder_event(request:Request,body:FinderEvent,db:AsyncSession=Depends(get_db)):
+    if body.event_type not in FINDER_EVENTS:return error(request,422,"INVALID_FINDER_EVENT","Finder event is not allowed")
+    profile=None
+    if body.profile_id:
+        try:profile=UUID(body.profile_id)
+        except ValueError:return error(request,422,"INVALID_PROFILE_ID","Profile identifier is invalid")
+    await db.execute(text("INSERT INTO external_marketplace_finder_events(id,profile_id,event_type,step,support_area,created_at) VALUES (:id,:profile,:event,:step,:area,:now)"),{"id":uuid4(),"profile":profile,"event":body.event_type,"step":body.step,"area":body.support_area,"now":datetime.now(timezone.utc)});await db.commit()
+    return {"success":True,"data":{"recorded":True},"error":None,"request_id":request.state.correlation_id}
+
 @app.post("/api/v1/public/consultants/comparison-events")
 async def public_comparison_event(request:Request,body:MarketplaceComparisonEvent,db:AsyncSession=Depends(get_db)):
     ids=[]
@@ -4508,6 +4538,25 @@ async def report_marketplace_review(review_id:UUID,request:Request,body:ReviewRe
     if not row:return error(request,404,"REVIEW_NOT_FOUND","Review was not found")
     await db.execute(text("INSERT INTO external_consultant_review_events(id,review_id,tenant_id,event_type,actor_id,reason,created_at) VALUES (:id,:review,:tenant,'REVIEW_REPORTED',:actor,:reason,:now)"),{"id":uuid4(),"review":review_id,"tenant":row["tenant_id"],"actor":ctx["user_id"],"reason":body.reason,"now":datetime.now(timezone.utc)});await db.commit();return {"success":True,"data":{"reported":True},"error":None,"request_id":request.state.correlation_id}
 
+@app.get("/api/v1/practice-operations/admin/marketplace/finder-config")
+async def admin_finder_config(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    row=(await db.execute(text("SELECT config,updated_by,updated_at FROM external_marketplace_finder_config WHERE config_key='PUBLIC_FINDER'"))).mappings().first()
+    return {"success":True,"data":dict(row) if row else {"config":{"support_areas":SUPPORT_TAXONOMY,"questions":["support_area","mode","location","languages","availability","budget","experience"]}},"error":None,"request_id":request.state.correlation_id}
+
+@app.put("/api/v1/practice-operations/admin/marketplace/finder-config")
+async def update_admin_finder_config(request:Request,body:dict,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    areas=body.get("support_areas");questions=body.get("questions")
+    if not isinstance(areas,dict) or not isinstance(questions,list):return error(request,422,"INVALID_FINDER_CONFIG","Support areas and question order are required")
+    allowed_questions={"support_area","mode","location","languages","availability","budget","experience"}
+    if "support_area" not in questions or any(item not in allowed_questions for item in questions):return error(request,422,"INVALID_FINDER_QUESTIONS","Question configuration is invalid")
+    config={"support_areas":areas,"questions":questions}
+    await db.execute(text("INSERT INTO external_marketplace_finder_config(id,config_key,config,active,updated_by,updated_at) VALUES (:id,'PUBLIC_FINDER',CAST(:config AS jsonb),TRUE,:actor,:now) ON CONFLICT(config_key) DO UPDATE SET config=EXCLUDED.config,active=TRUE,updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at"),{"id":uuid4(),"config":json.dumps(config),"actor":ctx["user_id"],"now":datetime.now(timezone.utc)});await db.commit()
+    return {"success":True,"data":{"config":config},"error":None,"request_id":request.state.correlation_id}
+
 @app.get("/api/v1/practice-operations/admin/marketplace/analytics")
 async def admin_marketplace_analytics(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=_platform_admin(request,ctx)
@@ -4516,4 +4565,5 @@ async def admin_marketplace_analytics(request:Request,ctx=Depends(context),db:As
     events=[dict(row) for row in (await db.execute(text("SELECT event_type,COUNT(*)::int count FROM external_consultant_marketplace_events GROUP BY event_type"))).mappings().all()]
     homepage_events=[dict(row) for row in (await db.execute(text("SELECT event_type,COUNT(*)::int count FROM external_marketplace_homepage_events GROUP BY event_type"))).mappings().all()]
     comparison_events=[dict(row) for row in (await db.execute(text("SELECT event_type,COUNT(*)::int count FROM external_marketplace_comparison_events GROUP BY event_type"))).mappings().all()]
-    return {"success":True,"data":{"state":"READY","summary":dict(summary),"events":events,"homepage_events":homepage_events,"comparison_events":comparison_events,"engagement_label":"Marketplace engagement"},"error":None,"request_id":request.state.correlation_id}
+    finder_events=[dict(row) for row in (await db.execute(text("SELECT event_type,step,COUNT(*)::int count FROM external_marketplace_finder_events GROUP BY event_type,step"))).mappings().all()]
+    return {"success":True,"data":{"state":"READY","summary":dict(summary),"events":events,"homepage_events":homepage_events,"comparison_events":comparison_events,"finder_events":finder_events,"engagement_label":"Marketplace engagement"},"error":None,"request_id":request.state.correlation_id}
