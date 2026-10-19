@@ -855,3 +855,15 @@ class RefundTransition(BaseModel):
     state: Literal["REFUND_APPROVED","REFUND_PROCESSING","REFUNDED","REFUND_FAILED"]
     provider_refund_reference: str | None = Field(default=None,max_length=240)
     manual_refund_reference: str | None = Field(default=None,max_length=240)
+
+class SupportTicketCreate(BaseModel):
+    ticket_type: Literal["TECHNICAL","ACCOUNT","BILLING","DATA","MARKETPLACE","INTEGRATION","FEATURE_REQUEST","OTHER"]
+    subject: str = Field(min_length=3,max_length=240)
+    description: str = Field(min_length=3,max_length=10000)
+    context: dict[str,Any] = Field(default_factory=dict)
+
+class SupportTicketUpdate(BaseModel):
+    status: Literal["OPEN","IN_PROGRESS","WAITING_ON_CUSTOMER","RESOLVED","CLOSED"]
+    priority: Literal["P1","P2","P3","P4"] | None = None
+    owner_id: str | None = Field(default=None,max_length=120)
+    message: str | None = Field(default=None,max_length=5000)

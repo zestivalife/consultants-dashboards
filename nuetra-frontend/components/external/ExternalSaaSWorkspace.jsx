@@ -33,6 +33,7 @@ import {ExternalLocations} from './ExternalLocations';
 import {ExternalPayments} from './ExternalPayments';
 import {ExternalAiCopilot} from './ExternalAiCopilot';
 import {ExternalMarketplace} from './ExternalMarketplace';
+import {ExternalSupport} from './ExternalSupport';
 import { getDashboardCommandCentre,getPracticeConfiguration,getProfessionIntelligence,getTeamAccess,listMyClientAssignments,listPracticeNotifications,listPracticeResources,listProfessionIntakeProjections,listRenewalSignals } from '../../lib/practiceOperationsApi';
 import { Button, PageHeader, ProgressBar, Surface, externalWorkspaceClass } from './ui/ExternalUI';
 import {resolveProfessionExperience} from '../../lib/professionExperience';
@@ -58,6 +59,7 @@ const NAV = [
   ['consents', 'Consents', FileText],
   ['documents', 'Documents', FolderLock],
   ['locations', 'Locations', Building2],
+  ['support', 'Support', CircleAlert],
 ];
 const SECONDARY_NAV=PRACTICE_NAV;
 const REAL_P1_VIEWS=new Set(['consultations','followups','goals','tasks','checkins','adherence','notes']);

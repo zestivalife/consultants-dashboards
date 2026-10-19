@@ -231,6 +231,10 @@ export function createMarketplaceCommissionRule(payload){return request('/admin/
 export function updateMarketplacePayout(id,payload){return request(`/admin/marketplace/payouts/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
 export function getPracticeSubscription(){return request('/subscription');}
 export function listAdminSaasPlans(){return request('/admin/saas-plans');}
+export function listSupportTickets(){return request('/support/tickets');}
+export function createSupportTicket(payload){return request('/support/tickets',{method:'POST',body:JSON.stringify(payload)});}
+export function listAdminSupportTickets(filters={}){const query=new URLSearchParams(filters);return request(`/admin/support/tickets?${query}`);}
+export function updateAdminSupportTicket(id,payload){return request(`/admin/support/tickets/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
 export function getAdminFinderConfig(){return request('/admin/marketplace/finder-config');}
 export function updateAdminFinderConfig(payload){return request('/admin/marketplace/finder-config',{method:'PUT',body:JSON.stringify(payload)});}
 export function listComplianceAudit(clientId=''){return request(`/compliance/audit${clientId?`?client_id=${encodeURIComponent(clientId)}`:''}`);}

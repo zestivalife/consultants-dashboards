@@ -27,7 +27,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            ProfessionPlanCreate, ProfessionPlanSave)
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
-from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete, FeedbackRequestCreate, FeedbackSubmit, FeedbackAction, TeleconsultConfigure, TeleconsultTransition, SecureConversationCreate, SecureMessageCreate, CalendarConnectionPrepare, CalendarBusyBlockImport, CalendarExternalChange, MarketplaceCommissionRuleCreate, MarketplacePayoutUpdate, RefundCreate, RefundTransition
+from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete, FeedbackRequestCreate, FeedbackSubmit, FeedbackAction, TeleconsultConfigure, TeleconsultTransition, SecureConversationCreate, SecureMessageCreate, CalendarConnectionPrepare, CalendarBusyBlockImport, CalendarExternalChange, MarketplaceCommissionRuleCreate, MarketplacePayoutUpdate, RefundCreate, RefundTransition, SupportTicketCreate, SupportTicketUpdate
 from app.contracts import ClientPortalInvitationCreate, ClientPortalDocumentCreate, PreConsultationInvite
 from app.contracts import (ServicePackageCreate, ServicePackageUpdate,
                            ClientPackageAssign, ClientPackageStatusUpdate,
@@ -81,6 +81,7 @@ from app.p43 import assert_paid_evidence
 from app.p44 import downgrade_policy, provider_status as subscription_provider_status
 from app.p45 import discount_minor, validate_rule
 from app.p46 import refund_transition
+from app.p47 import safe_context
 from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,PromotionQuote,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
@@ -5417,3 +5418,35 @@ async def admin_marketplace_analytics(request:Request,ctx=Depends(context),db:As
     comparison_events=[dict(row) for row in (await db.execute(text("SELECT event_type,COUNT(*)::int count FROM external_marketplace_comparison_events GROUP BY event_type"))).mappings().all()]
     finder_events=[dict(row) for row in (await db.execute(text("SELECT event_type,step,COUNT(*)::int count FROM external_marketplace_finder_events GROUP BY event_type,step"))).mappings().all()]
     return {"success":True,"data":{"state":"READY","summary":dict(summary),"events":events,"homepage_events":homepage_events,"comparison_events":comparison_events,"finder_events":finder_events,"engagement_label":"Marketplace engagement"},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/support/tickets")
+async def list_support_tickets(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    rows=[dict(row) for row in (await db.execute(text("SELECT id,ticket_type,subject,status,priority,owner_id,sla_due_at,safe_context,created_at,updated_at FROM external_support_tickets WHERE tenant_id=:tenant ORDER BY updated_at DESC LIMIT 100"),{"tenant":ctx["tenant_id"]})).mappings().all()]
+    return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/support/tickets",status_code=201)
+async def create_support_ticket(request:Request,body:SupportTicketCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    try: context_data=safe_context(body.context)
+    except ValueError as exc:return error(request,422,"UNSAFE_SUPPORT_CONTEXT",str(exc))
+    item_id=uuid4();now=datetime.now(timezone.utc)
+    await db.execute(text("INSERT INTO external_support_tickets(id,tenant_id,created_by,ticket_type,subject,description,safe_context,created_at,updated_at) VALUES (:id,:tenant,:actor,:type,:subject,:description,CAST(:context AS jsonb),:now,:now)"),{"id":item_id,"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"type":body.ticket_type,"subject":body.subject,"description":body.description,"context":json.dumps(context_data),"now":now})
+    await db.execute(text("INSERT INTO external_support_ticket_events(id,ticket_id,tenant_id,event_type,resulting_status,actor_id,metadata,created_at) VALUES (:id,:ticket,:tenant,'CREATED','OPEN',:actor,CAST(:details AS jsonb),:now)"),{"id":uuid4(),"ticket":item_id,"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"details":json.dumps({"ticket_type":body.ticket_type}),"now":now});await db.commit()
+    return {"success":True,"data":{"id":str(item_id),"status":"OPEN","context":context_data},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/admin/support/tickets")
+async def admin_support_tickets(request:Request,status:str|None=None,priority:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    rows=[dict(row) for row in (await db.execute(text("SELECT id,tenant_id,created_by,ticket_type,subject,status,priority,owner_id,sla_due_at,safe_context,created_at,updated_at FROM external_support_tickets WHERE (:status IS NULL OR status=:status) AND (:priority IS NULL OR priority=:priority) ORDER BY priority,created_at LIMIT 250"),{"status":status,"priority":priority})).mappings().all()]
+    return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows},"error":None,"request_id":request.state.correlation_id}
+
+@app.patch("/api/v1/practice-operations/admin/support/tickets/{ticket_id}")
+async def update_support_ticket(ticket_id:UUID,request:Request,body:SupportTicketUpdate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    row=(await db.execute(text("SELECT tenant_id,status,priority,owner_id FROM external_support_tickets WHERE id=:id FOR UPDATE"),{"id":ticket_id})).mappings().first()
+    if not row:return error(request,404,"SUPPORT_TICKET_NOT_FOUND","Support ticket was not found")
+    priority=body.priority or row["priority"];owner=body.owner_id if body.owner_id is not None else row["owner_id"];now=datetime.now(timezone.utc);hours={"P1":4,"P2":8,"P3":24,"P4":72}[priority]
+    await db.execute(text("UPDATE external_support_tickets SET status=:status,priority=:priority,owner_id=:owner,sla_due_at=COALESCE(sla_due_at,:sla),updated_at=:now WHERE id=:id"),{"status":body.status,"priority":priority,"owner":owner,"sla":now+timedelta(hours=hours),"now":now,"id":ticket_id})
+    await db.execute(text("INSERT INTO external_support_ticket_events(id,ticket_id,tenant_id,event_type,previous_status,resulting_status,actor_id,message,metadata,created_at) VALUES (:id,:ticket,:tenant,'ADMIN_UPDATED',:previous,:result,:actor,:message,CAST(:details AS jsonb),:now)"),{"id":uuid4(),"ticket":ticket_id,"tenant":row["tenant_id"],"previous":row["status"],"result":body.status,"actor":ctx["user_id"],"message":body.message,"details":json.dumps({"priority":priority,"owner_id":owner}),"now":now});await db.commit()
+    return {"success":True,"data":{"id":str(ticket_id),"status":body.status,"priority":priority,"owner_id":owner},"error":None,"request_id":request.state.correlation_id}
