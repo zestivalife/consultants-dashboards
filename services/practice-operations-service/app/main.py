@@ -5562,3 +5562,32 @@ async def resolve_safe_command(request:Request,body:dict,ctx=Depends(context)):
     try:command=resolve_command(body.get('command',''))
     except ValueError as exc:return error(request,422,"UNKNOWN_SAFE_COMMAND",str(exc))
     return {"success":True,"data":{"command":command,"execution":"CLIENT_NAVIGATION_ONLY","naturalLanguageExecution":False},"error":None,"request_id":request.state.correlation_id}
+
+
+# Phase 1 intentionally exposes one-segment dynamic CRUD routes for its four
+# generic resources. Later phases added literal one-segment collections such
+# as /packages, /resources, /automations, and /referrals. Starlette resolves
+# routes in registration order, so every explicit P1-P50 path must precede the
+# two legacy catch-alls; otherwise the generic handler returns
+# RESOURCE_NOT_FOUND (or validates against the wrong request contract) before
+# the owning handler can run. Keep the correction centralized and preserve
+# every public path and request contract.
+def _prefer_literal_practice_collection_routes() -> None:
+    prefix = "/api/v1/practice-operations/"
+    dynamic_paths = {
+        f"{prefix}{{resource}}",
+        f"{prefix}{{resource}}/{{item_id}}",
+    }
+    specific_routes = []
+    catch_all_routes = []
+    for route in app.router.routes:
+        if getattr(route, "path", "") in dynamic_paths:
+            catch_all_routes.append(route)
+        else:
+            specific_routes.append(route)
+    if not catch_all_routes:
+        return
+    app.router.routes[:] = [*specific_routes, *catch_all_routes]
+
+
+_prefer_literal_practice_collection_routes()
