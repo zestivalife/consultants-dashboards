@@ -227,6 +227,8 @@ export function getMarketplaceEarnings(){return request('/marketplace/earnings')
 export function getAdminMarketplaceFinance(){return request('/admin/marketplace/finance');}
 export function createMarketplaceCommissionRule(payload){return request('/admin/marketplace/commission-rules',{method:'POST',body:JSON.stringify(payload)});}
 export function updateMarketplacePayout(id,payload){return request(`/admin/marketplace/payouts/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function getPracticeSubscription(){return request('/subscription');}
+export function listAdminSaasPlans(){return request('/admin/saas-plans');}
 export function getAdminFinderConfig(){return request('/admin/marketplace/finder-config');}
 export function updateAdminFinderConfig(payload){return request('/admin/marketplace/finder-config',{method:'PUT',body:JSON.stringify(payload)});}
 export function listComplianceAudit(clientId=''){return request(`/compliance/audit${clientId?`?client_id=${encodeURIComponent(clientId)}`:''}`);}

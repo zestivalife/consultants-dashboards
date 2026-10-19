@@ -78,6 +78,7 @@ from app.p40 import join_allowed, provider_status, validate_external_meeting_url
 from app.p41 import validate_message
 from app.p42 import external_change_action, project_busy_block, provider_state
 from app.p43 import assert_paid_evidence
+from app.p44 import downgrade_policy, provider_status as subscription_provider_status
 from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
@@ -5327,6 +5328,21 @@ async def update_marketplace_payout(payout_id:UUID,request:Request,body:Marketpl
     if result.rowcount!=1:return error(request,404,"PAYOUT_NOT_FOUND","Payout was not found")
     await db.execute(text("INSERT INTO external_marketplace_financial_ledger(id,payout_id,tenant_id,entry_type,amount_minor,currency,direction,evidence_reference,created_at) SELECT :entry,id,tenant_id,'PAYOUT',amount_minor,currency,'DEBIT',COALESCE(:provider,:manual),:now FROM external_marketplace_payouts WHERE id=:id"),{"entry":uuid4(),"provider":body.provider_reference,"manual":body.manual_settlement_reference,"now":now,"id":payout_id});await db.commit()
     return {"success":True,"data":{"state":body.state,"settlementEvidence":body.state=='PAID'},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/subscription")
+async def practice_subscription(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    row=(await db.execute(text("""SELECT s.id,s.state,s.billing_cycle,s.current_period_start,s.current_period_end,s.trial_ends_at,p.code,p.name,p.monthly_price_minor,p.annual_price_minor,p.currency,p.included_practitioners,p.included_locations,p.storage_bytes,p.feature_entitlements,p.usage_limits FROM external_practice_subscriptions s JOIN external_saas_plans p ON p.id=s.plan_id WHERE s.tenant_id=:tenant"""),{"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return {"success":True,"data":{"state":"NOT_CONFIGURED","subscriptionPaymentProvider":subscription_provider_status(False),"downgradePolicy":downgrade_policy()},"error":None,"request_id":request.state.correlation_id}
+    return {"success":True,"data":{**dict(row),"subscriptionPaymentProvider":subscription_provider_status(False),"downgradePolicy":downgrade_policy(),"entitlementAuthority":"PRODUCT_AND_ROLE_AND_PROFESSION"},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/admin/saas-plans")
+async def admin_saas_plans(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    rows=[dict(row) for row in (await db.execute(text("SELECT id,code,name,monthly_price_minor,annual_price_minor,currency,included_practitioners,included_locations,storage_bytes,feature_entitlements,usage_limits,active FROM external_saas_plans ORDER BY code"))).mappings().all()]
+    return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/practice-operations/admin/marketplace/finder-config")
 async def admin_finder_config(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
