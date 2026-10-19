@@ -1401,7 +1401,9 @@ async def _preconsultation_event_once(db, tenant_id, client_id, event_type, acto
 
 
 async def _preconsultation_projection(db, tenant_id, client_id, checklist=None):
-    checklist = checklist or (await db.execute(text("""SELECT * FROM external_preconsultation_checklists
+    checklist = checklist or (await db.execute(text("""SELECT id,tenant_id,client_id,lead_id,appointment_id,enrolment_id,
+      profession_code,service_id,acquisition_source,lifecycle_state,requirements,invited_at,
+      completed_at,ready_at,created_by,created_at,updated_at FROM external_preconsultation_checklists
       WHERE tenant_id=:tenant AND client_id=:client"""), {"tenant": tenant_id, "client": client_id})).mappings().first()
     if not checklist:
         return None
@@ -1468,7 +1470,10 @@ async def get_preconsultation(request:Request, client_id:str, ctx=Depends(contex
 async def preconsultation_analytics(request:Request, ctx=Depends(context), db:AsyncSession=Depends(get_db)):
     denied, _ = await _team_guard(request, db, ctx, "ANALYTICS_VIEW")
     if denied:return denied
-    rows=(await db.execute(text("SELECT * FROM external_preconsultation_checklists WHERE tenant_id=:tenant"),{"tenant":ctx["tenant_id"]})).mappings().all()
+    rows=(await db.execute(text("""SELECT id,tenant_id,client_id,lead_id,appointment_id,enrolment_id,
+      profession_code,service_id,acquisition_source,lifecycle_state,requirements,invited_at,
+      completed_at,ready_at,created_by,created_at,updated_at FROM external_preconsultation_checklists
+      WHERE tenant_id=:tenant"""),{"tenant":ctx["tenant_id"]})).mappings().all()
     projections=[await _preconsultation_projection(db,ctx["tenant_id"],row["client_id"],row) for row in rows]
     ready=sum(1 for item in projections if item["readyForConsultation"])
     blocked={}
