@@ -239,6 +239,10 @@ export function listNotificationCentre(state=''){return request(`/notification-c
 export function actOnNotification(id,action){return request(`/notification-centre/${encodeURIComponent(id)}/${action}`,{method:'POST'});}
 export function getNotificationPreferences(){return request('/notification-preferences');}
 export function updateNotificationPreferences(payload){return request('/notification-preferences',{method:'PUT',body:JSON.stringify(payload)});}
+export function globalSearch(q){return request(`/global-search?q=${encodeURIComponent(q)}`);}
+export function getRecentWork(){return request('/recent-work');}
+export function recordRecentWork(payload){return request('/recent-work',{method:'POST',body:JSON.stringify(payload)});}
+export function resolveCommand(command){return request('/command-palette/resolve',{method:'POST',body:JSON.stringify({command})});}
 export function getAdminFinderConfig(){return request('/admin/marketplace/finder-config');}
 export function updateAdminFinderConfig(payload){return request('/admin/marketplace/finder-config',{method:'PUT',body:JSON.stringify(payload)});}
 export function listComplianceAudit(clientId=''){return request(`/compliance/audit${clientId?`?client_id=${encodeURIComponent(clientId)}`:''}`);}

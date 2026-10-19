@@ -4,6 +4,7 @@ import {ExternalConsents} from './ExternalConsents';
 import {ExternalComplianceAudit} from './ExternalComplianceAudit';
 import {ExternalSupport} from './ExternalSupport';
 import {ExternalNotificationCentre} from './ExternalNotificationCentre';
+import {ExternalGlobalSearch} from './ExternalGlobalSearch';
 
 /**
  * @typedef {Object} ExternalModuleVM
@@ -71,6 +72,7 @@ function StatePanel({ title, body, icon:Icon=Sparkles }) {
 export function ExternalPracticeModule({ view, clients=[] }) {
   if(view==='support') return <ExternalSupport/>;
   if(view==='notification-centre') return <ExternalNotificationCentre/>;
+  if(view==='global-search') return <ExternalGlobalSearch/>;
   if(view==='forms') return <ExternalForms/>;
   if(view==='consents') return <ExternalConsents/>;
   if(view==='audit-centre') return <ExternalComplianceAudit clients={clients}/>;

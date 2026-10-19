@@ -61,6 +61,7 @@ const NAV = [
   ['locations', 'Locations', Building2],
   ['support', 'Support', CircleAlert],
   ['notification-centre', 'Notifications', Bell],
+  ['global-search', 'Search & Recent', Search],
 ];
 const SECONDARY_NAV=PRACTICE_NAV;
 const REAL_P1_VIEWS=new Set(['consultations','followups','goals','tasks','checkins','adherence','notes']);

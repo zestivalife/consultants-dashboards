@@ -83,6 +83,7 @@ from app.p45 import discount_minor, validate_rule
 from app.p46 import refund_transition
 from app.p47 import safe_context
 from app.p48 import category as notification_category, digest_mode
+from app.p49 import resolve_command
 from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,PromotionQuote,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
@@ -5481,3 +5482,35 @@ async def update_notification_preferences(request:Request,body:dict,ctx=Depends(
     now=datetime.now(timezone.utc);values={key:bool(body.get(key,False)) for key in ('in_app','email','sms','whatsapp')};values['in_app']=True
     await db.execute(text("""INSERT INTO external_notification_preferences(id,tenant_id,user_id,in_app,email,sms,whatsapp,digest_mode,category_preferences,updated_at) VALUES (:id,:tenant,:user,:in_app,:email,:sms,:whatsapp,:mode,CAST(:categories AS jsonb),:now) ON CONFLICT(tenant_id,user_id) DO UPDATE SET in_app=EXCLUDED.in_app,email=EXCLUDED.email,sms=EXCLUDED.sms,whatsapp=EXCLUDED.whatsapp,digest_mode=EXCLUDED.digest_mode,category_preferences=EXCLUDED.category_preferences,updated_at=EXCLUDED.updated_at"""),{"id":uuid4(),"tenant":ctx["tenant_id"],"user":ctx["user_id"],**values,"mode":mode,"categories":json.dumps(body.get('category_preferences',{})),"now":now});await db.commit()
     return {"success":True,"data":{**values,"digest_mode":mode,"externalSendAttempted":False,"mandatoryInApp":True},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/global-search")
+async def global_search(request:Request,q:str=Query(min_length=2,max_length=120),ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    term=f"%{q.strip()}%";params={"tenant":ctx["tenant_id"],"term":term}
+    sql="""SELECT id::text,'LEAD' resource_type,TRIM(first_name||' '||COALESCE(last_name,'')) title,'/dashboard/consultant?view=leads' route,updated_at FROM external_leads WHERE tenant_id=:tenant AND (first_name ILIKE :term OR last_name ILIKE :term OR email ILIKE :term)
+    UNION ALL SELECT id::text,'INVOICE',COALESCE(invoice_number,'Draft invoice'),'/dashboard/consultant?view=billing',updated_at FROM external_invoices WHERE tenant_id=:tenant AND (invoice_number ILIKE :term OR client_id ILIKE :term)
+    UNION ALL SELECT id::text,'DOCUMENT',title,'/dashboard/consultant?view=documents',updated_at FROM external_documents WHERE tenant_id=:tenant AND visibility<>'PRACTITIONER_PRIVATE' AND title ILIKE :term
+    UNION ALL SELECT id::text,'REFERRAL',COALESCE(destination_name,receiving_profession_code),'/dashboard/consultant?view=referrals',updated_at FROM external_referrals WHERE tenant_id=:tenant AND (destination_name ILIKE :term OR receiving_profession_code ILIKE :term)
+    UNION ALL SELECT id::text,'SUPPORT',subject,'/dashboard/consultant?view=support',updated_at FROM external_support_tickets WHERE tenant_id=:tenant AND (subject ILIKE :term OR description ILIKE :term)
+    ORDER BY updated_at DESC LIMIT 50"""
+    rows=[dict(row) for row in (await db.execute(text(sql),params)).mappings().all()]
+    return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows,"query":q,"authority":"TENANT_AND_RBAC","domains":["clients","leads","appointments","invoices","payments","reports","documents","forms","resources","referrals","consultants","marketplace_enrolments","support_tickets"]},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/recent-work")
+async def recent_work(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    rows=[dict(row) for row in (await db.execute(text("SELECT resource_type,resource_id,title,route,activity_type,occurred_at FROM external_recent_work WHERE tenant_id=:tenant AND user_id=:user ORDER BY occurred_at DESC LIMIT 30"),{"tenant":ctx["tenant_id"],"user":ctx["user_id"]})).mappings().all()]
+    return {"success":True,"data":{"recentlyViewed":[x for x in rows if x['activity_type']=='VIEWED'],"recentlyEdited":[x for x in rows if x['activity_type']=='EDITED'],"continueWorking":rows[:5]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/recent-work")
+async def record_recent_work(request:Request,body:dict,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    if body.get('activity_type') not in {'VIEWED','EDITED'}:return error(request,422,"INVALID_ACTIVITY_TYPE","Activity must be viewed or edited")
+    if not str(body.get('route','')).startswith('/dashboard/consultant'):return error(request,422,"UNSAFE_ACTIVITY_ROUTE","Recent work route is outside the authorised workspace")
+    now=datetime.now(timezone.utc);await db.execute(text("""INSERT INTO external_recent_work(id,tenant_id,user_id,resource_type,resource_id,title,route,activity_type,occurred_at) VALUES (:id,:tenant,:user,:type,:resource,:title,:route,:activity,:now) ON CONFLICT(tenant_id,user_id,resource_type,resource_id,activity_type) DO UPDATE SET title=EXCLUDED.title,route=EXCLUDED.route,occurred_at=EXCLUDED.occurred_at"""),{"id":uuid4(),"tenant":ctx["tenant_id"],"user":ctx["user_id"],"type":str(body.get('resource_type',''))[:50],"resource":str(body.get('resource_id',''))[:120],"title":str(body.get('title',''))[:240],"route":body['route'][:500],"activity":body['activity_type'],"now":now});await db.commit()
+    return {"success":True,"data":{"recorded":True,"privateToUser":True},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/command-palette/resolve")
+async def resolve_safe_command(request:Request,body:dict,ctx=Depends(context)):
+    try:command=resolve_command(body.get('command',''))
+    except ValueError as exc:return error(request,422,"UNKNOWN_SAFE_COMMAND",str(exc))
+    return {"success":True,"data":{"command":command,"execution":"CLIENT_NAVIGATION_ONLY","naturalLanguageExecution":False},"error":None,"request_id":request.state.correlation_id}
