@@ -6,6 +6,7 @@ import {
   decideMarketplaceReview,
   getAdminMarketplaceAnalytics,
   getAdminMarketplaceOperations,
+  getAdminMarketplaceFinance,
   getAdminFinderConfig,
   updateAdminFinderConfig,
   listAdminMarketplace,
@@ -32,6 +33,7 @@ export default function MarketplaceGovernanceModule() {
   const [operations, setOperations] = useState(null);
   const [notice, setNotice] = useState("");
   const [finder, setFinder] = useState(null);
+  const [finance, setFinance] = useState(null);
   const load = () => {
     setState("loading");
     Promise.all([
@@ -39,12 +41,14 @@ export default function MarketplaceGovernanceModule() {
       getAdminMarketplaceAnalytics(),
       getAdminMarketplaceOperations(),
       getAdminFinderConfig(),
+      getAdminMarketplaceFinance(),
     ])
-      .then(([profiles, metrics, ops, finderConfig]) => {
+      .then(([profiles, metrics, ops, finderConfig, financeData]) => {
         setItems(profiles.items || []);
         setAnalytics(metrics);
         setOperations(ops);
         setFinder(finderConfig.config);
+        setFinance(financeData);
         setState(profiles.state || "READY");
       })
       .catch((error) => {
@@ -81,6 +85,7 @@ export default function MarketplaceGovernanceModule() {
         </p>
       )}
       <Metrics analytics={analytics} />
+      <MarketplaceFinance data={finance} />
       <HomepageShowcase items={items} onNotice={setNotice} onDone={load} />
       <FinderConfiguration config={finder} onChange={setFinder} onNotice={setNotice} />
       <nav
@@ -130,6 +135,8 @@ export default function MarketplaceGovernanceModule() {
     </div>
   );
 }
+
+function MarketplaceFinance({data}){return <section className="rounded-2xl border bg-white p-5"><h2 className="text-xl font-bold">Marketplace Finance</h2>{!data?<p role="status" className="mt-3 text-sm">Finance data unavailable; no zero values are inferred.</p>:<div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{[['GMV',data.gmv_minor],['Platform revenue',data.platform_revenue_minor],['Consultant payable',data.consultant_payable_minor],['Pending settlement',data.pending_settlement_minor],['Refunds',data.refunds_minor]].map(([label,value])=><div key={label} className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">{label}</p><strong className="mt-1 block">{data.state==='CONFIRMED_EMPTY'?'No recorded activity':value}</strong></div>)}</div>}<p className="mt-3 text-xs text-slate-500">Revenue recognition: recorded transactions only. No payment movement is inferred.</p></section>}
 
 function FinderConfiguration({ config, onChange, onNotice }) {
   if (!config) return <section role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-5"><b>CONFIGURATION_UNAVAILABLE</b><p>No empty configuration is inferred.</p></section>;

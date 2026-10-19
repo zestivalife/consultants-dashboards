@@ -27,7 +27,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            ProfessionPlanCreate, ProfessionPlanSave)
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
-from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete, FeedbackRequestCreate, FeedbackSubmit, FeedbackAction, TeleconsultConfigure, TeleconsultTransition, SecureConversationCreate, SecureMessageCreate, CalendarConnectionPrepare, CalendarBusyBlockImport, CalendarExternalChange
+from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete, FeedbackRequestCreate, FeedbackSubmit, FeedbackAction, TeleconsultConfigure, TeleconsultTransition, SecureConversationCreate, SecureMessageCreate, CalendarConnectionPrepare, CalendarBusyBlockImport, CalendarExternalChange, MarketplaceCommissionRuleCreate, MarketplacePayoutUpdate
 from app.contracts import ClientPortalInvitationCreate, ClientPortalDocumentCreate, PreConsultationInvite
 from app.contracts import (ServicePackageCreate, ServicePackageUpdate,
                            ClientPackageAssign, ClientPackageStatusUpdate,
@@ -77,6 +77,7 @@ from app.p39 import experience_label, public_review_eligible, validate_ratings
 from app.p40 import join_allowed, provider_status, validate_external_meeting_url
 from app.p41 import validate_message
 from app.p42 import external_change_action, project_busy_block, provider_state
+from app.p43 import assert_paid_evidence
 from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
@@ -5289,6 +5290,43 @@ async def detect_external_calendar_change(connection_id:UUID,request:Request,bod
     action=external_change_action(body.change_type);now=datetime.now(timezone.utc)
     await db.execute(text("INSERT INTO external_calendar_sync_events(id,connection_id,tenant_id,appointment_id,event_type,external_change_type,actor_id,metadata,created_at) VALUES (:id,:connection,:tenant,:appointment,'EXTERNAL_CHANGE_DETECTED',:change,:actor,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"connection":connection_id,"tenant":ctx["tenant_id"],"appointment":body.appointment_id,"change":body.change_type,"actor":ctx["user_id"],"metadata":json.dumps({"provider_event_hash":hashlib.sha256(body.provider_event_id.encode()).hexdigest(),"action":action}),"now":now});await db.commit()
     return {"success":True,"data":{"action":action,"appointmentChanged":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/marketplace/earnings")
+async def marketplace_earnings(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    row=(await db.execute(text("""SELECT COUNT(*) transaction_count,COALESCE(SUM(gross_minor),0) gross_minor,COALESCE(SUM(platform_fee_minor),0) platform_fee_minor,COALESCE(SUM(net_payout_minor),0) net_earnings_minor,MIN(currency) currency FROM external_marketplace_transactions WHERE tenant_id=:tenant AND consultant_user_id=:user"""),{"tenant":ctx["tenant_id"],"user":ctx["user_id"]})).mappings().one()
+    payouts=(await db.execute(text("""SELECT COALESCE(SUM(amount_minor) FILTER(WHERE state IN ('PENDING','ELIGIBLE','PROCESSING','ON_HOLD')),0) pending_payout_minor,COALESCE(SUM(amount_minor) FILTER(WHERE state='PAID'),0) paid_payout_minor FROM external_marketplace_payouts WHERE tenant_id=:tenant AND consultant_user_id=:user"""),{"tenant":ctx["tenant_id"],"user":ctx["user_id"]})).mappings().one()
+    data={**dict(row),**dict(payouts)};data["state"]="READY" if row["transaction_count"] else "CONFIRMED_EMPTY";return {"success":True,"data":data,"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/admin/marketplace/finance")
+async def admin_marketplace_finance(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    row=(await db.execute(text("""SELECT COUNT(*) transaction_count,COALESCE(SUM(gross_minor),0) gmv_minor,COALESCE(SUM(platform_fee_minor),0) platform_revenue_minor,COALESCE(SUM(net_payout_minor),0) consultant_payable_minor,COALESCE(SUM(CASE WHEN status IN ('REFUNDED','PARTIALLY_REFUNDED') THEN gross_minor ELSE 0 END),0) refunds_minor FROM external_marketplace_transactions"""))).mappings().one()
+    pending=(await db.execute(text("SELECT COALESCE(SUM(amount_minor),0) FROM external_marketplace_payouts WHERE state IN ('PENDING','ELIGIBLE','PROCESSING','ON_HOLD')"))).scalar_one()
+    return {"success":True,"data":{**dict(row),"pending_settlement_minor":pending,"state":"READY" if row["transaction_count"] else "CONFIRMED_EMPTY","revenueRecognition":"RECORDED_TRANSACTIONS_ONLY"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/admin/marketplace/commission-rules",status_code=201)
+async def create_marketplace_commission_rule(request:Request,body:MarketplaceCommissionRuleCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    if body.scope_type!='PLATFORM_DEFAULT' and not body.scope_id:return error(request,422,"COMMISSION_SCOPE_REQUIRED","This commission scope requires an identifier")
+    if body.commission_type=='PERCENTAGE' and body.commission_value>100:return error(request,422,"INVALID_COMMISSION","Percentage cannot exceed 100")
+    item_id=uuid4();now=datetime.now(timezone.utc)
+    await db.execute(text("INSERT INTO external_marketplace_commission_rules(id,scope_type,scope_id,commission_type,commission_value,currency,active,effective_from,effective_until,created_by,created_at) VALUES (:id,:scope,:scope_id,:kind,:value,:currency,TRUE,:starts,:ends,:actor,:now)"),{"id":item_id,"scope":body.scope_type,"scope_id":body.scope_id,"kind":body.commission_type,"value":body.commission_value,"currency":body.currency,"starts":body.effective_from,"ends":body.effective_until,"actor":ctx["user_id"],"now":now});await db.commit()
+    return {"success":True,"data":{"id":str(item_id),"active":True},"error":None,"request_id":request.state.correlation_id}
+
+@app.patch("/api/v1/practice-operations/admin/marketplace/payouts/{payout_id}")
+async def update_marketplace_payout(payout_id:UUID,request:Request,body:MarketplacePayoutUpdate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    try:assert_paid_evidence(body.state,body.provider_reference,body.manual_settlement_reference)
+    except ValueError as exc:return error(request,422,"SETTLEMENT_EVIDENCE_REQUIRED",str(exc))
+    now=datetime.now(timezone.utc);result=await db.execute(text("UPDATE external_marketplace_payouts SET state=:state,provider_reference=:provider,manual_settlement_reference=:manual,settled_at=CASE WHEN :state='PAID' THEN :now ELSE settled_at END,updated_at=:now WHERE id=:id"),{"state":body.state,"provider":body.provider_reference,"manual":body.manual_settlement_reference,"now":now,"id":payout_id})
+    if result.rowcount!=1:return error(request,404,"PAYOUT_NOT_FOUND","Payout was not found")
+    await db.execute(text("INSERT INTO external_marketplace_financial_ledger(id,payout_id,tenant_id,entry_type,amount_minor,currency,direction,evidence_reference,created_at) SELECT :entry,id,tenant_id,'PAYOUT',amount_minor,currency,'DEBIT',COALESCE(:provider,:manual),:now FROM external_marketplace_payouts WHERE id=:id"),{"entry":uuid4(),"provider":body.provider_reference,"manual":body.manual_settlement_reference,"now":now,"id":payout_id});await db.commit()
+    return {"success":True,"data":{"state":body.state,"settlementEvidence":body.state=='PAID'},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/practice-operations/admin/marketplace/finder-config")
 async def admin_finder_config(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):

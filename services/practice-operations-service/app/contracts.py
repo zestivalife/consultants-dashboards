@@ -6,6 +6,7 @@ except ImportError:  # Python 3.10 test/runtime compatibility; native in Python 
     class StrEnum(str, Enum):
         pass
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 from pydantic import BaseModel, Field
@@ -827,3 +828,17 @@ class CalendarExternalChange(BaseModel):
     appointment_id: UUID
     change_type: Literal["RESCHEDULE","CANCEL"]
     provider_event_id: str = Field(min_length=1,max_length=500)
+
+class MarketplaceCommissionRuleCreate(BaseModel):
+    scope_type: Literal["PLATFORM_DEFAULT","PROFESSION","SERVICE","CONSULTANT"]
+    scope_id: str | None = Field(default=None,max_length=160)
+    commission_type: Literal["PERCENTAGE","FIXED","NONE"]
+    commission_value: Decimal = Field(default=Decimal("0"),ge=0)
+    currency: str | None = Field(default=None,min_length=3,max_length=3)
+    effective_from: datetime
+    effective_until: datetime | None = None
+
+class MarketplacePayoutUpdate(BaseModel):
+    state: Literal["PENDING","ELIGIBLE","PROCESSING","PAID","FAILED","ON_HOLD"]
+    provider_reference: str | None = Field(default=None,max_length=240)
+    manual_settlement_reference: str | None = Field(default=None,max_length=240)
