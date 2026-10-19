@@ -1859,7 +1859,8 @@ async def list_client_packages(request: Request, client_id: str | None=None,
       JOIN external_service_packages p ON p.id=cp.package_id AND p.tenant_id=cp.tenant_id
       LEFT JOIN external_client_package_sessions s ON s.client_package_id=cp.id AND s.tenant_id=cp.tenant_id
       LEFT JOIN practice_consultations c ON c.tenant_id=cp.tenant_id AND c.client_id=cp.client_id
-      WHERE cp.tenant_id=:tenant AND (:client IS NULL OR cp.client_id=:client)
+      WHERE cp.tenant_id=:tenant
+        AND (CAST(:client AS uuid) IS NULL OR cp.client_id=CAST(:client AS uuid))
       GROUP BY cp.id,p.id ORDER BY cp.end_date,cp.created_at DESC"""),
       {"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
     return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,
