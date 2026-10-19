@@ -4169,7 +4169,10 @@ async def marketplace_profile(request:Request,ctx=Depends(context),db:AsyncSessi
       (SELECT COUNT(*) FROM external_marketplace_comparison_events WHERE profile_id=:profile AND event_type='CONSULTANT_SAVED')::int times_saved,
       (SELECT COUNT(*) FROM external_marketplace_comparison_events WHERE CAST(:profile AS text) IN (SELECT jsonb_array_elements_text(compared_profile_ids)) AND event_type='COMPARISON_OPENED')::int comparison_appearances,
       (SELECT COUNT(*) FROM external_marketplace_comparison_events WHERE profile_id=:profile AND event_type='COMPARE_PROFILE_CLICK')::int comparison_profile_clicks,
-      (SELECT COUNT(*) FROM external_marketplace_comparison_events WHERE profile_id=:profile AND event_type='COMPARE_ENROL_CLICK')::int comparison_enrol_clicks"""),{"profile":profile["id"]})).mappings().one()
+      (SELECT COUNT(*) FROM external_marketplace_comparison_events WHERE profile_id=:profile AND event_type='COMPARE_ENROL_CLICK')::int comparison_enrol_clicks,
+      (SELECT COUNT(*) FROM external_marketplace_finder_events WHERE profile_id=:profile AND event_type='FINDER_RESULT_VIEW')::int finder_impressions,
+      (SELECT COUNT(*) FROM external_marketplace_finder_events WHERE profile_id=:profile AND event_type='FINDER_PROFILE_CLICK')::int finder_profile_clicks,
+      (SELECT COUNT(*) FROM external_marketplace_finder_events WHERE profile_id=:profile AND event_type='FINDER_ENROL_CLICK')::int finder_enrol_clicks"""),{"profile":profile["id"]})).mappings().one()
     review=(await db.execute(text("SELECT COUNT(*)::int review_count,AVG(overall_rating)::numeric(3,2) average_rating FROM external_consultant_reviews WHERE profile_id=:profile AND verified_engagement=TRUE AND status='PUBLISHED'"),{"profile":profile["id"]})).mappings().one()
     enrolments=(await db.execute(text("SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE status='NEW')::int new_count FROM external_consultant_marketplace_enrolments WHERE profile_id=:profile"),{"profile":profile["id"]})).mappings().one()
     return {"success":True,"data":{"state":"READY","profile":dict(profile),"version":dict(version) if version else None,"qualifications":qualifications,"analytics":{**dict(analytics),**dict(review),"enrolments":dict(enrolments)}},"error":None,"request_id":request.state.correlation_id}
@@ -4407,12 +4410,19 @@ async def public_finder_matches(request:Request,body:FinderRequest,db:AsyncSessi
     if not area:return error(request,422,"UNKNOWN_SUPPORT_AREA","Choose a governed support area")
     professions=area.get("professions") or [];params={"professions":professions,"limit":24};extra=" AND v.projection->>'profession_code'=ANY(:professions)"
     if body.mode!="EITHER":extra+=" AND EXISTS(SELECT 1 FROM jsonb_array_elements_text(COALESCE(v.projection->'consultation_modes','[]'::jsonb)) m(value) WHERE m.value IN (:mode,'BOTH'))";params["mode"]=body.mode
-    rows=list((await db.execute(text(_public_profile_sql(extra)+" ORDER BY p.accepting_new_clients DESC,p.id LIMIT :limit"),params)).mappings().all());items=[]
+    rows=list((await db.execute(text(_public_profile_sql(extra)+" ORDER BY p.accepting_new_clients DESC,p.id LIMIT :limit"),params)).mappings().all());relaxed=[]
+    if not rows and body.mode!="EITHER":
+        relaxed=["consultation_mode"]
+        fallback={"professions":professions,"limit":24}
+        rows=list((await db.execute(text(_public_profile_sql(" AND v.projection->>'profession_code'=ANY(:professions)")+" ORDER BY p.accepting_new_clients DESC,p.id LIMIT :limit"),fallback)).mappings().all())
+    items=[]
     for row in rows:
         projection=dict(row["projection"]);available=(await db.execute(text("SELECT 1 FROM external_availability_rules WHERE tenant_id=:tenant AND active=TRUE LIMIT 1"),{"tenant":row["_tenant_id"]})).first() is not None
-        score,reasons=explain_and_score(projection,body,available);items.append({**_public_marketplace_item(row),"match_reasons":reasons,"match_strength":"Strong match" if score>=140 else "Matches most preferences" if score>=115 else "Matches some preferences","availability_state":"PUBLIC_AVAILABILITY" if available else "NOT_SHOWN","_score":score})
+        score,reasons=explain_and_score(projection,body,available)
+        if relaxed:reasons.append("Shown as an alternative because your consultation-mode preference was relaxed")
+        items.append({**_public_marketplace_item(row),"match_reasons":reasons,"match_strength":"Strong match" if score>=140 else "Matches most preferences" if score>=115 else "Matches some preferences","availability_state":"PUBLIC_AVAILABILITY" if available else "NOT_SHOWN","_score":score})
     items.sort(key=lambda x:(-x.pop("_score"),x["slug"]))
-    return {"success":True,"data":{"state":"READY" if items else "CONFIRMED_EMPTY","items":items,"professions":professions,"relaxed_preferences":[]},"error":None,"request_id":request.state.correlation_id}
+    return {"success":True,"data":{"state":"READY" if items else "CONFIRMED_EMPTY","items":items,"professions":professions,"relaxed_preferences":relaxed},"error":None,"request_id":request.state.correlation_id}
 
 @app.post("/api/v1/public/consultants/finder/events")
 async def public_finder_event(request:Request,body:FinderEvent,db:AsyncSession=Depends(get_db)):

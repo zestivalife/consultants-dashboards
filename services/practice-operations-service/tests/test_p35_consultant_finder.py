@@ -20,10 +20,12 @@ def test_public_match_reuses_strict_projection_and_bounded_server_query():
  assert '_public_profile_sql' in section and 'LIMIT :limit' in section and 'match_reasons' in section
  policy=MAIN[MAIN.index('def _public_profile_sql'):MAIN.index('def _public_marketplace_item')]
  for guard in ["p.status='PUBLISHED'","p.public_visibility=TRUE","p.approval_valid=TRUE","p.suspended_at IS NULL"]:assert guard in policy
+ assert 'relaxed_preferences' in section and 'consultation-mode preference was relaxed' in section
 def test_analytics_allowlist_and_admin_governance():
  assert {'FINDER_STARTED','FINDER_COMPLETED','FINDER_PROFILE_CLICK','FINDER_ENROL_CLICK','FINDER_BOOK_CLICK'}<=FINDER_EVENTS
  admin=MAIN[MAIN.index('@app.get("/api/v1/practice-operations/admin/marketplace/finder-config")'):MAIN.index('@app.get("/api/v1/practice-operations/admin/marketplace/analytics")')]
  assert '_platform_admin' in admin and 'support_area' in admin
+ for metric in ['finder_impressions','finder_profile_clicks','finder_enrol_clicks']:assert metric in MAIN
 def test_no_ai_or_clinical_scoring_dependency():
  finder=(ROOT/'app/finder.py').read_text().lower()
  for forbidden in ['openai','p29','diagnose','clinical score','medical score']:assert forbidden not in finder
