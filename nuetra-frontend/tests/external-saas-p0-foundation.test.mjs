@@ -5,11 +5,13 @@ import test from 'node:test';
 const shell = readFileSync(new URL('../components/external/ExternalSaaSWorkspace.jsx', import.meta.url), 'utf8');
 const account = readFileSync(new URL('../components/external/ExternalAccountMenu.jsx', import.meta.url), 'utf8');
 const route = readFileSync(new URL('../pages/dashboard/consultant.js', import.meta.url), 'utf8');
+const routeAdapter = readFileSync(new URL('../components/external/ExternalConsultantWorkspaceRoute.jsx', import.meta.url), 'utf8');
 const client360 = readFileSync(new URL('../components/external/ExternalClient360.jsx', import.meta.url), 'utf8');
 
 test('external tenant resolves to the dedicated SaaS shell without touching the internal workspace', () => {
-  assert.match(route, /workspace==='EXTERNAL'\)return <ExternalSaaSWorkspace\/>/);
-  assert.match(route, /workspace==='IN_HOUSE'\)return <ConsultantWorkspace\/>/);
+  assert.match(route, /ExternalConsultantWorkspaceRoute/);
+  assert.match(routeAdapter, /workspace === 'EXTERNAL'\) return <ExternalSaaSWorkspace \/>/);
+  assert.match(routeAdapter, /workspace === 'IN_HOUSE'\) return <ConsultantWorkspace \/>/);
 });
 
 test('P0 shell exposes real navigation, command centre, client management, reports, and plans', () => {
