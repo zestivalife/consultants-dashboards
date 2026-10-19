@@ -27,7 +27,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            ProfessionPlanCreate, ProfessionPlanSave)
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
-from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete, FeedbackRequestCreate, FeedbackSubmit, FeedbackAction, TeleconsultConfigure, TeleconsultTransition, SecureConversationCreate, SecureMessageCreate, CalendarConnectionPrepare, CalendarBusyBlockImport, CalendarExternalChange, MarketplaceCommissionRuleCreate, MarketplacePayoutUpdate
+from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete, FeedbackRequestCreate, FeedbackSubmit, FeedbackAction, TeleconsultConfigure, TeleconsultTransition, SecureConversationCreate, SecureMessageCreate, CalendarConnectionPrepare, CalendarBusyBlockImport, CalendarExternalChange, MarketplaceCommissionRuleCreate, MarketplacePayoutUpdate, RefundCreate, RefundTransition
 from app.contracts import ClientPortalInvitationCreate, ClientPortalDocumentCreate, PreConsultationInvite
 from app.contracts import (ServicePackageCreate, ServicePackageUpdate,
                            ClientPackageAssign, ClientPackageStatusUpdate,
@@ -80,6 +80,7 @@ from app.p42 import external_change_action, project_busy_block, provider_state
 from app.p43 import assert_paid_evidence
 from app.p44 import downgrade_policy, provider_status as subscription_provider_status
 from app.p45 import discount_minor, validate_rule
+from app.p46 import refund_transition
 from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,PromotionQuote,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
@@ -5355,6 +5356,31 @@ async def public_promotion_quote(slug:str,request:Request,body:PromotionQuote,db
     try:validate_rule(dict(rule),now=datetime.now(timezone.utc),tenant_id=profile["tenant_id"],user_id=body.user_reference,service_id=body.service_id,consultant_id=profile["consultant_user_id"],total_uses=counts["total"],user_uses=counts["user_total"],stacked=bool(body.existing_promotion_ids),amount_minor=body.amount_minor);discount=discount_minor(rule["promotion_type"],rule["value"],body.amount_minor,rule["maximum_discount_minor"])
     except ValueError as exc:return error(request,409,"PROMOTION_NOT_APPLICABLE",str(exc))
     return {"success":True,"data":{"promotionId":str(rule["id"]),"discountMinor":discount,"amountAfterMinor":body.amount_minor-discount,"currency":body.currency,"applied":True},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/billing/refunds",status_code=201)
+async def create_refund_request(request:Request,body:RefundCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"BILLING_MANAGE")
+    if denied:return denied
+    invoice=(await db.execute(text("SELECT id,grand_total_minor,currency FROM external_invoices WHERE id=:id AND tenant_id=:tenant AND status<>'DRAFT'"),{"id":body.invoice_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not invoice:return error(request,404,"INVOICE_NOT_FOUND","Issued invoice was not found")
+    if invoice["currency"]!=body.currency or body.amount_minor>invoice["grand_total_minor"]:return error(request,422,"INVALID_REFUND_AMOUNT","Refund must be within the issued invoice total and currency")
+    item_id=uuid4();now=datetime.now(timezone.utc)
+    await db.execute(text("INSERT INTO external_refunds(id,tenant_id,invoice_id,payment_id,appointment_id,amount_minor,currency,state,reason,requested_by,created_at,updated_at) VALUES (:id,:tenant,:invoice,:payment,:appointment,:amount,:currency,'REFUND_REQUESTED',:reason,:actor,:now,:now)"),{"id":item_id,"tenant":ctx["tenant_id"],"invoice":body.invoice_id,"payment":body.payment_id,"appointment":body.appointment_id,"amount":body.amount_minor,"currency":body.currency,"reason":body.reason,"actor":ctx["user_id"],"now":now});await db.execute(text("INSERT INTO external_refund_events(id,refund_id,tenant_id,event_type,resulting_state,actor_id,created_at) VALUES (:id,:refund,:tenant,'REFUND_REQUESTED','REFUND_REQUESTED',:actor,:now)"),{"id":uuid4(),"refund":item_id,"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"now":now});await db.commit()
+    return {"success":True,"data":{"id":str(item_id),"state":"REFUND_REQUESTED","invoiceChanged":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.patch("/api/v1/practice-operations/billing/refunds/{refund_id}")
+async def transition_refund(refund_id:UUID,request:Request,body:RefundTransition,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"BILLING_MANAGE")
+    if denied:return denied
+    row=(await db.execute(text("SELECT id,tenant_id,invoice_id,amount_minor,currency,state FROM external_refunds WHERE id=:id AND tenant_id=:tenant FOR UPDATE"),{"id":refund_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"REFUND_NOT_FOUND","Refund was not found")
+    evidence=body.provider_refund_reference or body.manual_refund_reference
+    try:target=refund_transition(row["state"],body.state,evidence)
+    except ValueError as exc:return error(request,409,"INVALID_REFUND_TRANSITION",str(exc))
+    now=datetime.now(timezone.utc);await db.execute(text("UPDATE external_refunds SET state=:state,provider_refund_reference=:provider,manual_refund_reference=:manual,approved_by=CASE WHEN :state='REFUND_APPROVED' THEN :actor ELSE approved_by END,updated_at=:now WHERE id=:id"),{"state":target,"provider":body.provider_refund_reference,"manual":body.manual_refund_reference,"actor":ctx["user_id"],"now":now,"id":refund_id});await db.execute(text("INSERT INTO external_refund_events(id,refund_id,tenant_id,event_type,previous_state,resulting_state,actor_id,evidence_reference,created_at) VALUES (:id,:refund,:tenant,:event,:previous,:result,:actor,:evidence,:now)"),{"id":uuid4(),"refund":refund_id,"tenant":ctx["tenant_id"],"event":target,"previous":row["state"],"result":target,"actor":ctx["user_id"],"evidence":evidence,"now":now})
+    if target=='REFUNDED':
+        note_id=uuid4();await db.execute(text("INSERT INTO external_credit_notes(id,tenant_id,invoice_id,refund_id,credit_note_number,amount_minor,currency,reason,status,issued_at,created_by,created_at) SELECT :id,tenant_id,invoice_id,id,:number,amount_minor,currency,reason,'ISSUED',:now,:actor,:now FROM external_refunds WHERE id=:refund"),{"id":note_id,"number":f"CR-{str(note_id)[:8].upper()}","now":now,"actor":ctx["user_id"],"refund":refund_id})
+    await db.commit();return {"success":True,"data":{"state":target,"refundEvidence":bool(evidence),"invoiceChanged":False,"creditNoteIssued":target=='REFUNDED'},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/practice-operations/admin/marketplace/finder-config")
 async def admin_finder_config(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):

@@ -842,3 +842,16 @@ class MarketplacePayoutUpdate(BaseModel):
     state: Literal["PENDING","ELIGIBLE","PROCESSING","PAID","FAILED","ON_HOLD"]
     provider_reference: str | None = Field(default=None,max_length=240)
     manual_settlement_reference: str | None = Field(default=None,max_length=240)
+
+class RefundCreate(BaseModel):
+    invoice_id: UUID
+    payment_id: UUID | None = None
+    appointment_id: UUID | None = None
+    amount_minor: int = Field(gt=0)
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    reason: str = Field(min_length=3,max_length=2000)
+
+class RefundTransition(BaseModel):
+    state: Literal["REFUND_APPROVED","REFUND_PROCESSING","REFUNDED","REFUND_FAILED"]
+    provider_refund_reference: str | None = Field(default=None,max_length=240)
+    manual_refund_reference: str | None = Field(default=None,max_length=240)

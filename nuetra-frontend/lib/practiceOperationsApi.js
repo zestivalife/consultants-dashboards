@@ -93,6 +93,8 @@ export function issueInvoice(id){return request(`/billing/invoices/${encodeURICo
 export function cancelInvoice(id){return request(`/billing/invoices/${encodeURIComponent(id)}/cancel`,{method:'POST'});}
 export function recordInvoicePayment(id,payload){return request(`/billing/invoices/${encodeURIComponent(id)}/payments`,{method:'POST',body:JSON.stringify(payload)});}
 export function listPayments(clientId){const query=clientId?`?client_id=${encodeURIComponent(clientId)}`:'';return request(`/billing/payments${query}`);}
+export function createRefundRequest(payload){return request('/billing/refunds',{method:'POST',body:JSON.stringify(payload)});}
+export function transitionRefund(id,payload){return request(`/billing/refunds/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
 export function getClientBilling(clientId){return request(`/billing/clients/${encodeURIComponent(clientId)}`);}
 export function getReceipt(id){return request(`/billing/receipts/${encodeURIComponent(id)}`);}
 export function listProfessionalResources(filters={}){const query=new URLSearchParams();Object.entries(filters).forEach(([key,value])=>{if(value!==undefined&&value!==null&&value!=='')query.set(key,value)});return request(`/resources?${query}`);}
