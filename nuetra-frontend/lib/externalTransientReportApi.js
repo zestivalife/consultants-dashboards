@@ -1,9 +1,10 @@
-import { getToken } from './api';
+import { getToken, refreshAccessToken } from './api';
 import { getFiteatsyApiBaseUrl } from './fiteatsyConsultantsApi';
 
 const readJson=async(response)=>{const text=await response.text();if(!text)return null;try{return JSON.parse(text);}catch{return null;}};
 const fail=(response,body,fallback)=>{const error=new Error(body?.safe_message||body?.message||body?.error||fallback);error.status=response.status;error.data=body;throw error;};
-const authenticated=async(path,options={})=>{const response=await fetch(`${getFiteatsyApiBaseUrl()}${path}`,{...options,headers:{Accept:'application/json',Authorization:`Bearer ${getToken()}`,...options.headers}});const body=await readJson(response);if(!response.ok)fail(response,body,'External report operation failed.');return body;};
+const send=async(path,options,token)=>{const response=await fetch(`${getFiteatsyApiBaseUrl()}${path}`,{...options,headers:{Accept:'application/json',...(token?{Authorization:`Bearer ${token}`} : {}),...options.headers}});return{response,body:await readJson(response)}};
+const authenticated=async(path,options={})=>{let{response,body}=await send(path,options,getToken());if(response.status===401){const refreshedToken=await refreshAccessToken().catch(()=>null);if(refreshedToken)({response,body}=await send(path,options,refreshedToken));}if(!response.ok)fail(response,body,'Report data is temporarily unavailable.');return body;};
 
 export const analyzeExternalClientReport=async(clientId,file)=>{const data=new FormData();data.append('report',file);return authenticated(`/v1/external/clients/${encodeURIComponent(clientId)}/report-analyses`,{method:'POST',body:data});};
 export const saveExternalReportBiomarkers=(clientId,analysisId,reviewToken,items)=>authenticated(`/v1/external/clients/${encodeURIComponent(clientId)}/report-analyses/${encodeURIComponent(analysisId)}/save`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reviewToken,items})});

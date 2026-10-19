@@ -5,6 +5,7 @@ import test from 'node:test';
 const moduleSource=fs.readFileSync(new URL('../nuetra-frontend/components/external/ExternalPracticeOperatingSystem.jsx',import.meta.url),'utf8');
 const workspaceSource=fs.readFileSync(new URL('../nuetra-frontend/components/external/ExternalSaaSWorkspace.jsx',import.meta.url),'utf8');
 const routerSource=fs.readFileSync(new URL('../nuetra-frontend/pages/dashboard/consultant.js',import.meta.url),'utf8');
+const tenantRouteSource=fs.readFileSync(new URL('../nuetra-frontend/components/external/ExternalConsultantWorkspaceRoute.jsx',import.meta.url),'utf8');
 
 test('practice operating system prepares every governed frontend module without production fixtures',()=>{
   for(const label of [
@@ -28,8 +29,9 @@ test('all module surfaces reuse the external shell and remain mobile-first',()=>
 });
 
 test('frozen internal routing remains isolated from the external operating system',()=>{
-  assert.match(routerSource,/workspace==='IN_HOUSE'/);
-  assert.match(routerSource,/ConsultantWorkspace/);
-  assert.match(routerSource,/ExternalSaaSWorkspace/);
+  assert.match(routerSource,/ExternalConsultantWorkspaceRoute/);
+  assert.match(tenantRouteSource,/workspace === 'IN_HOUSE'/);
+  assert.match(tenantRouteSource,/ConsultantWorkspace/);
+  assert.match(tenantRouteSource,/ExternalSaaSWorkspace/);
   assert.doesNotMatch(routerSource,/ExternalPracticeOperatingSystem/);
 });

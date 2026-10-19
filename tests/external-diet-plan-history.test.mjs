@@ -17,7 +17,7 @@ test('external Client 360 renders current, draft and immutable historical plan s
 test('version actions use governed history APIs and expose compare without raw JSON',()=>{
   for(const path of ['diet-plan/history','diet-plan/compare','diet-plan/versions/'])assert.match(api,new RegExp(path.replace('/','\\/')));
   assert.match(ui,/Compare selected/);
-  assert.match(ui,/Use as New Draft/);
+  assert.match(ui,/Create Revision/);
   assert.match(ui,/DOCX/);
   assert.match(ui,/Added/);
   assert.match(ui,/Removed/);
