@@ -235,6 +235,10 @@ export function listSupportTickets(){return request('/support/tickets');}
 export function createSupportTicket(payload){return request('/support/tickets',{method:'POST',body:JSON.stringify(payload)});}
 export function listAdminSupportTickets(filters={}){const query=new URLSearchParams(filters);return request(`/admin/support/tickets?${query}`);}
 export function updateAdminSupportTicket(id,payload){return request(`/admin/support/tickets/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function listNotificationCentre(state=''){return request(`/notification-centre${state?`?state=${encodeURIComponent(state)}`:''}`);}
+export function actOnNotification(id,action){return request(`/notification-centre/${encodeURIComponent(id)}/${action}`,{method:'POST'});}
+export function getNotificationPreferences(){return request('/notification-preferences');}
+export function updateNotificationPreferences(payload){return request('/notification-preferences',{method:'PUT',body:JSON.stringify(payload)});}
 export function getAdminFinderConfig(){return request('/admin/marketplace/finder-config');}
 export function updateAdminFinderConfig(payload){return request('/admin/marketplace/finder-config',{method:'PUT',body:JSON.stringify(payload)});}
 export function listComplianceAudit(clientId=''){return request(`/compliance/audit${clientId?`?client_id=${encodeURIComponent(clientId)}`:''}`);}

@@ -82,6 +82,7 @@ from app.p44 import downgrade_policy, provider_status as subscription_provider_s
 from app.p45 import discount_minor, validate_rule
 from app.p46 import refund_transition
 from app.p47 import safe_context
+from app.p48 import category as notification_category, digest_mode
 from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,PromotionQuote,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
@@ -5450,3 +5451,33 @@ async def update_support_ticket(ticket_id:UUID,request:Request,body:SupportTicke
     await db.execute(text("UPDATE external_support_tickets SET status=:status,priority=:priority,owner_id=:owner,sla_due_at=COALESCE(sla_due_at,:sla),updated_at=:now WHERE id=:id"),{"status":body.status,"priority":priority,"owner":owner,"sla":now+timedelta(hours=hours),"now":now,"id":ticket_id})
     await db.execute(text("INSERT INTO external_support_ticket_events(id,ticket_id,tenant_id,event_type,previous_status,resulting_status,actor_id,message,metadata,created_at) VALUES (:id,:ticket,:tenant,'ADMIN_UPDATED',:previous,:result,:actor,:message,CAST(:details AS jsonb),:now)"),{"id":uuid4(),"ticket":ticket_id,"tenant":row["tenant_id"],"previous":row["status"],"result":body.status,"actor":ctx["user_id"],"message":body.message,"details":json.dumps({"priority":priority,"owner_id":owner}),"now":now});await db.commit()
     return {"success":True,"data":{"id":str(ticket_id),"status":body.status,"priority":priority,"owner_id":owner},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/notification-centre")
+async def notification_centre(request:Request,state:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    rows=[dict(row) for row in (await db.execute(text("""SELECT n.id,n.client_id,n.event_type,n.title,n.payload,n.created_at,COALESCE(s.state,'UNREAD') state FROM practice_notifications n LEFT JOIN external_notification_user_states s ON s.notification_id=n.id AND s.tenant_id=n.tenant_id AND s.user_id=:user WHERE n.tenant_id=:tenant AND (:state IS NULL OR COALESCE(s.state,'UNREAD')=:state) ORDER BY n.created_at DESC LIMIT 100"""),{"user":ctx["user_id"],"tenant":ctx["tenant_id"],"state":state})).mappings().all()]
+    for row in rows:row["category"]=notification_category(row["event_type"])
+    return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows,"source":"CANONICAL_SYSTEM_EVENTS"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/notification-centre/{notification_id}/{action}")
+async def act_notification(notification_id:UUID,action:str,request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    if action not in {'read','archive'}:return error(request,422,"INVALID_NOTIFICATION_ACTION","Notification action must be read or archive")
+    exists=(await db.execute(text("SELECT 1 FROM practice_notifications WHERE id=:id AND tenant_id=:tenant"),{"id":notification_id,"tenant":ctx["tenant_id"]})).first()
+    if not exists:return error(request,404,"NOTIFICATION_NOT_FOUND","Notification was not found")
+    result='READ' if action=='read' else 'ARCHIVED';now=datetime.now(timezone.utc)
+    await db.execute(text("INSERT INTO external_notification_user_states(id,tenant_id,user_id,notification_id,state,acted_at) VALUES (:id,:tenant,:user,:notification,:state,:now) ON CONFLICT(tenant_id,user_id,notification_id) DO UPDATE SET state=EXCLUDED.state,acted_at=EXCLUDED.acted_at"),{"id":uuid4(),"tenant":ctx["tenant_id"],"user":ctx["user_id"],"notification":notification_id,"state":result,"now":now});await db.commit()
+    return {"success":True,"data":{"state":result,"userAction":True},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/notification-preferences")
+async def get_notification_preferences(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text("SELECT in_app,email,sms,whatsapp,digest_mode,category_preferences FROM external_notification_preferences WHERE tenant_id=:tenant AND user_id=:user"),{"tenant":ctx["tenant_id"],"user":ctx["user_id"]})).mappings().first()
+    return {"success":True,"data":dict(row) if row else {"in_app":True,"email":False,"sms":False,"whatsapp":False,"digest_mode":"IMMEDIATE","category_preferences":{},"providers":{"email":"NOT_CONFIGURED","sms":"NOT_CONFIGURED","whatsapp":"PREPARATION_ONLY"}},"error":None,"request_id":request.state.correlation_id}
+
+@app.put("/api/v1/practice-operations/notification-preferences")
+async def update_notification_preferences(request:Request,body:dict,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    try:mode=digest_mode(body.get('digest_mode','IMMEDIATE'))
+    except ValueError as exc:return error(request,422,"INVALID_DIGEST_MODE",str(exc))
+    now=datetime.now(timezone.utc);values={key:bool(body.get(key,False)) for key in ('in_app','email','sms','whatsapp')};values['in_app']=True
+    await db.execute(text("""INSERT INTO external_notification_preferences(id,tenant_id,user_id,in_app,email,sms,whatsapp,digest_mode,category_preferences,updated_at) VALUES (:id,:tenant,:user,:in_app,:email,:sms,:whatsapp,:mode,CAST(:categories AS jsonb),:now) ON CONFLICT(tenant_id,user_id) DO UPDATE SET in_app=EXCLUDED.in_app,email=EXCLUDED.email,sms=EXCLUDED.sms,whatsapp=EXCLUDED.whatsapp,digest_mode=EXCLUDED.digest_mode,category_preferences=EXCLUDED.category_preferences,updated_at=EXCLUDED.updated_at"""),{"id":uuid4(),"tenant":ctx["tenant_id"],"user":ctx["user_id"],**values,"mode":mode,"categories":json.dumps(body.get('category_preferences',{})),"now":now});await db.commit()
+    return {"success":True,"data":{**values,"digest_mode":mode,"externalSendAttempted":False,"mandatoryInApp":True},"error":None,"request_id":request.state.correlation_id}

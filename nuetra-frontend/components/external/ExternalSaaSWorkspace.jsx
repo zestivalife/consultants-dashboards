@@ -60,6 +60,7 @@ const NAV = [
   ['documents', 'Documents', FolderLock],
   ['locations', 'Locations', Building2],
   ['support', 'Support', CircleAlert],
+  ['notification-centre', 'Notifications', Bell],
 ];
 const SECONDARY_NAV=PRACTICE_NAV;
 const REAL_P1_VIEWS=new Set(['consultations','followups','goals','tasks','checkins','adherence','notes']);
