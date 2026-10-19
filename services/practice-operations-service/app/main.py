@@ -1527,7 +1527,8 @@ async def _preconsultation_projection(db, tenant_id, client_id, checklist=None):
       UNION ALL SELECT media_type AS category,title FROM external_client_portal_documents WHERE tenant_id=:tenant AND client_id=:client
       AND status NOT IN ('REMOVED','QUARANTINED')"""), params)).mappings().all()
     appointment = (await db.execute(text("""SELECT status,starts_at FROM external_scheduled_appointments WHERE tenant_id=:tenant AND client_id=:client
-      AND (:appointment IS NULL OR id=:appointment) ORDER BY starts_at DESC LIMIT 1"""), params)).mappings().first()
+      AND (CAST(:appointment AS uuid) IS NULL OR id=CAST(:appointment AS uuid))
+      ORDER BY starts_at DESC LIMIT 1"""), params)).mappings().first()
     portal = (await db.execute(text("""SELECT id FROM external_client_portal_access_grants WHERE tenant_id=:tenant AND client_id=:client
       AND revoked_at IS NULL AND expires_at>NOW() ORDER BY created_at DESC LIMIT 1"""), params)).mappings().first()
     required_documents = requirements.get("DOCUMENTS", {}).get("requests", [])
@@ -1860,7 +1861,7 @@ async def list_client_packages(request: Request, client_id: str | None=None,
       LEFT JOIN external_client_package_sessions s ON s.client_package_id=cp.id AND s.tenant_id=cp.tenant_id
       LEFT JOIN practice_consultations c ON c.tenant_id=cp.tenant_id AND c.client_id=cp.client_id
       WHERE cp.tenant_id=:tenant
-        AND (CAST(:client AS uuid) IS NULL OR cp.client_id=CAST(:client AS uuid))
+        AND (CAST(:client AS text) IS NULL OR cp.client_id=CAST(:client AS text))
       GROUP BY cp.id,p.id ORDER BY cp.end_date,cp.created_at DESC"""),
       {"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
     return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,
@@ -2023,7 +2024,9 @@ async def list_scheduled_appointments(request: Request, client_id: str | None=No
     rows=(await db.execute(text("""SELECT a.id,a.client_id,a.starts_at,a.ends_at,a.status,a.attendance_status,
       t.name,t.location_type,t.location_details FROM external_scheduled_appointments a
       JOIN external_appointment_types t ON t.id=a.appointment_type_id AND t.tenant_id=a.tenant_id
-      WHERE a.tenant_id=:tenant AND (:client IS NULL OR a.client_id=:client) ORDER BY a.starts_at"""),
+      WHERE a.tenant_id=:tenant
+        AND (CAST(:client AS text) IS NULL OR a.client_id=CAST(:client AS text))
+      ORDER BY a.starts_at"""),
       {"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
     return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
 
@@ -2276,8 +2279,10 @@ async def list_invoices(request: Request, status: str|None=None, client_id: str|
       CASE WHEN status IN ('ISSUED','PART_PAID') AND due_date<CURRENT_DATE AND balance_due_minor>0 THEN 'OVERDUE' ELSE status END AS status,
       currency,issue_date,due_date,subtotal_minor,discount_amount_minor,tax_total_minor,grand_total_minor,
       amount_paid_minor,balance_due_minor,created_at FROM external_invoices WHERE tenant_id=:tenant
-      AND (:client IS NULL OR client_id=:client) AND (:status IS NULL OR status=:status)
-      AND (:search IS NULL OR invoice_number ILIKE '%'||:search||'%' OR client_id ILIKE '%'||:search||'%')
+      AND (CAST(:client AS text) IS NULL OR client_id=CAST(:client AS text))
+      AND (CAST(:status AS text) IS NULL OR status=CAST(:status AS text))
+      AND (CAST(:search AS text) IS NULL OR invoice_number ILIKE '%'||CAST(:search AS text)||'%'
+        OR client_id ILIKE '%'||CAST(:search AS text)||'%')
       ORDER BY created_at DESC"""),{"tenant":ctx["tenant_id"],"client":client_id,"status":status,"search":search})).mappings().all()
     return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
 
@@ -2461,7 +2466,9 @@ async def list_payments(request: Request,client_id: str|None=None,ctx=Depends(co
       p.reference_number,p.payment_date,p.created_at,i.invoice_number,r.id AS receipt_id,r.receipt_number
       FROM external_payment_records p JOIN external_invoices i ON i.id=p.invoice_id AND i.tenant_id=p.tenant_id
       JOIN external_receipts r ON r.payment_id=p.id AND r.tenant_id=p.tenant_id
-      WHERE p.tenant_id=:tenant AND (:client IS NULL OR p.client_id=:client) ORDER BY p.payment_date DESC,p.created_at DESC"""),
+      WHERE p.tenant_id=:tenant
+        AND (CAST(:client AS text) IS NULL OR p.client_id=CAST(:client AS text))
+      ORDER BY p.payment_date DESC,p.created_at DESC"""),
       {"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
     return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
 
@@ -2516,8 +2523,10 @@ async def list_professional_resources(request:Request, scope:str|None=None, reso
         rv.duration_minutes,rv.instructions,rv.tags,rv.capability_required,rv.created_by,rv.created_at
         FROM external_resource_versions rv WHERE rv.resource_id=d.id ORDER BY rv.version DESC LIMIT 1) v ON TRUE
       WHERE (d.tenant_id=:tenant OR (d.scope='SYSTEM' AND d.tenant_id IS NULL))
-      AND (:scope IS NULL OR d.scope=:scope) AND (:type IS NULL OR d.resource_type=:type)
-      AND (:active IS NULL OR d.active=:active) ORDER BY d.scope,d.title"""),{
+      AND (CAST(:scope AS text) IS NULL OR d.scope=CAST(:scope AS text))
+      AND (CAST(:type AS text) IS NULL OR d.resource_type=CAST(:type AS text))
+      AND (CAST(:active AS boolean) IS NULL OR d.active=CAST(:active AS boolean))
+      ORDER BY d.scope,d.title"""),{
         "tenant":ctx["tenant_id"],"scope":scope,"type":resource_type,"active":active})).mappings().all()
     return {"success":True,"data":{"items":[dict(r) for r in rows]},"error":None,"request_id":request.state.correlation_id}
 
@@ -2994,7 +3003,10 @@ async def list_automations(request:Request,state:str|None=None,ctx=Depends(conte
     rows=(await db.execute(text("""SELECT d.id,d.name,d.description,d.profession_code,d.trigger_type,d.enabled,d.current_version,d.archived_at,d.updated_at,
       v.requires_confirmation,v.max_retries,v.cooldown_minutes,v.status
       FROM external_automation_definitions d JOIN external_automation_versions v ON v.definition_id=d.id AND v.version=d.current_version
-      WHERE d.tenant_id=:tenant AND (:state IS NULL OR (:state='ACTIVE' AND d.enabled) OR (:state='DISABLED' AND NOT d.enabled) OR v.status=:state)
+      WHERE d.tenant_id=:tenant AND (CAST(:state AS text) IS NULL
+        OR (CAST(:state AS text)='ACTIVE' AND d.enabled)
+        OR (CAST(:state AS text)='DISABLED' AND NOT d.enabled)
+        OR v.status=CAST(:state AS text))
       ORDER BY d.updated_at DESC"""),{"tenant":ctx["tenant_id"],"state":state})).mappings().all()
     return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
 
@@ -5488,7 +5500,7 @@ async def create_support_ticket(request:Request,body:SupportTicketCreate,ctx=Dep
 async def admin_support_tickets(request:Request,status:str|None=None,priority:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=_platform_admin(request,ctx)
     if denied:return denied
-    rows=[dict(row) for row in (await db.execute(text("SELECT id,tenant_id,created_by,ticket_type,subject,status,priority,owner_id,sla_due_at,safe_context,created_at,updated_at FROM external_support_tickets WHERE (:status IS NULL OR status=:status) AND (:priority IS NULL OR priority=:priority) ORDER BY priority,created_at LIMIT 250"),{"status":status,"priority":priority})).mappings().all()]
+    rows=[dict(row) for row in (await db.execute(text("SELECT id,tenant_id,created_by,ticket_type,subject,status,priority,owner_id,sla_due_at,safe_context,created_at,updated_at FROM external_support_tickets WHERE (CAST(:status AS text) IS NULL OR status=CAST(:status AS text)) AND (CAST(:priority AS text) IS NULL OR priority=CAST(:priority AS text)) ORDER BY priority,created_at LIMIT 250"),{"status":status,"priority":priority})).mappings().all()]
     return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows},"error":None,"request_id":request.state.correlation_id}
 
 @app.patch("/api/v1/practice-operations/admin/support/tickets/{ticket_id}")
@@ -5506,7 +5518,7 @@ async def update_support_ticket(ticket_id:UUID,request:Request,body:SupportTicke
 async def notification_centre(request:Request,state:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=external_only(request,ctx)
     if denied:return denied
-    rows=[dict(row) for row in (await db.execute(text("""SELECT n.id,n.client_id,n.event_type,n.title,n.payload,n.created_at,COALESCE(s.state,'UNREAD') state FROM practice_notifications n LEFT JOIN external_notification_user_states s ON s.notification_id=n.id AND s.tenant_id=n.tenant_id AND s.user_id=:user WHERE n.tenant_id=:tenant AND (:state IS NULL OR COALESCE(s.state,'UNREAD')=:state) ORDER BY n.created_at DESC LIMIT 100"""),{"user":ctx["user_id"],"tenant":ctx["tenant_id"],"state":state})).mappings().all()]
+    rows=[dict(row) for row in (await db.execute(text("""SELECT n.id,n.client_id,n.event_type,n.title,n.payload,n.created_at,COALESCE(s.state,'UNREAD') state FROM practice_notifications n LEFT JOIN external_notification_user_states s ON s.notification_id=n.id AND s.tenant_id=n.tenant_id AND s.user_id=:user WHERE n.tenant_id=:tenant AND (CAST(:state AS text) IS NULL OR COALESCE(s.state,'UNREAD')=CAST(:state AS text)) ORDER BY n.created_at DESC LIMIT 100"""),{"user":ctx["user_id"],"tenant":ctx["tenant_id"],"state":state})).mappings().all()]
     for row in rows:row["category"]=notification_category(row["event_type"])
     return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows,"source":"CANONICAL_SYSTEM_EVENTS"},"error":None,"request_id":request.state.correlation_id}
 
