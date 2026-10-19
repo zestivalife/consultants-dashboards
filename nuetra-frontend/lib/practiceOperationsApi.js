@@ -203,6 +203,10 @@ export function createSecureConversation(payload){return request('/messages/conv
 export function listSecureConversations(){return request('/messages/conversations');}
 export function getSecureConversation(id){return request(`/messages/conversations/${encodeURIComponent(id)}`);}
 export function sendSecureMessage(id,payload){return request(`/messages/conversations/${encodeURIComponent(id)}`,{method:'POST',body:JSON.stringify(payload)});}
+export function getCalendarSyncStatus(){return request('/calendar-sync');}
+export function prepareCalendarConnection(provider){return request('/calendar-sync/connections',{method:'POST',body:JSON.stringify({provider})});}
+export function importCalendarBusyBlock(id,payload){return request(`/calendar-sync/connections/${encodeURIComponent(id)}/busy-blocks`,{method:'POST',body:JSON.stringify(payload)});}
+export function detectExternalCalendarChange(id,payload){return request(`/calendar-sync/connections/${encodeURIComponent(id)}/external-changes`,{method:'POST',body:JSON.stringify(payload)});}
 export function getMarketplaceProfile(){return request('/marketplace/profile');}
 export function getMarketplaceReadiness(){return request('/marketplace/readiness');}
 export function listMarketplaceReviews(){return request('/marketplace/reviews');}

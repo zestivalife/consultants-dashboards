@@ -814,3 +814,16 @@ class AiDraftRequest(BaseModel):
 
 class ClientExportRequest(BaseModel):
     sections: list[Literal["CONSENTS","PORTAL_ACTIVITY","BILLING","DOCUMENTS","REFERRALS","AUTOMATIONS","AI_DRAFTS","FORMS","GOALS","TASKS","APPOINTMENTS","PROGRESS"]] = Field(min_length=1,max_length=20)
+
+class CalendarConnectionPrepare(BaseModel):
+    provider: Literal["GOOGLE","MICROSOFT"]
+
+class CalendarBusyBlockImport(BaseModel):
+    provider_event_id: str = Field(min_length=1,max_length=500)
+    starts_at: datetime
+    ends_at: datetime
+
+class CalendarExternalChange(BaseModel):
+    appointment_id: UUID
+    change_type: Literal["RESCHEDULE","CANCEL"]
+    provider_event_id: str = Field(min_length=1,max_length=500)

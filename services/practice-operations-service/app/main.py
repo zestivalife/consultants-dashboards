@@ -27,7 +27,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            ProfessionPlanCreate, ProfessionPlanSave)
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
-from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete, FeedbackRequestCreate, FeedbackSubmit, FeedbackAction, TeleconsultConfigure, TeleconsultTransition, SecureConversationCreate, SecureMessageCreate
+from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete, FeedbackRequestCreate, FeedbackSubmit, FeedbackAction, TeleconsultConfigure, TeleconsultTransition, SecureConversationCreate, SecureMessageCreate, CalendarConnectionPrepare, CalendarBusyBlockImport, CalendarExternalChange
 from app.contracts import ClientPortalInvitationCreate, ClientPortalDocumentCreate, PreConsultationInvite
 from app.contracts import (ServicePackageCreate, ServicePackageUpdate,
                            ClientPackageAssign, ClientPackageStatusUpdate,
@@ -76,6 +76,7 @@ from app.p38 import project_post_session, resolve_post_session_actions
 from app.p39 import experience_label, public_review_eligible, validate_ratings
 from app.p40 import join_allowed, provider_status, validate_external_meeting_url
 from app.p41 import validate_message
+from app.p42 import external_change_action, project_busy_block, provider_state
 from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
@@ -5246,6 +5247,48 @@ async def report_marketplace_review(review_id:UUID,request:Request,body:ReviewRe
     row=(await db.execute(text("UPDATE external_consultant_reviews SET reported_at=:now,updated_at=:now WHERE id=:id AND profile_id=:profile RETURNING tenant_id"),{"now":datetime.now(timezone.utc),"id":review_id,"profile":profile["id"]})).mappings().first()
     if not row:return error(request,404,"REVIEW_NOT_FOUND","Review was not found")
     await db.execute(text("INSERT INTO external_consultant_review_events(id,review_id,tenant_id,event_type,actor_id,reason,created_at) VALUES (:id,:review,:tenant,'REVIEW_REPORTED',:actor,:reason,:now)"),{"id":uuid4(),"review":review_id,"tenant":row["tenant_id"],"actor":ctx["user_id"],"reason":body.reason,"now":datetime.now(timezone.utc)});await db.commit();return {"success":True,"data":{"reported":True},"error":None,"request_id":request.state.correlation_id}
+
+# P42 provider-neutral external calendar sync. P13 remains appointment authority.
+@app.get("/api/v1/practice-operations/calendar-sync")
+async def calendar_sync_status(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"CALENDAR_SYNC_VIEW")
+    if denied:return denied
+    rows=list((await db.execute(text("SELECT id,provider,status,last_synced_at FROM external_calendar_connections WHERE tenant_id=:tenant AND user_id=:user ORDER BY provider"),{"tenant":ctx["tenant_id"],"user":ctx["user_id"]})).mappings().all())
+    found={row["provider"]:dict(row) for row in rows};providers=[]
+    for provider in ("GOOGLE","MICROSOFT"):
+        row=found.get(provider);providers.append({"provider":provider,"calendarProvider":provider_state(provider,bool(row and row["status"]=='CONNECTED')),"connection":row})
+    blocks=[project_busy_block(dict(row)) for row in (await db.execute(text("SELECT id,starts_at,ends_at FROM external_calendar_busy_blocks WHERE tenant_id=:tenant AND active=TRUE AND ends_at>NOW() ORDER BY starts_at LIMIT 250"),{"tenant":ctx["tenant_id"]})).mappings().all()]
+    return {"success":True,"data":{"providers":providers,"busyBlocks":blocks,"schedulingAuthority":"P13_INTERNAL"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/calendar-sync/connections")
+async def prepare_calendar_connection(request:Request,body:CalendarConnectionPrepare,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"CALENDAR_SYNC_MANAGE")
+    if denied:return denied
+    # OAuth handshakes require governed provider configuration; never accept tokens from this API.
+    return {"success":True,"data":{"provider":body.provider,"calendarProvider":"NOT_CONFIGURED","oauthTokenExposed":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/calendar-sync/connections/{connection_id}/busy-blocks",status_code=201)
+async def import_calendar_busy_block(connection_id:UUID,request:Request,body:CalendarBusyBlockImport,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"CALENDAR_SYNC_MANAGE")
+    if denied:return denied
+    if body.ends_at<=body.starts_at:return error(request,422,"INVALID_BUSY_WINDOW","Busy block must end after it starts")
+    connection=(await db.execute(text("SELECT id,tenant_id FROM external_calendar_connections WHERE id=:id AND tenant_id=:tenant AND user_id=:user AND status='CONNECTED'"),{"id":connection_id,"tenant":ctx["tenant_id"],"user":ctx["user_id"]})).mappings().first()
+    if not connection:return error(request,409,"CALENDAR_PROVIDER_NOT_CONFIGURED","Calendar provider is not configured")
+    digest=hashlib.sha256(body.provider_event_id.encode()).hexdigest();block_id=uuid4();now=datetime.now(timezone.utc)
+    await db.execute(text("INSERT INTO external_calendar_busy_blocks(id,connection_id,tenant_id,provider_event_hash,starts_at,ends_at,visibility,active,created_at,updated_at) VALUES (:id,:connection,:tenant,:hash,:start,:end,'BUSY',TRUE,:now,:now) ON CONFLICT(connection_id,provider_event_hash) DO UPDATE SET starts_at=EXCLUDED.starts_at,ends_at=EXCLUDED.ends_at,active=TRUE,updated_at=EXCLUDED.updated_at"),{"id":block_id,"connection":connection_id,"tenant":ctx["tenant_id"],"hash":digest,"start":body.starts_at,"end":body.ends_at,"now":now});await db.commit()
+    return {"success":True,"data":{"visibility":"BUSY","providerEventTitle":None},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/calendar-sync/connections/{connection_id}/external-changes",status_code=202)
+async def detect_external_calendar_change(connection_id:UUID,request:Request,body:CalendarExternalChange,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"CALENDAR_SYNC_MANAGE")
+    if denied:return denied
+    connection=(await db.execute(text("SELECT id FROM external_calendar_connections WHERE id=:id AND tenant_id=:tenant AND user_id=:user AND status='CONNECTED'"),{"id":connection_id,"tenant":ctx["tenant_id"],"user":ctx["user_id"]})).first()
+    if not connection:return error(request,409,"CALENDAR_PROVIDER_NOT_CONFIGURED","Calendar provider is not configured")
+    appointment=(await db.execute(text("SELECT id FROM external_scheduled_appointments WHERE id=:id AND tenant_id=:tenant"),{"id":body.appointment_id,"tenant":ctx["tenant_id"]})).first()
+    if not appointment:return error(request,404,"APPOINTMENT_NOT_FOUND","Appointment was not found")
+    action=external_change_action(body.change_type);now=datetime.now(timezone.utc)
+    await db.execute(text("INSERT INTO external_calendar_sync_events(id,connection_id,tenant_id,appointment_id,event_type,external_change_type,actor_id,metadata,created_at) VALUES (:id,:connection,:tenant,:appointment,'EXTERNAL_CHANGE_DETECTED',:change,:actor,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"connection":connection_id,"tenant":ctx["tenant_id"],"appointment":body.appointment_id,"change":body.change_type,"actor":ctx["user_id"],"metadata":json.dumps({"provider_event_hash":hashlib.sha256(body.provider_event_id.encode()).hexdigest(),"action":action}),"now":now});await db.commit()
+    return {"success":True,"data":{"action":action,"appointmentChanged":False},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/practice-operations/admin/marketplace/finder-config")
 async def admin_finder_config(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):

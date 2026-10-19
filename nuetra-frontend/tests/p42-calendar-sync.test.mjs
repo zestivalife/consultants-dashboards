@@ -1,0 +1,4 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
+const ui=fs.readFileSync(new URL('../components/external/ExternalCalendarWorkspace.jsx',import.meta.url),'utf8');const api=fs.readFileSync(new URL('../lib/practiceOperationsApi.js',import.meta.url),'utf8');
+test('calendar UI preserves internal authority and truthful provider state',()=>{for(const value of ['Calendar sync','Google Calendar','Microsoft Outlook','CALENDAR_PROVIDER:','P13 internal authority','external event names are never shown'])assert.match(ui,new RegExp(value,'i'));});
+test('calendar sync API never transports OAuth tokens in frontend',()=>{for(const value of ['getCalendarSyncStatus','prepareCalendarConnection','importCalendarBusyBlock','detectExternalCalendarChange'])assert.match(api,new RegExp(value));assert.doesNotMatch(api,/refresh_token|access_token/);});
