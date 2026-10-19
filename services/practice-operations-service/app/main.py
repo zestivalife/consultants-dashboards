@@ -70,7 +70,7 @@ from app.p28 import PaymentProviderNotConfigured, canonical_payload_hash, verify
 from app.p29 import classify_output, validate_ai_request
 from app.p30 import EXCLUDED_BY_DEFAULT, export_checksum, validate_export_sections
 from app.command_centre import next_action, operational_priority, section as command_section, sort_work
-from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,EnrolmentAction,EnrolmentCreate,ProfileSave,
+from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,EnrolmentAction,EnrolmentCreate,HomepageFeatureDecision,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
                              publicly_visible,slug_base)
@@ -4138,6 +4138,7 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
 
 
 # P31 Consultant Marketplace — additive External-only domain.
+MARKETPLACE_ACQUISITION_SOURCES={'PUBLIC_CONSULTANT_DIRECTORY','HOMEPAGE_FEATURED_CONSULTANT','HOMEPAGE_PROFESSION_DISCOVERY','HOMEPAGE_SEARCH'}
 def _platform_admin(request,ctx):
     role=str((ctx or {}).get("role") or "").upper()
     if role not in {"SUPER_ADMIN","SUPERUSER","PLATFORM_OWNER"}:return error(request,403,"PLATFORM_ADMIN_REQUIRED","Platform Super Admin authority is required")
@@ -4157,7 +4158,13 @@ async def marketplace_profile(request:Request,ctx=Depends(context),db:AsyncSessi
     if not profile:return {"success":True,"data":{"state":"CONFIRMED_EMPTY","profile":None,"qualifications":[],"analytics":None},"error":None,"request_id":request.state.correlation_id}
     version=(await db.execute(text("SELECT version,status,projection,completeness,missing_fields,submitted_at,approved_at,published_at FROM external_consultant_public_profile_versions WHERE profile_id=:profile AND version=:version"),{"profile":profile["id"],"version":profile["working_version"]})).mappings().first()
     qualifications=[dict(row) for row in (await db.execute(text("SELECT id,qualification_type,title,institution,award_year,country,registration_number,issuing_body,expiry_date,verification_status,credential_document_id,created_at,updated_at FROM external_consultant_qualifications WHERE profile_id=:profile ORDER BY created_at DESC"),{"profile":profile["id"]})).mappings().all()]
-    analytics=(await db.execute(text("SELECT COUNT(*) FILTER(WHERE event_type='PROFILE_VIEW')::int profile_views,COUNT(*) FILTER(WHERE event_type='ENROL_CLICK')::int enrol_clicks,COUNT(*) FILTER(WHERE event_type='BOOK_CLICK')::int booking_clicks FROM external_consultant_marketplace_events WHERE profile_id=:profile"),{"profile":profile["id"]})).mappings().one()
+    analytics=(await db.execute(text("""SELECT
+      (SELECT COUNT(*) FROM external_consultant_marketplace_events WHERE profile_id=:profile AND event_type='PROFILE_VIEW')::int profile_views,
+      (SELECT COUNT(*) FROM external_consultant_marketplace_events WHERE profile_id=:profile AND event_type='ENROL_CLICK')::int enrol_clicks,
+      (SELECT COUNT(*) FROM external_consultant_marketplace_events WHERE profile_id=:profile AND event_type='BOOK_CLICK')::int booking_clicks,
+      (SELECT COUNT(*) FROM external_marketplace_homepage_events WHERE profile_id=:profile AND event_type='HOMEPAGE_CONSULTANT_IMPRESSION')::int homepage_impressions,
+      (SELECT COUNT(*) FROM external_marketplace_homepage_events WHERE profile_id=:profile AND event_type='HOMEPAGE_CONSULTANT_VIEW_CLICK')::int homepage_profile_views,
+      (SELECT COUNT(*) FROM external_marketplace_homepage_events WHERE profile_id=:profile AND event_type='HOMEPAGE_ENROL_CLICK')::int homepage_enrol_clicks"""),{"profile":profile["id"]})).mappings().one()
     review=(await db.execute(text("SELECT COUNT(*)::int review_count,AVG(overall_rating)::numeric(3,2) average_rating FROM external_consultant_reviews WHERE profile_id=:profile AND verified_engagement=TRUE AND status='PUBLISHED'"),{"profile":profile["id"]})).mappings().one()
     enrolments=(await db.execute(text("SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE status='NEW')::int new_count FROM external_consultant_marketplace_enrolments WHERE profile_id=:profile"),{"profile":profile["id"]})).mappings().one()
     return {"success":True,"data":{"state":"READY","profile":dict(profile),"version":dict(version) if version else None,"qualifications":qualifications,"analytics":{**dict(analytics),**dict(review),"enrolments":dict(enrolments)}},"error":None,"request_id":request.state.correlation_id}
@@ -4274,8 +4281,24 @@ async def marketplace_enrolment_action(enrolment_id:UUID,request:Request,body:En
 async def admin_marketplace(request:Request,status:str|None=None,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=_platform_admin(request,ctx)
     if denied:return denied
-    params={"status":status};rows=[dict(row) for row in (await db.execute(text("SELECT p.id,p.tenant_id,p.consultant_user_id,p.slug,p.status,p.public_visibility,p.accepting_new_clients,p.current_published_version,p.working_version,p.approved_version,p.approval_valid,p.updated_at,v.projection,v.completeness,v.missing_fields FROM external_consultant_public_profiles p JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.working_version WHERE (CAST(:status AS text) IS NULL OR p.status=CAST(:status AS text)) ORDER BY p.updated_at DESC LIMIT 200"),params)).mappings().all()]
+    params={"status":status};rows=[dict(row) for row in (await db.execute(text("SELECT p.id,p.tenant_id,p.consultant_user_id,p.slug,p.status,p.public_visibility,p.accepting_new_clients,p.current_published_version,p.working_version,p.approved_version,p.approval_valid,p.updated_at,v.projection,v.completeness,v.missing_fields,COALESCE(h.featured_on_homepage,FALSE) featured_on_homepage,h.featured_rank,h.featured_from,h.featured_until FROM external_consultant_public_profiles p JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.working_version LEFT JOIN external_consultant_homepage_features h ON h.profile_id=p.id WHERE (CAST(:status AS text) IS NULL OR p.status=CAST(:status AS text)) ORDER BY p.updated_at DESC LIMIT 200"),params)).mappings().all()]
     return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows},"error":None,"request_id":request.state.correlation_id}
+
+@app.put("/api/v1/practice-operations/admin/marketplace/profiles/{profile_id}/homepage-feature")
+async def admin_marketplace_homepage_feature(profile_id:UUID,request:Request,body:HomepageFeatureDecision,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    profile=(await db.execute(text("SELECT id,tenant_id,status,public_visibility,approval_valid,suspended_at FROM external_consultant_public_profiles WHERE id=:id FOR UPDATE"),{"id":profile_id})).mappings().first()
+    if not profile:return error(request,404,"PROFILE_NOT_FOUND","Profile was not found")
+    eligible=profile["status"]=="PUBLISHED" and profile["public_visibility"] and profile["approval_valid"] and not profile["suspended_at"]
+    if body.featured_on_homepage and not eligible:return error(request,409,"PROFILE_NOT_SHOWCASE_ELIGIBLE","Only an approved, published, visible and unsuspended profile can be featured")
+    if body.featured_on_homepage and body.featured_rank is None:return error(request,422,"FEATURED_RANK_REQUIRED","A deterministic homepage rank is required")
+    now=datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_consultant_homepage_features(profile_id,tenant_id,featured_on_homepage,featured_rank,featured_from,featured_until,featured_by,featured_at,updated_at)
+      VALUES (:profile,:tenant,:enabled,:rank,:start,:end,:actor,CASE WHEN :enabled THEN :now ELSE NULL END,:now)
+      ON CONFLICT(profile_id) DO UPDATE SET featured_on_homepage=EXCLUDED.featured_on_homepage,featured_rank=EXCLUDED.featured_rank,featured_from=EXCLUDED.featured_from,featured_until=EXCLUDED.featured_until,featured_by=EXCLUDED.featured_by,featured_at=CASE WHEN EXCLUDED.featured_on_homepage THEN :now ELSE external_consultant_homepage_features.featured_at END,updated_at=:now"""),{"profile":profile_id,"tenant":profile["tenant_id"],"enabled":body.featured_on_homepage,"rank":body.featured_rank if body.featured_on_homepage else None,"start":body.featured_from,"end":body.featured_until,"actor":ctx["user_id"],"now":now})
+    await _marketplace_audit(db,profile_id,profile["tenant_id"],"HOMEPAGE_FEATURED" if body.featured_on_homepage else "HOMEPAGE_REMOVED",ctx["user_id"],ctx["role"],metadata={"rank":body.featured_rank,"featured_from":body.featured_from.isoformat() if body.featured_from else None,"featured_until":body.featured_until.isoformat() if body.featured_until else None});await db.commit()
+    return {"success":True,"data":{"featured_on_homepage":body.featured_on_homepage,"featured_rank":body.featured_rank if body.featured_on_homepage else None},"error":None,"request_id":request.state.correlation_id}
 
 @app.post("/api/v1/practice-operations/admin/marketplace/profiles/{profile_id}/decision")
 async def admin_marketplace_decision(profile_id:UUID,request:Request,body:AdminDecision,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
@@ -4328,10 +4351,30 @@ def _public_profile_sql(extra=""):
       COALESCE(r.average_rating,0) average_rating,COALESCE(r.review_count,0)::int review_count
       FROM external_consultant_public_profiles p JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.current_published_version
       LEFT JOIN (SELECT profile_id,AVG(overall_rating)::numeric(3,2) average_rating,COUNT(*) review_count FROM external_consultant_reviews WHERE verified_engagement=TRUE AND status='PUBLISHED' GROUP BY profile_id) r ON r.profile_id=p.id
-      WHERE v.status='PUBLISHED' AND p.public_visibility=TRUE AND p.approval_valid=TRUE AND p.suspended_at IS NULL """+extra
+      WHERE p.status='PUBLISHED' AND v.status='PUBLISHED' AND p.public_visibility=TRUE AND p.approval_valid=TRUE AND p.suspended_at IS NULL """+extra
 
 def _public_marketplace_item(row):
     item=dict(row);item.pop("_tenant_id",None);item["projection"]=dict(item["projection"]);return item
+
+@app.get("/api/v1/public/consultants/featured")
+async def public_featured_consultants(request:Request,response:Response,limit:int=Query(6,ge=1,le=8),db:AsyncSession=Depends(get_db)):
+    extra=""" AND EXISTS(SELECT 1 FROM external_consultant_homepage_features h WHERE h.profile_id=p.id AND h.tenant_id=p.tenant_id AND h.featured_on_homepage=TRUE AND (h.featured_from IS NULL OR h.featured_from<=CURRENT_TIMESTAMP) AND (h.featured_until IS NULL OR h.featured_until>CURRENT_TIMESTAMP))"""
+    sql=_public_profile_sql(extra)+" ORDER BY (SELECT h.featured_rank FROM external_consultant_homepage_features h WHERE h.profile_id=p.id) ASC,p.id LIMIT :limit"
+    raw=list((await db.execute(text(sql),{"limit":limit})).mappings().all());rows=[_public_marketplace_item(row) for row in raw]
+    response.headers["Cache-Control"]="public, max-age=60, stale-while-revalidate=30"
+    return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/public/consultants/homepage-events")
+async def public_homepage_event(request:Request,body:MarketplaceEventCreate,db:AsyncSession=Depends(get_db)):
+    profile=None
+    if body.profile_id:
+        try:profile_id=UUID(body.profile_id)
+        except ValueError:return error(request,422,"INVALID_PROFILE_ID","Profile identifier is invalid")
+        profile=(await db.execute(text(_public_profile_sql(" AND p.id=:profile")),{"profile":profile_id})).mappings().first()
+        if not profile:return error(request,404,"CONSULTANT_NOT_FOUND","Consultant profile was not found")
+    if body.event_type in {"HOMEPAGE_CONSULTANT_IMPRESSION","HOMEPAGE_CONSULTANT_VIEW_CLICK","HOMEPAGE_ENROL_CLICK"} and not profile:return error(request,422,"PROFILE_REQUIRED","This event requires an eligible public consultant")
+    await db.execute(text("INSERT INTO external_marketplace_homepage_events(id,profile_id,tenant_id,event_type,profession_code,metadata,created_at) VALUES (:id,:profile,:tenant,:event,:profession,'{}'::jsonb,:now)"),{"id":uuid4(),"profile":profile["id"] if profile else None,"tenant":profile["_tenant_id"] if profile else None,"event":body.event_type,"profession":body.profession_code,"now":datetime.now(timezone.utc)});await db.commit()
+    return {"success":True,"data":{"recorded":True},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/public/consultants")
 async def public_consultants(request:Request,q:str|None=None,profession:list[str]|None=Query(None),specialisation:list[str]|None=Query(None),mode:list[str]|None=Query(None),location:list[str]|None=Query(None),language:list[str]|None=Query(None),experience_min:int|None=Query(None,ge=0,le=80),experience_max:int|None=Query(None,ge=0,le=80),availability:str|None=Query(None,pattern="^(NEXT_AVAILABLE|TODAY|NEXT_3_DAYS|NEXT_7_DAYS)$"),rating_min:float|None=Query(None,ge=1,le=5),fee_min:int|None=Query(None,ge=0),fee_max:int|None=Query(None,ge=0),fee_currency:str|None=Query(None,pattern="^[A-Z]{3}$"),accepting_new_clients:bool|None=None,service:list[str]|None=Query(None),sort:str=Query("recommended",pattern="^(recommended|next_available|rating_desc|most_reviewed|experience_desc|fee_asc|fee_desc)$"),page:int=Query(1,ge=1),page_size:int=Query(24,ge=1,le=60),db:AsyncSession=Depends(get_db)):
@@ -4394,9 +4437,9 @@ async def public_consultant_enrolment(slug:str,request:Request,body:EnrolmentCre
     key=dedupe_key(profile["id"],body.email,body.phone,body.service_id);existing=(await db.execute(text("SELECT id,status FROM external_consultant_marketplace_enrolments WHERE profile_id=:profile AND deduplication_key=:key"),{"profile":profile["id"],"key":key})).mappings().first()
     if existing:return {"success":True,"data":{"id":str(existing["id"]),"status":existing["status"],"duplicate":True},"error":None,"request_id":request.state.correlation_id}
     now=datetime.now(timezone.utc);lead_id=uuid4();enrolment_id=uuid4();email_key=normal_email(body.email);phone_key=normal_phone(body.phone)
-    await db.execute(text("INSERT INTO external_leads(id,tenant_id,first_name,last_name,email,phone,email_key,phone_key,source,stage,assigned_practitioner_id,notes,created_by,created_at,updated_at) VALUES (:id,:tenant,:first,:last,:email,:phone,:email_key,:phone_key,'PUBLIC_CONSULTANT_DIRECTORY','NEW',:actor,:notes,'PUBLIC_MARKETPLACE',:now,:now)"),{"id":lead_id,"tenant":profile["tenant_id"],"first":body.full_name.split()[0],"last":" ".join(body.full_name.split()[1:]) or None,"email":body.email,"phone":body.phone,"email_key":email_key,"phone_key":phone_key,"actor":profile["consultant_user_id"],"notes":"Marketplace enrolment request","now":now})
+    await db.execute(text("INSERT INTO external_leads(id,tenant_id,first_name,last_name,email,phone,email_key,phone_key,source,stage,assigned_practitioner_id,notes,created_by,created_at,updated_at) VALUES (:id,:tenant,:first,:last,:email,:phone,:email_key,:phone_key,:source,'NEW',:actor,:notes,'PUBLIC_MARKETPLACE',:now,:now)"),{"id":lead_id,"tenant":profile["tenant_id"],"first":body.full_name.split()[0],"last":" ".join(body.full_name.split()[1:]) or None,"email":body.email,"phone":body.phone,"email_key":email_key,"phone_key":phone_key,"source":body.source,"actor":profile["consultant_user_id"],"notes":"Marketplace enrolment request","now":now})
     await db.execute(text("INSERT INTO external_consultant_marketplace_enrolments(id,profile_id,tenant_id,lead_id,service_id,programme_id,full_name,email,phone,consultation_mode,location_id,preferred_at,message,consent_acknowledged,status,deduplication_key,created_at,updated_at) VALUES (:id,:profile,:tenant,:lead,:service,:programme,:name,:email,:phone,:mode,:location,:preferred,:message,TRUE,'NEW',:key,:now,:now)"),{"id":enrolment_id,"profile":profile["id"],"tenant":profile["tenant_id"],"lead":lead_id,"service":UUID(body.service_id) if body.service_id else None,"programme":UUID(body.programme_id) if body.programme_id else None,"name":body.full_name,"email":body.email,"phone":body.phone,"mode":body.consultation_mode,"location":UUID(body.location_id) if body.location_id else None,"preferred":body.preferred_at,"message":body.message,"key":key,"now":now})
-    await _marketplace_audit(db,profile["id"],profile["tenant_id"],"ENROLMENT_CREATED","PUBLIC_PROSPECT","PUBLIC",metadata={"enrolment_id":str(enrolment_id),"lead_id":str(lead_id)});await db.execute(text("INSERT INTO external_consultant_marketplace_events(id,profile_id,tenant_id,event_type,metadata,created_at) VALUES (:id,:profile,:tenant,'ENROLMENT_SUBMITTED',CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"profile":profile["id"],"tenant":profile["tenant_id"],"metadata":json.dumps({"enrolment_id":str(enrolment_id)}),"now":now});await db.commit()
+    await _marketplace_audit(db,profile["id"],profile["tenant_id"],"ENROLMENT_CREATED","PUBLIC_PROSPECT","PUBLIC",metadata={"enrolment_id":str(enrolment_id),"lead_id":str(lead_id),"source":body.source});await db.execute(text("INSERT INTO external_consultant_marketplace_events(id,profile_id,tenant_id,event_type,metadata,created_at) VALUES (:id,:profile,:tenant,'ENROLMENT_SUBMITTED',CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"profile":profile["id"],"tenant":profile["tenant_id"],"metadata":json.dumps({"enrolment_id":str(enrolment_id),"source":body.source}),"now":now});await db.commit()
     return {"success":True,"data":{"id":str(enrolment_id),"status":"NEW","duplicate":False},"error":None,"request_id":request.state.correlation_id}
 
 @app.post("/api/v1/practice-operations/marketplace/profiles/{profile_id}/reviews")
@@ -4435,4 +4478,5 @@ async def admin_marketplace_analytics(request:Request,ctx=Depends(context),db:As
     if denied:return denied
     summary=(await db.execute(text("SELECT COUNT(*) FILTER(WHERE status='PUBLISHED')::int published_consultants,COUNT(*) FILTER(WHERE status IN ('SUBMITTED_FOR_REVIEW','UNDER_REVIEW'))::int pending_approvals,COUNT(*) FILTER(WHERE status='PUBLISHED' AND accepting_new_clients=TRUE)::int accepting_clients FROM external_consultant_public_profiles"))).mappings().one()
     events=[dict(row) for row in (await db.execute(text("SELECT event_type,COUNT(*)::int count FROM external_consultant_marketplace_events GROUP BY event_type"))).mappings().all()]
-    return {"success":True,"data":{"state":"READY","summary":dict(summary),"events":events},"error":None,"request_id":request.state.correlation_id}
+    homepage_events=[dict(row) for row in (await db.execute(text("SELECT event_type,COUNT(*)::int count FROM external_marketplace_homepage_events GROUP BY event_type"))).mappings().all()]
+    return {"success":True,"data":{"state":"READY","summary":dict(summary),"events":events,"homepage_events":homepage_events},"error":None,"request_id":request.state.correlation_id}

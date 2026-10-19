@@ -48,11 +48,27 @@ class EnrolmentCreate(BaseModel):
     full_name:str=Field(min_length=2,max_length=240);email:str|None=Field(default=None,max_length=320);phone:str|None=Field(default=None,max_length=60)
     service_id:str|None=None;programme_id:str|None=None;consultation_mode:str|None=Field(default=None,max_length=40);location_id:str|None=None
     preferred_at:datetime|None=None;message:str|None=Field(default=None,max_length=1000);consent_acknowledged:bool
+    source:str=Field(default="PUBLIC_CONSULTANT_DIRECTORY",pattern="^(PUBLIC_CONSULTANT_DIRECTORY|HOMEPAGE_FEATURED_CONSULTANT|HOMEPAGE_PROFESSION_DISCOVERY|HOMEPAGE_SEARCH)$")
 class ReviewCreate(BaseModel):
     overall_rating:int=Field(ge=1,le=5);review_text:str|None=Field(default=None,max_length=2000);communication_rating:int|None=Field(default=None,ge=1,le=5)
     professionalism_rating:int|None=Field(default=None,ge=1,le=5);support_experience_rating:int|None=Field(default=None,ge=1,le=5)
 class EnrolmentAction(BaseModel):action:str;reason:str|None=Field(default=None,max_length=500)
 class ReviewReport(BaseModel):reason:str=Field(min_length=3,max_length=1000)
+class HomepageFeatureDecision(BaseModel):
+    featured_on_homepage:bool
+    featured_rank:int|None=Field(default=None,ge=1,le=1000)
+    featured_from:datetime|None=None
+    featured_until:datetime|None=None
+    @field_validator("featured_until")
+    @classmethod
+    def valid_window(cls,value,info):
+        start=info.data.get("featured_from")
+        if value and start and value<=start:raise ValueError("Feature window must end after it starts")
+        return value
+class MarketplaceEventCreate(BaseModel):
+    event_type:str=Field(pattern="^(HOMEPAGE_CONSULTANT_IMPRESSION|HOMEPAGE_CONSULTANT_VIEW_CLICK|HOMEPAGE_ENROL_CLICK|HOMEPAGE_DIRECTORY_CLICK|HOMEPAGE_PROFESSION_CLICK)$")
+    profile_id:str|None=None
+    profession_code:str|None=Field(default=None,max_length=80)
 
 def slug_base(value):return re.sub(r"[^a-z0-9]+","-",value.lower()).strip("-") or "consultant"
 def public_projection(payload):return {key:payload.get(key) for key in PUBLIC_FIELDS if key in payload}

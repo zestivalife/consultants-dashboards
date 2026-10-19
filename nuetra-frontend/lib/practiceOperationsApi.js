@@ -197,6 +197,7 @@ export function actOnMarketplaceEnrolment(id,action,reason){return request(`/mar
 export function reportMarketplaceReview(id,reason){return request(`/marketplace/reviews/${encodeURIComponent(id)}/report`,{method:'POST',body:JSON.stringify({reason})});}
 export function listAdminMarketplace(status=''){return request(`/admin/marketplace${status?`?status=${encodeURIComponent(status)}`:''}`);}
 export function decideMarketplaceProfile(id,action,reason){return request(`/admin/marketplace/profiles/${encodeURIComponent(id)}/decision`,{method:'POST',body:JSON.stringify({action,reason})});}
+export function setMarketplaceHomepageFeature(id,payload){return request(`/admin/marketplace/profiles/${encodeURIComponent(id)}/homepage-feature`,{method:'PUT',body:JSON.stringify(payload)});}
 export function decideMarketplaceQualification(id,action,reason){return request(`/admin/marketplace/qualifications/${encodeURIComponent(id)}/decision`,{method:'POST',body:JSON.stringify({action,reason})});}
 export function decideMarketplaceReview(id,action,reason){return request(`/admin/marketplace/reviews/${encodeURIComponent(id)}/decision`,{method:'POST',body:JSON.stringify({action,reason})});}
 export function getAdminMarketplaceAnalytics(){return request('/admin/marketplace/analytics');}
