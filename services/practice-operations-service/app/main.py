@@ -70,7 +70,7 @@ from app.p28 import PaymentProviderNotConfigured, canonical_payload_hash, verify
 from app.p29 import classify_output, validate_ai_request
 from app.p30 import EXCLUDED_BY_DEFAULT, export_checksum, validate_export_sections
 from app.command_centre import next_action, operational_priority, section as command_section, sort_work
-from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,EnrolmentAction,EnrolmentCreate,HomepageFeatureDecision,MarketplaceEventCreate,ProfileSave,
+from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,EnrolmentAction,EnrolmentCreate,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
                              publicly_visible,slug_base)
@@ -4164,7 +4164,11 @@ async def marketplace_profile(request:Request,ctx=Depends(context),db:AsyncSessi
       (SELECT COUNT(*) FROM external_consultant_marketplace_events WHERE profile_id=:profile AND event_type='BOOK_CLICK')::int booking_clicks,
       (SELECT COUNT(*) FROM external_marketplace_homepage_events WHERE profile_id=:profile AND event_type='HOMEPAGE_CONSULTANT_IMPRESSION')::int homepage_impressions,
       (SELECT COUNT(*) FROM external_marketplace_homepage_events WHERE profile_id=:profile AND event_type='HOMEPAGE_CONSULTANT_VIEW_CLICK')::int homepage_profile_views,
-      (SELECT COUNT(*) FROM external_marketplace_homepage_events WHERE profile_id=:profile AND event_type='HOMEPAGE_ENROL_CLICK')::int homepage_enrol_clicks"""),{"profile":profile["id"]})).mappings().one()
+      (SELECT COUNT(*) FROM external_marketplace_homepage_events WHERE profile_id=:profile AND event_type='HOMEPAGE_ENROL_CLICK')::int homepage_enrol_clicks,
+      (SELECT COUNT(*) FROM external_marketplace_comparison_events WHERE profile_id=:profile AND event_type='CONSULTANT_SAVED')::int times_saved,
+      (SELECT COUNT(*) FROM external_marketplace_comparison_events WHERE CAST(:profile AS text) IN (SELECT jsonb_array_elements_text(compared_profile_ids)) AND event_type='COMPARISON_OPENED')::int comparison_appearances,
+      (SELECT COUNT(*) FROM external_marketplace_comparison_events WHERE profile_id=:profile AND event_type='COMPARE_PROFILE_CLICK')::int comparison_profile_clicks,
+      (SELECT COUNT(*) FROM external_marketplace_comparison_events WHERE profile_id=:profile AND event_type='COMPARE_ENROL_CLICK')::int comparison_enrol_clicks"""),{"profile":profile["id"]})).mappings().one()
     review=(await db.execute(text("SELECT COUNT(*)::int review_count,AVG(overall_rating)::numeric(3,2) average_rating FROM external_consultant_reviews WHERE profile_id=:profile AND verified_engagement=TRUE AND status='PUBLISHED'"),{"profile":profile["id"]})).mappings().one()
     enrolments=(await db.execute(text("SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE status='NEW')::int new_count FROM external_consultant_marketplace_enrolments WHERE profile_id=:profile"),{"profile":profile["id"]})).mappings().one()
     return {"success":True,"data":{"state":"READY","profile":dict(profile),"version":dict(version) if version else None,"qualifications":qualifications,"analytics":{**dict(analytics),**dict(review),"enrolments":dict(enrolments)}},"error":None,"request_id":request.state.correlation_id}
@@ -4376,6 +4380,38 @@ async def public_homepage_event(request:Request,body:MarketplaceEventCreate,db:A
     await db.execute(text("INSERT INTO external_marketplace_homepage_events(id,profile_id,tenant_id,event_type,profession_code,metadata,created_at) VALUES (:id,:profile,:tenant,:event,:profession,'{}'::jsonb,:now)"),{"id":uuid4(),"profile":profile["id"] if profile else None,"tenant":profile["_tenant_id"] if profile else None,"event":body.event_type,"profession":body.profession_code,"now":datetime.now(timezone.utc)});await db.commit()
     return {"success":True,"data":{"recorded":True},"error":None,"request_id":request.state.correlation_id}
 
+@app.get("/api/v1/public/consultants/compare")
+async def public_compare_consultants(request:Request,c:list[str]=Query(...,min_length=2,max_length=4),db:AsyncSession=Depends(get_db)):
+    slugs=list(dict.fromkeys(item.strip() for item in c if item.strip()))
+    if len(slugs)<2 or len(slugs)>4:return error(request,422,"COMPARE_LIMIT","Compare between two and four consultants")
+    raw=list((await db.execute(text(_public_profile_sql(" AND p.slug=ANY(:slugs)")),{"slugs":slugs})).mappings().all())
+    by_slug={row["slug"]:row for row in raw};items=[]
+    for slug in slugs:
+        row=by_slug.get(slug)
+        if not row:continue
+        qualifications=[dict(item) for item in (await db.execute(text("SELECT title,institution,award_year FROM external_consultant_qualifications WHERE profile_id=:profile AND verification_status='VERIFIED' AND (expiry_date IS NULL OR expiry_date>=CURRENT_DATE) ORDER BY award_year DESC LIMIT 3"),{"profile":row["id"]})).mappings().all()]
+        availability=(await db.execute(text("SELECT 1 FROM external_availability_rules WHERE tenant_id=:tenant AND active=TRUE AND (effective_from IS NULL OR effective_from<=CURRENT_DATE) AND (effective_until IS NULL OR effective_until>=CURRENT_DATE) LIMIT 1"),{"tenant":row["_tenant_id"]})).first()
+        items.append({**_public_marketplace_item(row),"verified_qualifications":qualifications,"availability_state":"AVAILABLE_WINDOWS" if availability else "NOT_SHOWN"})
+    return {"success":True,"data":{"state":"READY" if items else "CONFIRMED_EMPTY","items":items,"unavailable_count":len(slugs)-len(items)},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/public/consultants/comparison-events")
+async def public_comparison_event(request:Request,body:MarketplaceComparisonEvent,db:AsyncSession=Depends(get_db)):
+    ids=[]
+    for value in body.compared_profile_ids:
+        try:ids.append(UUID(value))
+        except ValueError:return error(request,422,"INVALID_PROFILE_ID","Comparison contains an invalid profile identifier")
+    profile_id=None
+    if body.profile_id:
+        try:profile_id=UUID(body.profile_id)
+        except ValueError:return error(request,422,"INVALID_PROFILE_ID","Profile identifier is invalid")
+    all_ids=list(dict.fromkeys(([profile_id] if profile_id else [])+ids))
+    rows=list((await db.execute(text(_public_profile_sql(" AND p.id=ANY(:ids)")),{"ids":all_ids})).mappings().all()) if all_ids else []
+    visible={row["id"]:row for row in rows}
+    if profile_id and profile_id not in visible:return error(request,404,"CONSULTANT_NOT_FOUND","Consultant profile is no longer publicly available")
+    safe_ids=[item for item in ids if item in visible]
+    await db.execute(text("INSERT INTO external_marketplace_comparison_events(id,profile_id,tenant_id,event_type,compared_profile_ids,created_at) VALUES (:id,:profile,:tenant,:event,CAST(:compared AS jsonb),:now)"),{"id":uuid4(),"profile":profile_id,"tenant":visible[profile_id]["_tenant_id"] if profile_id else None,"event":body.event_type,"compared":json.dumps([str(item) for item in safe_ids]),"now":datetime.now(timezone.utc)});await db.commit()
+    return {"success":True,"data":{"recorded":True},"error":None,"request_id":request.state.correlation_id}
+
 @app.get("/api/v1/public/consultants")
 async def public_consultants(request:Request,q:str|None=None,profession:list[str]|None=Query(None),specialisation:list[str]|None=Query(None),mode:list[str]|None=Query(None),location:list[str]|None=Query(None),language:list[str]|None=Query(None),experience_min:int|None=Query(None,ge=0,le=80),experience_max:int|None=Query(None,ge=0,le=80),availability:str|None=Query(None,pattern="^(NEXT_AVAILABLE|TODAY|NEXT_3_DAYS|NEXT_7_DAYS)$"),rating_min:float|None=Query(None,ge=1,le=5),fee_min:int|None=Query(None,ge=0),fee_max:int|None=Query(None,ge=0),fee_currency:str|None=Query(None,pattern="^[A-Z]{3}$"),accepting_new_clients:bool|None=None,service:list[str]|None=Query(None),sort:str=Query("recommended",pattern="^(recommended|next_available|rating_desc|most_reviewed|experience_desc|fee_asc|fee_desc)$"),page:int=Query(1,ge=1),page_size:int=Query(24,ge=1,le=60),db:AsyncSession=Depends(get_db)):
     if experience_min is not None and experience_max is not None and experience_min>experience_max:return error(request,422,"INVALID_EXPERIENCE_RANGE","Minimum experience cannot exceed maximum experience")
@@ -4479,4 +4515,5 @@ async def admin_marketplace_analytics(request:Request,ctx=Depends(context),db:As
     summary=(await db.execute(text("SELECT COUNT(*) FILTER(WHERE status='PUBLISHED')::int published_consultants,COUNT(*) FILTER(WHERE status IN ('SUBMITTED_FOR_REVIEW','UNDER_REVIEW'))::int pending_approvals,COUNT(*) FILTER(WHERE status='PUBLISHED' AND accepting_new_clients=TRUE)::int accepting_clients FROM external_consultant_public_profiles"))).mappings().one()
     events=[dict(row) for row in (await db.execute(text("SELECT event_type,COUNT(*)::int count FROM external_consultant_marketplace_events GROUP BY event_type"))).mappings().all()]
     homepage_events=[dict(row) for row in (await db.execute(text("SELECT event_type,COUNT(*)::int count FROM external_marketplace_homepage_events GROUP BY event_type"))).mappings().all()]
-    return {"success":True,"data":{"state":"READY","summary":dict(summary),"events":events,"homepage_events":homepage_events},"error":None,"request_id":request.state.correlation_id}
+    comparison_events=[dict(row) for row in (await db.execute(text("SELECT event_type,COUNT(*)::int count FROM external_marketplace_comparison_events GROUP BY event_type"))).mappings().all()]
+    return {"success":True,"data":{"state":"READY","summary":dict(summary),"events":events,"homepage_events":homepage_events,"comparison_events":comparison_events,"engagement_label":"Marketplace engagement"},"error":None,"request_id":request.state.correlation_id}

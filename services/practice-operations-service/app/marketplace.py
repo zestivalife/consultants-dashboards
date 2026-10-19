@@ -69,6 +69,10 @@ class MarketplaceEventCreate(BaseModel):
     event_type:str=Field(pattern="^(HOMEPAGE_CONSULTANT_IMPRESSION|HOMEPAGE_CONSULTANT_VIEW_CLICK|HOMEPAGE_ENROL_CLICK|HOMEPAGE_DIRECTORY_CLICK|HOMEPAGE_PROFESSION_CLICK)$")
     profile_id:str|None=None
     profession_code:str|None=Field(default=None,max_length=80)
+class MarketplaceComparisonEvent(BaseModel):
+    event_type:str=Field(pattern="^(CONSULTANT_SAVED|CONSULTANT_UNSAVED|COMPARISON_OPENED|COMPARE_PROFILE_CLICK|COMPARE_ENROL_CLICK)$")
+    profile_id:str|None=None
+    compared_profile_ids:list[str]=Field(default_factory=list,max_length=4)
 
 def slug_base(value):return re.sub(r"[^a-z0-9]+","-",value.lower()).strip("-") or "consultant"
 def public_projection(payload):return {key:payload.get(key) for key in PUBLIC_FIELDS if key in payload}
