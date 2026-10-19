@@ -100,7 +100,7 @@ async def proxy(request: Request, path: str):
     headers = dict(request.headers)
     headers.pop("host", None)
     # Authority headers are gateway-owned and must never be accepted from callers.
-    for authority_header in ("x-user-id", "x-user-role", "x-user-permissions", "x-tenant-id", "x-tenant-type"):
+    for authority_header in ("x-user-id", "x-user-role", "x-user-permissions", "x-tenant-id", "x-tenant-type", "x-profession-code"):
         headers.pop(authority_header, None)
     upstream_host = urlsplit(upstream_base).hostname or ""
     if upstream_host.endswith(".railway.internal"):
@@ -161,6 +161,8 @@ async def proxy(request: Request, path: str):
         headers["X-Tenant-Id"] = authority.tenant_id
         headers["X-Tenant-Type"] = authority.tenant_type
         headers["X-User-Role"] = authority.membership_role
+        if authority.profession_hint:
+            headers["X-Profession-Code"] = authority.profession_hint
         addressed_client_id = practice_client_resource_id(full_path)
         if addressed_client_id:
             try:

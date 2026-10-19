@@ -30,6 +30,32 @@ def test_phase1_capability_and_profession_contracts_are_governed():
     assert 'if resource == "configuration"' in source
 
 
+def test_nutrition_profession_aliases_resolve_centrally_with_full_client360_capabilities():
+    from app.main import PROFESSION_DEFAULTS, canonical_profession
+
+    aliases = {
+        "DIETITIAN": "DIETITIAN",
+        "Dietitian": "DIETITIAN",
+        "Dietician": "DIETITIAN",
+        "Registered Dietitian": "DIETITIAN",
+        "Nutritionist": "NUTRITIONIST",
+        "Nutrition Consultant": "NUTRITIONIST",
+        "Nutrition Consultant / Dietitian": "DIETITIAN",
+        "DIETITIAN_NUTRITIONIST": "DIETITIAN",
+        "Clinical Dietitian": "CLINICAL_NUTRITIONIST",
+        "Clinical Nutritionist": "CLINICAL_NUTRITIONIST",
+        "Sports Nutritionist": "SPORTS_NUTRITIONIST",
+    }
+    required = {"DIET_PLAN", "LAB_ANALYSIS", "BIOMARKERS", "MEASUREMENTS"}
+    for alias, expected in aliases.items():
+        assert canonical_profession(alias) == expected
+        assert required <= PROFESSION_DEFAULTS[expected]
+
+    assert canonical_profession("Health Coach") == "HEALTH_COACH"
+    assert "DIET_PLAN" not in PROFESSION_DEFAULTS["HEALTH_COACH"]
+    assert canonical_profession("Unknown clinical role") == "OTHER"
+
+
 def test_whatsapp_activity_never_claims_delivery():
     source = (ROOT / "app/main.py").read_text()
     assert "WHATSAPP_OPENED" in source

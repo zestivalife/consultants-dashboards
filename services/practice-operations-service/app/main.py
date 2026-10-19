@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 import json
 import base64
 import hashlib
+import re
 import secrets
 import structlog
 import httpx
@@ -129,6 +130,8 @@ RESOURCE_CAPABILITY = {"consultations":"CONSULTATIONS", "follow-ups":"FOLLOW_UPS
 PROFESSION_DEFAULTS = {
     "DIETITIAN": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","DIET_PLAN","LAB_ANALYSIS","BIOMARKERS","MEASUREMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "NUTRITIONIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","DIET_PLAN","LAB_ANALYSIS","BIOMARKERS","MEASUREMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "CLINICAL_NUTRITIONIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","DIET_PLAN","LAB_ANALYSIS","BIOMARKERS","MEASUREMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "SPORTS_NUTRITIONIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","DIET_PLAN","LAB_ANALYSIS","BIOMARKERS","MEASUREMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "PSYCHOLOGIST": {"CONSULTATIONS","SESSION_NOTES","PRIVATE_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "COUNSELLOR": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "PHYSIOTHERAPIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","REHAB_PLAN","EXERCISE_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
@@ -146,6 +149,8 @@ for _profession, _profession_capabilities in PROFESSION_DEFAULTS.items():
 TERMINOLOGY = {
     "DIETITIAN":{"consultation":"Consultation","plan":"Diet Plan","goal":"Nutrition Goal"},
     "NUTRITIONIST":{"consultation":"Consultation","plan":"Nutrition Plan","goal":"Nutrition Goal"},
+    "CLINICAL_NUTRITIONIST":{"consultation":"Consultation","plan":"Clinical Nutrition Plan","goal":"Nutrition Goal"},
+    "SPORTS_NUTRITIONIST":{"consultation":"Consultation","plan":"Sports Nutrition Plan","goal":"Performance Nutrition Goal"},
     "PSYCHOLOGIST":{"consultation":"Session","plan":"Therapy Plan","goal":"Therapy Goal"},
     "COUNSELLOR":{"consultation":"Session","plan":"Care Plan","goal":"Therapy Goal"},
     "PHYSIOTHERAPIST":{"consultation":"Assessment","plan":"Rehab Plan","goal":"Exercise Goal"},
@@ -156,6 +161,24 @@ TERMINOLOGY = {
     "OCCUPATIONAL_THERAPIST":{"consultation":"Assessment","plan":"Therapy Plan","goal":"Functional Goal"},
     "MENTAL_WELLNESS_THERAPIST":{"consultation":"Therapy Session","plan":"Wellness Plan","goal":"Wellness Goal"},
 }
+
+PROFESSION_ALIASES = {
+    "DIETITIAN": "DIETITIAN",
+    "DIETICIAN": "DIETITIAN",
+    "REGISTERED_DIETITIAN": "DIETITIAN",
+    "CLINICAL_DIETITIAN": "CLINICAL_NUTRITIONIST",
+    "NUTRITIONIST": "NUTRITIONIST",
+    "NUTRITION_CONSULTANT": "NUTRITIONIST",
+    "NUTRITION_CONSULTANT_DIETITIAN": "DIETITIAN",
+    "DIETITIAN_NUTRITIONIST": "DIETITIAN",
+    "CLINICAL_NUTRITIONIST": "CLINICAL_NUTRITIONIST",
+    "SPORTS_NUTRITIONIST": "SPORTS_NUTRITIONIST",
+}
+
+
+def canonical_profession(value: str | None) -> str:
+    token = re.sub(r"[^A-Z0-9]+", "_", str(value or "").strip().upper()).strip("_")
+    return PROFESSION_ALIASES.get(token, token if token in PROFESSION_DEFAULTS else "OTHER")
 
 PROFESSION_CLIENT360_SECTIONS = {
     "PSYCHOLOGIST": [("Assessments", "assessments"), ("Sessions", "consultations"), ("Therapy Goals", "goals"), ("Notes", "notes"), ("Progress", "tasks")],
@@ -178,6 +201,9 @@ PLAN_CAPABILITIES = {
 async def configuration(db: AsyncSession, ctx):
     row = (await db.execute(text("SELECT profession,capabilities,terminology,profile,version FROM practice_tenant_configuration WHERE tenant_id=:tenant_id"), {"tenant_id":ctx["tenant_id"]})).mappings().first()
     if row: return dict(row)
+    profession = canonical_profession(ctx.get("profession_code"))
+    if profession in PROFESSION_DEFAULTS:
+        return {"profession":profession,"capabilities":sorted(PROFESSION_DEFAULTS[profession]),"terminology":TERMINOLOGY[profession],"profile":{},"version":0}
     return {"profession":"OTHER","capabilities":["CLIENT_CRM","CLIENT_ONBOARDING","CONSULTATIONS","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","TEMPLATES"],"terminology":{"consultation":"Consultation","plan":"Care Plan","goal":"Goal"},"profile":{},"version":0}
 
 
@@ -192,13 +218,13 @@ def error(request: Request, status: int, code: str, message: str, retryable: boo
     return JSONResponse(status_code=status, content={"success": False, "error": {"code": code, "safe_message": message, "correlation_id": getattr(request.state, "correlation_id", None), "retryable": retryable}})
 
 
-def context(x_user_id: str | None = Header(None), x_tenant_id: str | None = Header(None), x_user_role: str | None = Header(None), x_tenant_type: str | None = Header(None), x_user_email: str | None = Header(None)):
+def context(x_user_id: str | None = Header(None), x_tenant_id: str | None = Header(None), x_user_role: str | None = Header(None), x_tenant_type: str | None = Header(None), x_user_email: str | None = Header(None), x_profession_code: str | None = Header(None)):
     role=(x_user_role or "member").upper()
     if not x_user_id:
         return None
     if not x_tenant_id and role not in {"SUPER_ADMIN","SUPERUSER","PLATFORM_OWNER"}:
         return None
-    return {"user_id": x_user_id, "tenant_id": x_tenant_id, "role": role, "tenant_type": x_tenant_type, "email": (x_user_email or "").lower()}
+    return {"user_id": x_user_id, "tenant_id": x_tenant_id, "role": role, "tenant_type": x_tenant_type, "email": (x_user_email or "").lower(), "profession_code": x_profession_code}
 
 
 def external_only(request: Request, ctx):

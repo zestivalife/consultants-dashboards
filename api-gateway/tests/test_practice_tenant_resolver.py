@@ -29,6 +29,8 @@ class FakeClient:
 
     async def get(self, url, headers):
         self.calls.append((url, headers))
+        if isinstance(self.response, list):
+            return self.response[len(self.calls) - 1]
         return self.response
 
 
@@ -71,7 +73,10 @@ def test_fails_closed_for_missing_inactive_internal_or_untrusted_authority(paylo
 
 def test_resolver_uses_only_bearer_authenticated_server_context():
     # Exercise the real response shape used by the frontend contract.
-    client = FakeClient(FakeResponse(payload={"data": tenant_payload()}))
+    client = FakeClient([
+        FakeResponse(payload={"data": tenant_payload()}),
+        FakeResponse(payload={"onboarding": {"professionalTitle": "DIETITIAN_NUTRITIONIST"}}),
+    ])
     authority = asyncio.run(
         resolve_practice_tenant_authority(
             client,
@@ -81,12 +86,46 @@ def test_resolver_uses_only_bearer_authenticated_server_context():
         )
     )
     assert authority.tenant_id == "external-tenant-1"
+    assert authority.profession_hint == "DIETITIAN_NUTRITIONIST"
     assert client.calls == [
         (
             "https://fiteatsy.example/v1/auth/me",
             {"Authorization": "Bearer signed-token", "Accept": "application/json"},
-        )
+        ),
+        (
+            "https://fiteatsy.example/v1/consultants/onboarding",
+            {"Authorization": "Bearer signed-token", "Accept": "application/json"},
+        ),
     ]
+
+
+def test_resolver_prefers_explicit_onboarding_profession_and_fails_safe_when_unavailable():
+    explicit = FakeClient([
+        FakeResponse(payload=tenant_payload()),
+        FakeResponse(payload={"onboarding": {
+            "professionalTitle": "Other healthcare professional",
+            "professionalDetails": {"profession": "Clinical Nutritionist"},
+        }}),
+    ])
+    authority = asyncio.run(resolve_practice_tenant_authority(
+        explicit,
+        fiteatsy_service_url="https://fiteatsy.example",
+        authorization="Bearer signed-token",
+        authenticated_user_id="user-1",
+    ))
+    assert authority.profession_hint == "Clinical Nutritionist"
+
+    unavailable = FakeClient([
+        FakeResponse(payload=tenant_payload()),
+        FakeResponse(status_code=404, payload={}),
+    ])
+    authority = asyncio.run(resolve_practice_tenant_authority(
+        unavailable,
+        fiteatsy_service_url="https://fiteatsy.example",
+        authorization="Bearer signed-token",
+        authenticated_user_id="user-1",
+    ))
+    assert authority.profession_hint is None
 
 
 def test_resolver_denies_no_membership_and_missing_identity():
