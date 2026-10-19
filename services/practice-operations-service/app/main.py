@@ -27,7 +27,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            ProfessionPlanCreate, ProfessionPlanSave)
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
-from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete, FeedbackRequestCreate, FeedbackSubmit, FeedbackAction
+from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete, FeedbackRequestCreate, FeedbackSubmit, FeedbackAction, TeleconsultConfigure, TeleconsultTransition
 from app.contracts import ClientPortalInvitationCreate, ClientPortalDocumentCreate, PreConsultationInvite
 from app.contracts import (ServicePackageCreate, ServicePackageUpdate,
                            ClientPackageAssign, ClientPackageStatusUpdate,
@@ -74,6 +74,7 @@ from app.command_centre import next_action, operational_priority, section as com
 from app.p37 import project_readiness, resolve_requirements
 from app.p38 import project_post_session, resolve_post_session_actions
 from app.p39 import experience_label, public_review_eligible, validate_ratings
+from app.p40 import join_allowed, provider_status, validate_external_meeting_url
 from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
@@ -2829,6 +2830,11 @@ async def client_portal_home(request: Request, token: str, db: AsyncSession=Depe
     feedback_requests=[dict(row) for row in (await db.execute(text("""SELECT id,feedback_type,status,expires_at,opened_at,created_at
       FROM external_client_feedback_requests WHERE tenant_id=:tenant AND client_id=:client
       AND status IN ('REQUESTED','OPENED') AND expires_at>NOW() ORDER BY created_at DESC"""),params)).mappings().all()]
+    online_sessions=[dict(row) for row in (await db.execute(text("""SELECT s.id,s.appointment_id,s.provider_mode,s.status,a.starts_at,a.ends_at,t.name title
+      FROM external_teleconsult_sessions s JOIN external_scheduled_appointments a ON a.id=s.appointment_id AND a.tenant_id=s.tenant_id
+      JOIN external_appointment_types t ON t.id=a.appointment_type_id AND t.tenant_id=a.tenant_id
+      WHERE s.tenant_id=:tenant AND s.client_id=:client AND s.status IN ('UPCOMING','WAITING_FOR_CONSULTANT','SESSION_ACTIVE')
+      ORDER BY a.starts_at"""),params)).mappings().all()]
     return {"success": True, "data": {
         "clientId": scope["client_id"], "tasks": tasks, "appointments": appointments,
         "goals": goals, "plans": plans, "assessments": assessments,
@@ -2838,6 +2844,7 @@ async def client_portal_home(request: Request, token: str, db: AsyncSession=Depe
         "preConsultation": preconsultation,
         "postSession": post_session,
         "feedbackRequests": feedback_requests,
+        "onlineSessions": online_sessions,
         "documentsConfigured": bool(get_settings().document_storage_bucket),
     }, "error": None, "request_id": request.state.correlation_id}
 
@@ -4467,10 +4474,18 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
       ORDER BY CASE WHEN q.status='ACTION_REQUIRED' THEN 0 ELSE 1 END,q.updated_at DESC LIMIT 20""",allowed="CLIENT_LIST_VIEW" in permissions)
     if feedback["status"] in {"READY","CONFIRMED_EMPTY"} and not feedback.get("restricted"):
         feedback["items"]=[{**row,"priority":operational_priority(row.get("due_at"),row["signal"]),"action":next_action(row["signal"])} for row in feedback["items"]]
+    teleconsult=await read("teleconsult",f"""SELECT q.id::text,q.client_id,t.name title,q.status,a.starts_at due_at,
+      CASE WHEN q.status='WAITING_FOR_CONSULTANT' THEN 'TELECONSULT_WAITING' ELSE 'TELECONSULT_UPCOMING' END signal
+      FROM external_teleconsult_sessions q JOIN external_scheduled_appointments a ON a.id=q.appointment_id AND a.tenant_id=q.tenant_id
+      JOIN external_appointment_types t ON t.id=a.appointment_type_id AND t.tenant_id=a.tenant_id
+      WHERE q.tenant_id=:tenant AND q.status IN ('UPCOMING','WAITING_FOR_CONSULTANT','SESSION_ACTIVE') AND {scope}
+      ORDER BY CASE WHEN q.status='WAITING_FOR_CONSULTANT' THEN 0 ELSE 1 END,a.starts_at LIMIT 20""",allowed="TELECONSULT_VIEW" in permissions)
+    if teleconsult["status"] in {"READY","CONFIRMED_EMPTY"} and not teleconsult.get("restricted"):
+        teleconsult["items"]=[{**row,"priority":operational_priority(row.get("due_at"),row["signal"]),"action":next_action(row["signal"])} for row in teleconsult["items"]]
 
     sections={"schedule":schedule,"my_work":work,"clients_needing_attention":attention,"onboarding":onboarding,"preconsultation":preconsultation,"post_session":post_session,
       "recent_changes":recent,"leads":leads,"renewals":renewals,"revenue_attention":revenue,
-      "automation_confirmations":confirmations,"continue_working":drafts,"session_briefs":session_briefs,"marketplace":marketplace,"feedback":feedback}
+      "automation_confirmations":confirmations,"continue_working":drafts,"session_briefs":session_briefs,"marketplace":marketplace,"feedback":feedback,"teleconsult":teleconsult}
     failed=[name for name,value in sections.items() if value["status"]=="FAILED"]
     daily_counts={
       "appointments_today":len(schedule["items"]) if schedule["status"]!="FAILED" and not schedule.get("restricted") else None,
@@ -4488,6 +4503,64 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
       "daily_brief":daily_counts,"sections":sections,"failed_sections":failed,"last_seen_at":last_seen_at,"generated_at":request_started_at},
       "error":None,"request_id":request.state.correlation_id}
 
+
+# P40 provider-neutral virtual-session authority; P13 appointments remain authoritative.
+async def _teleconsult_event(db,row,event,actor,actor_type):
+    await db.execute(text("INSERT INTO external_teleconsult_events(id,session_id,tenant_id,client_id,event_type,actor_id,actor_type,metadata,created_at) VALUES (:id,:session,:tenant,:client,:event,:actor,:actor_type,'{}'::jsonb,:now)"),{"id":uuid4(),"session":row["id"],"tenant":row["tenant_id"],"client":row["client_id"],"event":event,"actor":actor,"actor_type":actor_type,"now":datetime.now(timezone.utc)})
+
+@app.put("/api/v1/practice-operations/appointments/{appointment_id}/teleconsult")
+async def configure_teleconsult(request:Request,appointment_id:UUID,body:TeleconsultConfigure,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"TELECONSULT_MANAGE")
+    if denied:return denied
+    appointment=(await db.execute(text("""SELECT a.id,a.client_id,a.status,t.location_type FROM external_scheduled_appointments a
+      JOIN external_appointment_types t ON t.id=a.appointment_type_id AND t.tenant_id=a.tenant_id
+      WHERE a.id=:id AND a.tenant_id=:tenant"""),{"id":appointment_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not appointment:return error(request,404,"APPOINTMENT_NOT_FOUND","Appointment was not found")
+    if appointment["location_type"]!="ONLINE":return error(request,409,"ONLINE_APPOINTMENT_REQUIRED","Teleconsultation requires an online appointment")
+    try:url=validate_external_meeting_url(body.external_meeting_url)
+    except ValueError as exc:return error(request,422,"INVALID_MEETING_URL",str(exc))
+    if body.provider_mode=="EXTERNAL_MEETING_LINK" and not url:return error(request,422,"MEETING_URL_REQUIRED","External meeting mode requires a governed URL")
+    now=datetime.now(timezone.utc);sid=uuid4()
+    await db.execute(text("""INSERT INTO external_teleconsult_sessions(id,tenant_id,appointment_id,client_id,consultant_id,provider_mode,external_meeting_url,status,join_window_before_minutes,join_window_after_minutes,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:appointment,:client,:consultant,:mode,:url,'UPCOMING',:before,:after,:actor,:now,:now)
+      ON CONFLICT(tenant_id,appointment_id) DO UPDATE SET provider_mode=EXCLUDED.provider_mode,external_meeting_url=EXCLUDED.external_meeting_url,join_window_before_minutes=EXCLUDED.join_window_before_minutes,join_window_after_minutes=EXCLUDED.join_window_after_minutes,updated_at=EXCLUDED.updated_at
+      RETURNING id,tenant_id,client_id,provider_mode,status"""),{"id":sid,"tenant":ctx["tenant_id"],"appointment":appointment_id,"client":appointment["client_id"],"consultant":ctx["user_id"],"mode":body.provider_mode,"url":url,"before":body.join_window_before_minutes,"after":body.join_window_after_minutes,"actor":ctx["user_id"],"now":now})
+    row=(await db.execute(text("SELECT id,tenant_id,client_id,provider_mode,status FROM external_teleconsult_sessions WHERE tenant_id=:tenant AND appointment_id=:appointment"),{"tenant":ctx["tenant_id"],"appointment":appointment_id})).mappings().one();await _teleconsult_event(db,row,"SESSION_CONFIGURED",ctx["user_id"],"PRACTITIONER");await db.commit()
+    return {"success":True,"data":{"id":str(row["id"]),"status":row["status"],"teleconsultProvider":provider_status(row["provider_mode"]),"presenceEvidence":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/teleconsult/{session_id}/transition")
+async def transition_teleconsult(request:Request,session_id:UUID,body:TeleconsultTransition,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"TELECONSULT_MANAGE")
+    if denied:return denied
+    row=(await db.execute(text("SELECT id,tenant_id,client_id,status FROM external_teleconsult_sessions WHERE id=:id AND tenant_id=:tenant FOR UPDATE"),{"id":session_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"TELECONSULT_SESSION_NOT_FOUND","Session was not found")
+    transitions={"START":({"UPCOMING","WAITING_FOR_CONSULTANT"},"SESSION_ACTIVE","SESSION_STARTED"),"COMPLETE":({"SESSION_ACTIVE"},"SESSION_COMPLETED","SESSION_COMPLETED"),"CANCEL":({"UPCOMING","WAITING_FOR_CONSULTANT"},"CANCELLED","SESSION_CANCELLED")};allowed,status,event=transitions[body.action]
+    if row["status"] not in allowed:return error(request,409,"INVALID_SESSION_TRANSITION","Session state does not permit that action")
+    now=datetime.now(timezone.utc);await db.execute(text("UPDATE external_teleconsult_sessions SET status=:status,started_at=CASE WHEN :status='SESSION_ACTIVE' THEN :now ELSE started_at END,completed_at=CASE WHEN :status='SESSION_COMPLETED' THEN :now ELSE completed_at END,updated_at=:now WHERE id=:id"),{"status":status,"now":now,"id":session_id});await _teleconsult_event(db,row,event,ctx["user_id"],"PRACTITIONER");await db.commit()
+    return {"success":True,"data":{"id":str(session_id),"status":status,"presenceEvidence":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/client-portal/{token}/teleconsult/{appointment_id}")
+async def portal_teleconsult(request:Request,token:str,appointment_id:UUID,db:AsyncSession=Depends(get_db)):
+    scope,denied=await _portal_scope(request,token,"READ",db)
+    if denied:return denied
+    row=(await db.execute(text("""SELECT s.id,s.tenant_id,s.client_id,s.provider_mode,s.external_meeting_url,s.status,s.join_window_before_minutes,s.join_window_after_minutes,
+      a.starts_at,a.ends_at,a.status appointment_status FROM external_teleconsult_sessions s JOIN external_scheduled_appointments a ON a.id=s.appointment_id AND a.tenant_id=s.tenant_id
+      WHERE s.appointment_id=:appointment AND s.tenant_id=:tenant AND s.client_id=:client"""),{"appointment":appointment_id,"tenant":scope["tenant_id"],"client":scope["client_id"]})).mappings().first()
+    if not row:return error(request,404,"TELECONSULT_SESSION_NOT_FOUND","Online session access was not configured")
+    allowed=join_allowed(starts_at=row["starts_at"],ends_at=row["ends_at"],now=datetime.now(timezone.utc),before_minutes=row["join_window_before_minutes"],after_minutes=row["join_window_after_minutes"],status=row["appointment_status"])
+    return {"success":True,"data":{"id":str(row["id"]),"status":row["status"],"joinAllowed":allowed,"teleconsultProvider":provider_status(row["provider_mode"]),"meetingUrl":row["external_meeting_url"] if allowed and row["provider_mode"]=="EXTERNAL_MEETING_LINK" else None,"presenceEvidence":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/client-portal/{token}/teleconsult/{appointment_id}/join")
+async def join_portal_teleconsult(request:Request,token:str,appointment_id:UUID,db:AsyncSession=Depends(get_db)):
+    scope,denied=await _portal_scope(request,token,"READ",db)
+    if denied:return denied
+    row=(await db.execute(text("""SELECT s.id,s.tenant_id,s.client_id,s.status,s.join_window_before_minutes,s.join_window_after_minutes,a.starts_at,a.ends_at,a.status appointment_status
+      FROM external_teleconsult_sessions s JOIN external_scheduled_appointments a ON a.id=s.appointment_id AND a.tenant_id=s.tenant_id
+      WHERE s.appointment_id=:appointment AND s.tenant_id=:tenant AND s.client_id=:client FOR UPDATE"""),{"appointment":appointment_id,"tenant":scope["tenant_id"],"client":scope["client_id"]})).mappings().first()
+    if not row:return error(request,404,"TELECONSULT_SESSION_NOT_FOUND","Online session access was not configured")
+    if not join_allowed(starts_at=row["starts_at"],ends_at=row["ends_at"],now=datetime.now(timezone.utc),before_minutes=row["join_window_before_minutes"],after_minutes=row["join_window_after_minutes"],status=row["appointment_status"]):return error(request,403,"JOIN_WINDOW_CLOSED","The appointment cannot be joined at this time")
+    if row["status"]=="UPCOMING":await db.execute(text("UPDATE external_teleconsult_sessions SET status='WAITING_FOR_CONSULTANT',updated_at=:now WHERE id=:id"),{"now":datetime.now(timezone.utc),"id":row["id"]});await _teleconsult_event(db,row,"CLIENT_JOINED_WAITING_ROOM",None,"CLIENT");await db.commit()
+    return {"success":True,"data":{"id":str(row["id"]),"status":"WAITING_FOR_CONSULTANT" if row["status"]=="UPCOMING" else row["status"],"admitted":row["status"]=="SESSION_ACTIVE","presenceEvidence":False},"error":None,"request_id":request.state.correlation_id}
 
 # P39 private client-experience feedback. This domain never writes public reviews.
 async def _feedback_audit(db,row,event,actor,actor_type,metadata=None):

@@ -303,6 +303,15 @@ class FeedbackAction(BaseModel):
     source_record_id: str | None = Field(default=None,max_length=120)
     grievance_reference: str | None = Field(default=None,max_length=120)
 
+class TeleconsultConfigure(BaseModel):
+    provider_mode: Literal["EXTERNAL_MEETING_LINK","PROVIDER_NOT_CONFIGURED"]
+    external_meeting_url: str | None = Field(default=None,max_length=2000)
+    join_window_before_minutes: int = Field(default=15,ge=0,le=240)
+    join_window_after_minutes: int = Field(default=30,ge=0,le=480)
+
+class TeleconsultTransition(BaseModel):
+    action: Literal["START","COMPLETE","CANCEL"]
+
 class EngagementProjectionRequest(BaseModel):
     client_ids: list[str] = Field(min_length=1,max_length=100)
 
