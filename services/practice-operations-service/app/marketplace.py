@@ -48,7 +48,23 @@ class EnrolmentCreate(BaseModel):
     full_name:str=Field(min_length=2,max_length=240);email:str|None=Field(default=None,max_length=320);phone:str|None=Field(default=None,max_length=60)
     service_id:str|None=None;programme_id:str|None=None;consultation_mode:str|None=Field(default=None,max_length=40);location_id:str|None=None
     preferred_at:datetime|None=None;message:str|None=Field(default=None,max_length=1000);consent_acknowledged:bool
-    source:str=Field(default="PUBLIC_CONSULTANT_DIRECTORY",pattern="^(PUBLIC_CONSULTANT_DIRECTORY|HOMEPAGE_FEATURED_CONSULTANT|HOMEPAGE_PROFESSION_DISCOVERY|HOMEPAGE_SEARCH)$")
+    source:str=Field(default="PUBLIC_DIRECTORY",pattern="^(PUBLIC_DIRECTORY|PUBLIC_CONSULTANT_DIRECTORY|HOMEPAGE_FEATURED|HOMEPAGE_FEATURED_CONSULTANT|HOMEPAGE_PROFESSION_DISCOVERY|HOMEPAGE_SEARCH|CONSULTANT_FINDER|COMPARISON|CONSULTANT_PROFILE|SHORTLIST)$")
+
+class PublicBookingCreate(EnrolmentCreate):
+    starts_at:datetime
+    country:str=Field(min_length=2,max_length=80)
+    country_code:str=Field(pattern=r"^\+[1-9]\d{0,3}$")
+    national_number:str=Field(pattern=r"^[0-9][0-9 ()-]{5,24}$")
+    timezone:str=Field(min_length=1,max_length=80)
+
+class PublicWaitlistCreate(EnrolmentCreate):
+    preferred_until:datetime|None=None
+    time_preference:str|None=Field(default=None,max_length=120)
+
+class BookingManagementAction(BaseModel):
+    action:str=Field(pattern="^(CANCEL|RESCHEDULE)$")
+    starts_at:datetime|None=None
+    reason:str|None=Field(default=None,max_length=500)
 class ReviewCreate(BaseModel):
     overall_rating:int=Field(ge=1,le=5);review_text:str|None=Field(default=None,max_length=2000);communication_rating:int|None=Field(default=None,ge=1,le=5)
     professionalism_rating:int|None=Field(default=None,ge=1,le=5);support_experience_rating:int|None=Field(default=None,ge=1,le=5)

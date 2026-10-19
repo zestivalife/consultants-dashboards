@@ -12,6 +12,7 @@ from cryptography.fernet import Fernet
 from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.contracts import (ConsultationTransition, GoalProgressCreate,
@@ -70,7 +71,7 @@ from app.p28 import PaymentProviderNotConfigured, canonical_payload_hash, verify
 from app.p29 import classify_output, validate_ai_request
 from app.p30 import EXCLUDED_BY_DEFAULT, export_checksum, validate_export_sections
 from app.command_centre import next_action, operational_priority, section as command_section, sort_work
-from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,EnrolmentAction,EnrolmentCreate,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
+from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
                              publicly_visible,slug_base)
@@ -4104,9 +4105,13 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
       ORDER BY q.starts_at LIMIT 20""",allowed="CALENDAR_VIEW" in permissions and "CLIENT_LIST_VIEW" in permissions)
 
     marketplace=await read("marketplace", """SELECT id,client_id,title,status,due_at,signal FROM (
-      SELECT e.id::text,NULL::varchar client_id,e.full_name title,e.status,e.created_at due_at,'NEW_MARKETPLACE_ENROLMENT' signal
+      SELECT e.id::text,NULL::varchar client_id,e.full_name title,e.status,e.created_at due_at,
+        CASE WHEN e.status='BOOKED' THEN 'NEW_MARKETPLACE_BOOKING' WHEN e.status='NEW' AND e.created_at<NOW()-INTERVAL '24 hours' THEN 'BOOKING_REQUEST_UNACTIONED' ELSE 'NEW_ENROLMENT_REQUEST' END signal
       FROM external_consultant_marketplace_enrolments e JOIN external_consultant_public_profiles p ON p.id=e.profile_id AND p.tenant_id=e.tenant_id
-      WHERE e.tenant_id=:tenant AND p.consultant_user_id=:actor AND e.status='NEW'
+      WHERE e.tenant_id=:tenant AND p.consultant_user_id=:actor AND e.status IN ('NEW','BOOKED')
+      UNION ALL SELECT a.id::text,NULL::varchar,p.slug,a.status,a.updated_at,'BOOKING_CANCELLED'
+      FROM external_scheduled_appointments a JOIN external_consultant_public_profiles p ON p.tenant_id=a.tenant_id
+      WHERE a.tenant_id=:tenant AND p.consultant_user_id=:actor AND a.marketplace_source IS NOT NULL AND a.status='CANCELLED' AND a.updated_at>NOW()-INTERVAL '7 days'
       UNION ALL SELECT p.id::text,NULL::varchar,p.slug,p.status,p.updated_at,
         CASE WHEN p.status='CHANGES_REQUIRED' THEN 'PROFILE_CHANGES_REQUIRED' WHEN p.status='APPROVED' AND p.public_visibility=FALSE THEN 'PROFILE_APPROVED_NOT_PUBLISHED' ELSE 'PROFILE_UNDER_REVIEW' END
       FROM external_consultant_public_profiles p WHERE p.tenant_id=:tenant AND p.consultant_user_id=:actor AND p.status IN ('CHANGES_REQUIRED','UNDER_REVIEW','APPROVED')
@@ -4127,7 +4132,7 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
       "clients_needing_attention":len({row.get("client_id") for row in attention["items"] if row.get("client_id")}) if attention["status"]!="FAILED" and not attention.get("restricted") else None,
       "new_leads":sum(1 for row in leads["items"] if row.get("stage")=="NEW") if leads["status"]!="FAILED" and not leads.get("restricted") else None,
       "automation_confirmations":len(confirmations["items"]) if confirmations["status"]!="FAILED" and not confirmations.get("restricted") else None,
-      "marketplace_enrolments":sum(1 for row in marketplace["items"] if row.get("signal")=="NEW_MARKETPLACE_ENROLMENT") if marketplace["status"]!="FAILED" and not marketplace.get("restricted") else None,
+      "marketplace_enrolments":sum(1 for row in marketplace["items"] if row.get("signal") in {"NEW_ENROLMENT_REQUEST","BOOKING_REQUEST_UNACTIONED"}) if marketplace["status"]!="FAILED" and not marketplace.get("restricted") else None,
     }
     overall="PARTIAL_DATA" if failed else "READY" if any(value is not None and value>0 for value in daily_counts.values()) else "CONFIRMED_EMPTY"
     await db.execute(text("""INSERT INTO external_consultant_dashboard_state(tenant_id,user_id,dashboard_last_seen_at,updated_at)
@@ -4173,9 +4178,10 @@ async def marketplace_profile(request:Request,ctx=Depends(context),db:AsyncSessi
       (SELECT COUNT(*) FROM external_marketplace_finder_events WHERE profile_id=:profile AND event_type='FINDER_RESULT_VIEW')::int finder_impressions,
       (SELECT COUNT(*) FROM external_marketplace_finder_events WHERE profile_id=:profile AND event_type='FINDER_PROFILE_CLICK')::int finder_profile_clicks,
       (SELECT COUNT(*) FROM external_marketplace_finder_events WHERE profile_id=:profile AND event_type='FINDER_ENROL_CLICK')::int finder_enrol_clicks"""),{"profile":profile["id"]})).mappings().one()
+    funnel=(await db.execute(text("SELECT COUNT(*) FILTER(WHERE event_type='BOOKING_STARTED')::int booking_starts,COUNT(*) FILTER(WHERE event_type='ENROLMENT_SUBMITTED')::int enrolment_requests,COUNT(*) FILTER(WHERE event_type='BOOKING_CONFIRMED')::int direct_bookings,COUNT(*) FILTER(WHERE event_type='WAITLIST_JOINED')::int waitlist_joins,COUNT(*) FILTER(WHERE event_type='BOOKING_FAILED_SLOT_CONFLICT')::int slot_conflicts FROM external_consultant_marketplace_events WHERE profile_id=:profile"),{"profile":profile["id"]})).mappings().one()
     review=(await db.execute(text("SELECT COUNT(*)::int review_count,AVG(overall_rating)::numeric(3,2) average_rating FROM external_consultant_reviews WHERE profile_id=:profile AND verified_engagement=TRUE AND status='PUBLISHED'"),{"profile":profile["id"]})).mappings().one()
     enrolments=(await db.execute(text("SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE status='NEW')::int new_count FROM external_consultant_marketplace_enrolments WHERE profile_id=:profile"),{"profile":profile["id"]})).mappings().one()
-    return {"success":True,"data":{"state":"READY","profile":dict(profile),"version":dict(version) if version else None,"qualifications":qualifications,"analytics":{**dict(analytics),**dict(review),"enrolments":dict(enrolments)}},"error":None,"request_id":request.state.correlation_id}
+    return {"success":True,"data":{"state":"READY","profile":dict(profile),"version":dict(version) if version else None,"qualifications":qualifications,"analytics":{**dict(analytics),**dict(review),**dict(funnel),"enrolments":dict(enrolments)}},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/practice-operations/marketplace/readiness")
 async def marketplace_readiness(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
@@ -4501,8 +4507,96 @@ async def public_consultant(slug:str,request:Request,db:AsyncSession=Depends(get
 async def public_consultant_availability(slug:str,request:Request,db:AsyncSession=Depends(get_db)):
     profile=(await db.execute(text("SELECT p.id,p.tenant_id,p.consultant_user_id FROM external_consultant_public_profiles p JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.current_published_version WHERE p.slug=:slug AND v.status='PUBLISHED' AND p.public_visibility=TRUE AND p.approval_valid=TRUE AND p.suspended_at IS NULL"),{"slug":slug})).mappings().first()
     if not profile:return error(request,404,"CONSULTANT_NOT_FOUND","Consultant profile was not found")
-    rules=[dict(row) for row in (await db.execute(text("SELECT weekday,start_time,end_time,timezone FROM external_availability_rules WHERE tenant_id=:tenant AND active=TRUE ORDER BY weekday,start_time"),{"tenant":profile["tenant_id"]})).mappings().all()]
-    return {"success":True,"data":{"state":"READY" if rules else "CONFIRMED_EMPTY","rules":rules},"error":None,"request_id":request.state.correlation_id}
+    rules=[dict(row) for row in (await db.execute(text("SELECT weekday,start_time,end_time,timezone FROM external_availability_rules WHERE tenant_id=:tenant AND active=TRUE AND (effective_from IS NULL OR effective_from<=CURRENT_DATE) AND (effective_until IS NULL OR effective_until>=CURRENT_DATE) ORDER BY weekday,start_time"),{"tenant":profile["tenant_id"]})).mappings().all()]
+    occupied=[row[0] for row in (await db.execute(text("SELECT starts_at FROM external_scheduled_appointments WHERE tenant_id=:tenant AND status IN ('BOOKED','CONFIRMED') AND starts_at>=NOW() AND starts_at<NOW()+INTERVAL '90 days' ORDER BY starts_at"),{"tenant":profile["tenant_id"]})).all()]
+    return {"success":True,"data":{"state":"READY" if rules else "CONFIRMED_EMPTY","rules":rules,"occupied_starts_at":occupied,"refreshed_at":datetime.now(timezone.utc)},"error":None,"request_id":request.state.correlation_id}
+
+async def _public_booking_context(slug,request,db):
+    row=(await db.execute(text("SELECT p.id,p.tenant_id,p.consultant_user_id,p.accepting_new_clients,v.projection FROM external_consultant_public_profiles p JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.current_published_version WHERE p.slug=:slug AND v.status='PUBLISHED' AND p.public_visibility=TRUE AND p.approval_valid=TRUE AND p.suspended_at IS NULL"),{"slug":slug})).mappings().first()
+    if not row:return None,error(request,404,"CONSULTANT_NOT_FOUND","Consultant profile was not found")
+    return row,None
+
+def _public_service(projection,service_id):
+    return next((item for item in projection.get("services",[]) if str(item.get("id"))==str(service_id) and item.get("active",True)),None)
+
+async def _marketplace_lead(db,profile,body,phone):
+    email_key,phone_key=normal_email(body.email),normal_phone(phone)
+    existing=(await db.execute(text("SELECT id FROM external_leads WHERE tenant_id=:tenant AND ((:email_key IS NOT NULL AND email_key=:email_key) OR (:phone_key IS NOT NULL AND phone_key=:phone_key)) ORDER BY created_at LIMIT 1"),{"tenant":profile["tenant_id"],"email_key":email_key,"phone_key":phone_key})).scalar_one_or_none()
+    if existing:return existing,True
+    lead_id=uuid4();now=datetime.now(timezone.utc);parts=body.full_name.split()
+    await db.execute(text("INSERT INTO external_leads(id,tenant_id,first_name,last_name,email,phone,email_key,phone_key,source,stage,assigned_practitioner_id,notes,created_by,created_at,updated_at) VALUES (:id,:tenant,:first,:last,:email,:phone,:email_key,:phone_key,:source,'NEW',:actor,:notes,'PUBLIC_MARKETPLACE',:now,:now)"),{"id":lead_id,"tenant":profile["tenant_id"],"first":parts[0],"last":" ".join(parts[1:]) or None,"email":body.email,"phone":phone,"email_key":email_key,"phone_key":phone_key,"source":body.source,"actor":profile["consultant_user_id"],"notes":"Marketplace booking conversion","now":now})
+    return lead_id,False
+
+async def _booking_event(db,profile,event,source,metadata=None):
+    await db.execute(text("INSERT INTO external_consultant_marketplace_events(id,profile_id,tenant_id,event_type,metadata,created_at) VALUES (:id,:profile,:tenant,:event,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"profile":profile["id"],"tenant":profile["tenant_id"],"event":event,"metadata":json.dumps({"source":source,**(metadata or {})}),"now":datetime.now(timezone.utc)})
+
+@app.get("/api/v1/public/consultants/{slug}/booking-context")
+async def public_booking_context(slug:str,request:Request,db:AsyncSession=Depends(get_db)):
+    profile,denied=await _public_booking_context(slug,request,db)
+    if denied:return denied
+    services=[]
+    for service in profile["projection"].get("services",[]):
+        if not service.get("active",True):continue
+        policy=(await db.execute(text("SELECT public_booking_policy FROM external_appointment_types WHERE id=:id AND tenant_id=:tenant AND active=TRUE"),{"id":UUID(str(service["id"])),"tenant":profile["tenant_id"]})).scalar_one_or_none()
+        if policy is not None:services.append({**service,"booking_policy":policy})
+    locations=[item for item in profile["projection"].get("public_locations",[]) if item.get("mode") in {"ONLINE","IN_PERSON","PHONE","OTHER"}]
+    return {"success":True,"data":{"services":services,"programmes":[item for item in profile["projection"].get("programmes",[]) if item.get("active",True)],"locations":locations,"accepting_new_clients":profile["accepting_new_clients"]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/public/consultants/{slug}/bookings",status_code=201)
+async def public_marketplace_booking(slug:str,request:Request,body:PublicBookingCreate,db:AsyncSession=Depends(get_db)):
+    if not body.consent_acknowledged:return error(request,422,"PRIVACY_ACKNOWLEDGEMENT_REQUIRED","Privacy acknowledgement is required")
+    profile,denied=await _public_booking_context(slug,request,db)
+    if denied:return denied
+    service=_public_service(profile["projection"],body.service_id)
+    if not service or service.get("enrolment_mode")!="DIRECT_BOOKING":return error(request,422,"DIRECT_BOOKING_NOT_ENABLED","This public service does not allow direct booking")
+    if body.consultation_mode!=service.get("mode"):return error(request,422,"MODE_NOT_AVAILABLE","Choose a mode offered by this service")
+    public_location_ids={str(item.get("id")) for item in profile["projection"].get("public_locations",[]) if item.get("mode")=="IN_PERSON"}
+    if body.consultation_mode=="IN_PERSON" and (not body.location_id or body.location_id not in public_location_ids):return error(request,422,"PUBLIC_LOCATION_REQUIRED","Choose an approved public location")
+    kind=(await db.execute(text("SELECT duration_minutes,buffer_before_minutes,buffer_after_minutes,public_booking_policy FROM external_appointment_types WHERE id=:id AND tenant_id=:tenant AND active=TRUE FOR UPDATE"),{"id":UUID(body.service_id),"tenant":profile["tenant_id"]})).mappings().first()
+    if not kind or not kind["public_booking_policy"].get("direct_booking_enabled",False):return error(request,409,"DIRECT_BOOKING_NOT_ENABLED","Direct booking is not enabled")
+    now=datetime.now(timezone.utc);policy=kind["public_booking_policy"]
+    if body.starts_at<now+timedelta(minutes=int(policy.get("minimum_notice_minutes",60))) or body.starts_at>now+timedelta(days=int(policy.get("advance_window_days",60))):return error(request,409,"BOOKING_POLICY_WINDOW","This time is outside the public booking window")
+    available=(await db.execute(text("SELECT 1 FROM external_availability_rules WHERE tenant_id=:tenant AND active=TRUE AND (EXTRACT(ISODOW FROM (:start AT TIME ZONE timezone))::int-1)=weekday AND CAST(:start AT TIME ZONE timezone AS time)>=start_time AND CAST(:end AT TIME ZONE timezone AS time)<=end_time AND (effective_from IS NULL OR CAST(:start AT TIME ZONE timezone AS date)>=effective_from) AND (effective_until IS NULL OR CAST(:start AT TIME ZONE timezone AS date)<=effective_until) LIMIT 1"),{"tenant":profile["tenant_id"],"start":body.starts_at,"end":body.starts_at+timedelta(minutes=kind["duration_minutes"])})).first()
+    if not available:return error(request,409,"SLOT_NO_LONGER_AVAILABLE","That time has just been booked. Please choose another available time.")
+    conflict=(await db.execute(text("SELECT 1 FROM external_scheduled_appointments WHERE tenant_id=:tenant AND status IN ('BOOKED','CONFIRMED') AND starts_at<:blocked_end AND ends_at>:blocked_start LIMIT 1"),{"tenant":profile["tenant_id"],"blocked_start":body.starts_at-timedelta(minutes=kind["buffer_before_minutes"]),"blocked_end":body.starts_at+timedelta(minutes=kind["duration_minutes"]+kind["buffer_after_minutes"])})).first()
+    if conflict:await _booking_event(db,profile,"BOOKING_FAILED_SLOT_CONFLICT",body.source);await db.commit();return error(request,409,"SLOT_NO_LONGER_AVAILABLE","That time has just been booked. Please choose another available time.")
+    phone=f"{body.country_code}{''.join(ch for ch in body.national_number if ch.isdigit())}";key=dedupe_key(profile["id"],body.email,phone,body.service_id);prior=(await db.execute(text("SELECT id,appointment_id,status FROM external_consultant_marketplace_enrolments WHERE profile_id=:profile AND deduplication_key=:key"),{"profile":profile["id"],"key":key})).mappings().first()
+    if prior and prior["appointment_id"]:return {"success":True,"data":{"status":prior["status"],"appointment_id":str(prior["appointment_id"]),"duplicate":True},"error":None,"request_id":request.state.correlation_id}
+    lead_id,_=await _marketplace_lead(db,profile,body,phone);enrolment_id=prior["id"] if prior else uuid4();appointment_id=uuid4();raw_token=secrets.token_urlsafe(32);ends=body.starts_at+timedelta(minutes=kind["duration_minutes"])
+    if not prior:await db.execute(text("INSERT INTO external_consultant_marketplace_enrolments(id,profile_id,tenant_id,lead_id,service_id,full_name,email,phone,consultation_mode,location_id,preferred_at,message,consent_acknowledged,status,deduplication_key,created_at,updated_at) VALUES (:id,:profile,:tenant,:lead,:service,:name,:email,:phone,:mode,:location,:start,:message,TRUE,'BOOKED',:key,:now,:now)"),{"id":enrolment_id,"profile":profile["id"],"tenant":profile["tenant_id"],"lead":lead_id,"service":UUID(body.service_id),"name":body.full_name,"email":body.email,"phone":phone,"mode":body.consultation_mode,"location":UUID(body.location_id) if body.location_id else None,"start":body.starts_at,"message":body.message,"key":key,"now":now})
+    try:
+        await db.execute(text("INSERT INTO external_scheduled_appointments(id,tenant_id,client_id,lead_id,appointment_type_id,starts_at,ends_at,status,booked_by_type,created_by,marketplace_enrolment_id,marketplace_source,management_token_hash,management_token_expires_at,created_at,updated_at) VALUES (:id,:tenant,NULL,:lead,:type,:start,:end,'CONFIRMED','PUBLIC_PROSPECT',:actor,:enrolment,:source,:token_hash,:expires,:now,:now)"),{"id":appointment_id,"tenant":profile["tenant_id"],"lead":lead_id,"type":UUID(body.service_id),"start":body.starts_at,"end":ends,"actor":profile["consultant_user_id"],"enrolment":enrolment_id,"source":body.source,"token_hash":hashlib.sha256(raw_token.encode()).hexdigest(),"expires":ends+timedelta(days=30),"now":now})
+        await db.execute(text("UPDATE external_consultant_marketplace_enrolments SET appointment_id=:appointment,status='BOOKED',updated_at=:now WHERE id=:id"),{"appointment":appointment_id,"now":now,"id":enrolment_id});await db.execute(text("UPDATE external_leads SET stage='CONSULTATION_BOOKED',updated_at=:now WHERE id=:lead AND tenant_id=:tenant"),{"now":now,"lead":lead_id,"tenant":profile["tenant_id"]});await _booking_event(db,profile,"BOOKING_CONFIRMED",body.source,{"appointment_id":str(appointment_id)});await db.commit()
+    except IntegrityError:
+        await db.rollback();return error(request,409,"SLOT_NO_LONGER_AVAILABLE","That time has just been booked. Please choose another available time.")
+    return {"success":True,"data":{"status":"CONFIRMED","appointment_id":str(appointment_id),"reference":str(appointment_id)[:8].upper(),"starts_at":body.starts_at,"ends_at":ends,"management_token":raw_token,"lead_id":str(lead_id)},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/public/consultants/{slug}/waitlist",status_code=201)
+async def public_marketplace_waitlist(slug:str,request:Request,body:PublicWaitlistCreate,db:AsyncSession=Depends(get_db)):
+    if not body.consent_acknowledged:return error(request,422,"PRIVACY_ACKNOWLEDGEMENT_REQUIRED","Privacy acknowledgement is required")
+    profile,denied=await _public_booking_context(slug,request,db)
+    if denied:return denied
+    service=_public_service(profile["projection"],body.service_id)
+    if not service:return error(request,404,"PUBLIC_SERVICE_NOT_FOUND","Public service was not found")
+    lead_id,_=await _marketplace_lead(db,profile,body,body.phone);item_id=uuid4();now=datetime.now(timezone.utc)
+    await db.execute(text("INSERT INTO external_scheduling_waitlist(id,tenant_id,client_id,lead_id,profile_id,appointment_type_id,preferred_from,preferred_until,status,notes,created_by,created_at,updated_at,location_id,consultation_mode,marketplace_source,time_preference) VALUES (:id,:tenant,NULL,:lead,:profile,:type,:from_at,:until,'WAITING',:notes,'PUBLIC_MARKETPLACE',:now,:now,:location,:mode,:source,:preference)"),{"id":item_id,"tenant":profile["tenant_id"],"lead":lead_id,"profile":profile["id"],"type":UUID(body.service_id),"from_at":body.preferred_at,"until":body.preferred_until,"notes":body.message,"now":now,"location":UUID(body.location_id) if body.location_id else None,"mode":body.consultation_mode,"source":body.source,"preference":body.time_preference});await _booking_event(db,profile,"WAITLIST_JOINED",body.source,{"waitlist_id":str(item_id)});await db.commit()
+    return {"success":True,"data":{"id":str(item_id),"status":"WAITING"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/public/booking-management/{token}")
+async def public_booking_management(token:str,request:Request,body:BookingManagementAction,db:AsyncSession=Depends(get_db)):
+    digest=hashlib.sha256(token.encode()).hexdigest();row=(await db.execute(text("SELECT a.id,a.tenant_id,a.starts_at,a.ends_at,a.status,a.appointment_type_id,t.duration_minutes,t.public_booking_policy FROM external_scheduled_appointments a JOIN external_appointment_types t ON t.id=a.appointment_type_id AND t.tenant_id=a.tenant_id WHERE a.management_token_hash=:hash AND a.management_token_expires_at>NOW() FOR UPDATE"),{"hash":digest})).mappings().first()
+    if not row:return error(request,404,"BOOKING_MANAGEMENT_TOKEN_INVALID","This booking-management link is invalid or expired")
+    now=datetime.now(timezone.utc);hours=int(row["public_booking_policy"].get("cancellation_window_hours" if body.action=="CANCEL" else "reschedule_window_hours",24))
+    if row["starts_at"]<now+timedelta(hours=hours):return error(request,409,"BOOKING_CHANGE_WINDOW_CLOSED","The configured booking change window has closed")
+    if body.action=="CANCEL":
+        await db.execute(text("UPDATE external_scheduled_appointments SET status='CANCELLED',cancellation_reason=:reason,cancelled_at=:now,updated_at=:now WHERE id=:id"),{"reason":body.reason,"now":now,"id":row["id"]});event="CANCELLED"
+    else:
+        if not body.starts_at:return error(request,422,"REPLACEMENT_SLOT_REQUIRED","Choose a replacement time")
+        conflict=(await db.execute(text("SELECT 1 FROM external_scheduled_appointments WHERE tenant_id=:tenant AND id<>:id AND status IN ('BOOKED','CONFIRMED') AND starts_at<:end AND ends_at>:start LIMIT 1"),{"tenant":row["tenant_id"],"id":row["id"],"start":body.starts_at,"end":body.starts_at+timedelta(minutes=row["duration_minutes"])})).first()
+        if conflict:return error(request,409,"SLOT_NO_LONGER_AVAILABLE","That time has just been booked. Please choose another available time.")
+        await db.execute(text("UPDATE external_scheduled_appointments SET starts_at=:start,ends_at=:end,status='CONFIRMED',updated_at=:now WHERE id=:id"),{"start":body.starts_at,"end":body.starts_at+timedelta(minutes=row["duration_minutes"]),"now":now,"id":row["id"]});event="RESCHEDULED"
+    await db.execute(text("INSERT INTO external_scheduling_audit_events(id,tenant_id,appointment_id,event_type,actor_type,details,created_at) VALUES (:id,:tenant,:appointment,:event,'PUBLIC_PROSPECT',CAST(:details AS jsonb),:now)"),{"id":uuid4(),"tenant":row["tenant_id"],"appointment":row["id"],"event":event,"details":json.dumps({"reason":body.reason,"previous_starts_at":row["starts_at"].isoformat()}),"now":now});await db.commit()
+    return {"success":True,"data":{"status":"CANCELLED" if body.action=="CANCEL" else "CONFIRMED","appointment_id":str(row["id"])},"error":None,"request_id":request.state.correlation_id}
 
 @app.post("/api/v1/public/consultants/{slug}/enrolments")
 async def public_consultant_enrolment(slug:str,request:Request,body:EnrolmentCreate,db:AsyncSession=Depends(get_db)):
@@ -4568,7 +4662,7 @@ async def update_admin_finder_config(request:Request,body:dict,ctx=Depends(conte
     if any(not item.get("professions") for item in active.values()):return error(request,422,"UNMAPPED_ACTIVE_SUPPORT_AREA","Every active support area requires a profession mapping")
     if any(len(item.get("professions",[]))!=len(set(item.get("professions",[]))) for item in areas.values()):return error(request,422,"DUPLICATE_MAPPING","Profession mappings must be unique")
     if any(profession not in eligible for item in active.values() for profession in item.get("professions",[])):return error(request,422,"INVALID_PROFESSION","Profession mapping is not marketplace eligible")
-    previous=(await db.execute(text("SELECT config FROM external_marketplace_finder_config WHERE config_key='PUBLIC_FINDER'"))).mappings().first();history=list((previous["config"].get("_audit_history",[]) if previous else []);history.append({"event":"FINDER_PROFESSION_MAPPING_UPDATED","actor":ctx["user_id"],"timestamp":datetime.now(timezone.utc).isoformat(),"old":previous["config"] if previous else None,"new":{"support_areas":areas,"questions":questions}})
+    previous=(await db.execute(text("SELECT config FROM external_marketplace_finder_config WHERE config_key='PUBLIC_FINDER'"))).mappings().first();history=list(previous["config"].get("_audit_history",[]) if previous else []);history.append({"event":"FINDER_PROFESSION_MAPPING_UPDATED","actor":ctx["user_id"],"timestamp":datetime.now(timezone.utc).isoformat(),"old":previous["config"] if previous else None,"new":{"support_areas":areas,"questions":questions}})
     config={"support_areas":areas,"questions":questions,"_audit_history":history[-20:]}
     await db.execute(text("INSERT INTO external_marketplace_finder_config(id,config_key,config,active,updated_by,updated_at) VALUES (:id,'PUBLIC_FINDER',CAST(:config AS jsonb),TRUE,:actor,:now) ON CONFLICT(config_key) DO UPDATE SET config=EXCLUDED.config,active=TRUE,updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at"),{"id":uuid4(),"config":json.dumps(config),"actor":ctx["user_id"],"now":datetime.now(timezone.utc)});await db.commit()
     return {"success":True,"data":{"config":config},"error":None,"request_id":request.state.correlation_id}

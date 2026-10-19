@@ -64,6 +64,10 @@ export function getPublicConsultant(slug) {
 export function getPublicAvailability(slug) {
   return publicRequest(`/${encodeURIComponent(slug)}/availability`);
 }
+export function getPublicBookingContext(slug) { return publicRequest(`/${encodeURIComponent(slug)}/booking-context`); }
+export function createPublicBooking(slug,payload) { return publicRequest(`/${encodeURIComponent(slug)}/bookings`,{method:"POST",body:JSON.stringify(payload)}); }
+export function joinPublicWaitlist(slug,payload) { return publicRequest(`/${encodeURIComponent(slug)}/waitlist`,{method:"POST",body:JSON.stringify(payload)}); }
+export function managePublicBooking(token,payload) { return publicRequest(`/booking-management/${encodeURIComponent(token)}`,{method:"POST",body:JSON.stringify(payload)}); }
 export function createPublicEnrolment(slug, payload) {
   const source =
     typeof window !== "undefined"
