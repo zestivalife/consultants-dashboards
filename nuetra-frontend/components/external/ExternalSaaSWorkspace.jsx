@@ -111,7 +111,7 @@ export function ExternalSaaSWorkspace(){
     const filterMatch=filter==='All Accessible'||(filter==='My Clients'&&mine.has(String(client.id)))||(filter==='Unassigned'&&clientAuthority.practice_wide&&!allAssigned.has(String(client.id)))||(filter==='New'&&['INVITED'].includes(client.status))||(filter==='Intake Pending'&&client.status==='INTAKE_STARTED')||(filter==='Active'&&['ACTIVE','INTAKE_COMPLETED'].includes(client.status))||(filter==='Inactive'&&client.status==='INACTIVE')||(filter==='Diet Plan Pending'&&client.dietPlanLabel!=='published')||(filter==='Follow-up Due'&&client.followUpDue);
     return searchMatch&&filterMatch;
   }),[clientAuthority,clients,query,filter]);
-  const openClient=(client,tab='Overview')=>{setSelected(client);setInitialTab(tab);setMobileNav(false);};
+  const openClient=(client,tab='Overview')=>{setSelected({...client,practiceConfiguration:practiceConfig});setInitialTab(tab);setMobileNav(false);};
   const navigate=(next)=>{setSelected(null);setView(next);setMobileNav(false);};
   const professionNav=useMemo(()=>SECONDARY_NAV.filter(([id])=>{
     if(['consultations','followups','goals','tasks'].includes(id)) return professionExperience.care.includes(id);
