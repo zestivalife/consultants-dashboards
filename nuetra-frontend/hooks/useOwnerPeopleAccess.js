@@ -238,6 +238,12 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     return result;
   }, [refresh]);
 
+  const onProvisionExternalQaPractice = useCallback(async (payload) => {
+    const result = await ownerPeopleAccessAPI.provisionExternalQaPractice(payload);
+    await refresh();
+    return result;
+  }, [refresh]);
+
   const onProvisionFiteatsyQaAdmin = useCallback(async (payload) => {
     const result = await ownerPeopleAccessAPI.provisionFiteatsyQaAdmin(payload, newIdempotencyKey());
     await refresh();
@@ -399,6 +405,7 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     onCreateUser,
     onProvisionFiteatsyQaClient,
     onProvisionFiteatsyQaConsultant,
+    onProvisionExternalQaPractice,
     onProvisionFiteatsyQaAdmin,
     onAssignFiteatsyClient,
     onUpdateUser,

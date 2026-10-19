@@ -460,6 +460,13 @@ export const ownerPeopleAccessAPI = {
     return apiRequest('/platform/fiteatsy/qa-consultants', { method: 'POST', body: payload, headers: { 'Idempotency-Key': idempotencyKey } });
   },
 
+  provisionExternalQaPractice(payload) {
+    return apiRequest('/owner/people-access/qa/external-practice', {
+      method: 'POST',
+      body: payload,
+    });
+  },
+
   provisionFiteatsyQaAdmin(payload, idempotencyKey) {
     return apiRequest('/platform/fiteatsy/qa-admins', { method: 'POST', body: payload, headers: { 'Idempotency-Key': idempotencyKey } });
   },

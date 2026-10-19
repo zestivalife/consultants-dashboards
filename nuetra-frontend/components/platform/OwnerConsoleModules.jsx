@@ -917,6 +917,7 @@ export function PeopleAccessModule({
   onCreateUser,
   onProvisionFiteatsyQaClient,
   onProvisionFiteatsyQaConsultant,
+  onProvisionExternalQaPractice,
   onProvisionFiteatsyQaAdmin,
   onUpdateUser,
   onArchiveUser,
@@ -940,6 +941,7 @@ export function PeopleAccessModule({
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showProvisioningModal, setShowProvisioningModal] = useState(false);
   const [showQaAdminModal, setShowQaAdminModal] = useState(false);
+  const [externalQaProvisioning, setExternalQaProvisioning] = useState(null);
   const [qaAdminResult, setQaAdminResult] = useState(null);
   const [provisioningStep, setProvisioningStep] = useState(0);
   const [latestProvisioning, setLatestProvisioning] = useState(null);
@@ -994,6 +996,17 @@ export function PeopleAccessModule({
     reason: 'Phase C authenticated production acceptance',
   });
   const [qaAdminHandoff, setQaAdminHandoff] = useState(null);
+
+  const externalQaFixtures = [
+    ['DIABETES_EDUCATOR', 'QA External Diabetes Educator', 'qa+external-diabetes-educator@zestiva.test', 'Diabetes education'],
+    ['PSYCHOLOGIST', 'QA External Psychologist', 'qa+external-psychologist@zestiva.test', 'Psychological wellbeing'],
+    ['WELLNESS_CONSULTANT', 'QA External Wellness Consultant', 'qa+external-wellness-consultant@zestiva.test', 'General wellness'],
+    ['HEALTH_COACH', 'QA External Health Coach', 'qa+external-health-coach@zestiva.test', 'Health coaching'],
+    ['BEHAVIOURAL_THERAPIST', 'QA External Behavioural Therapist', 'qa+external-behavioural-therapist@zestiva.test', 'Behavioural support'],
+    ['OCCUPATIONAL_THERAPIST', 'QA External Occupational Therapist', 'qa+external-occupational-therapist@zestiva.test', 'Occupational therapy'],
+    ['PHYSIOTHERAPIST', 'QA External Physiotherapist', 'qa+external-physiotherapist@zestiva.test', 'Physiotherapy'],
+    ['MENTAL_WELLNESS_THERAPIST', 'QA External Mental Wellness Therapist', 'qa+external-mental-wellness-therapist@zestiva.test', 'Mental wellness'],
+  ];
   const [csvDraft, setCsvDraft] = useState('');
   const [roleBulkDraft, setRoleBulkDraft] = useState('consultant');
   const [form, setForm] = useState({
@@ -2002,6 +2015,37 @@ export function PeopleAccessModule({
     }
   };
 
+  const provisionExternalQaMatrix = async () => {
+    setIsSubmitting(true);
+    setActionError(null);
+    setExternalQaProvisioning({ completed: 0, total: externalQaFixtures.length, results: [] });
+    const results = [];
+    try {
+      for (const [profession, displayName, email, specialisation] of externalQaFixtures) {
+        const tenantName = `QA External ${profession.toLowerCase().split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')} Practice`;
+        try {
+          const result = await onProvisionExternalQaPractice({
+            profession_code: profession,
+            tenant_name: tenantName,
+            consultant_display_name: displayName,
+            consultant_email: email,
+            client_count: 2,
+            specialisation,
+            seed_profile: { demo: true, qa: true },
+          });
+          results.push({ profession, status: result?.status || 'READY', clientCount: result?.client_ids?.length || 0 });
+        } catch (error) {
+          results.push({ profession, status: 'FAILED', error: error?.message || 'Provisioning failed safely.' });
+        }
+        setExternalQaProvisioning({ completed: results.length, total: externalQaFixtures.length, results: [...results] });
+      }
+      if (results.every((item) => item.status !== 'FAILED')) showNotice('External QA profession matrix is ready.');
+      else setActionError('One or more External QA practices could not be provisioned. Review the governed result below.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <ModuleFrame
       badge="People & access"
@@ -2009,12 +2053,26 @@ export function PeopleAccessModule({
       description="Manage users, roles and platform access."
       actions={
         <>
+          <ActionButton icon={Shield} label="Provision External QA Matrix" tone="ghost" onClick={provisionExternalQaMatrix} disabled={isSubmitting} />
           <ActionButton icon={Shield} label="Provision Phase C QA Admin" tone="ghost" onClick={() => { setQaAdminResult(null); setQaAdminHandoff(null); setShowQaAdminModal(true); }} />
           <ActionButton icon={Plus} label="Add User" tone="primary" onClick={() => openProvisioningWizard('practitioner')} />
           <ActionButton icon={UserCog} label="Refresh" tone="ghost" onClick={() => runAction('Refresh People & Access', onRefresh)} />
         </>
       }
     >
+      {externalQaProvisioning ? (
+        <div className="mb-5 rounded-3xl border border-blue-100 bg-blue-50/60 p-5" role="status">
+          <p className="z-h4 text-gray-900">External QA profession matrix</p>
+          <p className="mt-1 z-body text-gray-600">{externalQaProvisioning.completed}/{externalQaProvisioning.total} governed practices processed.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {externalQaProvisioning.results.map((item) => (
+              <span key={item.profession} className={cn('rounded-full border px-3 py-2 z-label', item.status === 'FAILED' ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700')}>
+                {item.profession.replace(/_/g, ' ')} · {item.status}{item.clientCount ? ` · ${item.clientCount} clients` : ''}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {showQaAdminModal ? (
         <WorkflowModal
           eyebrow="Governed QA operation"
