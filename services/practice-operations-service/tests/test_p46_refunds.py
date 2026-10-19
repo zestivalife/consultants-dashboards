@@ -13,5 +13,7 @@ def test_non_destructive_external_schema_and_api():
  assert '0045_promotions' in M
  for table in ('external_cancellation_policies','external_refunds','external_credit_notes','external_refund_events'):assert table in M
  assert "state<>'REFUNDED' OR provider_refund_reference IS NOT NULL OR manual_refund_reference IS NOT NULL" in M
+ assert 'REFERENCES external_payment_records(id)' in M
+ assert 'REFERENCES external_payments(id)' not in M
  assert 'invoiceChanged":False' in MAIN and 'INSERT INTO external_credit_notes' in MAIN
  assert 'UPDATE external_invoices' not in MAIN[MAIN.index('@app.post("/api/v1/practice-operations/billing/refunds"'):]
