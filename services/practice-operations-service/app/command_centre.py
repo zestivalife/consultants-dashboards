@@ -49,6 +49,8 @@ ACTION_BY_SIGNAL={
     "GRIEVANCE_ESCALATED":("Open grievance","client"),
     "TELECONSULT_WAITING":("Start session","calendar"),
     "TELECONSULT_UPCOMING":("Open session","calendar"),
+    "UNREAD_MESSAGE":("Open inbox","communication"),
+    "MESSAGE_REPLY_NEEDED":("Reply to client","communication"),
 }
 
 def operational_priority(due_at=None, signal=""):

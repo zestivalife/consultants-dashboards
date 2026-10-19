@@ -27,7 +27,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            ProfessionPlanCreate, ProfessionPlanSave)
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
-from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete, FeedbackRequestCreate, FeedbackSubmit, FeedbackAction, TeleconsultConfigure, TeleconsultTransition
+from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete, FeedbackRequestCreate, FeedbackSubmit, FeedbackAction, TeleconsultConfigure, TeleconsultTransition, SecureConversationCreate, SecureMessageCreate
 from app.contracts import ClientPortalInvitationCreate, ClientPortalDocumentCreate, PreConsultationInvite
 from app.contracts import (ServicePackageCreate, ServicePackageUpdate,
                            ClientPackageAssign, ClientPackageStatusUpdate,
@@ -75,6 +75,7 @@ from app.p37 import project_readiness, resolve_requirements
 from app.p38 import project_post_session, resolve_post_session_actions
 from app.p39 import experience_label, public_review_eligible, validate_ratings
 from app.p40 import join_allowed, provider_status, validate_external_meeting_url
+from app.p41 import validate_message
 from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
@@ -2835,6 +2836,8 @@ async def client_portal_home(request: Request, token: str, db: AsyncSession=Depe
       JOIN external_appointment_types t ON t.id=a.appointment_type_id AND t.tenant_id=a.tenant_id
       WHERE s.tenant_id=:tenant AND s.client_id=:client AND s.status IN ('UPCOMING','WAITING_FOR_CONSULTANT','SESSION_ACTIVE')
       ORDER BY a.starts_at"""),params)).mappings().all()]
+    secure_messages=[dict(row) for row in (await db.execute(text("""SELECT m.id,m.conversation_id,m.sender_type,m.message_type,m.body,m.reference_id,m.status,m.sent_at
+      FROM external_secure_messages m WHERE m.tenant_id=:tenant AND m.client_id=:client ORDER BY m.sent_at DESC LIMIT 100"""),params)).mappings().all()]
     return {"success": True, "data": {
         "clientId": scope["client_id"], "tasks": tasks, "appointments": appointments,
         "goals": goals, "plans": plans, "assessments": assessments,
@@ -2845,6 +2848,7 @@ async def client_portal_home(request: Request, token: str, db: AsyncSession=Depe
         "postSession": post_session,
         "feedbackRequests": feedback_requests,
         "onlineSessions": online_sessions,
+        "secureMessages": secure_messages,
         "documentsConfigured": bool(get_settings().document_storage_bucket),
     }, "error": None, "request_id": request.state.correlation_id}
 
@@ -4482,10 +4486,17 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
       ORDER BY CASE WHEN q.status='WAITING_FOR_CONSULTANT' THEN 0 ELSE 1 END,a.starts_at LIMIT 20""",allowed="TELECONSULT_VIEW" in permissions)
     if teleconsult["status"] in {"READY","CONFIRMED_EMPTY"} and not teleconsult.get("restricted"):
         teleconsult["items"]=[{**row,"priority":operational_priority(row.get("due_at"),row["signal"]),"action":next_action(row["signal"])} for row in teleconsult["items"]]
+    messages=await read("messages",f"""SELECT c.id::text,c.client_id,'Secure conversation' title,c.status,c.updated_at due_at,
+      CASE WHEN MAX(m.sent_at)<NOW()-INTERVAL '24 hours' THEN 'MESSAGE_REPLY_NEEDED' ELSE 'UNREAD_MESSAGE' END signal,
+      COUNT(m.id)::int unread_count FROM external_secure_conversations c JOIN external_secure_messages m ON m.conversation_id=c.id AND m.tenant_id=c.tenant_id
+      WHERE c.tenant_id=:tenant AND c.status='OPEN' AND m.sender_type='CLIENT' AND m.status<>'READ' AND {scope}
+      GROUP BY c.id ORDER BY c.updated_at DESC LIMIT 20""",allowed="SECURE_MESSAGE_VIEW" in permissions)
+    if messages["status"] in {"READY","CONFIRMED_EMPTY"} and not messages.get("restricted"):
+        messages["items"]=[{**row,"priority":operational_priority(row.get("due_at"),row["signal"]),"action":next_action(row["signal"])} for row in messages["items"]]
 
     sections={"schedule":schedule,"my_work":work,"clients_needing_attention":attention,"onboarding":onboarding,"preconsultation":preconsultation,"post_session":post_session,
       "recent_changes":recent,"leads":leads,"renewals":renewals,"revenue_attention":revenue,
-      "automation_confirmations":confirmations,"continue_working":drafts,"session_briefs":session_briefs,"marketplace":marketplace,"feedback":feedback,"teleconsult":teleconsult}
+      "automation_confirmations":confirmations,"continue_working":drafts,"session_briefs":session_briefs,"marketplace":marketplace,"feedback":feedback,"teleconsult":teleconsult,"messages":messages}
     failed=[name for name,value in sections.items() if value["status"]=="FAILED"]
     daily_counts={
       "appointments_today":len(schedule["items"]) if schedule["status"]!="FAILED" and not schedule.get("restricted") else None,
@@ -4503,6 +4514,68 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
       "daily_brief":daily_counts,"sections":sections,"failed_sections":failed,"last_seen_at":last_seen_at,"generated_at":request_started_at},
       "error":None,"request_id":request.state.correlation_id}
 
+
+# P41 secure messaging; distinct from WhatsApp and private practitioner notes.
+@app.post("/api/v1/practice-operations/messages/conversations",status_code=201)
+async def create_secure_conversation(request:Request,body:SecureConversationCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"SECURE_MESSAGE_SEND")
+    if denied:return denied
+    cid=uuid4();now=datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_secure_conversations(id,tenant_id,client_id,conversation_type,status,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:client,:type,'OPEN',:actor,:now,:now) ON CONFLICT(tenant_id,client_id,conversation_type) DO NOTHING"""),{"id":cid,"tenant":ctx["tenant_id"],"client":body.client_id,"type":body.conversation_type,"actor":ctx["user_id"],"now":now})
+    row=(await db.execute(text("SELECT id,status FROM external_secure_conversations WHERE tenant_id=:tenant AND client_id=:client AND conversation_type=:type"),{"tenant":ctx["tenant_id"],"client":body.client_id,"type":body.conversation_type})).mappings().one();await db.commit()
+    return {"success":True,"data":{"id":str(row["id"]),"status":row["status"]},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/messages/conversations")
+async def list_secure_conversations(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"SECURE_MESSAGE_VIEW")
+    if denied:return denied
+    rows=[dict(r) for r in (await db.execute(text("""SELECT c.id,c.client_id,c.conversation_type,c.status,c.updated_at,
+      COUNT(m.id) FILTER(WHERE m.sender_type='CLIENT' AND m.status<>'READ')::int unread_count
+      FROM external_secure_conversations c LEFT JOIN external_secure_messages m ON m.conversation_id=c.id AND m.tenant_id=c.tenant_id
+      WHERE c.tenant_id=:tenant GROUP BY c.id ORDER BY c.updated_at DESC LIMIT 100"""),{"tenant":ctx["tenant_id"]})).mappings().all()]
+    return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/messages/conversations/{conversation_id}")
+async def get_secure_conversation(request:Request,conversation_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"SECURE_MESSAGE_VIEW")
+    if denied:return denied
+    rows=[dict(r) for r in (await db.execute(text("SELECT id,sender_type,message_type,body,reference_id,status,sent_at,read_at FROM external_secure_messages WHERE conversation_id=:id AND tenant_id=:tenant ORDER BY sent_at LIMIT 200"),{"id":conversation_id,"tenant":ctx["tenant_id"]})).mappings().all()]
+    return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows},"error":None,"request_id":request.state.correlation_id}
+
+async def _persist_secure_message(db,conversation,body,sender_id,sender_type):
+    validate_message(body.message_type,body.body,body.reference_id);mid=uuid4();now=datetime.now(timezone.utc)
+    await db.execute(text("INSERT INTO external_secure_messages(id,conversation_id,tenant_id,client_id,sender_id,sender_type,message_type,body,reference_id,status,sent_at) VALUES (:id,:conversation,:tenant,:client,:sender,:sender_type,:type,:body,:reference,'SENT',:now)"),{"id":mid,"conversation":conversation["id"],"tenant":conversation["tenant_id"],"client":conversation["client_id"],"sender":sender_id,"sender_type":sender_type,"type":body.message_type,"body":body.body,"reference":body.reference_id,"now":now})
+    await db.execute(text("INSERT INTO external_secure_message_events(id,message_id,tenant_id,event_type,actor_id,actor_type,created_at) VALUES (:id,:message,:tenant,'SECURE_MESSAGE_PERSISTED',:actor,:actor_type,:now)"),{"id":uuid4(),"message":mid,"tenant":conversation["tenant_id"],"actor":sender_id,"actor_type":sender_type,"now":now});await db.execute(text("UPDATE external_secure_conversations SET updated_at=:now WHERE id=:id"),{"now":now,"id":conversation["id"]});return mid
+
+@app.post("/api/v1/practice-operations/messages/conversations/{conversation_id}",status_code=201)
+async def send_secure_message(request:Request,conversation_id:UUID,body:SecureMessageCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"SECURE_MESSAGE_SEND")
+    if denied:return denied
+    row=(await db.execute(text("SELECT id,tenant_id,client_id,status FROM external_secure_conversations WHERE id=:id AND tenant_id=:tenant"),{"id":conversation_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row or row["status"]!='OPEN':return error(request,404,"CONVERSATION_NOT_FOUND","Open conversation was not found")
+    try:mid=await _persist_secure_message(db,row,body,ctx["user_id"],"PRACTITIONER")
+    except ValueError as exc:return error(request,422,"INVALID_SECURE_MESSAGE",str(exc))
+    await db.commit();return {"success":True,"data":{"id":str(mid),"status":"SENT","delivered":False,"read":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/client-portal/{token}/messages/{conversation_id}",status_code=201)
+async def portal_send_secure_message(request:Request,token:str,conversation_id:UUID,body:SecureMessageCreate,db:AsyncSession=Depends(get_db)):
+    scope,denied=await _portal_scope(request,token,"READ",db)
+    if denied:return denied
+    row=(await db.execute(text("SELECT id,tenant_id,client_id,status FROM external_secure_conversations WHERE id=:id AND tenant_id=:tenant AND client_id=:client"),{"id":conversation_id,"tenant":scope["tenant_id"],"client":scope["client_id"]})).mappings().first()
+    if not row or row["status"]!='OPEN':return error(request,404,"CONVERSATION_NOT_FOUND","Open conversation was not found")
+    try:mid=await _persist_secure_message(db,row,body,None,"CLIENT")
+    except ValueError as exc:return error(request,422,"INVALID_SECURE_MESSAGE",str(exc))
+    await db.commit();return {"success":True,"data":{"id":str(mid),"status":"SENT","delivered":False,"read":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/client-portal/{token}/messages/{message_id}/read")
+async def portal_read_secure_message(request:Request,token:str,message_id:UUID,db:AsyncSession=Depends(get_db)):
+    scope,denied=await _portal_scope(request,token,"READ",db)
+    if denied:return denied
+    now=datetime.now(timezone.utc);result=await db.execute(text("UPDATE external_secure_messages SET status='READ',read_at=:now WHERE id=:id AND tenant_id=:tenant AND client_id=:client AND sender_type<>'CLIENT'"),{"now":now,"id":message_id,"tenant":scope["tenant_id"],"client":scope["client_id"]})
+    if result.rowcount!=1:return error(request,404,"MESSAGE_NOT_FOUND","Message was not found")
+    await db.execute(text("INSERT INTO external_secure_message_events(id,message_id,tenant_id,event_type,actor_type,created_at) VALUES (:id,:message,:tenant,'MESSAGE_READ','CLIENT',:now)"),{"id":uuid4(),"message":message_id,"tenant":scope["tenant_id"],"now":now});await db.commit()
+    return {"success":True,"data":{"id":str(message_id),"status":"READ"},"error":None,"request_id":request.state.correlation_id}
 
 # P40 provider-neutral virtual-session authority; P13 appointments remain authoritative.
 async def _teleconsult_event(db,row,event,actor,actor_type):

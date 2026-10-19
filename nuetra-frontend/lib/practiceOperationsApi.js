@@ -199,6 +199,10 @@ export function createFeedbackAction(feedbackId,payload){return request(`/feedba
 export function getFeedbackAnalytics(){return request('/feedback/analytics');}
 export function configureTeleconsult(appointmentId,payload){return request(`/appointments/${encodeURIComponent(appointmentId)}/teleconsult`,{method:'PUT',body:JSON.stringify(payload)});}
 export function transitionTeleconsult(sessionId,action){return request(`/teleconsult/${encodeURIComponent(sessionId)}/transition`,{method:'POST',body:JSON.stringify({action})});}
+export function createSecureConversation(payload){return request('/messages/conversations',{method:'POST',body:JSON.stringify(payload)});}
+export function listSecureConversations(){return request('/messages/conversations');}
+export function getSecureConversation(id){return request(`/messages/conversations/${encodeURIComponent(id)}`);}
+export function sendSecureMessage(id,payload){return request(`/messages/conversations/${encodeURIComponent(id)}`,{method:'POST',body:JSON.stringify(payload)});}
 export function getMarketplaceProfile(){return request('/marketplace/profile');}
 export function getMarketplaceReadiness(){return request('/marketplace/readiness');}
 export function listMarketplaceReviews(){return request('/marketplace/reviews');}

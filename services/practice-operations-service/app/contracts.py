@@ -312,6 +312,15 @@ class TeleconsultConfigure(BaseModel):
 class TeleconsultTransition(BaseModel):
     action: Literal["START","COMPLETE","CANCEL"]
 
+class SecureConversationCreate(BaseModel):
+    client_id: str = Field(min_length=1,max_length=120)
+    conversation_type: Literal["CLIENT_PRACTITIONER","CLIENT_PRACTICE_SUPPORT"] = "CLIENT_PRACTITIONER"
+
+class SecureMessageCreate(BaseModel):
+    message_type: Literal["TEXT","RESOURCE_LINK","DOCUMENT_REFERENCE","APPOINTMENT_REFERENCE","FORM_LINK","CONSENT_LINK","REPORT_LINK"]
+    body: str | None = Field(default=None,max_length=8000)
+    reference_id: str | None = Field(default=None,max_length=160)
+
 class EngagementProjectionRequest(BaseModel):
     client_ids: list[str] = Field(min_length=1,max_length=100)
 
