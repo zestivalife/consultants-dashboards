@@ -268,6 +268,17 @@ class SessionSuggestionDecision(BaseModel):
     decision: Literal["ACCEPT","EDIT_AND_ACCEPT","DISMISS"]
     proposed_payload: dict[str,Any] | None = None
 
+class PostSessionStart(BaseModel):
+    consultation_id: str = Field(min_length=1,max_length=120)
+    session_note_id: UUID | None = None
+    service_id: UUID | None = None
+    client_package_id: UUID | None = None
+    capabilities: list[str] = Field(default_factory=list,max_length=40)
+
+class PostSessionActionComplete(BaseModel):
+    action_key: Literal["SESSION_NOTE","HOMEWORK","RESOURCE","GOAL","FOLLOWUP","NEXT_APPOINTMENT","PLAN_REVIEW","REPORT","BILLING","RENEWAL"]
+    source_record_id: str = Field(min_length=1,max_length=120)
+
 class EngagementProjectionRequest(BaseModel):
     client_ids: list[str] = Field(min_length=1,max_length=100)
 

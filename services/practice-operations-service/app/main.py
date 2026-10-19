@@ -27,7 +27,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            ProfessionPlanCreate, ProfessionPlanSave)
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
-from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest
+from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete
 from app.contracts import ClientPortalInvitationCreate, ClientPortalDocumentCreate, PreConsultationInvite
 from app.contracts import (ServicePackageCreate, ServicePackageUpdate,
                            ClientPackageAssign, ClientPackageStatusUpdate,
@@ -72,6 +72,7 @@ from app.p29 import classify_output, validate_ai_request
 from app.p30 import EXCLUDED_BY_DEFAULT, export_checksum, validate_export_sections
 from app.command_centre import next_action, operational_priority, section as command_section, sort_work
 from app.p37 import project_readiness, resolve_requirements
+from app.p38 import project_post_session, resolve_post_session_actions
 from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
@@ -1243,6 +1244,94 @@ async def decide_session_suggestion(request:Request,suggestion_id:UUID,body:Sess
     if row["status"]!="PROPOSED":return error(request,409,"SUGGESTION_ALREADY_DECIDED","Suggestion has already been decided")
     status={"ACCEPT":"ACCEPTED","EDIT_AND_ACCEPT":"EDITED_ACCEPTED","DISMISS":"DISMISSED"}[body.decision];payload=body.proposed_payload if body.decision=="EDIT_AND_ACCEPT" else row["proposed_payload"];now=datetime.now(timezone.utc)
     await db.execute(text("UPDATE external_session_action_suggestions SET status=:status,proposed_payload=CAST(:payload AS jsonb),confirmed_by=:actor,confirmed_at=:now,updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"status":status,"payload":json.dumps(payload),"actor":ctx["user_id"],"now":now,"id":suggestion_id,"tenant":ctx["tenant_id"]});await db.commit();return {"success":True,"data":{"id":str(suggestion_id),"status":status,"action_executed":False},"error":None,"request_id":request.state.correlation_id}
+
+async def _post_session_projection(db,tenant,checklist):
+    params={"tenant":tenant,"client":checklist["client_id"],"consultation":checklist["consultation_id"],"started":checklist["started_at"],"now":datetime.now(timezone.utc)}
+    evidence={}
+    queries={
+      "SESSION_NOTE":"SELECT id FROM external_session_notes WHERE tenant_id=:tenant AND client_id=:client AND consultation_id=:consultation AND status IN ('FINALISED','AMENDED') LIMIT 1",
+      "HOMEWORK":"SELECT id FROM external_homework_assignments WHERE tenant_id=:tenant AND client_id=:client AND session_id=:consultation AND status<>'CANCELLED' LIMIT 1",
+      "RESOURCE":"SELECT id FROM external_resource_assignments WHERE tenant_id=:tenant AND client_id=:client AND context_type='SESSION' AND context_id=:consultation AND status<>'CANCELLED' LIMIT 1",
+      "GOAL":"SELECT id FROM practice_goals WHERE tenant_id=:tenant AND client_id=:client AND updated_at>=:started LIMIT 1",
+      "FOLLOWUP":"SELECT id FROM practice_follow_ups WHERE tenant_id=:tenant AND client_id=:client AND created_at>=:started AND status<>'CANCELLED' LIMIT 1",
+      "NEXT_APPOINTMENT":"SELECT id FROM practice_consultations WHERE tenant_id=:tenant AND client_id=:client AND due_at>:now AND status NOT IN ('CANCELLED','COMPLETED','NO_SHOW','MISSED') LIMIT 1",
+      "PLAN_REVIEW":"SELECT id FROM external_profession_plans WHERE tenant_id=:tenant AND client_id=:client AND updated_at>=:started LIMIT 1",
+      "REPORT":"SELECT id FROM external_progress_reports WHERE tenant_id=:tenant AND client_id=:client AND created_at>=:started AND status<>'REVOKED' LIMIT 1",
+      "BILLING":"SELECT id FROM external_invoices WHERE tenant_id=:tenant AND client_id=:client AND created_at>=:started LIMIT 1",
+    }
+    for key,query in queries.items():
+        try:evidence[key]="COMPLETE" if (await db.execute(text(query),params)).first() else "PENDING"
+        except Exception:evidence[key]="FAILED"
+    completed=(await db.execute(text("SELECT action_key FROM external_post_session_events WHERE tenant_id=:tenant AND checklist_id=:id AND event_type IN ('POST_SESSION_ACTION_COMPLETED','RENEWAL_PREPARED')"),{"tenant":tenant,"id":checklist["id"]})).scalars().all()
+    for key in completed:evidence[key]="COMPLETE"
+    projection=project_post_session(list(checklist["action_requirements"] or []),evidence)
+    package=None
+    if checklist.get("client_package_id"):
+        package=(await db.execute(text("""SELECT q.id,q.sessions_total,q.end_date,q.renewal_date,q.status,
+          (q.sessions_total-COUNT(s.id))::int sessions_remaining FROM external_client_packages q
+          LEFT JOIN external_client_package_sessions s ON s.client_package_id=q.id AND s.tenant_id=q.tenant_id
+          WHERE q.id=:package AND q.tenant_id=:tenant GROUP BY q.id"""),{"package":checklist["client_package_id"],"tenant":tenant})).mappings().first()
+    projection.update({"id":str(checklist["id"]),"clientId":checklist["client_id"],"consultationId":checklist["consultation_id"],"professionCode":checklist["profession_code"],"lifecycleState":checklist["lifecycle_state"],"package":dict(package) if package else None,"autoRenew":False,"autoMessageSend":False,"autonomousClinicalAction":None})
+    return projection
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/post-session",status_code=201)
+async def start_post_session(request:Request,client_id:str,body:PostSessionStart,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"SESSION_EDIT")
+    if denied:return denied
+    tenant=ctx["tenant_id"]
+    session=(await db.execute(text("SELECT id,client_id,status FROM practice_consultations WHERE id=CAST(:id AS uuid) AND tenant_id=:tenant AND client_id=:client"),{"id":body.consultation_id,"tenant":tenant,"client":client_id})).mappings().first()
+    if not session:return error(request,404,"COMPLETED_SESSION_NOT_FOUND","Completed session was not found")
+    if session["status"]!="COMPLETED":return error(request,409,"COMPLETED_SESSION_REQUIRED","Post-session flow applies only to completed sessions")
+    existing=(await db.execute(text("SELECT id,tenant_id,client_id,consultation_id,session_note_id,profession_code,service_id,client_package_id,lifecycle_state,action_requirements,started_at,operationally_closed_at,created_by,created_at,updated_at FROM external_post_session_checklists WHERE tenant_id=:tenant AND consultation_id=:session"),{"tenant":tenant,"session":body.consultation_id})).mappings().first()
+    if existing:return {"success":True,"data":await _post_session_projection(db,tenant,existing),"error":None,"request_id":request.state.correlation_id}
+    profession=str(ctx.get("profession_code") or "GENERAL")
+    package_low=False;milestone_due=False;report_due=False
+    if body.client_package_id:
+        used=(await db.execute(text("SELECT COUNT(*) FROM external_client_package_sessions WHERE tenant_id=:tenant AND client_package_id=:package"),{"tenant":tenant,"package":body.client_package_id})).scalar_one()
+        package=(await db.execute(text("SELECT sessions_total,end_date FROM external_client_packages WHERE id=:package AND tenant_id=:tenant AND client_id=:client"),{"package":body.client_package_id,"tenant":tenant,"client":client_id})).mappings().first()
+        if not package:return error(request,404,"CLIENT_PACKAGE_NOT_FOUND","Client package was not found")
+        package_low=package["sessions_total"]-used<=2
+        milestone_due=bool((await db.execute(text("SELECT id FROM external_programme_milestones WHERE tenant_id=:tenant AND client_id=:client AND client_package_id=:package AND status='PENDING' AND (due_date IS NULL OR due_date<=CURRENT_DATE) LIMIT 1"),{"tenant":tenant,"client":client_id,"package":body.client_package_id})).first())
+    actions=resolve_post_session_actions(profession,capabilities=body.capabilities,package_low=package_low,milestone_due=milestone_due,report_due=report_due)
+    now=datetime.now(timezone.utc);checklist_id=uuid4()
+    await db.execute(text("""INSERT INTO external_post_session_checklists(id,tenant_id,client_id,consultation_id,session_note_id,profession_code,service_id,client_package_id,lifecycle_state,action_requirements,started_at,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:client,:session,:note,:profession,:service,:package,'POST_SESSION_STARTED',CAST(:actions AS jsonb),:now,:actor,:now,:now)"""),{"id":checklist_id,"tenant":tenant,"client":client_id,"session":body.consultation_id,"note":body.session_note_id,"profession":profession,"service":body.service_id,"package":body.client_package_id,"actions":json.dumps(actions),"now":now,"actor":ctx["user_id"]})
+    await db.execute(text("INSERT INTO external_post_session_events(id,checklist_id,tenant_id,client_id,consultation_id,event_type,actor_id,actor_type,metadata,created_at) VALUES (:event,:id,:tenant,:client,:session,'POST_SESSION_STARTED',:actor,'PRACTITIONER','{}'::jsonb,:now)"),{"event":uuid4(),"id":checklist_id,"tenant":tenant,"client":client_id,"session":body.consultation_id,"actor":ctx["user_id"],"now":now})
+    await db.commit()
+    row={"id":checklist_id,"client_id":client_id,"consultation_id":body.consultation_id,"session_note_id":body.session_note_id,"profession_code":profession,"service_id":body.service_id,"client_package_id":body.client_package_id,"lifecycle_state":"POST_SESSION_STARTED","action_requirements":actions,"started_at":now}
+    return {"success":True,"data":await _post_session_projection(db,tenant,row),"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/post-session/{consultation_id}")
+async def get_post_session(request:Request,client_id:str,consultation_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"SESSION_VIEW")
+    if denied:return denied
+    row=(await db.execute(text("SELECT id,tenant_id,client_id,consultation_id,session_note_id,profession_code,service_id,client_package_id,lifecycle_state,action_requirements,started_at,operationally_closed_at,created_by,created_at,updated_at FROM external_post_session_checklists WHERE tenant_id=:tenant AND client_id=:client AND consultation_id=:session"),{"tenant":ctx["tenant_id"],"client":client_id,"session":consultation_id})).mappings().first()
+    if not row:return {"success":True,"data":{"state":"CONFIRMED_EMPTY","checklist":None},"error":None,"request_id":request.state.correlation_id}
+    return {"success":True,"data":await _post_session_projection(db,ctx["tenant_id"],row),"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/post-session/{checklist_id}/actions/complete")
+async def complete_post_session_action(request:Request,checklist_id:UUID,body:PostSessionActionComplete,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"SESSION_EDIT")
+    if denied:return denied
+    row=(await db.execute(text("SELECT id,tenant_id,client_id,consultation_id,session_note_id,profession_code,service_id,client_package_id,lifecycle_state,action_requirements,started_at,operationally_closed_at,created_by,created_at,updated_at FROM external_post_session_checklists WHERE id=:id AND tenant_id=:tenant FOR UPDATE"),{"id":checklist_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"POST_SESSION_NOT_FOUND","Post-session checklist was not found")
+    event_type={"FOLLOWUP":"FOLLOWUP_CREATED","HOMEWORK":"HOMEWORK_ASSIGNED","RESOURCE":"RESOURCE_ASSIGNED","NEXT_APPOINTMENT":"NEXT_SESSION_BOOKED","GOAL":"PROGRESS_REVIEW_CREATED","REPORT":"PROGRESS_REVIEW_CREATED","RENEWAL":"RENEWAL_PREPARED"}.get(body.action_key,"POST_SESSION_ACTION_COMPLETED")
+    now=datetime.now(timezone.utc)
+    await db.execute(text("INSERT INTO external_post_session_events(id,checklist_id,tenant_id,client_id,consultation_id,event_type,action_key,actor_id,actor_type,metadata,created_at) VALUES (:event,:id,:tenant,:client,:session,:type,:action,:actor,'PRACTITIONER',CAST(:metadata AS jsonb),:now)"),{"event":uuid4(),"id":row["id"],"tenant":ctx["tenant_id"],"client":row["client_id"],"session":row["consultation_id"],"type":event_type,"action":body.action_key,"actor":ctx["user_id"],"metadata":json.dumps({"source_record_id":body.source_record_id}),"now":now})
+    await db.execute(text("UPDATE external_post_session_checklists SET lifecycle_state='IN_PROGRESS',updated_at=:now WHERE id=:id"),{"now":now,"id":row["id"]});await db.commit()
+    updated={**dict(row),"lifecycle_state":"IN_PROGRESS"};projection=await _post_session_projection(db,ctx["tenant_id"],updated)
+    if projection["sessionOperationallyClosed"]:
+        await db.execute(text("UPDATE external_post_session_checklists SET lifecycle_state='SESSION_OPERATIONALLY_CLOSED',operationally_closed_at=:now,updated_at=:now WHERE id=:id"),{"now":now,"id":row["id"]})
+        await db.execute(text("INSERT INTO external_post_session_events(id,checklist_id,tenant_id,client_id,consultation_id,event_type,actor_id,actor_type,metadata,created_at) VALUES (:event,:id,:tenant,:client,:session,'SESSION_OPERATIONALLY_CLOSED',:actor,'SYSTEM','{}'::jsonb,:now)"),{"event":uuid4(),"id":row["id"],"tenant":ctx["tenant_id"],"client":row["client_id"],"session":row["consultation_id"],"actor":ctx["user_id"],"now":now});await db.commit();projection["lifecycleState"]="SESSION_OPERATIONALLY_CLOSED"
+    return {"success":True,"data":projection,"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/post-session/analytics")
+async def post_session_analytics(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"ANALYTICS_VIEW")
+    if denied:return denied
+    rows=[dict(row) for row in (await db.execute(text("SELECT id,tenant_id,client_id,consultation_id,session_note_id,profession_code,service_id,client_package_id,lifecycle_state,action_requirements,started_at,operationally_closed_at,created_by,created_at,updated_at FROM external_post_session_checklists WHERE tenant_id=:tenant"),{"tenant":ctx["tenant_id"]})).mappings().all()]
+    projections=[await _post_session_projection(db,ctx["tenant_id"],row) for row in rows]
+    return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","sessionCount":len(rows),"operationallyClosed":sum(1 for item in projections if item["sessionOperationallyClosed"]),"noFutureSession":sum(1 for item in projections if next((x for x in item["items"] if x["key"]=="NEXT_APPOINTMENT"),{}).get("status")=="PENDING"),"metrics":["FOLLOWUP_COMPLETION_RATE","NEXT_SESSION_BOOKING_RATE","PACKAGE_RENEWAL_RATE","PROGRAMME_CONTINUATION_RATE","AVERAGE_DAYS_TO_NEXT_SESSION","PROGRESS_REVIEW_COMPLETION","REPORT_COMPLETION"]},"error":None,"request_id":request.state.correlation_id}
 
 async def _engagement_projection(db,tenant,client_id):
     now=datetime.now(timezone.utc);params={"tenant":tenant,"client":client_id,"now":now,"inactive":now-timedelta(days=21),"stale":now-timedelta(days=30),"plan_stale":now-timedelta(days=60)};reasons=[];indicators=[]
@@ -2733,6 +2822,9 @@ async def client_portal_home(request: Request, token: str, db: AsyncSession=Depe
     activity = [dict(row) for row in (await db.execute(text("""SELECT event_type,resource_type,resource_id,created_at FROM external_client_portal_audit_events
       WHERE tenant_id=:tenant AND client_id=:client AND actor_type='CLIENT' ORDER BY created_at DESC LIMIT 100"""),params)).mappings().all()]
     preconsultation = await _preconsultation_projection(db, scope["tenant_id"], scope["client_id"])
+    post_row=(await db.execute(text("""SELECT id,tenant_id,client_id,consultation_id,session_note_id,profession_code,service_id,client_package_id,lifecycle_state,action_requirements,started_at,operationally_closed_at,created_by,created_at,updated_at
+      FROM external_post_session_checklists WHERE tenant_id=:tenant AND client_id=:client ORDER BY started_at DESC LIMIT 1"""),params)).mappings().first()
+    post_session=await _post_session_projection(db,scope["tenant_id"],post_row) if post_row else None
     return {"success": True, "data": {
         "clientId": scope["client_id"], "tasks": tasks, "appointments": appointments,
         "goals": goals, "plans": plans, "assessments": assessments,
@@ -2740,6 +2832,7 @@ async def client_portal_home(request: Request, token: str, db: AsyncSession=Depe
         "resources": resources, "homework": homework, "notifications": notifications, "packages": packages, "invoices": invoices, "receipts": receipts,
         "referralConsents": referral_consents, "sharedReports": shared_reports, "forms": forms, "consents": consents, "activity": activity,
         "preConsultation": preconsultation,
+        "postSession": post_session,
         "documentsConfigured": bool(get_settings().document_storage_bucket),
     }, "error": None, "request_id": request.state.correlation_id}
 
@@ -4270,6 +4363,28 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
         except Exception as exc:
             logger.warning("command_centre_section_failed",section="preconsultation",error_type=type(exc).__name__)
             preconsultation=command_section([],failed=True)
+    post_session=command_section([],restricted="CLIENT_LIST_VIEW" not in permissions)
+    if "CLIENT_LIST_VIEW" in permissions:
+        try:
+            async with db.begin_nested():
+                rows=(await db.execute(text(f"""SELECT q.id,q.tenant_id,q.client_id,q.consultation_id,q.session_note_id,q.profession_code,q.service_id,q.client_package_id,q.lifecycle_state,q.action_requirements,q.started_at,q.operationally_closed_at,q.created_by,q.created_at,q.updated_at
+                  FROM external_post_session_checklists q WHERE q.tenant_id=:tenant AND q.lifecycle_state<>'PAUSED' AND {scope}
+                  ORDER BY q.updated_at DESC LIMIT 20"""),params)).mappings().all()
+                projected=[]
+                for row in rows:
+                    item=await _post_session_projection(db,tenant,row)
+                    next_item=next((value for value in item["items"] if value["key"]=="NEXT_APPOINTMENT"),{})
+                    signals=[]
+                    if not item["sessionOperationallyClosed"]:signals.append("POST_SESSION_ACTIONS_PENDING")
+                    if next_item.get("status")=="PENDING":signals.append("NO_FUTURE_SESSION")
+                    if item.get("package") and item["package"].get("sessions_remaining",99)<=2:signals.append("SESSIONS_LOW")
+                    if item["sessionOperationallyClosed"]:signals.append("SESSION_OPERATIONALLY_CLOSED")
+                    item.update({"client_id":item["clientId"],"signal":signals[0],"signals":signals,"priority":operational_priority(row["updated_at"],signals[0]),"action":next_action(signals[0])})
+                    projected.append(item)
+                post_session=command_section(projected)
+        except Exception as exc:
+            logger.warning("command_centre_section_failed",section="post_session",error_type=type(exc).__name__)
+            post_session=command_section([],failed=True)
     recent=await read("recent_changes",f"""SELECT id,client_id,event_type,title,created_at FROM (
       SELECT q.id::text,q.client_id,q.event_type,q.title,q.created_at FROM practice_notifications q
         WHERE q.tenant_id=:tenant AND q.created_at>:last_seen AND {scope}
@@ -4277,6 +4392,8 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
         WHERE q.tenant_id=:tenant AND q.created_at>:last_seen AND q.actor_type='CLIENT' AND {scope}
       UNION ALL SELECT q.id::text,q.client_id,'DOCUMENT_UPDATED',q.title,q.updated_at FROM external_documents q
         WHERE q.tenant_id=:tenant AND q.updated_at>:last_seen AND q.visibility<>'PRACTITIONER_PRIVATE' AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,q.event_type,'Post-session activity',q.created_at FROM external_post_session_events q
+        WHERE q.tenant_id=:tenant AND q.created_at>:last_seen AND {scope}
     ) changes ORDER BY created_at DESC LIMIT 20""",allowed="PRACTICE_VIEW" in permissions or "CLIENT_LIST_VIEW" in permissions)
     leads=await read("leads",f"""SELECT q.id::text,NULL::varchar client_id,(q.first_name||COALESCE(' '||q.last_name,'')) title,q.stage,q.next_follow_up_at AS due_at,q.updated_at,
       CASE WHEN q.stage='NEW' THEN 'NEW_LEAD' WHEN q.next_follow_up_at<NOW() THEN 'LEAD_FOLLOWUP_OVERDUE' ELSE 'LEAD_FOLLOWUP' END signal
@@ -4301,6 +4418,7 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
       UNION ALL SELECT q.id::text,q.client_id,q.title,q.status,q.updated_at,'REPORT' source_module FROM external_progress_reports q WHERE q.tenant_id=:tenant AND q.created_by=:actor AND q.status='DRAFT' AND {scope}
       UNION ALL SELECT q.id::text,q.client_id,COALESCE(q.invoice_number,'Draft invoice') title,q.status,q.updated_at,'INVOICE' source_module FROM external_invoices q WHERE q.tenant_id=:tenant AND q.created_by=:actor AND q.status='DRAFT' AND {scope}
       UNION ALL SELECT q.id::text,q.client_id,q.purpose title,q.status,q.updated_at,'COMMUNICATION' source_module FROM external_communication_preparations q WHERE q.tenant_id=:tenant AND q.created_by=:actor AND q.status='PREPARED' AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,'Post-session follow-up' title,q.lifecycle_state status,q.updated_at,'POST_SESSION' source_module FROM external_post_session_checklists q WHERE q.tenant_id=:tenant AND q.created_by=:actor AND q.lifecycle_state IN ('POST_SESSION_STARTED','IN_PROGRESS') AND {scope}
     ) drafts ORDER BY updated_at DESC LIMIT 15""",allowed=bool({"SESSION_VIEW","REPORT_VIEW","BILLING_VIEW","COMMUNICATION_VIEW"}&permissions))
 
     session_briefs=await read("session_briefs",f"""SELECT q.id::text,q.client_id,q.starts_at AS due_at,
@@ -4331,7 +4449,7 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
     if marketplace["status"] in {"READY","CONFIRMED_EMPTY"} and not marketplace.get("restricted"):
         marketplace["items"]=[{**row,"priority":operational_priority(row.get("due_at"),row["signal"]),"action":next_action(row["signal"])} for row in marketplace["items"]]
 
-    sections={"schedule":schedule,"my_work":work,"clients_needing_attention":attention,"onboarding":onboarding,"preconsultation":preconsultation,
+    sections={"schedule":schedule,"my_work":work,"clients_needing_attention":attention,"onboarding":onboarding,"preconsultation":preconsultation,"post_session":post_session,
       "recent_changes":recent,"leads":leads,"renewals":renewals,"revenue_attention":revenue,
       "automation_confirmations":confirmations,"continue_working":drafts,"session_briefs":session_briefs,"marketplace":marketplace}
     failed=[name for name,value in sections.items() if value["status"]=="FAILED"]

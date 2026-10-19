@@ -189,6 +189,10 @@ export function getDashboardCommandCentre(){return request('/dashboard/command-c
 export function getPreConsultation(clientId){return request(`/clients/${encodeURIComponent(clientId)}/pre-consultation`);}
 export function invitePreConsultation(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/pre-consultation/invite`,{method:'POST',body:JSON.stringify(payload)});}
 export function getPreConsultationAnalytics(){return request('/pre-consultation/analytics');}
+export function startPostSession(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/post-session`,{method:'POST',body:JSON.stringify(payload)});}
+export function getPostSession(clientId,consultationId){return request(`/clients/${encodeURIComponent(clientId)}/post-session/${encodeURIComponent(consultationId)}`);}
+export function completePostSessionAction(checklistId,payload){return request(`/post-session/${encodeURIComponent(checklistId)}/actions/complete`,{method:'POST',body:JSON.stringify(payload)});}
+export function getPostSessionAnalytics(){return request('/post-session/analytics');}
 export function getMarketplaceProfile(){return request('/marketplace/profile');}
 export function getMarketplaceReadiness(){return request('/marketplace/readiness');}
 export function listMarketplaceReviews(){return request('/marketplace/reviews');}
