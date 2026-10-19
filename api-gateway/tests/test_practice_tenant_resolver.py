@@ -6,6 +6,7 @@ from app.routers.practice_tenant_resolver import (
     PracticeTenantResolutionError,
     client_belongs_to_authenticated_tenant,
     is_practice_operations_path,
+    is_platform_marketplace_admin_path,
     parse_practice_tenant_authority,
     practice_client_resource_id,
     resolve_practice_tenant_authority,
@@ -116,6 +117,13 @@ def test_scope_is_exactly_practice_operations_namespace():
     assert not is_practice_operations_path("/api/v1/auth/me")
     assert not is_practice_operations_path("/api/v1/profile")
     assert not is_practice_operations_path("/api/v1/practice-operations-internal")
+
+
+def test_only_platform_marketplace_admin_namespace_bypasses_tenant_resolution():
+    assert is_platform_marketplace_admin_path("/api/v1/practice-operations/admin/marketplace")
+    assert is_platform_marketplace_admin_path("/api/v1/practice-operations/admin/marketplace/finance")
+    assert not is_platform_marketplace_admin_path("/api/v1/practice-operations/marketplace/profile")
+    assert not is_platform_marketplace_admin_path("/api/v1/practice-operations/admin/other")
 
 
 def test_only_direct_client_resource_paths_are_class_b():

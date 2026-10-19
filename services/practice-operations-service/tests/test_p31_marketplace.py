@@ -51,6 +51,20 @@ def test_public_routes_fail_closed_and_platform_authority_is_distinct():
     for guard in ["v.status='PUBLISHED'","p.public_visibility=TRUE","p.approval_valid=TRUE","p.suspended_at IS NULL"]:assert guard in public
     for secret in PRIVATE_FIELDS:assert secret not in public
 
+def test_platform_context_can_be_tenantless_but_ordinary_roles_cannot():
+    main=(ROOT/"app/main.py").read_text()
+    context_section=main[main.index("def context("):main.index("def external_only")]
+    assert '{"SUPER_ADMIN","SUPERUSER","PLATFORM_OWNER"}' in context_section
+    assert 'if not x_tenant_id and role not in' in context_section
+    assert 'tenant_id": x_tenant_id' in context_section
+
+def test_super_admin_inventory_is_platform_guarded_and_includes_not_started():
+    main=(ROOT/"app/main.py").read_text()
+    section=main[main.index('@app.get("/api/v1/practice-operations/admin/marketplace/consultants")'):main.index('@app.put("/api/v1/practice-operations/admin/marketplace/profiles/')]
+    assert "denied=_platform_admin(request,ctx)" in section
+    assert 'status=profile["status"] if profile else "NOT_STARTED"' in section
+    for value in ["ELIGIBLE_TO_SUBMIT","NOT_ELIGIBLE","UNDER_REVIEW","APPROVED_NOT_PUBLISHED","PUBLIC","SUSPENDED","DIRECTORY_ONLY","DIRECTORY_AND_HOMEPAGE"]:assert value in section
+
 def test_enrolment_reuses_p24_and_reviews_require_completed_engagement():
     main=(ROOT/"app/main.py").read_text()
     assert "'PUBLIC_CONSULTANT_DIRECTORY'" in main

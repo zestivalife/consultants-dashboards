@@ -10,6 +10,7 @@ import {
   getAdminFinderConfig,
   updateAdminFinderConfig,
   listAdminMarketplace,
+  listAdminMarketplaceConsultants,
   setMarketplaceHomepageFeature,
 } from "../../lib/practiceOperationsApi";
 
@@ -34,26 +35,27 @@ export default function MarketplaceGovernanceModule() {
   const [notice, setNotice] = useState("");
   const [finder, setFinder] = useState(null);
   const [finance, setFinance] = useState(null);
+  const [inventory, setInventory] = useState(null);
   const load = () => {
     setState("loading");
-    Promise.all([
+    Promise.allSettled([
       listAdminMarketplace(status),
       getAdminMarketplaceAnalytics(),
       getAdminMarketplaceOperations(),
       getAdminFinderConfig(),
       getAdminMarketplaceFinance(),
+      listAdminMarketplaceConsultants(),
     ])
-      .then(([profiles, metrics, ops, finderConfig, financeData]) => {
-        setItems(profiles.items || []);
-        setAnalytics(metrics);
-        setOperations(ops);
-        setFinder(finderConfig.config);
-        setFinance(financeData);
-        setState(profiles.state || "READY");
-      })
-      .catch((error) => {
-        setNotice(error.message);
-        setState("FAILED_TO_LOAD");
+      .then((results) => {
+        const [profiles,metrics,ops,finderConfig,financeData,consultants]=results;
+        if(profiles.status==='fulfilled'){setItems(profiles.value.items||[]);setState(profiles.value.state||'READY');}else{setState('FAILED_TO_LOAD');}
+        setAnalytics(metrics.status==='fulfilled'?metrics.value:null);
+        setOperations(ops.status==='fulfilled'?ops.value:null);
+        setFinder(finderConfig.status==='fulfilled'?finderConfig.value.config:null);
+        setFinance(financeData.status==='fulfilled'?financeData.value:null);
+        setInventory(consultants.status==='fulfilled'?consultants.value:{state:'PARTIAL_DATA',items:[],summary:null});
+        const failed=results.filter(result=>result.status==='rejected');
+        setNotice(failed.length?`${failed.length} marketplace section${failed.length===1?' is':'s are'} unavailable. Available sections remain usable.`:'');
       });
   };
   useEffect(load, [status]);
@@ -88,6 +90,7 @@ export default function MarketplaceGovernanceModule() {
       <MarketplaceFinance data={finance} />
       <HomepageShowcase items={items} onNotice={setNotice} onDone={load} />
       <FinderConfiguration config={finder} onChange={setFinder} onNotice={setNotice} />
+      <ConsultantInventory data={inventory} />
       <nav
         className="flex gap-2 overflow-x-auto"
         aria-label="Marketplace review states"
@@ -134,6 +137,15 @@ export default function MarketplaceGovernanceModule() {
       )}
     </div>
   );
+}
+
+function ConsultantInventory({data}){
+  const [query,setQuery]=useState('');
+  const [marketplaceStatus,setMarketplaceStatus]=useState('');
+  if(!data)return <section aria-busy="true" className="rounded-2xl bg-white p-6">Loading All Consultants…</section>;
+  const rows=(data.items||[]).filter(item=>(!marketplaceStatus||item.marketplace_status===marketplaceStatus)&&(!query||[item.name,item.email,item.profession,item.practice].some(value=>String(value||'').toLowerCase().includes(query.toLowerCase()))));
+  const summary=data.summary||{};
+  return <section className="rounded-2xl border bg-white p-5"><div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase text-blue-700">Master inventory</p><h2 className="text-xl font-bold">All Consultants</h2><p className="text-sm text-slate-500">Every governed consultant account, including profiles not started.</p></div><div className="flex flex-wrap gap-2"><input aria-label="Search consultants" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search name, email, profession or practice" className="min-h-11 rounded-xl border px-3"/><select aria-label="Marketplace status" value={marketplaceStatus} onChange={e=>setMarketplaceStatus(e.target.value)} className="min-h-11 rounded-xl border px-3"><option value="">All marketplace states</option>{['NOT_STARTED','DRAFT','SUBMITTED_FOR_REVIEW','UNDER_REVIEW','CHANGES_REQUIRED','APPROVED','PUBLISHED','UNPUBLISHED','REJECTED','SUSPENDED'].map(value=><option key={value}>{value}</option>)}</select></div></div><div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-5">{[['Total',summary.total],['Not started',summary.not_started],['Pending',summary.pending_review],['Published',summary.published],['Featured',summary.featured]].map(([label,value])=><div key={label} className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">{label}</p><strong>{value??'—'}</strong></div>)}</div>{data.state==='PARTIAL_DATA'?<p role="alert" className="mt-4 rounded-xl bg-amber-50 p-3">PARTIAL_DATA — consultant inventory is unavailable; marketplace queues remain independent.</p>:!rows.length?<p className="mt-4 rounded-xl border border-dashed p-6 text-center">CONFIRMED_EMPTY</p>:<div className="mt-4 overflow-x-auto"><table className="min-w-[1100px] w-full"><thead><tr>{['Consultant','Profession','Practice','Account','Marketplace','Completeness','Qualification','Eligibility','Website visibility','Featured','Action'].map(label=><th key={label} className="p-3 text-left text-xs uppercase text-slate-500">{label}</th>)}</tr></thead><tbody>{rows.map(item=><tr key={item.user_id} className="border-t"><td className="p-3"><strong>{item.name}</strong>{item.demo&&<span className="ml-2 rounded-full bg-violet-100 px-2 py-1 text-xs font-bold text-violet-800">DEMO</span>}<p className="text-xs text-slate-500">{item.email}</p></td><td className="p-3 text-sm">{item.profession?.replaceAll('_',' ')||'Not configured'}</td><td className="p-3 text-sm">{item.practice||'Independent'}</td><td className="p-3 text-sm">{item.account_status}</td><td className="p-3 text-sm">{item.marketplace_status.replaceAll('_',' ')}</td><td className="p-3">{item.profile_completeness}%</td><td className="p-3 text-sm">{item.qualification_status.replaceAll('_',' ')}</td><td className="p-3 text-sm"><strong>{item.eligibility.replaceAll('_',' ')}</strong>{item.eligibility_blockers?.length>0&&<p className="text-xs text-amber-700">{item.eligibility_blockers.join(', ').replaceAll('_',' ')}</p>}</td><td className="p-3 text-sm">{item.website_visibility.replaceAll('_',' ')}</td><td className="p-3">{item.homepage_featured?'Yes':'No'}</td><td className="p-3">{item.slug?<a className="font-bold text-blue-700" href={`/consultants/${item.slug}`} target="_blank" rel="noreferrer">Preview</a>:<span className="text-xs font-bold">Invite to complete profile</span>}</td></tr>)}</tbody></table></div>}</section>;
 }
 
 function MarketplaceFinance({data}){return <section className="rounded-2xl border bg-white p-5"><h2 className="text-xl font-bold">Marketplace Finance</h2>{!data?<p role="status" className="mt-3 text-sm">Finance data unavailable; no zero values are inferred.</p>:<div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{[['GMV',data.gmv_minor],['Platform revenue',data.platform_revenue_minor],['Consultant payable',data.consultant_payable_minor],['Pending settlement',data.pending_settlement_minor],['Refunds',data.refunds_minor]].map(([label,value])=><div key={label} className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">{label}</p><strong className="mt-1 block">{data.state==='CONFIRMED_EMPTY'?'No recorded activity':value}</strong></div>)}</div>}<p className="mt-3 text-xs text-slate-500">Revenue recognition: recorded transactions only. No payment movement is inferred.</p></section>}

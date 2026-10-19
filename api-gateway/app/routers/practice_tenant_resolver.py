@@ -6,6 +6,7 @@ import httpx
 
 
 PRACTICE_OPERATIONS_PREFIX = "/api/v1/practice-operations"
+PLATFORM_MARKETPLACE_ADMIN_PREFIX = f"{PRACTICE_OPERATIONS_PREFIX}/admin/marketplace"
 EXTERNAL_TENANT_TYPES = frozenset({"INDEPENDENT_CONSULTANT", "PRACTICE", "CLINIC"})
 ACTIVE_VALUES = frozenset({"ACTIVE", "READY", "ONBOARDING_IN_PROGRESS"})
 CLIENT_RESOURCE_PATH = re.compile(
@@ -27,6 +28,13 @@ class PracticeTenantAuthority:
 def is_practice_operations_path(path: str) -> bool:
     return path == PRACTICE_OPERATIONS_PREFIX or path.startswith(
         PRACTICE_OPERATIONS_PREFIX + "/"
+    )
+
+
+def is_platform_marketplace_admin_path(path: str) -> bool:
+    """Platform governance is JWT-authorised, not External-tenant scoped."""
+    return path == PLATFORM_MARKETPLACE_ADMIN_PREFIX or path.startswith(
+        PLATFORM_MARKETPLACE_ADMIN_PREFIX + "/"
     )
 
 

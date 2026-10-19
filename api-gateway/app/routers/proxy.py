@@ -10,6 +10,7 @@ from app.routers.practice_tenant_resolver import (
     PracticeTenantResolutionError,
     client_belongs_to_authenticated_tenant,
     is_practice_operations_path,
+    is_platform_marketplace_admin_path,
     practice_client_resource_id,
     resolve_practice_tenant_authority,
 )
@@ -132,7 +133,7 @@ async def proxy(request: Request, path: str):
 
     client = await get_http_client()
 
-    if is_practice_operations_path(full_path):
+    if is_practice_operations_path(full_path) and not is_platform_marketplace_admin_path(full_path):
         try:
             authority = await resolve_practice_tenant_authority(
                 client,

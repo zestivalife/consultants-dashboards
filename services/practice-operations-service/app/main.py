@@ -193,9 +193,12 @@ def error(request: Request, status: int, code: str, message: str, retryable: boo
 
 
 def context(x_user_id: str | None = Header(None), x_tenant_id: str | None = Header(None), x_user_role: str | None = Header(None), x_tenant_type: str | None = Header(None), x_user_email: str | None = Header(None)):
-    if not x_user_id or not x_tenant_id:
+    role=(x_user_role or "member").upper()
+    if not x_user_id:
         return None
-    return {"user_id": x_user_id, "tenant_id": x_tenant_id, "role": x_user_role or "member", "tenant_type": x_tenant_type, "email": (x_user_email or "").lower()}
+    if not x_tenant_id and role not in {"SUPER_ADMIN","SUPERUSER","PLATFORM_OWNER"}:
+        return None
+    return {"user_id": x_user_id, "tenant_id": x_tenant_id, "role": role, "tenant_type": x_tenant_type, "email": (x_user_email or "").lower()}
 
 
 def external_only(request: Request, ctx):
@@ -4907,6 +4910,51 @@ async def admin_marketplace(request:Request,status:str|None=None,ctx=Depends(con
     if denied:return denied
     params={"status":status};rows=[dict(row) for row in (await db.execute(text("SELECT p.id,p.tenant_id,p.consultant_user_id,p.slug,p.status,p.public_visibility,p.accepting_new_clients,p.current_published_version,p.working_version,p.approved_version,p.approval_valid,p.updated_at,v.projection,v.completeness,v.missing_fields,COALESCE(h.featured_on_homepage,FALSE) featured_on_homepage,h.featured_rank,h.featured_from,h.featured_until FROM external_consultant_public_profiles p JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.working_version LEFT JOIN external_consultant_homepage_features h ON h.profile_id=p.id WHERE (CAST(:status AS text) IS NULL OR p.status=CAST(:status AS text)) ORDER BY p.updated_at DESC LIMIT 200"),params)).mappings().all()]
     return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/admin/marketplace/consultants")
+async def admin_marketplace_consultants(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    identities=[]
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for role in ("consultant","senior_consultant","practitioner"):
+            try:
+                response=await client.get(
+                    f"{get_settings().auth_service_url.rstrip('/')}/api/v1/owner/people-access/users",
+                    params={"role":role,"page":1,"page_size":100},
+                    headers={"X-User-Id":ctx["user_id"],"Accept":"application/json"},
+                )
+            except httpx.HTTPError:
+                return error(request,503,"CONSULTANT_INVENTORY_UNAVAILABLE","Consultant account inventory is unavailable",True)
+            if response.status_code!=200:
+                return error(request,503,"CONSULTANT_INVENTORY_UNAVAILABLE","Consultant account inventory is unavailable",True)
+            payload=response.json();identities.extend((payload.get("data") or {}).get("items") or [])
+    unique={str(item.get("id")):item for item in identities if item.get("id")}
+    profiles=[dict(row) for row in (await db.execute(text("""SELECT p.id,p.tenant_id,p.consultant_user_id,p.slug,p.status,p.public_visibility,p.accepting_new_clients,p.approval_valid,p.suspended_at,v.projection,v.completeness,v.missing_fields,COALESCE(h.featured_on_homepage,FALSE) featured_on_homepage,COALESCE(q.verified_count,0)::int verified_qualifications FROM external_consultant_public_profiles p JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.working_version LEFT JOIN external_consultant_homepage_features h ON h.profile_id=p.id LEFT JOIN (SELECT profile_id,COUNT(*) FILTER(WHERE verification_status='VERIFIED') verified_count FROM external_consultant_qualifications GROUP BY profile_id) q ON q.profile_id=p.id"""))).mappings().all()]
+    by_user={str(row["consultant_user_id"]):row for row in profiles}
+    items=[]
+    for user_id,user in unique.items():
+        profile=by_user.get(user_id);projection=dict(profile["projection"]) if profile else {}
+        status=profile["status"] if profile else "NOT_STARTED"
+        blockers=[]
+        if str(user.get("status") or "").upper()!="ACTIVE":blockers.append("ACCOUNT_INACTIVE")
+        if not profile:blockers.append("PROFILE_INCOMPLETE")
+        elif profile["completeness"]<100:blockers.append("PROFILE_INCOMPLETE")
+        if not profile or profile["verified_qualifications"]<1:blockers.append("NO_VERIFIED_QUALIFICATION")
+        if profile and status=="SUSPENDED":eligibility="SUSPENDED"
+        elif profile and status=="PUBLISHED" and profile["public_visibility"] and profile["approval_valid"] and not profile["suspended_at"]:eligibility="PUBLIC"
+        elif profile and status=="APPROVED":eligibility="APPROVED_NOT_PUBLISHED"
+        elif profile and status in {"SUBMITTED_FOR_REVIEW","UNDER_REVIEW"}:eligibility="UNDER_REVIEW"
+        elif blockers:eligibility="NOT_ELIGIBLE"
+        else:eligibility="ELIGIBLE_TO_SUBMIT"
+        if eligibility=="SUSPENDED":visibility="SUSPENDED"
+        elif eligibility=="PUBLIC":visibility="DIRECTORY_AND_HOMEPAGE" if profile["featured_on_homepage"] else "DIRECTORY_ONLY"
+        else:visibility="NOT_VISIBLE"
+        items.append({"user_id":user_id,"name":user.get("name"),"email":user.get("email"),"phone":user.get("phone"),"profession":projection.get("profession_code") or projection.get("professional_title"),"practice":user.get("organization"),"account_status":user.get("status"),"profile_id":str(profile["id"]) if profile else None,"slug":profile["slug"] if profile else None,"marketplace_status":status,"profile_completeness":profile["completeness"] if profile else 0,"qualification_status":"VERIFIED" if profile and profile["verified_qualifications"] else "NOT_VERIFIED","eligibility":eligibility,"eligibility_blockers":blockers,"published":visibility in {"DIRECTORY_ONLY","DIRECTORY_AND_HOMEPAGE"},"homepage_featured":visibility=="DIRECTORY_AND_HOMEPAGE","accepting_new_clients":bool(profile and profile["accepting_new_clients"]),"website_visibility":visibility,"demo":str(user.get("name") or "").startswith("Demo Consultant —")})
+    items.sort(key=lambda item:(item["name"] or "").lower())
+    counts={key:sum(1 for item in items if item["marketplace_status"] in values) for key,values in {"not_started":{"NOT_STARTED"},"draft":{"DRAFT"},"pending_review":{"SUBMITTED_FOR_REVIEW","UNDER_REVIEW"},"changes_required":{"CHANGES_REQUIRED"},"approved":{"APPROVED"},"published":{"PUBLISHED"},"suspended":{"SUSPENDED"}}.items()}
+    counts.update(total=len(items),featured=sum(1 for item in items if item["homepage_featured"]))
+    return {"success":True,"data":{"state":"READY" if items else "CONFIRMED_EMPTY","items":items,"summary":counts},"error":None,"request_id":request.state.correlation_id}
 
 @app.put("/api/v1/practice-operations/admin/marketplace/profiles/{profile_id}/homepage-feature")
 async def admin_marketplace_homepage_feature(profile_id:UUID,request:Request,body:HomepageFeatureDecision,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
