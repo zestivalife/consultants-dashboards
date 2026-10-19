@@ -28,7 +28,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
 from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest
-from app.contracts import ClientPortalInvitationCreate, ClientPortalDocumentCreate
+from app.contracts import ClientPortalInvitationCreate, ClientPortalDocumentCreate, PreConsultationInvite
 from app.contracts import (ServicePackageCreate, ServicePackageUpdate,
                            ClientPackageAssign, ClientPackageStatusUpdate,
                            PackageSessionUse)
@@ -71,6 +71,7 @@ from app.p28 import PaymentProviderNotConfigured, canonical_payload_hash, verify
 from app.p29 import classify_output, validate_ai_request
 from app.p30 import EXCLUDED_BY_DEFAULT, export_checksum, validate_export_sections
 from app.command_centre import next_action, operational_priority, section as command_section, sort_work
+from app.p37 import project_readiness, resolve_requirements
 from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
@@ -853,7 +854,7 @@ async def complete_assessment(request:Request,assessment_id:UUID,body:Assessment
     await _save_assessment_answers(db,instance,body.answers,ctx["user_id"]);now=datetime.now(timezone.utc)
     missing=(await db.execute(text("""SELECT COUNT(*) FROM external_assessment_questions q LEFT JOIN external_assessment_answers a ON a.question_id=q.id AND a.assessment_instance_id=:id WHERE q.version_id=:version AND q.required=TRUE AND a.id IS NULL"""),{"id":assessment_id,"version":instance["version_id"]})).scalar_one()
     if missing:return error(request,409,"ASSESSMENT_REQUIRED_ANSWERS_MISSING","Complete all required assessment questions")
-    await db.execute(text("UPDATE external_assessment_instances SET status='COMPLETED',completed_at=:now,updated_at=:now WHERE id=:id"),{"id":assessment_id,"now":now});await db.execute(text("INSERT INTO external_assessment_review_events(id,assessment_instance_id,tenant_id,client_id,event_type,notes,actor_id,created_at) VALUES (:event,:id,:tenant,:client,'COMPLETED',:notes,:actor,:now)"),{"event":uuid4(),"id":assessment_id,"tenant":ctx["tenant_id"],"client":instance["client_id"],"notes":body.review_notes,"actor":ctx["user_id"],"now":now});await db.commit()
+    await db.execute(text("UPDATE external_assessment_instances SET status='COMPLETED',completed_at=:now,updated_at=:now WHERE id=:id"),{"id":assessment_id,"now":now});await db.execute(text("INSERT INTO external_assessment_review_events(id,assessment_instance_id,tenant_id,client_id,event_type,notes,actor_id,created_at) VALUES (:event,:id,:tenant,:client,'COMPLETED',:notes,:actor,:now)"),{"event":uuid4(),"id":assessment_id,"tenant":ctx["tenant_id"],"client":instance["client_id"],"notes":body.review_notes,"actor":ctx["user_id"],"now":now});await _preconsultation_event_once(db,ctx["tenant_id"],instance["client_id"],"ASSESSMENT_COMPLETED",ctx["user_id"],"PRACTITIONER",{"assessment_id":str(assessment_id)});await _record_preconsultation_readiness(db,ctx["tenant_id"],instance["client_id"]);await db.commit()
     return {"success":True,"data":{"id":str(assessment_id),"status":"COMPLETED"},"error":None,"request_id":request.state.correlation_id}
 
 
@@ -1384,7 +1385,174 @@ async def submit_profession_intake(request: Request, token: str, body: Professio
     await db.execute(text("""INSERT INTO external_client_intake_audit_events
       (id,intake_instance_id,tenant_id,client_id,event_type,actor_id,metadata,created_at)
       VALUES (:id,:instance,:tenant,:client,'INTAKE_SUBMITTED',NULL,CAST(:metadata AS jsonb),:now)"""), {"id":uuid4(),"instance":scope["id"],"tenant":scope["tenant_id"],"client":scope["client_id"],"metadata":json.dumps({"consent_version":body.consent_version}),"now":now})
+    await _preconsultation_event_once(db,scope["tenant_id"],scope["client_id"],"INTAKE_COMPLETED",actor_type="CLIENT",metadata={"intake_instance_id":str(scope["id"])})
+    await _record_preconsultation_readiness(db,scope["tenant_id"],scope["client_id"])
     return {"success":True,"data":{"status":"COMPLETED","completionPercent":100,"submittedAt":now},"error":None,"request_id":request.state.correlation_id}
+
+
+async def _preconsultation_event_once(db, tenant_id, client_id, event_type, actor_id=None, actor_type="SYSTEM", metadata=None):
+    await db.execute(text("""INSERT INTO external_preconsultation_events
+      (id,checklist_id,tenant_id,client_id,event_type,actor_id,actor_type,metadata,created_at)
+      SELECT :id,c.id,c.tenant_id,c.client_id,:event,:actor,:actor_type,CAST(:metadata AS jsonb),:now
+      FROM external_preconsultation_checklists c WHERE c.tenant_id=:tenant AND c.client_id=:client
+      AND NOT EXISTS (SELECT 1 FROM external_preconsultation_events e WHERE e.checklist_id=c.id AND e.event_type=:event)
+      LIMIT 1"""),{"id":uuid4(),"tenant":tenant_id,"client":client_id,"event":event_type,"actor":actor_id,
+      "actor_type":actor_type,"metadata":json.dumps(metadata or {}),"now":datetime.now(timezone.utc)})
+
+
+async def _preconsultation_projection(db, tenant_id, client_id, checklist=None):
+    checklist = checklist or (await db.execute(text("""SELECT * FROM external_preconsultation_checklists
+      WHERE tenant_id=:tenant AND client_id=:client"""), {"tenant": tenant_id, "client": client_id})).mappings().first()
+    if not checklist:
+        return None
+    requirements = dict(checklist["requirements"] or {})
+    params = {"tenant": tenant_id, "client": client_id, "appointment": checklist["appointment_id"]}
+    intake = (await db.execute(text("""SELECT status FROM (
+      SELECT status,created_at FROM external_client_intake_instances WHERE tenant_id=:tenant AND client_id=:client AND status<>'REVOKED'
+      UNION ALL
+      SELECT a.status,a.assigned_at FROM external_form_assignments a JOIN external_form_definitions d ON d.id=a.form_definition_id
+      WHERE a.tenant_id=:tenant AND a.client_id=:client AND d.form_type IN ('INTAKE','ONBOARDING','PRE_CONSULTATION')
+      ) intake ORDER BY created_at DESC LIMIT 1"""), params)).mappings().first()
+    consent = (await db.execute(text("""SELECT status FROM external_consent_records WHERE tenant_id=:tenant AND client_id=:client
+      AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>NOW()) ORDER BY created_at DESC LIMIT 1"""), params)).mappings().first()
+    assessment = (await db.execute(text("""SELECT status FROM external_assessment_instances WHERE tenant_id=:tenant AND client_id=:client
+      ORDER BY assigned_at DESC LIMIT 1"""), params)).mappings().first()
+    document_rows = (await db.execute(text("""SELECT category,title FROM external_documents WHERE tenant_id=:tenant AND client_id=:client
+      AND status='AVAILABLE' AND visibility<>'PRACTITIONER_PRIVATE'
+      UNION ALL SELECT media_type AS category,title FROM external_client_portal_documents WHERE tenant_id=:tenant AND client_id=:client
+      AND status NOT IN ('REMOVED','QUARANTINED')"""), params)).mappings().all()
+    appointment = (await db.execute(text("""SELECT status,starts_at FROM external_scheduled_appointments WHERE tenant_id=:tenant AND client_id=:client
+      AND (:appointment IS NULL OR id=:appointment) ORDER BY starts_at DESC LIMIT 1"""), params)).mappings().first()
+    portal = (await db.execute(text("""SELECT id FROM external_client_portal_access_grants WHERE tenant_id=:tenant AND client_id=:client
+      AND revoked_at IS NULL AND expires_at>NOW() ORDER BY created_at DESC LIMIT 1"""), params)).mappings().first()
+    required_documents = requirements.get("DOCUMENTS", {}).get("requests", [])
+    def document_matches(requested):
+        needle=str(requested).strip().lower().replace("_"," ")
+        return any(needle in f"{row['category'] or ''} {row['title'] or ''}".lower().replace("_"," ") for row in document_rows)
+    document_count=sum(1 for requested in required_documents if document_matches(requested))
+    facts = {
+      "PROFILE": {"state": "COMPLETE", "detail": "Governed client relationship established"},
+      "INTAKE": {"state": "COMPLETE" if intake and intake["status"] == "COMPLETED" else "IN_PROGRESS" if intake and intake["status"] in {"STARTED", "IN_PROGRESS"} else "PENDING"},
+      "CONSENT": {"state": "COMPLETE" if consent and consent["status"] == "ACCEPTED" else "NEEDS_ATTENTION" if consent and consent["status"] in {"DECLINED", "REVOKED"} else "PENDING"},
+      "ASSESSMENT": {"state": "COMPLETE" if assessment and assessment["status"] in {"COMPLETED", "REVIEWED"} else "IN_PROGRESS" if assessment and assessment["status"] == "IN_PROGRESS" else "PENDING"},
+      "DOCUMENTS": {"state": "COMPLETE" if len(required_documents) <= document_count else "PENDING", "detail": f"{document_count} of {len(required_documents)} requested documents available"},
+      "APPOINTMENT": {"state": "COMPLETE" if appointment and appointment["status"] in {"BOOKED", "CONFIRMED", "SCHEDULED"} else "NEEDS_ATTENTION" if appointment and appointment["status"] == "CANCELLED" else "PENDING", "detail": appointment["starts_at"].isoformat() if appointment and appointment["starts_at"] else None},
+      "PAYMENT": {"state": "NOT_REQUIRED"},
+      "PORTAL": {"state": "COMPLETE" if portal else "PENDING"},
+      "QUESTIONS": {"state": "COMPLETE" if intake and intake["status"] == "COMPLETED" else "PENDING"},
+    }
+    projection = project_readiness(requirements, facts)
+    projection.update({"id": str(checklist["id"]), "clientId": client_id, "professionCode": checklist["profession_code"],
+      "appointmentId": str(checklist["appointment_id"]) if checklist["appointment_id"] else None,
+      "acquisitionSource": checklist["acquisition_source"], "updatedAt": checklist["updated_at"]})
+    return projection
+
+
+async def _record_preconsultation_readiness(db, tenant_id, client_id):
+    projection=await _preconsultation_projection(db,tenant_id,client_id)
+    if projection and projection["readyForConsultation"]:
+        await _preconsultation_event_once(db,tenant_id,client_id,"READY_FOR_CONSULTATION",actor_type="SYSTEM",
+          metadata={"required_complete":projection["requiredComplete"],"required_total":projection["requiredTotal"]})
+
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/pre-consultation")
+async def get_preconsultation(request:Request, client_id:str, ctx=Depends(context), db:AsyncSession=Depends(get_db)):
+    denied, _ = await _team_guard(request, db, ctx, "CLIENT_LIST_VIEW", client_id)
+    if denied:return denied
+    projection = await _preconsultation_projection(db, ctx["tenant_id"], client_id)
+    if not projection:return error(request,404,"PRECONSULTATION_NOT_FOUND","Pre-consultation onboarding has not been invited")
+    return {"success":True,"data":projection,"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/pre-consultation/analytics")
+async def preconsultation_analytics(request:Request, ctx=Depends(context), db:AsyncSession=Depends(get_db)):
+    denied, _ = await _team_guard(request, db, ctx, "ANALYTICS_VIEW")
+    if denied:return denied
+    rows=(await db.execute(text("SELECT * FROM external_preconsultation_checklists WHERE tenant_id=:tenant"),{"tenant":ctx["tenant_id"]})).mappings().all()
+    projections=[await _preconsultation_projection(db,ctx["tenant_id"],row["client_id"],row) for row in rows]
+    ready=sum(1 for item in projections if item["readyForConsultation"])
+    blocked={}
+    for item in projections:
+        for blocker in item["blockers"]:blocked[blocker]=blocked.get(blocker,0)+1
+    data={"total":len(projections),"ready":ready,"in_progress":len(projections)-ready,
+      "completion_rate":round(ready/len(projections)*100,2) if projections else None,"blocker_counts":blocked,
+      "classification":"OPERATIONAL_NOT_CLINICAL","state":"READY" if projections else "CONFIRMED_EMPTY"}
+    return {"success":True,"data":data,"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/pre-consultation/invite", status_code=201)
+async def invite_preconsultation(request:Request, client_id:str, body:PreConsultationInvite, ctx=Depends(context), db:AsyncSession=Depends(get_db)):
+    denied, _ = await _team_guard(request, db, ctx, "CLIENT_EDIT", client_id)
+    if denied:return denied
+    cfg = await configuration(db,ctx); tenant=ctx["tenant_id"]; now=datetime.now(timezone.utc)
+    source = "PRACTICE"
+    if body.lead_id:
+        lead=(await db.execute(text("SELECT converted_client_id,source FROM external_leads WHERE id=:id AND tenant_id=:tenant"),{"id":body.lead_id,"tenant":tenant})).mappings().first()
+        if not lead or lead["converted_client_id"] != client_id:return error(request,409,"GOVERNED_CLIENT_LINK_REQUIRED","Lead must already be converted to this client")
+        source=lead["source"] or "CRM"
+    if body.enrolment_id:
+        enrol=(await db.execute(text("SELECT status FROM external_consultant_marketplace_enrolments WHERE id=:id AND tenant_id=:tenant"),{"id":body.enrolment_id,"tenant":tenant})).mappings().first()
+        if not enrol or enrol["status"] not in {"ACCEPTED","BOOKED","CONVERTED"}:return error(request,409,"ENROLMENT_NOT_ACCEPTED","Enrolment must be accepted before onboarding")
+        source="ENROLMENT"
+    if body.appointment_id:
+        appointment=(await db.execute(text("SELECT client_id,lead_id,status,marketplace_source FROM external_scheduled_appointments WHERE id=:id AND tenant_id=:tenant"),{"id":body.appointment_id,"tenant":tenant})).mappings().first()
+        if not appointment or appointment["client_id"] != client_id or appointment["status"] not in {"BOOKED","CONFIRMED","SCHEDULED"}:return error(request,409,"CONFIRMED_CLIENT_BOOKING_REQUIRED","A confirmed booking linked to this client is required")
+        source=appointment["marketplace_source"] or source
+    overrides={"DOCUMENTS":{"required":bool(body.required_documents),"requests":body.required_documents},"PORTAL":{"required":body.require_portal},"QUESTIONS":{"required":body.require_pre_session_questions}}
+    requirements=resolve_requirements(cfg["profession"],cfg["capabilities"],overrides)
+    checklist_id=uuid4()
+    row=(await db.execute(text("""INSERT INTO external_preconsultation_checklists
+      (id,tenant_id,client_id,lead_id,appointment_id,enrolment_id,profession_code,service_id,acquisition_source,lifecycle_state,requirements,invited_at,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:client,:lead,:appointment,:enrolment,:profession,:service,:source,'ONBOARDING_INVITED',CAST(:requirements AS jsonb),:now,:actor,:now,:now)
+      ON CONFLICT(tenant_id,client_id) DO UPDATE SET appointment_id=COALESCE(EXCLUDED.appointment_id,external_preconsultation_checklists.appointment_id),
+      enrolment_id=COALESCE(EXCLUDED.enrolment_id,external_preconsultation_checklists.enrolment_id),service_id=COALESCE(EXCLUDED.service_id,external_preconsultation_checklists.service_id),
+      profession_code=EXCLUDED.profession_code,requirements=EXCLUDED.requirements,lifecycle_state='ONBOARDING_INVITED',invited_at=:now,updated_at=:now RETURNING *"""),
+      {"id":checklist_id,"tenant":tenant,"client":client_id,"lead":body.lead_id,"appointment":body.appointment_id,"enrolment":body.enrolment_id,
+       "profession":cfg["profession"],"service":body.service_id,"source":source,"requirements":json.dumps(requirements),"now":now,"actor":ctx["user_id"]})).mappings().one()
+    checklist_id=row["id"]
+    form=(await db.execute(text("""SELECT d.id,v.id version_id FROM external_form_definitions d JOIN external_form_versions v ON v.definition_id=d.id AND v.version=d.current_version
+      WHERE d.tenant_id=:tenant AND d.status='PUBLISHED' AND v.status='PUBLISHED' AND d.form_type IN ('INTAKE','ONBOARDING','PRE_CONSULTATION')
+      AND (v.settings->>'profession_code' IS NULL OR v.settings->>'profession_code'=:profession) ORDER BY (v.settings->>'profession_code'=:profession) DESC,d.updated_at DESC LIMIT 1"""),{"tenant":tenant,"profession":cfg["profession"]})).mappings().first()
+    if form and not (await db.execute(text("SELECT 1 FROM external_form_assignments WHERE tenant_id=:tenant AND client_id=:client AND form_definition_id=:definition AND status IN ('ASSIGNED','STARTED','COMPLETED')"),{"tenant":tenant,"client":client_id,"definition":form["id"]})).first():
+        await db.execute(text("""INSERT INTO external_form_assignments(id,tenant_id,client_id,form_definition_id,form_version_id,linked_type,linked_id,status,assigned_by,assigned_at,expires_at)
+          VALUES (:id,:tenant,:client,:definition,:version,'PRECONSULTATION',:linked,'ASSIGNED',:actor,:now,:expires)"""),{"id":uuid4(),"tenant":tenant,"client":client_id,"definition":form["id"],"version":form["version_id"],"linked":str(checklist_id),"actor":ctx["user_id"],"now":now,"expires":now+timedelta(hours=body.expires_in_hours)})
+    consent=(await db.execute(text("""SELECT t.id,v.id version_id,v.scope FROM external_consent_templates t JOIN external_consent_template_versions v ON v.template_id=t.id AND v.version=t.current_version
+      WHERE t.tenant_id=:tenant AND t.status='PUBLISHED' AND v.status='PUBLISHED'
+      AND (t.profession_code IS NULL OR t.profession_code=:profession)
+      ORDER BY (t.profession_code=:profession) DESC,t.updated_at DESC LIMIT 1"""),{"tenant":tenant,"profession":cfg["profession"]})).mappings().first()
+    if consent and not (await db.execute(text("SELECT 1 FROM external_consent_records WHERE tenant_id=:tenant AND client_id=:client AND template_id=:template AND status IN ('PENDING','ACCEPTED')"),{"tenant":tenant,"client":client_id,"template":consent["id"]})).first():
+        await db.execute(text("""INSERT INTO external_consent_records(id,tenant_id,client_id,template_id,template_version_id,status,scope,assigned_by,created_at,updated_at)
+          VALUES (:id,:tenant,:client,:template,:version,'PENDING',CAST(:scope AS jsonb),:actor,:now,:now)"""),{"id":uuid4(),"tenant":tenant,"client":client_id,"template":consent["id"],"version":consent["version_id"],"scope":json.dumps(consent["scope"]),"actor":ctx["user_id"],"now":now})
+    if requirements["ASSESSMENT"]["required"]:
+        assessment_definition=(await db.execute(text("""SELECT d.id,v.id version_id FROM external_assessment_definitions d
+          JOIN external_assessment_versions v ON v.definition_id=d.id AND v.status='ACTIVE'
+          WHERE d.active=TRUE AND d.profession_code=:profession AND (d.tenant_id IS NULL OR d.tenant_id=:tenant)
+          ORDER BY d.scope DESC,d.title LIMIT 1"""),{"profession":cfg["profession"],"tenant":tenant})).mappings().first()
+        if assessment_definition and not (await db.execute(text("SELECT 1 FROM external_assessment_instances WHERE tenant_id=:tenant AND client_id=:client AND definition_id=:definition AND status IN ('ASSIGNED','IN_PROGRESS','COMPLETED','REVIEWED')"),{"tenant":tenant,"client":client_id,"definition":assessment_definition["id"]})).first():
+            await db.execute(text("""INSERT INTO external_assessment_instances(id,tenant_id,client_id,definition_id,version_id,profession_code,status,assigned_by,assigned_at,updated_at)
+              VALUES (:id,:tenant,:client,:definition,:version,:profession,'ASSIGNED',:actor,:now,:now)"""),{"id":uuid4(),"tenant":tenant,"client":client_id,"definition":assessment_definition["id"],"version":assessment_definition["version_id"],"profession":cfg["profession"],"actor":ctx["user_id"],"now":now})
+    portal_url=None
+    if body.require_portal:
+        grant_id=uuid4();expires=now+timedelta(hours=body.expires_in_hours);actions=("READ","COMPLETE_TASK","UPLOAD_DOCUMENT","SUBMIT_FORM","DECIDE_CONSENT")
+        token=issue_portal_token(secret=get_settings().client_portal_secret,tenant_id=tenant,client_id=client_id,grant_id=str(grant_id),expires_at=int(expires.timestamp()),allowed_actions=actions)
+        await db.execute(text("""INSERT INTO external_client_portal_access_grants(id,tenant_id,client_id,token_hash,token_version,allowed_actions,expires_at,created_by,created_at)
+          VALUES (:id,:tenant,:client,:hash,1,CAST(:actions AS jsonb),:expires,:actor,:now)"""),{"id":grant_id,"tenant":tenant,"client":client_id,"hash":portal_token_hash(token),"actions":json.dumps(actions),"expires":expires,"actor":ctx["user_id"],"now":now})
+        portal_url=f"{get_settings().client_portal_public_url.rstrip('/')}/{token}"
+    reminder_due=now+timedelta(hours=24)
+    for item in ("INTAKE","CONSENT","ASSESSMENT","DOCUMENTS","APPOINTMENT"):
+        if not requirements[item]["required"]:continue
+        reminder_key=f"p37:{checklist_id}:{item}"
+        if (await db.execute(text("SELECT 1 FROM external_communication_reminders WHERE tenant_id=:tenant AND idempotency_key=:key"),{"tenant":tenant,"key":reminder_key})).first():continue
+        preparation_id=uuid4()
+        await db.execute(text("""INSERT INTO external_communication_preparations(id,tenant_id,client_id,channel,purpose,subject,body,status,created_by,created_at,updated_at)
+          VALUES (:id,:tenant,:client,'CLIENT_PORTAL_NOTIFICATION',:purpose,:subject,:body,'PREPARED',:actor,:now,:now)"""),{"id":preparation_id,"tenant":tenant,"client":client_id,"purpose":f"PRECONSULTATION_{item}","subject":"Pre-consultation step reminder","body":f"Please complete your {item.lower().replace('_',' ')} step in the secure client portal.","actor":ctx["user_id"],"now":now})
+        await db.execute(text("""INSERT INTO external_communication_reminders(id,tenant_id,client_id,preparation_id,channel,due_at,status,idempotency_key,created_by,created_at)
+          VALUES (:id,:tenant,:client,:preparation,'CLIENT_PORTAL_NOTIFICATION',:due,'SCHEDULED',:key,:actor,:now)
+          ON CONFLICT(tenant_id,idempotency_key) DO NOTHING"""),{"id":uuid4(),"tenant":tenant,"client":client_id,"preparation":preparation_id,"due":reminder_due,"key":reminder_key,"actor":ctx["user_id"],"now":now})
+    await db.execute(text("""INSERT INTO external_preconsultation_events(id,checklist_id,tenant_id,client_id,event_type,actor_id,actor_type,metadata,created_at)
+      VALUES (:id,:checklist,:tenant,:client,'ONBOARDING_INVITED',:actor,'PRACTITIONER',CAST(:metadata AS jsonb),:now)"""),{"id":uuid4(),"checklist":checklist_id,"tenant":tenant,"client":client_id,"actor":ctx["user_id"],"metadata":json.dumps({"source":source,"profession_code":cfg["profession"]}),"now":now})
+    await db.commit();projection=await _preconsultation_projection(db,tenant,client_id,row)
+    return {"success":True,"data":{**projection,"portalUrl":portal_url},"error":None,"request_id":request.state.correlation_id}
 
 
 async def _portal_scope(request: Request, token: str, action: str, db: AsyncSession):
@@ -2559,12 +2727,14 @@ async def client_portal_home(request: Request, token: str, db: AsyncSession=Depe
       WHERE p.tenant_id=:tenant AND p.client_id=:client AND p.channel='CLIENT_PORTAL_NOTIFICATION' AND p.status='PREPARED' ORDER BY p.created_at DESC LIMIT 100"""),params)).mappings().all()]
     activity = [dict(row) for row in (await db.execute(text("""SELECT event_type,resource_type,resource_id,created_at FROM external_client_portal_audit_events
       WHERE tenant_id=:tenant AND client_id=:client AND actor_type='CLIENT' ORDER BY created_at DESC LIMIT 100"""),params)).mappings().all()]
+    preconsultation = await _preconsultation_projection(db, scope["tenant_id"], scope["client_id"])
     return {"success": True, "data": {
         "clientId": scope["client_id"], "tasks": tasks, "appointments": appointments,
         "goals": goals, "plans": plans, "assessments": assessments,
         "instructions": instructions, "progress": progress, "documents": documents,
         "resources": resources, "homework": homework, "notifications": notifications, "packages": packages, "invoices": invoices, "receipts": receipts,
         "referralConsents": referral_consents, "sharedReports": shared_reports, "forms": forms, "consents": consents, "activity": activity,
+        "preConsultation": preconsultation,
         "documentsConfigured": bool(get_settings().document_storage_bucket),
     }, "error": None, "request_id": request.state.correlation_id}
 
@@ -2575,7 +2745,11 @@ async def portal_form_response(request:Request,token:str,assignment_id:UUID,body
     assignment=(await db.execute(text("SELECT id,status FROM external_form_assignments WHERE id=:id AND tenant_id=:tenant AND client_id=:client AND status IN ('ASSIGNED','STARTED')"),{"id":assignment_id,"tenant":scope["tenant_id"],"client":scope["client_id"]})).mappings().first()
     if not assignment:return error(request,404,"PORTAL_FORM_NOT_FOUND","Available form assignment not found")
     now=datetime.now(timezone.utc);status='COMPLETED' if body.submit else 'STARTED';await db.execute(text("""INSERT INTO external_form_responses(id,assignment_id,tenant_id,client_id,answers,status,response_version,submitted_at,updated_at)
-      VALUES (:id,:assignment,:tenant,:client,CAST(:answers AS jsonb),:status,1,:submitted,:now) ON CONFLICT (assignment_id) DO UPDATE SET answers=EXCLUDED.answers,status=EXCLUDED.status,response_version=external_form_responses.response_version+1,submitted_at=EXCLUDED.submitted_at,updated_at=EXCLUDED.updated_at"""),{"id":uuid4(),"assignment":assignment_id,"tenant":scope["tenant_id"],"client":scope["client_id"],"answers":json.dumps(body.answers),"status":status,"submitted":now if body.submit else None,"now":now});await db.execute(text("UPDATE external_form_assignments SET status=:status,started_at=COALESCE(started_at,:now),completed_at=CASE WHEN :status='COMPLETED' THEN :now ELSE completed_at END WHERE id=:id AND tenant_id=:tenant AND client_id=:client"),{"status":status,"now":now,"id":assignment_id,"tenant":scope["tenant_id"],"client":scope["client_id"]});await db.commit();return {"success":True,"data":{"id":str(assignment_id),"status":status},"error":None,"request_id":request.state.correlation_id}
+      VALUES (:id,:assignment,:tenant,:client,CAST(:answers AS jsonb),:status,1,:submitted,:now) ON CONFLICT (assignment_id) DO UPDATE SET answers=EXCLUDED.answers,status=EXCLUDED.status,response_version=external_form_responses.response_version+1,submitted_at=EXCLUDED.submitted_at,updated_at=EXCLUDED.updated_at"""),{"id":uuid4(),"assignment":assignment_id,"tenant":scope["tenant_id"],"client":scope["client_id"],"answers":json.dumps(body.answers),"status":status,"submitted":now if body.submit else None,"now":now});await db.execute(text("UPDATE external_form_assignments SET status=:status,started_at=COALESCE(started_at,:now),completed_at=CASE WHEN :status='COMPLETED' THEN :now ELSE completed_at END WHERE id=:id AND tenant_id=:tenant AND client_id=:client"),{"status":status,"now":now,"id":assignment_id,"tenant":scope["tenant_id"],"client":scope["client_id"]});
+    if body.submit:await _preconsultation_event_once(db,scope["tenant_id"],scope["client_id"],"INTAKE_COMPLETED",actor_type="CLIENT",metadata={"form_assignment_id":str(assignment_id)})
+    else:await _preconsultation_event_once(db,scope["tenant_id"],scope["client_id"],"ONBOARDING_STARTED",actor_type="CLIENT")
+    if body.submit:await _record_preconsultation_readiness(db,scope["tenant_id"],scope["client_id"])
+    await db.commit();return {"success":True,"data":{"id":str(assignment_id),"status":status},"error":None,"request_id":request.state.correlation_id}
 
 @app.post("/api/v1/client-portal/{token}/consents/{record_id}/decision")
 async def portal_consent_decision(request:Request,token:str,record_id:UUID,body:ConsentDecision,db:AsyncSession=Depends(get_db)):
@@ -2583,6 +2757,8 @@ async def portal_consent_decision(request:Request,token:str,record_id:UUID,body:
     if denied:return denied
     now=datetime.now(timezone.utc);status='ACCEPTED' if body.decision=='ACCEPT' else 'DECLINED';result=await db.execute(text("UPDATE external_consent_records SET status=:status,signatory_name=:name,signatory_type=:type,signature_method=:method,signature_evidence=CAST(:evidence AS jsonb),accepted_at=CASE WHEN :status='ACCEPTED' THEN :now END,declined_at=CASE WHEN :status='DECLINED' THEN :now END,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND client_id=:client AND status='PENDING'"),{"status":status,"name":body.signatory_name,"type":body.signatory_type,"method":body.signature_method,"evidence":json.dumps(body.signature_evidence),"now":now,"id":record_id,"tenant":scope["tenant_id"],"client":scope["client_id"]})
     if result.rowcount!=1:return error(request,404,"PORTAL_CONSENT_NOT_FOUND","Pending consent not found")
+    if status=="ACCEPTED":await _preconsultation_event_once(db,scope["tenant_id"],scope["client_id"],"CONSENT_COMPLETED",actor_type="CLIENT",metadata={"consent_record_id":str(record_id)})
+    if status=="ACCEPTED":await _record_preconsultation_readiness(db,scope["tenant_id"],scope["client_id"])
     await db.commit();return {"success":True,"data":{"id":str(record_id),"status":status,"classification":"ELECTRONIC_ACKNOWLEDGEMENT"},"error":None,"request_id":request.state.correlation_id}
 
 
@@ -2643,6 +2819,8 @@ async def client_portal_submit_document(request: Request, token: str, body: Clie
         "grant": scope["id"], "title": body.title, "reference": body.document_reference,
         "media_type": body.media_type, "now": now,
     })
+    await _preconsultation_event_once(db,scope["tenant_id"],scope["client_id"],"DOCUMENT_UPLOADED",actor_type="CLIENT",metadata={"document_id":str(document_id)})
+    await _record_preconsultation_readiness(db,scope["tenant_id"],scope["client_id"])
     return {"success": True, "data": {"id": str(document_id), "status": "SUBMITTED"},
             "error": None, "request_id": request.state.correlation_id}
 
@@ -4061,6 +4239,32 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
       CASE WHEN q.completion_percent=100 THEN 'READY_FOR_CONSULTATION' ELSE 'ONBOARDING_INCOMPLETE' END signal
       FROM external_client_intake_instances q WHERE q.tenant_id=:tenant AND q.status NOT IN ('REVOKED') AND {scope}
       ORDER BY q.updated_at DESC LIMIT 20""",allowed="CLIENT_LIST_VIEW" in permissions)
+    preconsultation=command_section([],restricted="CLIENT_LIST_VIEW" not in permissions)
+    if "CLIENT_LIST_VIEW" in permissions:
+        try:
+            async with db.begin_nested():
+                checklist_rows=(await db.execute(text(f"""SELECT q.* FROM external_preconsultation_checklists q
+                  WHERE q.tenant_id=:tenant AND q.lifecycle_state<>'PAUSED' AND {scope}
+                  ORDER BY q.updated_at DESC LIMIT 20"""),params)).mappings().all()
+                projected=[]
+                for checklist in checklist_rows:
+                    item=await _preconsultation_projection(db,tenant,checklist["client_id"],checklist)
+                    blocker_signals={"CONSENT_PENDING":"CONSENT_PENDING_BEFORE_SESSION","REQUIRED_INTAKE_PENDING":"INTAKE_PENDING_BEFORE_SESSION","REQUIRED_DOCUMENT_PENDING":"DOCUMENT_PENDING_BEFORE_SESSION"}
+                    signals=[blocker_signals.get(value,"PRE_CONSULTATION_INCOMPLETE") for value in item["blockers"]]
+                    if item["readyForConsultation"]:signals=["READY_FOR_CONSULTATION"]
+                    elif item["readinessPercent"]==0:signals.insert(0,"NEW_CLIENT_ONBOARDING_STARTED")
+                    if not signals:signals=["PRE_CONSULTATION_INCOMPLETE"]
+                    appointment_item=next((value for value in item["items"] if value["key"]=="APPOINTMENT"),{})
+                    due_at=datetime.fromisoformat(appointment_item["detail"]) if appointment_item.get("detail") else None
+                    if due_at and due_at<=datetime.now(timezone.utc)+timedelta(hours=24) and not item["readyForConsultation"]:
+                        signals.insert(0,"APPOINTMENT_APPROACHING_ONBOARDING_INCOMPLETE")
+                    item.update({"client_id":item["clientId"],"due_at":due_at,"signals":list(dict.fromkeys(signals)),"signal":signals[0],
+                      "priority":operational_priority(due_at,signals[0]),"action":next_action(signals[0])})
+                    projected.append(item)
+                preconsultation=command_section(projected)
+        except Exception as exc:
+            logger.warning("command_centre_section_failed",section="preconsultation",error_type=type(exc).__name__)
+            preconsultation=command_section([],failed=True)
     recent=await read("recent_changes",f"""SELECT id,client_id,event_type,title,created_at FROM (
       SELECT q.id::text,q.client_id,q.event_type,q.title,q.created_at FROM practice_notifications q
         WHERE q.tenant_id=:tenant AND q.created_at>:last_seen AND {scope}
@@ -4122,7 +4326,7 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
     if marketplace["status"] in {"READY","CONFIRMED_EMPTY"} and not marketplace.get("restricted"):
         marketplace["items"]=[{**row,"priority":operational_priority(row.get("due_at"),row["signal"]),"action":next_action(row["signal"])} for row in marketplace["items"]]
 
-    sections={"schedule":schedule,"my_work":work,"clients_needing_attention":attention,"onboarding":onboarding,
+    sections={"schedule":schedule,"my_work":work,"clients_needing_attention":attention,"onboarding":onboarding,"preconsultation":preconsultation,
       "recent_changes":recent,"leads":leads,"renewals":renewals,"revenue_attention":revenue,
       "automation_confirmations":confirmations,"continue_working":drafts,"session_briefs":session_briefs,"marketplace":marketplace}
     failed=[name for name,value in sections.items() if value["status"]=="FAILED"]

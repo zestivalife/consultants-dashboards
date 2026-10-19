@@ -29,6 +29,13 @@ ACTION_BY_SIGNAL={
     "PROFILE_CHANGES_REQUIRED":("Update public profile","marketplace-profile"),
     "PROFILE_APPROVED_NOT_PUBLISHED":("Review publication","marketplace-profile"),
     "CREDENTIAL_EXPIRING":("Review credentials","marketplace-profile"),
+    "NEW_CLIENT_ONBOARDING_STARTED":("Review onboarding","client"),
+    "PRE_CONSULTATION_INCOMPLETE":("Review onboarding","client"),
+    "CONSENT_PENDING_BEFORE_SESSION":("Request consent","client"),
+    "INTAKE_PENDING_BEFORE_SESSION":("Request intake","client"),
+    "DOCUMENT_PENDING_BEFORE_SESSION":("Request document","client"),
+    "READY_FOR_CONSULTATION":("Prepare session brief","client"),
+    "APPOINTMENT_APPROACHING_ONBOARDING_INCOMPLETE":("Review onboarding","client"),
 }
 
 def operational_priority(due_at=None, signal=""):
@@ -42,7 +49,7 @@ def operational_priority(due_at=None, signal=""):
         if hours<0:return "URGENT_OPERATIONAL"
         if hours<=24:return "TODAY"
         if hours<=168:return "UPCOMING"
-    if signal in {"INVOICE_OVERDUE","FOLLOWUP_OVERDUE","TASK_OVERDUE","REPORT_PENDING"}:return "URGENT_OPERATIONAL"
+    if signal in {"INVOICE_OVERDUE","FOLLOWUP_OVERDUE","TASK_OVERDUE","REPORT_PENDING","APPOINTMENT_APPROACHING_ONBOARDING_INCOMPLETE"}:return "URGENT_OPERATIONAL"
     return "LOW"
 
 def next_action(signal):

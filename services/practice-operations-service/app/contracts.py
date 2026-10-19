@@ -288,6 +288,17 @@ class ClientPortalDocumentCreate(BaseModel):
     media_type: Literal["PDF", "DOCUMENT", "IMAGE", "OTHER"]
 
 
+class PreConsultationInvite(BaseModel):
+    lead_id: UUID | None = None
+    appointment_id: UUID | None = None
+    enrolment_id: UUID | None = None
+    service_id: UUID | None = None
+    required_documents: list[str] = Field(default_factory=list, max_length=20)
+    require_portal: bool = True
+    require_pre_session_questions: bool = False
+    expires_in_hours: int = Field(default=168, ge=1, le=2160)
+
+
 class ServicePackageCreate(BaseModel):
     name: str = Field(min_length=1, max_length=240)
     profession_code: str | None = Field(default=None, max_length=80)

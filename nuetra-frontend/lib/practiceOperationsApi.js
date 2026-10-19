@@ -186,6 +186,9 @@ export function lookupPaymentOrder(id){return request(`/payments/orders/${encode
 export function getAiCopilotStatus(){return request('/ai-copilot/status');}
 export function createAiDraft(payload){return request('/ai-copilot/drafts',{method:'POST',body:JSON.stringify(payload)});}
 export function getDashboardCommandCentre(){return request('/dashboard/command-centre');}
+export function getPreConsultation(clientId){return request(`/clients/${encodeURIComponent(clientId)}/pre-consultation`);}
+export function invitePreConsultation(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/pre-consultation/invite`,{method:'POST',body:JSON.stringify(payload)});}
+export function getPreConsultationAnalytics(){return request('/pre-consultation/analytics');}
 export function getMarketplaceProfile(){return request('/marketplace/profile');}
 export function getMarketplaceReadiness(){return request('/marketplace/readiness');}
 export function listMarketplaceReviews(){return request('/marketplace/reviews');}
