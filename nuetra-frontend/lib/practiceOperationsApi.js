@@ -202,6 +202,8 @@ export function decideMarketplaceQualification(id,action,reason){return request(
 export function decideMarketplaceReview(id,action,reason){return request(`/admin/marketplace/reviews/${encodeURIComponent(id)}/decision`,{method:'POST',body:JSON.stringify({action,reason})});}
 export function getAdminMarketplaceAnalytics(){return request('/admin/marketplace/analytics');}
 export function getAdminMarketplaceOperations(){return request('/admin/marketplace/operations');}
+export function getAdminFinderConfig(){return request('/admin/marketplace/finder-config');}
+export function updateAdminFinderConfig(payload){return request('/admin/marketplace/finder-config',{method:'PUT',body:JSON.stringify(payload)});}
 export function listComplianceAudit(clientId=''){return request(`/compliance/audit${clientId?`?client_id=${encodeURIComponent(clientId)}`:''}`);}
 export function exportClientData(clientId,sections){return request(`/compliance/exports/clients/${encodeURIComponent(clientId)}`,{method:'POST',body:JSON.stringify({sections})});}
 export async function downloadVaultDocument(id){const result=await request(`/documents/${encodeURIComponent(id)}/download`,{method:'POST'});window.open(result.download_url,'_blank','noopener,noreferrer');return result;}
