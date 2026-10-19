@@ -15,6 +15,8 @@ async function request(token,path='',options={}){
 }
 
 export function getClientPortal(token){return request(token);}
+export function openPortalFeedback(token,feedbackId){return request(token,`/feedback/${encodeURIComponent(feedbackId)}`);}
+export function submitPortalFeedback(token,feedbackId,payload){return request(token,`/feedback/${encodeURIComponent(feedbackId)}/submit`,{method:'POST',body:JSON.stringify(payload)});}
 export function completePortalTask(token,taskId){return request(token,`/tasks/${taskId}/complete`,{method:'POST'});}
 export function submitPortalDocument(token,payload){return request(token,'/documents',{method:'POST',body:JSON.stringify(payload)});}
 export async function downloadPortalVaultDocument(token,documentId){const result=await request(token,`/vault-documents/${encodeURIComponent(documentId)}/download`,{method:'POST'});window.open(result.download_url,'_blank','noopener,noreferrer');return result;}

@@ -279,6 +279,30 @@ class PostSessionActionComplete(BaseModel):
     action_key: Literal["SESSION_NOTE","HOMEWORK","RESOURCE","GOAL","FOLLOWUP","NEXT_APPOINTMENT","PLAN_REVIEW","REPORT","BILLING","RENEWAL"]
     source_record_id: str = Field(min_length=1,max_length=120)
 
+class FeedbackRequestCreate(BaseModel):
+    feedback_type: Literal["POST_SESSION_FEEDBACK","PROGRAMME_FEEDBACK","PRACTICE_EXPERIENCE_FEEDBACK","SUPPORT_EXPERIENCE_FEEDBACK","BOOKING_EXPERIENCE_FEEDBACK","ONBOARDING_EXPERIENCE_FEEDBACK","CUSTOM_FEEDBACK"]
+    consultation_id: str | None = Field(default=None,max_length=120)
+    service_id: UUID | None = None
+    programme_id: UUID | None = None
+    template_id: UUID | None = None
+    template_version: int | None = Field(default=None,ge=1)
+    expires_in_hours: int = Field(default=168,ge=1,le=2160)
+
+class FeedbackSubmit(BaseModel):
+    overall_experience: int = Field(ge=1,le=5)
+    communication_rating: int | None = Field(default=None,ge=1,le=5)
+    professionalism_rating: int | None = Field(default=None,ge=1,le=5)
+    booking_experience_rating: int | None = Field(default=None,ge=1,le=5)
+    support_experience_rating: int | None = Field(default=None,ge=1,le=5)
+    went_well: str | None = Field(default=None,max_length=4000)
+    could_improve: str | None = Field(default=None,max_length=4000)
+
+class FeedbackAction(BaseModel):
+    action_type: Literal["ACKNOWLEDGE","PRIVATE_ACTION_NOTE","FOLLOWUP_CREATED","CLIENT_MESSAGE_PREPARED","RESOLVE","ESCALATE_GRIEVANCE","PUBLIC_REVIEW_INVITATION_PREPARED"]
+    private_note: str | None = Field(default=None,max_length=4000)
+    source_record_id: str | None = Field(default=None,max_length=120)
+    grievance_reference: str | None = Field(default=None,max_length=120)
+
 class EngagementProjectionRequest(BaseModel):
     client_ids: list[str] = Field(min_length=1,max_length=100)
 

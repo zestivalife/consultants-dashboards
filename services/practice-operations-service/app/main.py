@@ -27,7 +27,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            ProfessionPlanCreate, ProfessionPlanSave)
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
-from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete
+from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete, FeedbackRequestCreate, FeedbackSubmit, FeedbackAction
 from app.contracts import ClientPortalInvitationCreate, ClientPortalDocumentCreate, PreConsultationInvite
 from app.contracts import (ServicePackageCreate, ServicePackageUpdate,
                            ClientPackageAssign, ClientPackageStatusUpdate,
@@ -73,6 +73,7 @@ from app.p30 import EXCLUDED_BY_DEFAULT, export_checksum, validate_export_sectio
 from app.command_centre import next_action, operational_priority, section as command_section, sort_work
 from app.p37 import project_readiness, resolve_requirements
 from app.p38 import project_post_session, resolve_post_session_actions
+from app.p39 import experience_label, public_review_eligible, validate_ratings
 from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
@@ -2825,6 +2826,9 @@ async def client_portal_home(request: Request, token: str, db: AsyncSession=Depe
     post_row=(await db.execute(text("""SELECT id,tenant_id,client_id,consultation_id,session_note_id,profession_code,service_id,client_package_id,lifecycle_state,action_requirements,started_at,operationally_closed_at,created_by,created_at,updated_at
       FROM external_post_session_checklists WHERE tenant_id=:tenant AND client_id=:client ORDER BY started_at DESC LIMIT 1"""),params)).mappings().first()
     post_session=await _post_session_projection(db,scope["tenant_id"],post_row) if post_row else None
+    feedback_requests=[dict(row) for row in (await db.execute(text("""SELECT id,feedback_type,status,expires_at,opened_at,created_at
+      FROM external_client_feedback_requests WHERE tenant_id=:tenant AND client_id=:client
+      AND status IN ('REQUESTED','OPENED') AND expires_at>NOW() ORDER BY created_at DESC"""),params)).mappings().all()]
     return {"success": True, "data": {
         "clientId": scope["client_id"], "tasks": tasks, "appointments": appointments,
         "goals": goals, "plans": plans, "assessments": assessments,
@@ -2833,6 +2837,7 @@ async def client_portal_home(request: Request, token: str, db: AsyncSession=Depe
         "referralConsents": referral_consents, "sharedReports": shared_reports, "forms": forms, "consents": consents, "activity": activity,
         "preConsultation": preconsultation,
         "postSession": post_session,
+        "feedbackRequests": feedback_requests,
         "documentsConfigured": bool(get_settings().document_storage_bucket),
     }, "error": None, "request_id": request.state.correlation_id}
 
@@ -4330,6 +4335,7 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
       UNION ALL SELECT q.id::text,q.client_id,'ONBOARDING_INCOMPLETE','Configured onboarding remains incomplete',q.updated_at FROM external_client_intake_instances q WHERE q.tenant_id=:tenant AND q.status NOT IN ('COMPLETED','REVOKED') AND q.completion_percent<100 AND {scope}
       UNION ALL SELECT q.id::text,q.client_id,'DOCUMENT_PENDING','Document upload or review remains incomplete',q.updated_at FROM external_documents q WHERE q.tenant_id=:tenant AND q.status IN ('PENDING_UPLOAD','UPLOAD_FAILED','QUARANTINED') AND q.visibility<>'PRACTITIONER_PRIVATE' AND {scope}
       UNION ALL SELECT q.id::text,q.client_id,'NO_FUTURE_APPOINTMENT','No future appointment is booked',q.updated_at FROM external_client_packages q WHERE q.tenant_id=:tenant AND q.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM external_scheduled_appointments a WHERE a.tenant_id=q.tenant_id AND a.client_id=q.client_id AND a.starts_at>NOW() AND a.status IN ('BOOKED','CONFIRMED')) AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,'FEEDBACK_NEEDS_ATTENTION','Private client feedback needs a response',q.updated_at FROM external_client_feedback_requests q WHERE q.tenant_id=:tenant AND q.status='ACTION_REQUIRED' AND {scope}
     ) signals ORDER BY due_at NULLS LAST LIMIT 30""",allowed="CLIENT_LIST_VIEW" in permissions)
     if attention["status"] in {"READY","CONFIRMED_EMPTY"} and not attention.get("restricted"):
         attention["items"]=[{**row,"priority":operational_priority(row.get("due_at"),row["signal"]),"action":next_action(row["signal"])} for row in attention["items"]]
@@ -4394,6 +4400,8 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
         WHERE q.tenant_id=:tenant AND q.updated_at>:last_seen AND q.visibility<>'PRACTITIONER_PRIVATE' AND {scope}
       UNION ALL SELECT q.id::text,q.client_id,q.event_type,'Post-session activity',q.created_at FROM external_post_session_events q
         WHERE q.tenant_id=:tenant AND q.created_at>:last_seen AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,q.event_type,'Private client feedback',q.created_at FROM external_client_feedback_audit_events q
+        WHERE q.tenant_id=:tenant AND q.created_at>:last_seen AND {scope}
     ) changes ORDER BY created_at DESC LIMIT 20""",allowed="PRACTICE_VIEW" in permissions or "CLIENT_LIST_VIEW" in permissions)
     leads=await read("leads",f"""SELECT q.id::text,NULL::varchar client_id,(q.first_name||COALESCE(' '||q.last_name,'')) title,q.stage,q.next_follow_up_at AS due_at,q.updated_at,
       CASE WHEN q.stage='NEW' THEN 'NEW_LEAD' WHEN q.next_follow_up_at<NOW() THEN 'LEAD_FOLLOWUP_OVERDUE' ELSE 'LEAD_FOLLOWUP' END signal
@@ -4449,9 +4457,20 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
     if marketplace["status"] in {"READY","CONFIRMED_EMPTY"} and not marketplace.get("restricted"):
         marketplace["items"]=[{**row,"priority":operational_priority(row.get("due_at"),row["signal"]),"action":next_action(row["signal"])} for row in marketplace["items"]]
 
+    feedback=await read("feedback",f"""SELECT q.id::text,q.client_id,q.feedback_type title,q.status,q.updated_at due_at,
+      CASE WHEN q.status='ACTION_REQUIRED' THEN 'FEEDBACK_NEEDS_ATTENTION'
+           WHEN q.status='SUBMITTED' THEN 'NEW_CLIENT_FEEDBACK'
+           WHEN q.status='OPENED' AND q.opened_at<NOW()-INTERVAL '48 hours' THEN 'FEEDBACK_ACKNOWLEDGEMENT_DUE'
+           ELSE 'NEW_CLIENT_FEEDBACK' END signal
+      FROM external_client_feedback_requests q WHERE q.tenant_id=:tenant
+      AND q.status IN ('OPENED','SUBMITTED','ACTION_REQUIRED','ACKNOWLEDGED') AND {scope}
+      ORDER BY CASE WHEN q.status='ACTION_REQUIRED' THEN 0 ELSE 1 END,q.updated_at DESC LIMIT 20""",allowed="CLIENT_LIST_VIEW" in permissions)
+    if feedback["status"] in {"READY","CONFIRMED_EMPTY"} and not feedback.get("restricted"):
+        feedback["items"]=[{**row,"priority":operational_priority(row.get("due_at"),row["signal"]),"action":next_action(row["signal"])} for row in feedback["items"]]
+
     sections={"schedule":schedule,"my_work":work,"clients_needing_attention":attention,"onboarding":onboarding,"preconsultation":preconsultation,"post_session":post_session,
       "recent_changes":recent,"leads":leads,"renewals":renewals,"revenue_attention":revenue,
-      "automation_confirmations":confirmations,"continue_working":drafts,"session_briefs":session_briefs,"marketplace":marketplace}
+      "automation_confirmations":confirmations,"continue_working":drafts,"session_briefs":session_briefs,"marketplace":marketplace,"feedback":feedback}
     failed=[name for name,value in sections.items() if value["status"]=="FAILED"]
     daily_counts={
       "appointments_today":len(schedule["items"]) if schedule["status"]!="FAILED" and not schedule.get("restricted") else None,
@@ -4469,6 +4488,116 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
       "daily_brief":daily_counts,"sections":sections,"failed_sections":failed,"last_seen_at":last_seen_at,"generated_at":request_started_at},
       "error":None,"request_id":request.state.correlation_id}
 
+
+# P39 private client-experience feedback. This domain never writes public reviews.
+async def _feedback_audit(db,row,event,actor,actor_type,metadata=None):
+    await db.execute(text("""INSERT INTO external_client_feedback_audit_events
+      (id,request_id,tenant_id,client_id,event_type,actor_id,actor_type,metadata,created_at)
+      VALUES (:id,:request,:tenant,:client,:event,:actor,:actor_type,CAST(:metadata AS jsonb),:now)"""),{
+      "id":uuid4(),"request":row["id"],"tenant":row["tenant_id"],"client":row["client_id"],"event":event,
+      "actor":actor,"actor_type":actor_type,"metadata":json.dumps(metadata or {}),"now":datetime.now(timezone.utc)})
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/feedback/requests",status_code=201)
+async def create_feedback_request(request:Request,client_id:str,body:FeedbackRequestCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"FEEDBACK_MANAGE")
+    if denied:return denied
+    tenant=ctx["tenant_id"]
+    if body.feedback_type=="POST_SESSION_FEEDBACK":
+        if not body.consultation_id:return error(request,422,"CONSULTATION_REQUIRED","A completed consultation is required")
+        session=(await db.execute(text("SELECT status FROM practice_consultations WHERE id=CAST(:id AS uuid) AND tenant_id=:tenant AND client_id=:client"),{"id":body.consultation_id,"tenant":tenant,"client":client_id})).mappings().first()
+        if not session or session["status"]!="COMPLETED":return error(request,409,"COMPLETED_SESSION_REQUIRED","Feedback may be requested only after a completed session")
+    now=datetime.now(timezone.utc);row={"id":uuid4(),"tenant_id":tenant,"client_id":client_id}
+    try:
+        await db.execute(text("""INSERT INTO external_client_feedback_requests
+          (id,tenant_id,client_id,consultant_id,feedback_type,consultation_id,service_id,programme_id,template_id,template_version,status,expires_at,created_by,created_at,updated_at)
+          VALUES (:id,:tenant,:client,:consultant,:type,:consultation,:service,:programme,:template,:version,'REQUESTED',:expires,:actor,:now,:now)"""),{
+          "id":row["id"],"tenant":tenant,"client":client_id,"consultant":ctx["user_id"],"type":body.feedback_type,"consultation":body.consultation_id,
+          "service":body.service_id,"programme":body.programme_id,"template":body.template_id,"version":body.template_version,
+          "expires":now+timedelta(hours=body.expires_in_hours),"actor":ctx["user_id"],"now":now})
+        await _feedback_audit(db,row,"FEEDBACK_REQUESTED",ctx["user_id"],"PRACTITIONER",{"feedback_type":body.feedback_type})
+        await db.commit()
+    except IntegrityError:
+        await db.rollback();return error(request,409,"FEEDBACK_REQUEST_EXISTS","A feedback request already exists for this context")
+    return {"success":True,"data":{"id":str(row["id"]),"status":"REQUESTED","communicationPrepared":False,"autoSend":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/feedback")
+async def list_client_feedback(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"FEEDBACK_VIEW")
+    if denied:return denied
+    rows=[dict(row) for row in (await db.execute(text("""SELECT r.id,r.feedback_type,r.consultation_id,r.status,r.expires_at,r.opened_at,r.submitted_at,r.created_at,
+      s.overall_experience,s.communication_rating,s.professionalism_rating,s.booking_experience_rating,s.support_experience_rating,
+      s.went_well,s.could_improve,s.experience_label FROM external_client_feedback_requests r
+      LEFT JOIN external_client_feedback_submissions s ON s.request_id=r.id AND s.tenant_id=r.tenant_id
+      WHERE r.tenant_id=:tenant AND r.client_id=:client ORDER BY r.created_at DESC"""),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()]
+    return {"success":True,"data":{"state":"READY" if rows else "CONFIRMED_EMPTY","items":rows},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/client-portal/{token}/feedback/{feedback_id}")
+async def open_portal_feedback(request:Request,token:str,feedback_id:UUID,db:AsyncSession=Depends(get_db)):
+    scope,denied=await _portal_scope(request,token,"READ",db)
+    if denied:return denied
+    row=(await db.execute(text("SELECT id,tenant_id,client_id,consultant_id,feedback_type,consultation_id,status,expires_at,opened_at,submitted_at,created_by,created_at,updated_at FROM external_client_feedback_requests WHERE id=:id AND tenant_id=:tenant AND client_id=:client FOR UPDATE"),{"id":feedback_id,"tenant":scope["tenant_id"],"client":scope["client_id"]})).mappings().first()
+    if not row:return error(request,404,"FEEDBACK_NOT_FOUND","Feedback request was not found")
+    if row["expires_at"]<=datetime.now(timezone.utc):return error(request,410,"FEEDBACK_EXPIRED","This feedback request has expired")
+    if row["status"] in {"SUBMITTED","ACKNOWLEDGED","ACTION_REQUIRED","RESOLVED","ARCHIVED"}:return error(request,409,"FEEDBACK_ALREADY_SUBMITTED","Feedback has already been submitted")
+    if row["status"]=="REQUESTED":
+        now=datetime.now(timezone.utc);await db.execute(text("UPDATE external_client_feedback_requests SET status='OPENED',opened_at=:now,updated_at=:now WHERE id=:id"),{"now":now,"id":feedback_id});await _feedback_audit(db,row,"FEEDBACK_OPENED",None,"CLIENT");await db.commit()
+    return {"success":True,"data":{"id":str(feedback_id),"feedbackType":row["feedback_type"],"status":"OPENED","privacy":"PRIVATE_TO_PRACTICE"},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/client-portal/{token}/feedback/{feedback_id}/submit")
+async def submit_portal_feedback(request:Request,token:str,feedback_id:UUID,body:FeedbackSubmit,db:AsyncSession=Depends(get_db)):
+    scope,denied=await _portal_scope(request,token,"READ",db)
+    if denied:return denied
+    row=(await db.execute(text("SELECT id,tenant_id,client_id,consultant_id,feedback_type,consultation_id,status,expires_at,opened_at,submitted_at,created_by,created_at,updated_at FROM external_client_feedback_requests WHERE id=:id AND tenant_id=:tenant AND client_id=:client FOR UPDATE"),{"id":feedback_id,"tenant":scope["tenant_id"],"client":scope["client_id"]})).mappings().first()
+    if not row:return error(request,404,"FEEDBACK_NOT_FOUND","Feedback request was not found")
+    now=datetime.now(timezone.utc)
+    if row["expires_at"]<=now:return error(request,410,"FEEDBACK_EXPIRED","This feedback request has expired")
+    if row["status"] not in {"REQUESTED","OPENED"}:return error(request,409,"FEEDBACK_IMMUTABLE","Submitted feedback cannot be edited or replaced")
+    values=validate_ratings(body.model_dump());label=experience_label(values["overall_experience"]);status="ACTION_REQUIRED" if label=="NEEDS_ATTENTION" else "SUBMITTED"
+    try:
+        await db.execute(text("""INSERT INTO external_client_feedback_submissions
+          (id,request_id,tenant_id,client_id,overall_experience,communication_rating,professionalism_rating,booking_experience_rating,support_experience_rating,went_well,could_improve,experience_label,submitted_at)
+          VALUES (:id,:request,:tenant,:client,:overall,:communication,:professionalism,:booking,:support,:well,:improve,:label,:now)"""),{
+          "id":uuid4(),"request":feedback_id,"tenant":scope["tenant_id"],"client":scope["client_id"],"overall":values["overall_experience"],
+          "communication":values.get("communication_rating"),"professionalism":values.get("professionalism_rating"),"booking":values.get("booking_experience_rating"),
+          "support":values.get("support_experience_rating"),"well":values.get("went_well"),"improve":values.get("could_improve"),"label":label,"now":now})
+        await db.execute(text("UPDATE external_client_feedback_requests SET status=:status,submitted_at=:now,updated_at=:now WHERE id=:id"),{"status":status,"now":now,"id":feedback_id})
+        await _feedback_audit(db,row,"FEEDBACK_SUBMITTED",None,"CLIENT",{"experience_label":label});await db.commit()
+    except IntegrityError:
+        await db.rollback();return error(request,409,"FEEDBACK_IMMUTABLE","Submitted feedback cannot be edited or replaced")
+    return {"success":True,"data":{"id":str(feedback_id),"status":status,"publicReviewCreated":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/feedback/{feedback_id}/actions",status_code=201)
+async def act_on_feedback(request:Request,feedback_id:UUID,body:FeedbackAction,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"FEEDBACK_MANAGE")
+    if denied:return denied
+    row=(await db.execute(text("SELECT id,tenant_id,client_id,consultant_id,feedback_type,consultation_id,status,expires_at,opened_at,submitted_at,created_by,created_at,updated_at FROM external_client_feedback_requests WHERE id=:id AND tenant_id=:tenant FOR UPDATE"),{"id":feedback_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"FEEDBACK_NOT_FOUND","Feedback request was not found")
+    if body.action_type in {"FOLLOWUP_CREATED","CLIENT_MESSAGE_PREPARED"} and not body.source_record_id:return error(request,422,"SOURCE_RECORD_REQUIRED","The governed source record is required")
+    if body.action_type=="ESCALATE_GRIEVANCE" and not body.grievance_reference:return error(request,422,"GRIEVANCE_REFERENCE_REQUIRED","Create the grievance in the governed Super Admin system first")
+    if body.action_type=="PUBLIC_REVIEW_INVITATION_PREPARED":
+        verified=bool(row["consultation_id"] and (await db.execute(text("SELECT 1 FROM practice_consultations WHERE id=CAST(:id AS uuid) AND tenant_id=:tenant AND client_id=:client AND status='COMPLETED'"),{"id":row["consultation_id"],"tenant":row["tenant_id"],"client":row["client_id"]})).first())
+        if not public_review_eligible(submitted=bool(row["submitted_at"]),verified_engagement=verified,invitation_enabled=True):return error(request,409,"PUBLIC_REVIEW_NOT_ELIGIBLE","A submitted response and verified engagement are required")
+    now=datetime.now(timezone.utc);action_id=uuid4()
+    await db.execute(text("""INSERT INTO external_client_feedback_actions(id,request_id,tenant_id,action_type,private_note,source_record_id,grievance_reference,actor_id,created_at)
+      VALUES (:id,:request,:tenant,:type,:note,:source,:grievance,:actor,:now)"""),{"id":action_id,"request":feedback_id,"tenant":ctx["tenant_id"],"type":body.action_type,"note":body.private_note,"source":body.source_record_id,"grievance":body.grievance_reference,"actor":ctx["user_id"],"now":now})
+    status={"ACKNOWLEDGE":"ACKNOWLEDGED","RESOLVE":"RESOLVED","ESCALATE_GRIEVANCE":"ACTION_REQUIRED"}.get(body.action_type)
+    if status:await db.execute(text("UPDATE external_client_feedback_requests SET status=:status,updated_at=:now WHERE id=:id"),{"status":status,"now":now,"id":feedback_id})
+    event={"ACKNOWLEDGE":"FEEDBACK_ACKNOWLEDGED","RESOLVE":"FEEDBACK_RESOLVED","ESCALATE_GRIEVANCE":"FEEDBACK_ESCALATED","PUBLIC_REVIEW_INVITATION_PREPARED":"PUBLIC_REVIEW_INVITATION_PREPARED"}.get(body.action_type,"FEEDBACK_ACTION_CREATED")
+    await _feedback_audit(db,row,event,ctx["user_id"],"PRACTITIONER",{"action_type":body.action_type,"source_record_id":body.source_record_id,"grievance_reference":body.grievance_reference});await db.commit()
+    return {"success":True,"data":{"id":str(action_id),"status":status or row["status"],"autoSend":False,"publicReviewCreated":False},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/feedback/analytics")
+async def feedback_analytics(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"ANALYTICS_VIEW")
+    if denied:return denied
+    row=(await db.execute(text("""SELECT COUNT(r.id)::int requested_count,COUNT(s.id)::int response_count,
+      ROUND(AVG(s.overall_experience),2) overall_experience,ROUND(AVG(s.communication_rating),2) communication,
+      ROUND(AVG(s.professionalism_rating),2) professionalism,ROUND(AVG(s.booking_experience_rating),2) booking_experience,
+      ROUND(AVG(s.support_experience_rating),2) support_experience,
+      COUNT(*) FILTER (WHERE r.status='ACTION_REQUIRED')::int needs_attention
+      FROM external_client_feedback_requests r LEFT JOIN external_client_feedback_submissions s ON s.request_id=r.id AND s.tenant_id=r.tenant_id WHERE r.tenant_id=:tenant"""),{"tenant":ctx["tenant_id"]})).mappings().one()
+    data=dict(row);data["response_rate"]=round((data["response_count"]/data["requested_count"]*100),2) if data["requested_count"] else None
+    return {"success":True,"data":{"state":"READY" if data["requested_count"] else "CONFIRMED_EMPTY","dimensions":data,"serviceOutcomeScore":None},"error":None,"request_id":request.state.correlation_id}
 
 # P31 Consultant Marketplace — additive External-only domain.
 MARKETPLACE_ACQUISITION_SOURCES={'PUBLIC_CONSULTANT_DIRECTORY','HOMEPAGE_FEATURED_CONSULTANT','HOMEPAGE_PROFESSION_DISCOVERY','HOMEPAGE_SEARCH'}

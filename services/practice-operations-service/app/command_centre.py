@@ -42,6 +42,11 @@ ACTION_BY_SIGNAL={
     "PROGRESS_REVIEW_DUE":("Review progress","progress-reports"),
     "REPORT_DUE":("Create report","progress-reports"),
     "SESSION_OPERATIONALLY_CLOSED":("Open client","client"),
+    "NEW_CLIENT_FEEDBACK":("Review feedback","client"),
+    "FEEDBACK_NEEDS_ATTENTION":("Respond to feedback","client"),
+    "FEEDBACK_ACKNOWLEDGEMENT_DUE":("Acknowledge feedback","client"),
+    "CLIENT_EXPERIENCE_ISSUE_OPEN":("Review experience issue","client"),
+    "GRIEVANCE_ESCALATED":("Open grievance","client"),
 }
 
 def operational_priority(due_at=None, signal=""):
@@ -55,7 +60,7 @@ def operational_priority(due_at=None, signal=""):
         if hours<0:return "URGENT_OPERATIONAL"
         if hours<=24:return "TODAY"
         if hours<=168:return "UPCOMING"
-    if signal in {"INVOICE_OVERDUE","FOLLOWUP_OVERDUE","TASK_OVERDUE","REPORT_PENDING","APPOINTMENT_APPROACHING_ONBOARDING_INCOMPLETE","POST_SESSION_ACTIONS_PENDING"}:return "URGENT_OPERATIONAL"
+    if signal in {"INVOICE_OVERDUE","FOLLOWUP_OVERDUE","TASK_OVERDUE","REPORT_PENDING","APPOINTMENT_APPROACHING_ONBOARDING_INCOMPLETE","POST_SESSION_ACTIONS_PENDING","FEEDBACK_NEEDS_ATTENTION","CLIENT_EXPERIENCE_ISSUE_OPEN"}:return "URGENT_OPERATIONAL"
     return "LOW"
 
 def next_action(signal):
