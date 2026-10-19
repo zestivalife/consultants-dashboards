@@ -3,9 +3,11 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const workspace=readFileSync(new URL('../components/external/ExternalClient360.jsx',import.meta.url),'utf8');
+const shell=readFileSync(new URL('../components/external/ExternalSaaSWorkspace.jsx',import.meta.url),'utf8');
 const api=readFileSync(new URL('../lib/fiteatsyConsultantsApi.js',import.meta.url),'utf8');
 
 test('Client 360 exposes the external Diet Plan action and dedicated tab',()=>{assert.match(workspace,/Create Diet Plan/);assert.match(workspace,/active === 'Diet Plan'/);assert.match(workspace,/getExternalDietPlan/);});
+test('Diet Plans landing page exposes a primary creation action even when no plan exists',()=>{assert.match(shell,/function PlanHistory/);assert.match(shell,/Create Diet Plan/);assert.match(shell,/label="Generate Diet Plan"/);assert.match(shell,/action=\{firstClient\?\(\)=>onOpen\(firstClient\):undefined\}/);});
 test('external authoring uses seven-head Common Food result and exact 35-option persistence',()=>{assert.match(workspace,/snapshot\.meals\.map/);assert.match(workspace,/meal\.options\.map/);assert.match(workspace,/flatMap\(meal=>meal\.options\)/);assert.match(api,/diet-plan\/generate/);assert.match(api,/diet-plan\/draft/);});
 test('external cards and DOCX use real governed snapshot fields without placeholder fallbacks',()=>{assert.match(workspace,/validateExternalDietOption/);assert.doesNotMatch(workspace,/Governed food option/);assert.doesNotMatch(workspace,/option\.totals/);assert.doesNotMatch(workspace,/option\.items/);});
 test('publication is explicit and does not expose a Senior approval action',()=>{assert.match(workspace,/Publish this exact Diet Plan version to the client/);assert.match(workspace,/External Consultant self-publish workflow/);assert.doesNotMatch(workspace,/Submit for Senior|Request Senior/);});
