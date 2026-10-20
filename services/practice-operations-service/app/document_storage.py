@@ -68,6 +68,11 @@ def signed_download(key, filename):
     return client.generate_presigned_url("get_object", Params={"Bucket": settings.document_storage_bucket,
         "Key": key, "ResponseContentDisposition": f'attachment; filename="{safe_name}"'}, ExpiresIn=300)
 
+def signed_view(key, content_type):
+    client, settings = _client()
+    return client.generate_presigned_url("get_object", Params={"Bucket": settings.document_storage_bucket,
+        "Key": key, "ResponseContentType": content_type}, ExpiresIn=300)
+
 def verify_uploaded_object(key, expected_type, expected_size, expected_checksum=None):
     client, settings = _client()
     try:

@@ -243,6 +243,12 @@ export function getExternalClientBiomarkers(clientId) {
 }
 
 export function getExternalDietPlan(clientId) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan`, { method: 'GET' }); }
+export function listExternalDietPlans(clientId) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plans`, { method: 'GET' }); }
+export function getExternalDietPlanById(clientId, planId) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(planId)}`, { method: 'GET' }); }
+export function createExternalDietPlan(clientId, targets) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plans`, { method: 'POST', body: targets }); }
+export function saveExternalDietPlanById(clientId, planId, options) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(planId)}/draft`, { method: 'PUT', body: { options } }); }
+export function publishExternalDietPlanById(clientId, planId) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(planId)}/publish`, { method: 'POST', body: {} }); }
+export function getExternalDietPlanHistoryById(clientId, planId) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plans/${encodeURIComponent(planId)}/history`, { method: 'GET' }); }
 export function generateExternalDietPlan(clientId, targets) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan/generate`, { method: 'POST', body: targets }); }
 export function saveExternalDietPlan(clientId, options) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan/draft`, { method: 'PUT', body: { options } }); }
 export function publishExternalDietPlan(clientId) { return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan/publish`, { method: 'POST', body: {} }); }

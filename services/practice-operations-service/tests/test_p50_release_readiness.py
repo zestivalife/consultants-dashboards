@@ -8,7 +8,7 @@ def test_public_surface_is_explicit_allowlist():
 def test_rbac_matrix_is_complete():assert ROLES=={'PLATFORM_OWNER','SUPER_ADMIN','PRACTICE_OWNER','PRACTICE_ADMIN','PRACTITIONER','ASSISTANT','RECEPTIONIST','CLIENT_PORTAL'}
 def test_tenant_negative_audit_domains_complete():assert len(TENANT_DOMAINS)==12 and {'support','payouts','subscriptions'}<=TENANT_DOMAINS
 def test_migrations_are_one_linear_head():
- chain=migration_chain(ROOT/'alembic/versions');assert chain[0]=='0031_consultant_marketplace' and chain[-1]=='0049_global_search_activity' and len(chain)==19
+ chain=migration_chain(ROOT/'alembic/versions');assert chain[0]=='0031_consultant_marketplace' and chain[-1]=='0050_ext_profile_contact_photo' and len(chain)==20
 def test_p40_p49_queries_are_bounded_and_tenant_scoped():
  source=(ROOT/'app/main.py').read_text();tail=source[source.index('@app.put("/api/v1/practice-operations/appointments/{appointment_id}/teleconsult'):]
  assert 'LIMIT 100' in tail and 'tenant_id=:tenant' in tail and 'LIMIT 50' in tail

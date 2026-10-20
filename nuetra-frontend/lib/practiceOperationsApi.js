@@ -210,6 +210,14 @@ export function prepareCalendarConnection(provider){return request('/calendar-sy
 export function importCalendarBusyBlock(id,payload){return request(`/calendar-sync/connections/${encodeURIComponent(id)}/busy-blocks`,{method:'POST',body:JSON.stringify(payload)});}
 export function detectExternalCalendarChange(id,payload){return request(`/calendar-sync/connections/${encodeURIComponent(id)}/external-changes`,{method:'POST',body:JSON.stringify(payload)});}
 export function getMarketplaceProfile(){return request('/marketplace/profile');}
+export function getMarketplaceContact(){return request('/marketplace/contact');}
+export function saveMarketplaceContact(payload){return request('/marketplace/contact',{method:'PUT',body:JSON.stringify(payload)});}
+export async function uploadMarketplaceProfilePhoto(file){
+  const pending=await request('/marketplace/profile/photo-upload',{method:'POST',body:JSON.stringify({filename:file.name,content_type:file.type,size_bytes:file.size})});
+  const response=await fetch(pending.upload.url,{method:'PUT',headers:pending.upload.required_headers,body:file});
+  if(!response.ok)throw new Error('Profile photo upload failed. The existing photo remains unchanged.');
+  return request('/marketplace/profile/photo-finalise',{method:'POST',body:JSON.stringify({photo_id:pending.photo_id})});
+}
 export function getMarketplaceReadiness(){return request('/marketplace/readiness');}
 export function listMarketplaceReviews(){return request('/marketplace/reviews');}
 export function saveMarketplaceProfile(payload){return request('/marketplace/profile',{method:'PUT',body:JSON.stringify(payload)});}

@@ -18,7 +18,7 @@ def duplicate_routes(routes):
   if key in seen and key not in {('GET','/api/v1/practice-operations/templates'),('POST','/api/v1/practice-operations/templates'),('GET','/api/v1/practice-operations/documents'),('POST','/api/v1/practice-operations/documents')}:dupes.append((method,path,name))
   seen.add(key)
  return dupes
-def migration_chain(directory,start='0031_consultant_marketplace',end='0049_global_search_activity'):
+def migration_chain(directory,start='0031_consultant_marketplace',end='0050_ext_profile_contact_photo'):
  revisions={}
  for path in Path(directory).glob('*.py'):
   text=path.read_text();rev=re.search(r"revision\s*=\s*['\"]([^'\"]+)",text);down=re.search(r"down_revision\s*=\s*['\"]([^'\"]+)",text)

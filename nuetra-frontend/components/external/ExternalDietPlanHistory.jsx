@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Copy, Download, GitCompareArrows, X } from 'lucide-react';
-import { compareExternalDietPlanVersions, downloadExternalDietPlanVersion, duplicateExternalDietPlanVersion, getExternalDietPlanHistory, getExternalDietPlanVersion } from '../../lib/fiteatsyConsultantsApi';
+import { compareExternalDietPlanVersions, downloadExternalDietPlanVersion, duplicateExternalDietPlanVersion, getExternalDietPlanHistory, getExternalDietPlanHistoryById, getExternalDietPlanVersion } from '../../lib/fiteatsyConsultantsApi';
 import { validateExternalDietOption } from '../../lib/externalDietPlanPresentation.mjs';
 
 const date=(value)=>value?new Date(value).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'Not published';
 const label=(value)=>String(value||'').replaceAll('_',' ');
 const downloadBlob=({blob,filename})=>{const url=URL.createObjectURL(blob);const anchor=document.createElement('a');anchor.href=url;anchor.download=filename;anchor.click();URL.revokeObjectURL(url);};
 
-export default function ExternalDietPlanHistory({clientId,onDraftCreated,onError}){
+export default function ExternalDietPlanHistory({clientId,planId,onDraftCreated,onError}){
   const [state,setState]=useState({plan:null,versions:[]});const [loading,setLoading]=useState(true);const [view,setView]=useState(null);const [compare,setCompare]=useState(null);const [selected,setSelected]=useState([]);const [busy,setBusy]=useState('');
-  const load=async()=>{setLoading(true);try{setState(await getExternalDietPlanHistory(clientId));}catch(error){onError(error.message||'Unable to load Diet Plan history.');}finally{setLoading(false);}};
-  useEffect(()=>{void load();},[clientId]);
+  const load=async()=>{setLoading(true);try{setState(await (planId?getExternalDietPlanHistoryById(clientId,planId):getExternalDietPlanHistory(clientId)));}catch(error){onError(error.message||'Unable to load Diet Plan history.');}finally{setLoading(false);}};
+  useEffect(()=>{void load();},[clientId,planId]);
   const current=useMemo(()=>state.versions.find(item=>item.number===state.plan?.currentVersion),[state]);
   const published=useMemo(()=>state.versions.find(item=>item.number===state.plan?.publishedVersion),[state]);
   const historical=state.versions.filter(item=>item.id!==current?.id&&item.id!==published?.id);

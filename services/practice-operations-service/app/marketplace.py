@@ -38,6 +38,18 @@ class ProfileSave(BaseModel):
         if value and any(marker in value.lower() for marker in ("object_key","presigned","signature=","x-amz-")):raise ValueError("Private object references cannot be used as public photos")
         return value
 
+class ConsultantContactSave(BaseModel):
+    country_iso2:str=Field(min_length=2,max_length=2,pattern="^[A-Za-z]{2}$")
+    national_number:str=Field(min_length=4,max_length=24)
+
+class ProfilePhotoPrepare(BaseModel):
+    filename:str=Field(min_length=1,max_length=255)
+    content_type:str=Field(pattern="^image/(jpeg|png)$")
+    size_bytes:int=Field(gt=0,le=5*1024*1024)
+
+class ProfilePhotoFinalise(BaseModel):
+    photo_id:UUID
+
 class QualificationCreate(BaseModel):
     qualification_type:str=Field(min_length=2,max_length=80);title:str=Field(min_length=2,max_length=240);institution:str=Field(min_length=2,max_length=240)
     award_year:int=Field(ge=1900,le=date.today().year);country:str|None=Field(default=None,max_length=100);registration_number:str|None=Field(default=None,max_length=160)

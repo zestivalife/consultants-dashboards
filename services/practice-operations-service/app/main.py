@@ -8,10 +8,11 @@ import re
 import secrets
 import structlog
 import httpx
+import phonenumbers
 from urllib.parse import urlparse
 from cryptography.fernet import Fernet
 from fastapi import Depends, FastAPI, Header, Query, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,7 +57,7 @@ from app.contracts import PaymentOrderCreate, PaymentVerification
 from app.contracts import AiDraftRequest
 from app.contracts import ClientExportRequest
 from app.document_storage import (StorageUnavailable, InvalidDocument, new_object_key,
-                                  signed_upload, signed_download, validate_document,
+                                  signed_upload, signed_download, signed_view, validate_document,
                                   verify_uploaded_object)
 from app.billing import calculate_line
 from app.p15 import adherence_summary, homework_transition
@@ -85,7 +86,7 @@ from app.p46 import refund_transition
 from app.p47 import safe_context
 from app.p48 import category as notification_category, digest_mode
 from app.p49 import resolve_command
-from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,PromotionQuote,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
+from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,ConsultantContactSave,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,ProfilePhotoFinalise,ProfilePhotoPrepare,PromotionQuote,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
                              publicly_visible,slug_base)
@@ -4807,6 +4808,74 @@ async def _marketplace_profile(db,ctx,lock=False):
 
 async def _marketplace_audit(db,profile,tenant,event,actor,role,reason=None,metadata=None):
     await db.execute(text("INSERT INTO external_consultant_marketplace_audit_events(id,profile_id,tenant_id,event_type,actor_id,actor_role,reason,metadata,created_at) VALUES (:id,:profile,:tenant,:event,:actor,:role,:reason,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"profile":profile,"tenant":tenant,"event":event,"actor":actor,"role":role,"reason":reason,"metadata":json.dumps(metadata or {}),"now":datetime.now(timezone.utc)})
+
+@app.get("/api/v1/practice-operations/marketplace/contact")
+async def marketplace_contact(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    row=(await db.execute(text("SELECT country_iso2,country_code,national_number,phone_e164,updated_at FROM external_consultant_contact_profiles WHERE tenant_id=:tenant AND consultant_user_id=:actor"),{"tenant":ctx["tenant_id"],"actor":ctx["user_id"]})).mappings().first()
+    return {"success":True,"data":{"state":"READY" if row else "CONFIRMED_EMPTY","contact":dict(row) if row else None},"error":None,"request_id":request.state.correlation_id}
+
+@app.put("/api/v1/practice-operations/marketplace/contact")
+async def save_marketplace_contact(request:Request,body:ConsultantContactSave,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    try:
+        parsed=phonenumbers.parse(body.national_number,body.country_iso2.upper())
+        if not phonenumbers.is_valid_number(parsed):raise ValueError("invalid")
+        e164=phonenumbers.format_number(parsed,phonenumbers.PhoneNumberFormat.E164)
+        country_code=f"+{parsed.country_code}";national=str(parsed.national_number)
+    except Exception:return error(request,422,"INVALID_PHONE","Enter a valid telephone number for the selected country")
+    now=datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_consultant_contact_profiles(id,tenant_id,consultant_user_id,country_iso2,country_code,national_number,phone_e164,created_at,updated_at)
+      VALUES(:id,:tenant,:actor,:iso,:code,:national,:e164,:now,:now)
+      ON CONFLICT(tenant_id,consultant_user_id) DO UPDATE SET country_iso2=EXCLUDED.country_iso2,country_code=EXCLUDED.country_code,national_number=EXCLUDED.national_number,phone_e164=EXCLUDED.phone_e164,updated_at=EXCLUDED.updated_at"""),{"id":uuid4(),"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"iso":body.country_iso2.upper(),"code":country_code,"national":national,"e164":e164,"now":now})
+    await db.commit()
+    return {"success":True,"data":{"country_iso2":body.country_iso2.upper(),"country_code":country_code,"national_number":national,"phone_e164":e164,"updated_at":now},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/marketplace/profile/photo-upload")
+async def prepare_marketplace_photo(request:Request,body:ProfilePhotoPrepare,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    profile=await _marketplace_profile(db,ctx)
+    if not profile:return error(request,409,"PROFILE_DRAFT_REQUIRED","Save the profile draft before uploading a photo")
+    try:filename=validate_document(body.filename,body.content_type,body.size_bytes)
+    except InvalidDocument as exc:return error(request,422,"INVALID_PROFILE_PHOTO",str(exc))
+    photo_id=uuid4();key=new_object_key(ctx["tenant_id"],profile["id"],photo_id,filename)
+    try:url=signed_upload(key,body.content_type,body.size_bytes)
+    except StorageUnavailable:return error(request,503,"PROFILE_PHOTO_STORAGE_UNAVAILABLE","Profile photo storage is not configured")
+    now=datetime.now(timezone.utc)
+    await db.execute(text("INSERT INTO external_consultant_profile_photos(id,profile_id,tenant_id,object_key,filename,content_type,size_bytes,status,created_by,created_at) VALUES(:id,:profile,:tenant,:key,:filename,:type,:size,'PENDING_UPLOAD',:actor,:now)"),{"id":photo_id,"profile":profile["id"],"tenant":ctx["tenant_id"],"key":key,"filename":filename,"type":body.content_type,"size":body.size_bytes,"actor":ctx["user_id"],"now":now})
+    await db.commit()
+    return {"success":True,"data":{"photo_id":str(photo_id),"upload":{"url":url,"method":"PUT","required_headers":{"Content-Type":body.content_type,"Content-Length":str(body.size_bytes)}}},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/marketplace/profile/photo-finalise")
+async def finalise_marketplace_photo(request:Request,body:ProfilePhotoFinalise,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    profile=await _marketplace_profile(db,ctx,True)
+    if not profile:return error(request,404,"PROFILE_NOT_FOUND","Profile draft was not found")
+    photo=(await db.execute(text("SELECT id,object_key,content_type,size_bytes FROM external_consultant_profile_photos WHERE id=:id AND profile_id=:profile AND tenant_id=:tenant AND status='PENDING_UPLOAD' FOR UPDATE"),{"id":body.photo_id,"profile":profile["id"],"tenant":ctx["tenant_id"]})).mappings().first()
+    if not photo:return error(request,404,"PROFILE_PHOTO_UPLOAD_NOT_FOUND","Pending profile photo was not found")
+    try:verify_uploaded_object(photo["object_key"],photo["content_type"],photo["size_bytes"])
+    except InvalidDocument as exc:return error(request,422,"PROFILE_PHOTO_UPLOAD_INVALID",str(exc))
+    now=datetime.now(timezone.utc);public_url=f"/api/gateway/api/v1/public/consultant-profile-photos/{body.photo_id}"
+    await db.execute(text("UPDATE external_consultant_profile_photos SET status='REPLACED',replaced_at=:now WHERE profile_id=:profile AND status='AVAILABLE' AND replaced_at IS NULL"),{"now":now,"profile":profile["id"]})
+    await db.execute(text("UPDATE external_consultant_profile_photos SET status='AVAILABLE',uploaded_at=:now WHERE id=:id"),{"now":now,"id":body.photo_id})
+    version=(await db.execute(text("SELECT projection FROM external_consultant_public_profile_versions WHERE profile_id=:profile AND version=:version FOR UPDATE"),{"profile":profile["id"],"version":profile["working_version"]})).mappings().first()
+    projection=dict(version["projection"] or {});projection["profile_photo_url"]=public_url
+    verified=(await db.execute(text("SELECT COUNT(*) FROM external_consultant_qualifications WHERE profile_id=:profile AND verification_status='VERIFIED' AND (expiry_date IS NULL OR expiry_date>=CURRENT_DATE)"),{"profile":profile["id"]})).scalar_one();score,missing=completeness(projection,verified)
+    await db.execute(text("UPDATE external_consultant_public_profile_versions SET projection=CAST(:projection AS jsonb),completeness=:score,missing_fields=CAST(:missing AS jsonb) WHERE profile_id=:profile AND version=:version"),{"projection":json.dumps(projection),"score":score,"missing":json.dumps(missing),"profile":profile["id"],"version":profile["working_version"]})
+    await _marketplace_audit(db,profile["id"],ctx["tenant_id"],"PROFILE_PHOTO_UPDATED",ctx["user_id"],ctx["role"],metadata={"photo_id":str(body.photo_id)})
+    await db.commit()
+    return {"success":True,"data":{"profile_photo_url":public_url,"completeness":score,"missing_fields":missing},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/public/consultant-profile-photos/{photo_id}")
+async def public_marketplace_photo(photo_id:UUID,db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(text("SELECT object_key,content_type FROM external_consultant_profile_photos WHERE id=:id AND status='AVAILABLE' AND replaced_at IS NULL"),{"id":photo_id})).mappings().first()
+    if not row:return Response(status_code=404)
+    try:return RedirectResponse(signed_view(row["object_key"],row["content_type"]),status_code=307)
+    except StorageUnavailable:return Response(status_code=503)
 
 @app.get("/api/v1/practice-operations/marketplace/profile")
 async def marketplace_profile(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
