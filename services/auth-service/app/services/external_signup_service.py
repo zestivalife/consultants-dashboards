@@ -267,7 +267,10 @@ async def verify_and_provision(
             raise ConflictException("An account already exists for this contact email.")
         user = User(
             email=identity_email, mobile=mobile, phone=mobile,
-            password_hash=password_service.hash_password(secrets.token_urlsafe(48)),
+            # This is an unreachable, machine-generated 384-bit credential. Human
+            # composition rules are neither applicable nor reliably satisfiable by
+            # URL-safe randomness; entropy remains enforced by the generator size.
+            password_hash=password_service.hash_password(secrets.token_urlsafe(48), validate=False),
             role_id=role.id, first_name=name.strip(), is_active=True, is_verified=True,
             email_verified=False, mobile_verified=True, status="ACTIVE",
         )
