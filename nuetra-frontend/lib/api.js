@@ -366,11 +366,11 @@ export const authAPI = {
     });
   },
 
-  login(identifier, password, mfaCode = '') {
+  login(identifier, password) {
     const isMobile = /^\+?[0-9][0-9\s-]{8,}$/.test(identifier.trim());
     return apiRequest('/auth/login', {
       method: 'POST',
-      body: isMobile ? { mobile_number: identifier, password, ...(mfaCode ? { mfa_code: mfaCode } : {}) } : { email: identifier, password, ...(mfaCode ? { mfa_code: mfaCode } : {}) },
+      body: isMobile ? { mobile_number: identifier, password } : { email: identifier, password },
     });
   },
 

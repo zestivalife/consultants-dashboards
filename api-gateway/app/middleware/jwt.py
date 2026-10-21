@@ -121,6 +121,18 @@ class JWTMiddleware(BaseHTTPMiddleware):
                 },
             )
 
+        if payload.get("password_change_required"):
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "success": False,
+                    "message": "Password change required before workspace access",
+                    "data": None,
+                    "error": "Password change required",
+                    "request_id": getattr(request.state, "request_id", None),
+                },
+            )
+
         request.state.user_id = payload.get("sub")
         request.state.user_role = payload.get("role", "member")
         request.state.user_permissions = payload.get("permissions", []) or []

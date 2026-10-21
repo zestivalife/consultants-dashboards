@@ -3,7 +3,7 @@ import uuid
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import UnauthorizedException
+from app.core.exceptions import ForbiddenException, UnauthorizedException
 from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.schemas.auth import UserResponse
@@ -31,11 +31,21 @@ def _extract_identity(request: Request) -> tuple[uuid.UUID, dict]:
     raise UnauthorizedException("Missing authentication")
 
 
-async def get_current_user(
+async def get_current_user_allow_password_change(
     request: Request,
     session: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     user_id, payload = _extract_identity(request)
     user = await auth_service.get_current_user(session, user_id)
     user.mfa_assured = bool(payload.get("mfa_assured"))
+    return user
+
+
+async def get_current_user(
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    user = await get_current_user_allow_password_change(request, session)
+    if user.must_change_password or user.credential_status == "TEMPORARY":
+        raise ForbiddenException("Password change required before workspace access")
     return user

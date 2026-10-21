@@ -34,7 +34,7 @@ def test_invitation_is_new_scoped_single_use_two_person_flow():
     assert "user_invitations" in retired
     assert "user_invitations" not in source
 
-def test_privileged_mfa_is_encrypted_replay_protected_and_backend_enforced():
+def test_legacy_mfa_material_remains_encrypted_but_login_is_password_only():
     iam=(ROOT/'app/services/internal_privileged_iam_service.py').read_text()
     auth=(ROOT/'app/services/auth_service.py').read_text()
     people=(ROOT/'app/services/people_access_service.py').read_text()
@@ -42,7 +42,8 @@ def test_privileged_mfa_is_encrypted_replay_protected_and_backend_enforced():
     assert "MFA code has already been used" in iam
     assert 'user.role.name == "internal_super_admin"' in auth
     assert '"mfa_assured": mfa_assured' in auth
-    assert "Recent MFA assurance is required" in people
+    assert "verify_totp(user, mfa_code)" not in auth
+    assert "Recent MFA assurance is required" not in people
 
 def test_external_authority_sets_do_not_admit_internal_super_admin():
     bridge=(ROOT.parents[1]/'api-gateway/app/routers/fiteatsy_bridge.py').read_text()
@@ -60,11 +61,8 @@ def test_frontend_hides_external_owner_modules_for_internal_role():
     assert "internalRouteDenied" in page
 
 @pytest.mark.asyncio
-async def test_internal_admin_requires_mfa_and_only_maps_internal_permissions():
-    assured=SimpleNamespace(role="internal_super_admin",permissions=["internal.users.read"],mfa_assured=True)
-    await ensure_owner_access(None,assured,{"users.read"})
+async def test_internal_admin_uses_password_session_and_only_maps_internal_permissions():
     unassured=SimpleNamespace(role="internal_super_admin",permissions=["internal.users.read"],mfa_assured=False)
+    await ensure_owner_access(None,unassured,{"users.read"})
     with pytest.raises(ForbiddenException):
-        await ensure_owner_access(None,unassured,{"users.read"})
-    with pytest.raises(ForbiddenException):
-        await ensure_owner_access(None,assured,{"settings.manage"})
+        await ensure_owner_access(None,unassured,{"settings.manage"})
