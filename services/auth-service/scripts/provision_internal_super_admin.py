@@ -5,7 +5,6 @@ import argparse
 import asyncio
 from getpass import getpass
 import sys
-import uuid
 from pathlib import Path
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +19,7 @@ from app.services.internal_admin_provisioning_service import (
 
 
 async def run(args: argparse.Namespace) -> None:
+    authorization_grant = getpass("One-time bootstrap authorization grant: ")
     temporary_password = getpass("Temporary password: ")
     confirmation = getpass("Confirm temporary password: ")
     if temporary_password != confirmation:
@@ -35,7 +35,7 @@ async def run(args: argparse.Namespace) -> None:
                     last_name=args.last_name,
                     phone=args.phone,
                     temporary_password=temporary_password,
-                    operator_user_id=uuid.UUID(args.operator_user_id),
+                    authorization_grant=authorization_grant,
                 ),
             )
             await session.commit()
@@ -54,7 +54,6 @@ def main() -> None:
     parser.add_argument("--first-name", required=True)
     parser.add_argument("--last-name", required=True)
     parser.add_argument("--phone", required=True)
-    parser.add_argument("--operator-user-id", required=True)
     asyncio.run(run(parser.parse_args()))
 
 

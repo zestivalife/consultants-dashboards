@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     internal_iam_mfa_encryption_key: str | None = None
     internal_privileged_invitation_ttl_minutes: int = 60
     internal_mfa_assurance_minutes: int = 15
+    # Offline trust anchor for the one-time first Internal Super Admin grant.
+    # The private key remains in the independent security control plane.
+    internal_first_admin_authority_public_key: str | None = None
+    internal_first_admin_authority_issuer: str = "zestiva-platform-security"
+    internal_first_admin_authority_audience: str = "zestiva-internal-first-admin"
+    internal_first_admin_release_sha: str | None = None
 
     # SMTP / Email (fallback when EMAIL_PROVIDER=smtp)
     smtp_host: str = "smtp.sendgrid.net"

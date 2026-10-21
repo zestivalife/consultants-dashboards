@@ -23,6 +23,14 @@ def test_interrupted_migration_has_idempotent_repair_revision():
     assert "CREATE TABLE IF NOT EXISTS internal_privileged_invitations" in repair
     assert "permissions(id,key,module,label,description" in repair
 
+def test_first_admin_bootstrap_migration_is_additive_and_auditable():
+    migration=(ROOT/'alembic/versions/b6c7d8e9f0a1_first_internal_admin_bootstrap.py').read_text()
+    assert 'down_revision = "a5b6c7d8e9f0"' in migration
+    assert "bootstrap_authority_principal" in migration
+    assert "bootstrap_grant_hash" in migration
+    assert "CREATE UNIQUE INDEX IF NOT EXISTS" in migration
+    assert "DROP" not in migration
+
 def test_invitation_is_new_scoped_single_use_two_person_flow():
     source=(ROOT/'app/services/internal_privileged_iam_service.py').read_text()
     assert "InternalPrivilegedInvitation" in source
