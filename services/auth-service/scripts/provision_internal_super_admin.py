@@ -33,6 +33,7 @@ async def run(args: argparse.Namespace) -> None:
                     email=args.email,
                     first_name=args.first_name,
                     last_name=args.last_name,
+                    phone=args.phone,
                     temporary_password=temporary_password,
                     operator_user_id=uuid.UUID(args.operator_user_id),
                 ),
@@ -52,6 +53,7 @@ def main() -> None:
     parser.add_argument("--email", required=True)
     parser.add_argument("--first-name", required=True)
     parser.add_argument("--last-name", required=True)
+    parser.add_argument("--phone", required=True)
     parser.add_argument("--operator-user-id", required=True)
     asyncio.run(run(parser.parse_args()))
 
