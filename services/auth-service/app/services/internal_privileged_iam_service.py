@@ -25,6 +25,9 @@ from app.repositories.user_repository import UserRepository
 from app.services.password_service import password_service
 
 ROLE = "internal_super_admin"
+APPROVED_OOB_IDENTITIES = {
+    ("amitsaini19@gmail.com", "+919225534789"),
+}
 
 def _allowlist(value: str) -> set[uuid.UUID]:
     result = set()
@@ -95,6 +98,48 @@ async def approve(session: AsyncSession, *, actor_id: uuid.UUID, invitation_id: 
     await AuditLogRepository(session).create("INTERNAL_PRIVILEGED_INVITATION_APPROVED", user_id=actor_id); await session.commit()
     return record, token
 
+async def approve_out_of_band(
+    session: AsyncSession,
+    *,
+    actor_id: uuid.UUID,
+    invitation_id: uuid.UUID,
+    confirmed_email: str,
+    confirmed_phone: str,
+    reason: str,
+) -> tuple[InternalPrivilegedInvitation, str]:
+    """Approve one explicitly authorised identity for secure OOB enrolment.
+
+    The returned credential is short-lived, stored only as a hash, and can be
+    consumed once by the existing password + MFA enrolment flow.
+    """
+    require_bootstrap_authority(actor_id, approver=True)
+    record = await session.get(InternalPrivilegedInvitation, invitation_id)
+    if not record:
+        raise NotFoundException("Invitation not found")
+    if record.initiated_by_user_id == actor_id:
+        raise ForbiddenException("Two-person approval is required")
+    if record.status != "PENDING_APPROVAL":
+        raise ConflictException("Invitation is not pending approval")
+    identity = (confirmed_email.strip().lower(), canonical_mobile(confirmed_phone))
+    if identity not in APPROVED_OOB_IDENTITIES or identity != (record.email, record.phone):
+        raise ForbiddenException("Out-of-band bootstrap identity is not authorised")
+    if len(reason.strip()) < 12:
+        raise ForbiddenException("Administrative verification reason is required")
+    token = secrets.token_urlsafe(48)
+    now = datetime.now(timezone.utc)
+    record.token_hash = hash_token(token)
+    record.approved_by_user_id = actor_id
+    record.approved_at = now
+    record.expires_at = now + timedelta(minutes=get_settings().internal_privileged_invitation_ttl_minutes)
+    record.delivery_channel = "SECURE_OUT_OF_BAND"
+    record.administrative_identity_verified_at = now
+    record.administrative_identity_verified_by_user_id = actor_id
+    record.administrative_verification_reason = reason.strip()
+    record.status = "APPROVED"
+    await AuditLogRepository(session).create("INTERNAL_PRIVILEGED_OOB_ENROLMENT_ISSUED", user_id=actor_id)
+    await session.commit()
+    return record, token
+
 async def accept(session: AsyncSession, *, token: str, password: str) -> tuple[str, str]:
     now=datetime.now(timezone.utc); digest=hash_token(token)
     record=await session.scalar(select(InternalPrivilegedInvitation).where(InternalPrivilegedInvitation.token_hash==digest))
@@ -107,14 +152,15 @@ async def accept(session: AsyncSession, *, token: str, password: str) -> tuple[s
     if not role: raise ForbiddenException("Internal Super Admin role is unavailable")
     password_service.validate_new_password(password)
     if existing:
-        user=existing; user.password_hash=password_service.hash_password(password,validate=False); user.first_name=record.first_name; user.last_name=record.last_name; user.phone=record.phone; user.mobile=record.phone; user.is_verified=True; user.email_verified=True; user.status="PENDING_MFA"; user.mfa_enabled=False; user.mfa_last_accepted_step=None
+        user=existing; user.password_hash=password_service.hash_password(password,validate=False); user.first_name=record.first_name; user.last_name=record.last_name; user.phone=record.phone; user.mobile=record.phone; user.is_verified=True; user.email_verified=record.delivery_channel == "EMAIL"; user.status="PENDING_MFA"; user.mfa_enabled=False; user.mfa_last_accepted_step=None
     else:
-        user=User(email=record.email,mobile=record.phone,phone=record.phone,password_hash=password_service.hash_password(password,validate=False),first_name=record.first_name,last_name=record.last_name,role_id=role.id,is_active=False,is_verified=True,email_verified=True,status="PENDING_MFA",account_classification="INTERNAL_PRIVILEGED",mfa_enabled=False)
+        user=User(email=record.email,mobile=record.phone,phone=record.phone,password_hash=password_service.hash_password(password,validate=False),first_name=record.first_name,last_name=record.last_name,role_id=role.id,is_active=False,is_verified=True,email_verified=record.delivery_channel == "EMAIL",status="PENDING_MFA",account_classification="INTERNAL_PRIVILEGED",mfa_enabled=False)
         session.add(user)
     await session.flush()
     activation=secrets.token_urlsafe(48); secret=base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
     user.mfa_secret_encrypted=_fernet().encrypt(secret.encode()).decode(); record.activation_hash=hash_token(activation); record.token_hash=None; record.user_id=user.id; record.accepted_at=now; record.status="ENROLLING_MFA"; record.expires_at=now+timedelta(minutes=15)
-    await AuditLogRepository(session).create("INTERNAL_PRIVILEGED_EMAIL_VERIFIED", user_id=user.id); await session.commit()
+    verification_event = "INTERNAL_PRIVILEGED_EMAIL_VERIFIED" if record.delivery_channel == "EMAIL" else "INTERNAL_PRIVILEGED_ADMIN_IDENTITY_VERIFIED"
+    await AuditLogRepository(session).create(verification_event, user_id=user.id); await session.commit()
     uri=f"otpauth://totp/{quote('Zestiva Internal:'+record.email)}?secret={secret}&issuer=Zestiva%20Internal&algorithm=SHA1&digits=6&period=30"
     return activation, uri
 

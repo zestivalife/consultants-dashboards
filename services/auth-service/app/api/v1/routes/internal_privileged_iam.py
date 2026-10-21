@@ -11,7 +11,7 @@ from app.core.email import get_email_service
 from app.core.response import success_response
 from app.db.session import get_db
 from app.schemas.auth import UserResponse
-from app.schemas.internal_privileged_iam import PrivilegedInvitationAccept, PrivilegedInvitationCreate, PrivilegedMfaConfirm
+from app.schemas.internal_privileged_iam import PrivilegedInvitationAccept, PrivilegedInvitationCreate, PrivilegedMfaConfirm, PrivilegedOutOfBandApproval
 from app.services import internal_privileged_iam_service as service
 
 router = APIRouter(tags=["internal-privileged-iam"])
@@ -31,6 +31,36 @@ async def approve_invitation(invitation_id: uuid.UUID, session: AsyncSession=Dep
         record.status="PENDING_APPROVAL"; record.token_hash=None; record.approved_by_user_id=None; record.approved_at=None; record.expires_at=None
         await session.commit(); raise
     return success_response(data={"invitation_id":str(record.id),"status":record.status},message="Privileged invitation delivered")
+
+@router.post("/owner/internal-privileged-invitations/{invitation_id}/approve-out-of-band", status_code=202)
+async def approve_invitation_out_of_band(
+    invitation_id: uuid.UUID,
+    body: PrivilegedOutOfBandApproval,
+    session: AsyncSession=Depends(get_db),
+    current_user: UserResponse=Depends(get_current_user),
+):
+    record, token = await service.approve_out_of_band(
+        session,
+        actor_id=current_user.id,
+        invitation_id=invitation_id,
+        confirmed_email=str(body.confirmed_email),
+        confirmed_phone=body.confirmed_phone,
+        reason=body.reason,
+    )
+    response = success_response(
+        data={
+            "invitation_id": str(record.id),
+            "status": record.status,
+            "enrolment_token": token,
+            "expires_at": record.expires_at,
+            "handoff": "DISPLAY_ONCE_SECURE_OUT_OF_BAND",
+        },
+        message="One-time privileged enrolment credential issued",
+        status_code=202,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 @router.post("/auth/internal-privileged-invitations/accept")
 async def accept_invitation(body: PrivilegedInvitationAccept, session: AsyncSession=Depends(get_db)):
