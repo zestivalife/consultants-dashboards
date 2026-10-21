@@ -93,6 +93,8 @@ from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,Booking
                              publicly_visible,slug_base)
 from app.finder import FINDER_EVENTS,SUPPORT_TAXONOMY,FinderEvent,FinderRequest,explain_and_score
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
+from app.communications import InvalidPhone, normalize_phone
+from app.diet_plan_policy import can_publish_independently
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
 from app.profession_intake import (FROZEN_PROFESSIONS, SUPPORTED_PROFESSIONS,
@@ -616,8 +618,8 @@ async def whatsapp_opened(request: Request, body: WhatsAppOpenCreate, ctx=Depend
     if denied: return denied
     capability_denied = await require_capability(request, db, ctx, "WHATSAPP_SHARING")
     if capability_denied: return capability_denied
-    digits = "".join(ch for ch in body.phone if ch.isdigit())
-    if not body.phone.strip().startswith("+") or len(digits) < 10 or len(digits) > 15: return error(request, 400, "INVALID_PHONE", "Enter a valid mobile number with explicit country code")
+    try:e164,digits=normalize_phone(body.phone,body.country_iso2)
+    except InvalidPhone as exc:return error(request,400,"INVALID_PHONE",str(exc))
     if body.shareable_type == "DIET_PLAN_DRAFT" or (body.intent == "SHARE_PUBLISHED_PLAN" and body.shareable_type != "PUBLISHED_DIET_PLAN"): return error(request, 409, "DRAFT_NOT_SHAREABLE", "Publish the plan before sharing")
     item_id, now = uuid4(), datetime.now(timezone.utc)
     metadata = {"phone_last4":digits[-4:],"intent":body.intent,"shareable_type":body.shareable_type,"shareable_id":body.shareable_id}
@@ -628,7 +630,7 @@ async def whatsapp_opened(request: Request, body: WhatsAppOpenCreate, ctx=Depend
       (id,tenant_id,client_id,event_type,source_type,source_id,summary,metadata,occurred_at)
       VALUES (:id,:tenant_id,:client_id,'WHATSAPP_OPENED','COMMUNICATION',:source_id,:summary,CAST(:metadata AS jsonb),:now)
       ON CONFLICT (tenant_id,event_type,source_type,source_id) DO NOTHING"""), {"id":uuid4(),"tenant_id":ctx["tenant_id"],"client_id":body.client_id,"source_id":str(item_id),"summary":f"WhatsApp opened for {body.purpose}","metadata":json.dumps({"template_code":body.template_code}),"now":now})
-    return {"success": True, "data": {"id":str(item_id),"event_type":"WHATSAPP_OPENED","intent":body.intent,"phone":digits,"message":body.message}, "error": None, "request_id": request.state.correlation_id}
+    return {"success": True, "data": {"id":str(item_id),"event_type":"WHATSAPP_OPENED","intent":body.intent,"phone":digits,"phone_e164":e164,"message":body.message}, "error": None, "request_id": request.state.correlation_id}
 
 
 @app.get("/api/v1/practice-operations/communication/activity")
@@ -1017,6 +1019,16 @@ async def _diet_plan_row(request, db, ctx, plan_id):
       {"id":plan_id,"tenant":ctx["tenant_id"],**actor_params})).mappings().first()
     return row
 
+async def _diet_plan_publication_eligibility(db,ctx,consultant_id):
+    row=(await db.execute(text("""SELECT p.approval_valid,p.approved_version,v.projection
+      FROM external_consultant_public_profiles p
+      LEFT JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.approved_version
+      WHERE p.tenant_id=:tenant AND p.consultant_user_id=:consultant"""),
+      {"tenant":ctx["tenant_id"],"consultant":consultant_id})).mappings().first()
+    if not row or not row["approval_valid"] or row["approved_version"] is None:return {"state":"UNVERIFIED","experience_years":None,"independent":False}
+    years=int((row["projection"] or {}).get("experience_years") or 0)
+    return {"state":"VERIFIED","experience_years":years,"independent":years>=1}
+
 async def _diet_plan_projection(db, plan):
     versions=[dict(row) for row in (await db.execute(text("""SELECT id,version,status,title,nutrition_snapshot,published_at,created_at
       FROM external_profession_plan_versions WHERE plan_id=:plan AND tenant_id=:tenant ORDER BY version DESC"""),
@@ -1138,11 +1150,20 @@ async def publish_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db
     if denied:return denied
     plan=await _diet_plan_row(request,db,ctx,plan_id)
     if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
-    if plan["status"]!="APPROVED":return error(request,409,"DIET_PLAN_APPROVAL_REQUIRED","Publish the exact approved version")
+    eligibility=await _diet_plan_publication_eligibility(db,ctx,plan["authorised_consultant_id"])
+    independently_publishable=can_publish_independently(verification_state=eligibility["state"],experience_years=eligibility["experience_years"],plan_status=plan["status"],actor_is_author=str(ctx["user_id"])==str(plan["authorised_consultant_id"]))
+    if plan["status"]!="APPROVED" and not independently_publishable:
+        code="PROFESSIONAL_EXPERIENCE_UNVERIFIED" if eligibility["state"]=="UNVERIFIED" else "DIET_PLAN_APPROVAL_REQUIRED"
+        message="Verified professional experience is required for independent publication" if eligibility["state"]=="UNVERIFIED" else "Senior review is required when verified experience is under one year"
+        return error(request,409,code,message)
+    version_row=(await db.execute(text("""SELECT id,nutrition_snapshot FROM external_profession_plan_versions
+      WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version"""),{"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).mappings().one()
+    option_count=int((version_row["nutrition_snapshot"] or {}).get("option_count") or 0)
+    if option_count<1:return error(request,409,"DIET_PLAN_CONTENT_REQUIRED","Add and save governed meal options before publication")
     now=datetime.now(timezone.utc);version_id=(await db.execute(text("UPDATE external_profession_plan_versions SET status='PUBLISHED',published_at=:now WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version RETURNING id"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).scalar_one()
     await db.execute(text("UPDATE external_profession_plans SET status='PUBLISHED',updated_at=:now WHERE id=:plan AND tenant_id=:tenant"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"]})
     await db.execute(text("INSERT INTO external_profession_plan_audit_events(id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,created_at) VALUES (:id,:plan,:version,:tenant,:client,'PUBLISHED',:actor,:now)"),{"id":uuid4(),"plan":plan_id,"version":version_id,"tenant":ctx["tenant_id"],"client":plan["client_id"],"actor":ctx["user_id"],"now":now});await db.commit()
-    return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"]},"error":None,"request_id":request.state.correlation_id}
+    return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"],"publication_basis":"INDEPENDENT_VERIFIED_EXPERIENCE" if independently_publishable else "SENIOR_APPROVED"},"error":None,"request_id":request.state.correlation_id}
 
 async def _write_note_sections(db,tenant,version_id,sections):
     for order,section in enumerate(sections,1):
@@ -2158,6 +2179,9 @@ async def create_availability(request: Request, body: AvailabilityRuleCreate,
     if denied: return denied
     if body.end_time <= body.start_time or (body.effective_from and body.effective_until and body.effective_until<body.effective_from):
         return error(request,422,"AVAILABILITY_WINDOW_INVALID","Availability end must follow its start")
+    overlap=(await db.execute(text("""SELECT 1 FROM external_availability_rules WHERE tenant_id=:tenant AND weekday=:weekday AND active=TRUE
+      AND CAST(:start AS time)<end_time AND CAST(:end AS time)>start_time LIMIT 1"""),{"tenant":ctx["tenant_id"],"weekday":body.weekday,"start":body.start_time,"end":body.end_time})).first()
+    if overlap:return error(request,409,"AVAILABILITY_OVERLAP","This availability window overlaps an existing window")
     item_id,now=uuid4(),datetime.now(timezone.utc)
     await db.execute(text("""INSERT INTO external_availability_rules
       (id,tenant_id,weekday,start_time,end_time,timezone,effective_from,effective_until,active,created_by,created_at,updated_at)
@@ -2166,6 +2190,14 @@ async def create_availability(request: Request, body: AvailabilityRuleCreate,
       "timezone":body.timezone,"effective_from":body.effective_from,"effective_until":body.effective_until,
       "actor":ctx["user_id"],"now":now})
     return {"success":True,"data":{"id":str(item_id)},"error":None,"request_id":request.state.correlation_id}
+
+@app.delete("/api/v1/practice-operations/scheduling/availability/{rule_id}")
+async def delete_availability(request:Request,rule_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _calendar_access(request,db,ctx,"CALENDAR_MANAGE")
+    if denied:return denied
+    row=(await db.execute(text("UPDATE external_availability_rules SET active=FALSE,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND active=TRUE RETURNING id"),{"now":datetime.now(timezone.utc),"id":rule_id,"tenant":ctx["tenant_id"]})).scalar_one_or_none()
+    if not row:return error(request,404,"AVAILABILITY_NOT_FOUND","Availability window was not found")
+    await db.commit();return {"success":True,"data":{"id":str(row),"active":False},"error":None,"request_id":request.state.correlation_id}
 
 
 @app.post("/api/v1/practice-operations/scheduling/booking-links",status_code=201)
@@ -5054,7 +5086,7 @@ async def marketplace_readiness(request:Request,ctx=Depends(context),db:AsyncSes
     packages=[dict(row) for row in (await db.execute(text("SELECT id,name,description,session_allowance,duration_days,price_minor,currency,active FROM external_service_packages WHERE tenant_id=:tenant AND active=TRUE ORDER BY name"),{"tenant":ctx["tenant_id"]})).mappings().all()]
     appointment_types=[dict(row) for row in (await db.execute(text("SELECT id,name,description,duration_minutes,location_type,location_details,active FROM external_appointment_types WHERE tenant_id=:tenant AND active=TRUE ORDER BY name"),{"tenant":ctx["tenant_id"]})).mappings().all()]
     locations=[dict(row) for row in (await db.execute(text("SELECT id,name,timezone,active FROM external_practice_locations WHERE tenant_id=:tenant AND active=TRUE ORDER BY name"),{"tenant":ctx["tenant_id"]})).mappings().all()]
-    availability=[dict(row) for row in (await db.execute(text("SELECT weekday,start_time,end_time,timezone FROM external_availability_rules WHERE tenant_id=:tenant AND active=TRUE ORDER BY weekday,start_time"),{"tenant":ctx["tenant_id"]})).mappings().all()]
+    availability=[dict(row) for row in (await db.execute(text("SELECT id,weekday,start_time,end_time,timezone FROM external_availability_rules WHERE tenant_id=:tenant AND active=TRUE ORDER BY weekday,start_time"),{"tenant":ctx["tenant_id"]})).mappings().all()]
     documents=[dict(row) for row in (await db.execute(text("SELECT id,title,category,visibility,status FROM external_documents WHERE tenant_id=:tenant AND client_id IS NULL AND status='AVAILABLE' AND visibility IN ('PRACTITIONER_PRIVATE','PRACTICE_ADMINISTRATIVE') ORDER BY updated_at DESC LIMIT 100"),{"tenant":ctx["tenant_id"]})).mappings().all()]
     return {"success":True,"data":{"state":"READY","packages":packages,"appointment_types":appointment_types,"locations":locations,"availability":availability,"private_documents":documents,"direct_booking":"CONFIGURATION_DEPENDENT"},"error":None,"request_id":request.state.correlation_id}
 

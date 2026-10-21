@@ -49,6 +49,7 @@ function mapClient(record) {
     name: record.name || 'Unnamed client',
     email: record.email ?? null,
     mobile: record.mobile ?? null,
+    countryIso2: record.countryIso2 ?? record.country_iso2 ?? record.country?.iso2 ?? null,
     mobileNumberMasked: record.mobileNumberMasked ?? null,
     status: record.status ?? null,
     accountStatus: record.accountStatus ?? null,

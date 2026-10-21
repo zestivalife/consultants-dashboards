@@ -63,7 +63,7 @@ def test_whatsapp_activity_never_claims_delivery():
     assert "MESSAGE_SENT" not in source
     assert "DELIVERED" not in source
     assert "DRAFT_NOT_SHAREABLE" in source
-    assert 'body.phone.strip().startswith("+")' in source
+    assert "normalize_phone(body.phone,body.country_iso2)" in source
     assert '"intent":body.intent' in source
 
 

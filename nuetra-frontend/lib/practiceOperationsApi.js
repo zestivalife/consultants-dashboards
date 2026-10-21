@@ -81,6 +81,7 @@ export function listAppointmentTypes(includeInactive=false){return request(`/sch
 export function createAppointmentType(payload){return request('/scheduling/appointment-types',{method:'POST',body:JSON.stringify(payload)});}
 export function listSchedulingAvailability(){return request('/scheduling/availability');}
 export function createSchedulingAvailability(payload){return request('/scheduling/availability',{method:'POST',body:JSON.stringify(payload)});}
+export function deleteSchedulingAvailability(id){return request(`/scheduling/availability/${encodeURIComponent(id)}`,{method:'DELETE'});}
 export function listScheduledAppointments(clientId){const query=clientId?`?client_id=${encodeURIComponent(clientId)}`:'';return request(`/scheduling/appointments${query}`);}
 export function createScheduledAppointment(payload){return request('/scheduling/appointments',{method:'POST',body:JSON.stringify(payload)});}
 export function updateScheduledAppointment(id,payload){return request(`/scheduling/appointments/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}

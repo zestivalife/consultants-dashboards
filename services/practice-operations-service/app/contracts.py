@@ -99,6 +99,7 @@ class WhatsAppOpenCreate(BaseModel):
     template_code: str | None = Field(default=None, max_length=80)
     purpose: str = Field(min_length=1, max_length=120)
     phone: str = Field(min_length=8, max_length=24)
+    country_iso2: str | None = Field(default=None, min_length=2, max_length=2, pattern=r"^[A-Za-z]{2}$")
     message: str = Field(min_length=1, max_length=2000)
     shareable_type: str | None = Field(default=None, max_length=80)
     shareable_id: str | None = Field(default=None, max_length=160)
