@@ -1,4 +1,9 @@
 from pathlib import Path
+from types import SimpleNamespace
+import pytest
+
+from app.core.exceptions import ForbiddenException
+from app.services.people_access_service import ensure_owner_access
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -44,3 +49,13 @@ def test_frontend_hides_external_owner_modules_for_internal_role():
     assert "marketplace" not in routes.split("INTERNAL_OWNER_ROUTE_SLUGS = new Set(",1)[1].split(");",1)[0]
     assert "internalOnly" in layout
     assert "internalRouteDenied" in page
+
+@pytest.mark.asyncio
+async def test_internal_admin_requires_mfa_and_only_maps_internal_permissions():
+    assured=SimpleNamespace(role="internal_super_admin",permissions=["internal.users.read"],mfa_assured=True)
+    await ensure_owner_access(None,assured,{"users.read"})
+    unassured=SimpleNamespace(role="internal_super_admin",permissions=["internal.users.read"],mfa_assured=False)
+    with pytest.raises(ForbiddenException):
+        await ensure_owner_access(None,unassured,{"users.read"})
+    with pytest.raises(ForbiddenException):
+        await ensure_owner_access(None,assured,{"settings.manage"})

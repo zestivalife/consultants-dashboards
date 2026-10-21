@@ -206,6 +206,7 @@ async def ensure_owner_access(
     role_name = normalize_role_name(current_user.role or "")
     if role_name not in PROTECTED_PLATFORM_OWNER_ROLES:
         raise ForbiddenException("You do not have permission to access this resource")
+    permission_set = set(current_user.permissions or [])
     if role_name == "internal_super_admin":
         if not current_user.mfa_assured:
             raise ForbiddenException("Recent MFA assurance is required")
@@ -222,7 +223,6 @@ async def ensure_owner_access(
             return
         raise ForbiddenException("Internal permission is required")
 
-    permission_set = set(current_user.permissions or [])
     if not required_permissions:
         required_permissions = {"users.read"}
 
