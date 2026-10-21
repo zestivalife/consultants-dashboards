@@ -8,6 +8,7 @@ from app.api.v1.routes import (
     people_access,
     team_lead,
     team_member,
+    internal_privileged_iam,
 )
 
 api_router = APIRouter()
@@ -20,3 +21,4 @@ api_router.include_router(master_data.router, prefix="/owner/master-data")
 api_router.include_router(team_lead.router, prefix="/team-lead")
 api_router.include_router(team_member.router, prefix="/team-member")
 api_router.include_router(notifications.router, prefix="/notifications")
+api_router.include_router(internal_privileged_iam.router)

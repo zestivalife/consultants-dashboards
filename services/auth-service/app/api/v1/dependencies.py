@@ -10,11 +10,11 @@ from app.schemas.auth import UserResponse
 from app.services import auth_service
 
 
-def _extract_user_id(request: Request) -> uuid.UUID:
+def _extract_identity(request: Request) -> tuple[uuid.UUID, dict]:
     user_id_header = request.headers.get("X-User-Id")
     if user_id_header:
         try:
-            return uuid.UUID(user_id_header)
+            return uuid.UUID(user_id_header), {}
         except ValueError as exc:
             raise UnauthorizedException("Invalid user identity") from exc
 
@@ -24,7 +24,7 @@ def _extract_user_id(request: Request) -> uuid.UUID:
         try:
             payload = decode_access_token(token)
             subject = payload.get("sub")
-            return uuid.UUID(str(subject))
+            return uuid.UUID(str(subject)), payload
         except Exception as exc:
             raise UnauthorizedException("Invalid or expired access token") from exc
 
@@ -35,5 +35,7 @@ async def get_current_user(
     request: Request,
     session: AsyncSession = Depends(get_db),
 ) -> UserResponse:
-    user_id = _extract_user_id(request)
-    return await auth_service.get_current_user(session, user_id)
+    user_id, payload = _extract_identity(request)
+    user = await auth_service.get_current_user(session, user_id)
+    user.mfa_assured = bool(payload.get("mfa_assured"))
+    return user

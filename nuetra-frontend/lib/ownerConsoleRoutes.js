@@ -47,6 +47,8 @@ export const OWNER_ROUTE_TO_LEGACY_TAB = Object.fromEntries(
   Object.entries(OWNER_LEGACY_TAB_TO_ROUTE).map(([legacyKey, routeKey]) => [routeKey, legacyKey])
 );
 
+export const INTERNAL_OWNER_ROUTE_SLUGS = new Set(['command-center', 'people-access', 'permissions', 'practitioners', 'mentors', 'consultants', 'reports', 'audit', 'settings']);
+
 export function getOwnerRouteBySlug(slug) {
   return OWNER_ROUTE_DEFINITIONS.find((item) => item.slug === slug) || OWNER_ROUTE_DEFINITIONS[0];
 }

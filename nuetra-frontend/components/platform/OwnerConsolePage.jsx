@@ -25,12 +25,13 @@ import MarketplaceGovernanceModule from './MarketplaceGovernanceModule';
 import SupportQueueModule from './SupportQueueModule';
 import OwnerConsoleLayout from './OwnerConsoleLayout';
 import { platformOwnerConsoleData } from '../../data/platformOwnerConsoleData';
-import { getOwnerBreadcrumbs, getOwnerRouteBySlug } from '../../lib/ownerConsoleRoutes';
+import { INTERNAL_OWNER_ROUTE_SLUGS, getOwnerBreadcrumbs, getOwnerRouteBySlug } from '../../lib/ownerConsoleRoutes';
 import { useOwnerPeopleAccess } from '../../hooks/useOwnerPeopleAccess';
 import { getRoleKey } from '../../lib/roleRoutes';
 
 const roleTitles = {
   platform_owner: 'Platform Owner',
+  internal_super_admin: 'Internal Super Admin',
   superuser: 'Platform Owner',
   admin: 'Admin',
 };
@@ -49,6 +50,7 @@ export default function OwnerConsolePage({ moduleSlug = 'command-center' }) {
   const router = useRouter();
   const { user } = useAuth();
   const route = getOwnerRouteBySlug(moduleSlug);
+  const internalRouteDenied = getRoleKey(user?.role) === 'internal_super_admin' && !INTERNAL_OWNER_ROUTE_SLUGS.has(route.slug);
 
   const ownerName = useMemo(() => {
     const firstName = user?.first_name || user?.firstName;
@@ -87,6 +89,7 @@ export default function OwnerConsolePage({ moduleSlug = 'command-center' }) {
   );
 
   const renderModule = () => {
+    if (internalRouteDenied) return <section role="alert" className="rounded-3xl border border-red-200 bg-white p-8"><h1 className="text-xl font-bold">Access denied</h1><p className="mt-2 text-gray-600">This module belongs to External platform administration and is not available to Internal Super Admins.</p></section>;
     switch (route.moduleKey) {
       case 'dashboard':
         return <CommandCenterModule data={platformOwnerConsoleData} />;

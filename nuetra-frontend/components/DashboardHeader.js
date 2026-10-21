@@ -81,7 +81,7 @@ export default function DashboardHeader({
   const settingsRef = useRef(null);
 
   const userRoleKey = getRoleKey(user?.role);
-  const isPlatformOwner = userRoleKey.includes('super') || userRoleKey === 'platform_owner';
+  const isPlatformOwner = ['superuser', 'super_admin', 'platform_owner', 'internal_super_admin'].includes(userRoleKey);
 
   const identity = useMemo(() => {
     const ownerOverride = user?.email ? OWNER_DIRECTORY[user.email.toLowerCase()] : null;

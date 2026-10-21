@@ -107,7 +107,7 @@ MANAGEABLE_STATUSES = {
     "DELETED",
     "ARCHIVED",
 }
-PROTECTED_PLATFORM_OWNER_ROLES = {"platform_owner", "superuser"}
+PROTECTED_PLATFORM_OWNER_ROLES = {"platform_owner", "superuser", "internal_super_admin"}
 ROLE_ALIASES = {
     "platform owner": "platform_owner",
     "organization admin": "organization_admin",
@@ -206,6 +206,21 @@ async def ensure_owner_access(
     role_name = normalize_role_name(current_user.role or "")
     if role_name not in PROTECTED_PLATFORM_OWNER_ROLES:
         raise ForbiddenException("You do not have permission to access this resource")
+    if role_name == "internal_super_admin":
+        if not current_user.mfa_assured:
+            raise ForbiddenException("Recent MFA assurance is required")
+        if not all(str(permission).startswith("internal.") for permission in current_user.permissions or []):
+            raise ForbiddenException("Internal privileged authority is not isolated")
+        internal_equivalents = {
+            "users.read": "internal.users.read", "users.create": "internal.users.manage",
+            "users.edit": "internal.users.manage", "users.reset_password": "internal.users.manage",
+            "users.force_logout": "internal.users.manage",
+            "audit.view": "internal.audit.view",
+        }
+        mapped = {internal_equivalents.get(item, item) for item in required_permissions}
+        if permission_set & mapped:
+            return
+        raise ForbiddenException("Internal permission is required")
 
     permission_set = set(current_user.permissions or [])
     if not required_permissions:

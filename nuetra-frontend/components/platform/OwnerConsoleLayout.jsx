@@ -17,7 +17,7 @@ import {
   Users,
 } from 'lucide-react';
 
-import { OWNER_ROUTE_DEFINITIONS, getOwnerConsolePath } from '../../lib/ownerConsoleRoutes';
+import { INTERNAL_OWNER_ROUTE_SLUGS, OWNER_ROUTE_DEFINITIONS, getOwnerConsolePath } from '../../lib/ownerConsoleRoutes';
 import { useAuth } from '../../context/AuthContext';
 import { canAccessFoodAuthorisation } from '../../lib/roleRoutes';
 
@@ -46,7 +46,8 @@ const OWNER_NAV_ICONS = {
 export default function OwnerConsoleLayout({ activeSlug, children }) {
   const router = useRouter();
   const { user } = useAuth();
-  const navItems = OWNER_ROUTE_DEFINITIONS.filter((item) => !item.hidden || item.slug === activeSlug);
+  const internalOnly = String(user?.role || '').toLowerCase() === 'internal_super_admin';
+  const navItems = OWNER_ROUTE_DEFINITIONS.filter((item) => (!item.hidden || item.slug === activeSlug) && (!internalOnly || INTERNAL_OWNER_ROUTE_SLUGS.has(item.slug)));
   const showFoodAuthorisation = canAccessFoodAuthorisation(user);
 
   return (

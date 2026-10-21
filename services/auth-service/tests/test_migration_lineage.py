@@ -13,7 +13,7 @@ def test_production_auth_revision_is_present_in_current_lineage():
     assert 'down_revision = "b0d2f6a8c401"' in migration
 
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["e6f7a8b9c0d1"]
+    assert script.get_heads() == ["a4b5c6d7e8f9"]
 
 
 def test_people_access_seed_uses_postgres_compatible_expanding_bind_parameters():

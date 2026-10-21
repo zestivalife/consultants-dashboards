@@ -67,6 +67,8 @@ class User(Base):
         DateTime(timezone=True), nullable=True
     )
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    mfa_secret_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mfa_last_accepted_step: Mapped[int | None] = mapped_column(Integer, nullable=True)
     current_session_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     refresh_token_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(

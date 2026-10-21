@@ -68,6 +68,10 @@ PLATFORM_OPERATIONS_PERMISSIONS = {
     "settings.manage",
     "subscriptions.manage",
 }
+INTERNAL_PLATFORM_PERMISSIONS = {
+    "internal.users.read", "internal.users.manage", "internal.invitations.manage",
+    "internal.roles.assign", "internal.verification.manage", "internal.operations.manage", "internal.audit.view",
+}
 ORGANIZATION_OPERATIONS_PERMISSIONS = {
     "organizations.manage",
     "users.create",
@@ -108,6 +112,9 @@ def _resolve_workspace(
 ) -> AccessWorkspace:
     permission_set = {permission for permission in permissions if permission}
     role_key = _normalize_key(role)
+
+    if role_key == "internal_super_admin" and permission_set & INTERNAL_PLATFORM_PERMISSIONS:
+        return AccessWorkspace(id="internal-platform-operations", label="Internal Consultant Administration", landing_page="/dashboard/owner", required_permissions=sorted(permission_set & INTERNAL_PLATFORM_PERMISSIONS))
 
     if permission_set & PLATFORM_OPERATIONS_PERMISSIONS:
         return AccessWorkspace(
@@ -274,6 +281,7 @@ def _build_tokens(
     raw_refresh: str,
     permissions: list[str] | None = None,
     products: list[str] | None = None,
+    mfa_assured: bool = False,
 ) -> TokenResponse:
     settings = get_settings()
     access_token = create_access_token(
@@ -284,6 +292,8 @@ def _build_tokens(
             "credential_status": getattr(user, "credential_status", CREDENTIAL_PERMANENT) or CREDENTIAL_PERMANENT,
             "permissions": permissions if permissions is not None else (user.permissions or []),
             "products": sorted(set(products or [])),
+            "mfa_assured": mfa_assured,
+            "amr": ["pwd", "otp"] if mfa_assured else ["pwd"],
         },
     )
     return TokenResponse(
@@ -369,6 +379,7 @@ async def login(
     mobile_number: str | None = None,
     ip_address: str | None = None,
     user_agent: str | None = None,
+    mfa_code: str | None = None,
 ) -> LoginResponse:
     settings = get_settings()
     user_repo = UserRepository(session)
@@ -443,6 +454,17 @@ async def login(
         )
         raise UnauthorizedException("Invalid credentials")
 
+    mfa_assured = False
+    if user.role and user.role.name == "internal_super_admin":
+        from app.services.internal_privileged_iam_service import assert_no_external_entitlement, verify_totp
+        if not mfa_code:
+            await audit_repo.create("INTERNAL_PRIVILEGED_LOGIN_MFA_REQUIRED", user_id=user.id, ip_address=ip_address, user_agent=user_agent)
+            raise ForbiddenException("MFA code required")
+        step = verify_totp(user, mfa_code)
+        user.mfa_last_accepted_step = step
+        await assert_no_external_entitlement(session, user.id)
+        mfa_assured = True
+
     user.failed_login_attempts = 0
     user.lock_until = None
     user.last_login_at = now
@@ -495,7 +517,7 @@ async def login(
 
     permission_claims = await people_access_service.resolve_user_permissions(session, user)
     product_claims = await people_access_service.resolve_user_products(session, user)
-    tokens = _build_tokens(user, raw_refresh, permission_claims, product_claims)
+    tokens = _build_tokens(user, raw_refresh, permission_claims, product_claims, mfa_assured=mfa_assured)
     user_data = await _user_response(session, user, permission_claims)
 
     logger.info("user_logged_in", user_id=str(user.id))

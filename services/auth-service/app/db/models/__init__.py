@@ -1,5 +1,6 @@
 from app.db.models.role import Role
 from app.db.models.user import PasswordHistory, User
+from app.db.models.internal_privileged_invitation import InternalPrivilegedInvitation
 from app.db.models.refresh_token import RefreshToken
 from app.db.models.consent import Consent
 from app.db.models.audit_log import AuthAuditLog
@@ -48,6 +49,7 @@ __all__ = [
     "Role",
     "User",
     "PasswordHistory",
+    "InternalPrivilegedInvitation",
     "RefreshToken",
     "Consent",
     "AuthAuditLog",

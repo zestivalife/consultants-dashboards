@@ -340,6 +340,9 @@ async def assign_products(
     session: AsyncSession = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
+    if current_user.role == "internal_super_admin":
+        from app.core.exceptions import ForbiddenException
+        raise ForbiddenException("Internal Super Admin cannot grant cross-product entitlements")
     await _require_people_access(session, current_user, "users.edit")
     result = await people_access_service.assign_products(
         session,

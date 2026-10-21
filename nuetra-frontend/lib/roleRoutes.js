@@ -11,6 +11,11 @@ const WORKSPACE_POLICIES = {
       'subscriptions.manage',
     ],
   },
+  internalPlatformOperations: {
+    id: 'internal-platform-operations',
+    landingPage: '/dashboard/owner',
+    permissionsAny: ['internal.users.read', 'internal.users.manage', 'internal.invitations.manage', 'internal.roles.assign', 'internal.verification.manage', 'internal.operations.manage', 'internal.audit.view'],
+  },
   organizationOperations: {
     id: 'organization-operations',
     landingPage: '/dashboard/corporate-admin',
@@ -48,13 +53,13 @@ const PROFESSIONAL_ROUTE_MAP = {
   provider: '/dashboard/provider', dietician: '/dashboard/provider', dietitian: '/dashboard/provider',
   practitioner: '/dashboard/provider', mentor: '/dashboard/mentor', team_lead: '/dashboard/team-lead',
   corporate_admin: '/dashboard/corporate-admin', corporate_client: '/dashboard/corporate-admin', organization_admin: '/dashboard/corporate-admin',
-  admin: '/dashboard/admin', superuser: '/dashboard/owner', super_admin: '/dashboard/owner', platform_owner: '/dashboard/owner',
+  admin: '/dashboard/admin', superuser: '/dashboard/owner', super_admin: '/dashboard/owner', platform_owner: '/dashboard/owner', internal_super_admin: '/dashboard/owner',
 };
 
 export const OWNER_ACCESS_POLICY = {
-  roles: ['superuser', 'super_admin', 'platform_owner'],
-  workspaces: ['platform-operations'],
-  permissionsAny: WORKSPACE_POLICIES.platformOperations.permissionsAny,
+  roles: ['superuser', 'super_admin', 'platform_owner', 'internal_super_admin'],
+  workspaces: ['platform-operations', 'internal-platform-operations'],
+  permissionsAny: [...WORKSPACE_POLICIES.platformOperations.permissionsAny, ...WORKSPACE_POLICIES.internalPlatformOperations.permissionsAny],
 };
 
 export const ORGANIZATION_ACCESS_POLICY = {
