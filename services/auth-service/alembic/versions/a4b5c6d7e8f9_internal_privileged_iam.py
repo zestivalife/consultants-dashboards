@@ -37,7 +37,7 @@ def upgrade():
     )
     op.execute("INSERT INTO roles(id,name,description,created_at,updated_at) VALUES (gen_random_uuid(),'internal_super_admin','Internal Consultant Dashboard Super Admin',now(),now()) ON CONFLICT(name) DO NOTHING")
     for key, description in INTERNAL_PERMISSIONS:
-        op.execute(sa.text("INSERT INTO permissions(id,key,category,name,description,created_at,updated_at) VALUES (gen_random_uuid(),:key,'internal_iam',:key,:description,now(),now()) ON CONFLICT(key) DO NOTHING").bindparams(key=key, description=description))
+        op.execute(sa.text("INSERT INTO permissions(id,key,module,label,description,created_at,updated_at) VALUES (gen_random_uuid(),:key,'internal_iam',:key,:description,now(),now()) ON CONFLICT(key) DO NOTHING").bindparams(key=key, description=description))
         op.execute(sa.text("INSERT INTO role_permissions(id,role_id,permission_id,created_at) SELECT gen_random_uuid(),r.id,p.id,now() FROM roles r CROSS JOIN permissions p WHERE r.name='internal_super_admin' AND p.key=:key ON CONFLICT(role_id,permission_id) DO NOTHING").bindparams(key=key))
 
 def downgrade():

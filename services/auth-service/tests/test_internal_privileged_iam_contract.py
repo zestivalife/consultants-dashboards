@@ -13,6 +13,15 @@ def test_internal_privileged_role_is_distinct_and_least_privilege():
     assert "internal.users.manage" in migration
     assert "fiteatsy" not in migration.lower()
     assert "platform_owner'" not in migration
+    assert "permissions(id,key,module,label,description" in migration
+    assert "category,name" not in migration
+
+def test_interrupted_migration_has_idempotent_repair_revision():
+    repair=(ROOT/'alembic/versions/a5b6c7d8e9f0_repair_internal_privileged_iam.py').read_text()
+    assert 'down_revision = "a4b5c6d7e8f9"' in repair
+    assert "ADD COLUMN IF NOT EXISTS mfa_secret_encrypted" in repair
+    assert "CREATE TABLE IF NOT EXISTS internal_privileged_invitations" in repair
+    assert "permissions(id,key,module,label,description" in repair
 
 def test_invitation_is_new_scoped_single_use_two_person_flow():
     source=(ROOT/'app/services/internal_privileged_iam_service.py').read_text()
