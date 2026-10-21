@@ -294,6 +294,7 @@ def _build_tokens(
             "products": sorted(set(products or [])),
             "mfa_assured": mfa_assured,
             "amr": ["pwd", "otp"] if mfa_assured else ["pwd"],
+            "password_change_required": bool(user.must_change_password),
         },
     )
     return TokenResponse(
@@ -456,14 +457,14 @@ async def login(
 
     mfa_assured = False
     if user.role and user.role.name == "internal_super_admin":
-        from app.services.internal_privileged_iam_service import assert_no_external_entitlement, verify_totp
-        if not mfa_code:
-            await audit_repo.create("INTERNAL_PRIVILEGED_LOGIN_MFA_REQUIRED", user_id=user.id, ip_address=ip_address, user_agent=user_agent)
-            raise ForbiddenException("MFA code required")
-        step = verify_totp(user, mfa_code)
-        user.mfa_last_accepted_step = step
+        from app.services.internal_privileged_iam_service import assert_no_external_entitlement
         await assert_no_external_entitlement(session, user.id)
-        mfa_assured = True
+        await audit_repo.create(
+            "INTERNAL_PRIVILEGED_PASSWORD_AUTHENTICATED",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
 
     user.failed_login_attempts = 0
     user.lock_until = None

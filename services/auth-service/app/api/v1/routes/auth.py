@@ -16,7 +16,7 @@ from app.schemas.auth import (
 from app.services import auth_service
 from app.services import external_signup_service
 from app.core.recaptcha import verify_recaptcha
-from app.api.v1.dependencies import get_current_user
+from app.api.v1.dependencies import get_current_user, get_current_user_allow_password_change
 
 router = APIRouter(tags=["auth"])
 
@@ -122,7 +122,7 @@ async def change_temporary_password(
     body: ChangePasswordRequest,
     request: Request,
     session: AsyncSession = Depends(get_db),
-    current_user: UserResponse = Depends(get_current_user),
+    current_user: UserResponse = Depends(get_current_user_allow_password_change),
 ):
     result = await auth_service.change_password(
         session,
@@ -160,7 +160,7 @@ async def change_password(
 
 
 @router.get("/me")
-async def me(current_user: UserResponse = Depends(get_current_user)):
+async def me(current_user: UserResponse = Depends(get_current_user_allow_password_change)):
     return success_response(data=current_user.model_dump(mode="json"))
 
 

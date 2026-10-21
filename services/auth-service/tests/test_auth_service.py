@@ -217,6 +217,30 @@ async def test_login_success(session: AsyncSession, seed_user: User):
 
 
 @pytest.mark.asyncio
+async def test_internal_super_admin_login_succeeds_without_totp(session: AsyncSession):
+    user = await _create_role_user(
+        session,
+        "internal_super_admin",
+        email="internal-admin@nuetra.test",
+        password="Correct123!",
+    )
+    user.permissions = ["internal.users.read"]
+    await session.flush()
+
+    with _always_allow_rate():
+        result = await auth_service.login(
+            session,
+            email=user.email,
+            password="Correct123!",
+        )
+
+    claims = decode_access_token(result.tokens.access_token)
+    assert result.user.role == "internal_super_admin"
+    assert claims["amr"] == ["pwd"]
+    assert claims["mfa_assured"] is False
+
+
+@pytest.mark.asyncio
 async def test_login_token_contains_only_active_product_entitlements(session: AsyncSession, seed_user: User):
     active = Product(id=uuid.uuid4(), key="fiteatsy", name="FitEatsy", status="ACTIVE")
     inactive = Product(id=uuid.uuid4(), key="retired", name="Retired", status="ACTIVE")
