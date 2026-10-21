@@ -4,13 +4,14 @@ import test from 'node:test';
 
 const multi=readFileSync(new URL('../components/external/ExternalMultiDietPlan.jsx',import.meta.url),'utf8');
 const marketplace=readFileSync(new URL('../components/external/ExternalMarketplace.jsx',import.meta.url),'utf8');
-const dietApi=readFileSync(new URL('../lib/fiteatsyConsultantsApi.js',import.meta.url),'utf8');
 const profileApi=readFileSync(new URL('../lib/practiceOperationsApi.js',import.meta.url),'utf8');
 
 test('multiple named plans are listed, selected, created and persisted by immutable plan id',()=>{
-  for(const term of ['listExternalDietPlans','createExternalDietPlan','saveExternalDietPlanById','publishExternalDietPlanById','Create another Diet Plan','Selected Diet Plan'])assert.match(multi,new RegExp(term));
-  assert.match(dietApi,/diet-plans\/\$\{encodeURIComponent\(planId\)\}\/draft/);
-  assert.match(dietApi,/diet-plans\/\$\{encodeURIComponent\(planId\)\}\/publish/);
+  for(const term of ['listConsultantDietPlans','createConsultantDietPlan','saveConsultantDietPlan','reviewConsultantDietPlan','publishConsultantDietPlan','Create another Diet Plan','Selected Diet Plan'])assert.match(multi,new RegExp(term));
+  assert.match(profileApi,/diet-plans\/\$\{encodeURIComponent\(planId\)\}\/draft/);
+  assert.match(profileApi,/diet-plans\/\$\{encodeURIComponent\(planId\)\}\/review/);
+  assert.match(profileApi,/diet-plans\/\$\{encodeURIComponent\(planId\)\}\/publish/);
+  assert.doesNotMatch(multi,/createExternalDietPlan|publishExternalDietPlanById/);
 });
 
 test('calorie and protein target boundaries are explicit client and API contract values',()=>{

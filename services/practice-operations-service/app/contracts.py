@@ -184,6 +184,21 @@ class ProfessionPlanSave(BaseModel):
     expected_version: int = Field(ge=1)
     sections: list[ProfessionPlanSection] = Field(default_factory=list, max_length=40)
 
+class DietPlanCreate(BaseModel):
+    client_id: str = Field(min_length=1, max_length=120)
+    name: str = Field(min_length=2, max_length=120)
+    daily_calories_target: int = Field(ge=800, le=6000)
+    daily_protein_target_g: float = Field(ge=20, le=400)
+
+class DietPlanSave(BaseModel):
+    expected_version: int = Field(ge=1)
+    options: list[dict[str, Any]] = Field(default_factory=list, max_length=35)
+
+class DietPlanReviewAction(BaseModel):
+    action: Literal["SUBMIT","START_REVIEW","REQUEST_CHANGES","APPROVE"]
+    expected_version: int = Field(ge=1)
+    reason: str | None = Field(default=None, max_length=2000)
+
 class SessionNoteSection(BaseModel):
     key: str = Field(min_length=1, max_length=100, pattern=r"^[a-z][a-z0-9_]*$")
     title: str = Field(min_length=1, max_length=240)

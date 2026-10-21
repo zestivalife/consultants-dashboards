@@ -1,38 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  addExternalCommonFoodComponent,
-  createExternalCommonFoodOption,
-  createExternalDietPlan,
-  downloadExternalDietPlanVersion,
-  generateExternalCommonFoodCandidates,
-  listExternalDietPlans,
-  publishExternalDietPlanById,
-  readExternalCommonFoodOptions,
-  removeExternalCommonFoodComponent,
-  replaceExternalCommonFoodComponent,
-  replaceExternalCommonFoodSelection,
-  saveExternalDietPlanById,
   searchExternalCommonFoods,
-  updateExternalCommonFoodServing,
 } from '../../lib/fiteatsyConsultantsApi';
+import { createConsultantDietPlan, getConsultantDietPlan, listConsultantDietPlans, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan } from '../../lib/practiceOperationsApi';
+import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import CommonFoodPlanEditor from '../platform/CommonFoodPlanEditor';
-import ExternalDietPlanHistory from './ExternalDietPlanHistory';
 
+const normalOption=(food,mealHead,index)=>({combinationId:`${mealHead}-${food.catalogEntityId||food.id}-${index}`,mealHead,selected:true,sourceType:'GOVERNED_CATALOGUE',nutrition:food.defaultServing?.nutrition||{},components:[{componentId:food.catalogEntityId||food.id,foodId:food.catalogEntityId||food.id,foodDisplayNameSnapshot:food.displayName,servingId:food.defaultServing?.id||food.servings?.[0]?.id,servingDisplayNameSnapshot:food.defaultServing?.label||food.servingDisplay||'Governed serving',multiplier:1,nutrition:food.defaultServing?.nutrition||{},provenance:{source:food.source||food.referenceSource||'FITEATSY_GOVERNED_CATALOGUE',nutritionStatus:food.nutritionStatus||food.displayStatus}}]});
+const readPlan=async planId=>{const value=await getConsultantDietPlan(planId);return{value,options:value.options||[],planVersionId:value.current_version?.id}};
+const persistOptions=async(planId,options)=>{const {value}=await readPlan(planId);return saveConsultantDietPlan(planId,{expected_version:value.plan.current_version,options})};
+const editorVersionAliases = new Map();
+const mergePersistedOptions=(currentOptions,requestedOptions)=>(requestedOptions||[]).map(requested=>{const current=currentOptions.find(option=>option.combinationId===requested.optionId);return{...(current||{}),combinationId:requested.optionId,mealHead:requested.mealHead,selected:true,components:(requested.components||[]).map(component=>{const prior=current?.components?.find(item=>item.foodId===component.foodId);return{...(prior||{}),...component,nutrition:prior?.nutrition||{},provenance:prior?.provenance||{source:'FITEATSY_GOVERNED_CATALOGUE'}}}),nutrition:current?.nutrition||{}}});
 const authoringApi = {
-  generate: generateExternalCommonFoodCandidates,
-  read: readExternalCommonFoodOptions,
-  replaceSelection: replaceExternalCommonFoodSelection,
-  replaceComponent: replaceExternalCommonFoodComponent,
-  addComponent: addExternalCommonFoodComponent,
-  removeComponent: removeExternalCommonFoodComponent,
-  updateServing: updateExternalCommonFoodServing,
+  generate: async(clientId,_planId,mealHeads=COMMON_FOOD_MEALS.map(([head])=>head))=>{const meals=[];for(const mealHead of mealHeads){const response=await searchExternalCommonFoods(clientId,{scope:'RECOMMENDED',mealHead,limit:5});const foods=(response.items||response.foods||[]).filter(food=>food.primaryActionEnabled!==false).slice(0,5);meals.push({mealHead,options:foods.map((food,index)=>normalOption(food,mealHead,index))})}return{meals,generationSnapshot:{source:'FITEATSY_GOVERNED_CATALOGUE',readOnly:true}}},
+  read: async(_clientId,planId)=>{const result=await readPlan(planId);return{options:result.options,planVersionId:editorVersionAliases.get(planId)||result.planVersionId}},
+  replaceSelection: async(_clientId,planId,payload)=>{const result=await readPlan(planId);const options=mergePersistedOptions(result.options,payload.options);await persistOptions(planId,options);editorVersionAliases.set(planId,payload.expectedPlanVersionId);return{planVersionId:payload.expectedPlanVersionId}},
+  replaceComponent: async()=>{throw new Error('Replace the complete governed meal option and save a new version.');},
+  addComponent: async()=>{throw new Error('Create a governed meal option and save a new version.');},
+  removeComponent: async()=>{throw new Error('Remove the complete meal option and save a new version.');},
+  updateServing: async()=>{throw new Error('Serving changes are persisted with the complete plan version.');},
   search: searchExternalCommonFoods,
-  saveOption: createExternalCommonFoodOption,
+  saveOption: async(_clientId,planId,payload)=>{const result=await readPlan(planId);const option={combinationId:crypto.randomUUID(),mealHead:payload.mealHead,selected:true,sourceType:'MANUAL',components:payload.components,nutrition:payload.components.reduce((sum,item)=>({kcal:(sum.kcal||0)+Number(item.nutrition?.kcal||0),protein:(sum.protein||0)+Number(item.nutrition?.protein||0),carbohydrate:(sum.carbohydrate||0)+Number(item.nutrition?.carbohydrate||0),fat:(sum.fat||0)+Number(item.nutrition?.fat||0),fibre:(sum.fibre||0)+Number(item.nutrition?.fibre||0)}),{})};await persistOptions(planId,[...result.options,option]);return option},
   autoBalance: async () => { throw new Error('Use Edit quantity to select a governed serving.'); },
 };
 
 const initialForm = { name: '', dailyCalories: '', dailyProtein: '' };
 const show = (value) => Array.isArray(value) ? value.join(', ') || 'Not provided' : value || 'Not provided';
+const projectDetail=(detail)=>({id:detail.plan.id,name:detail.plan.title,status:detail.plan.status,updatedAt:detail.plan.updated_at,version:{id:detail.current_version?.id,number:detail.plan.current_version,plan:{dailyTargets:{calories:detail.plan.daily_calories_target,protein:Number(detail.plan.daily_protein_target_g)},meals:COMMON_FOOD_MEALS.map(([mealHead])=>({mealHead,options:(detail.options||[]).filter(item=>item.mealHead===mealHead)}))}},versions:detail.versions});
 
 export default function ExternalMultiDietPlan({ clientId, context, onError }) {
   const [plans, setPlans] = useState([]);
@@ -48,8 +42,9 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
   const load = useCallback(async (preferredId) => {
     setLoading(true);
     try {
-      const result = await listExternalDietPlans(clientId);
-      const next = result.plans || [];
+      const result = await listConsultantDietPlans(clientId);
+      const next = await Promise.all((result.items || []).map((item) => getConsultantDietPlan(item.id).then(projectDetail)));
+      next.forEach((plan) => editorVersionAliases.delete(plan.id));
       setPlans(next);
       setSelectedId((current) => preferredId || (next.some((plan) => plan.id === current) ? current : next[0]?.id || ''));
     } catch (error) {
@@ -66,9 +61,9 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
     if (!valid || busy) return;
     setBusy('create'); setMessage(''); onError('');
     try {
-      const result = await createExternalDietPlan(clientId, { name: form.name.trim(), dailyCalories: Number(form.dailyCalories), dailyProtein: Number(form.dailyProtein) });
+      const result = await createConsultantDietPlan({ client_id: clientId, name: form.name.trim(), daily_calories_target: Number(form.dailyCalories), daily_protein_target_g: Number(form.dailyProtein) });
       setForm(initialForm);
-      await load(result.plan.id);
+      await load(result.id);
       setMessage('A new independent Diet Plan draft was created and reloaded.');
     } catch (error) { onError(error.message || 'Unable to create Diet Plan.'); }
     finally { setBusy(''); }
@@ -79,27 +74,20 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
     setBusy(action); setMessage(''); onError('');
     try {
       if (action === 'save') {
-        const options = selected.version.plan.meals.flatMap((meal) => meal.options);
-        await saveExternalDietPlanById(clientId, selected.id, options);
+        await editorRef.current?.save();
         setMessage('Draft saved and reloaded from persistent storage.');
       } else {
-        if (!window.confirm(`Publish “${selected.name}” to this client? Published history remains immutable.`)) return;
-        await publishExternalDietPlanById(clientId, selected.id);
-        setMessage('Diet Plan published. Its published version is now immutable.');
+        if (selected.status !== 'APPROVED') {
+          await reviewConsultantDietPlan(selected.id, { action: 'SUBMIT', expected_version: selected.version.number });
+          setMessage('Exact Diet Plan version submitted for Senior Consultant review.');
+        } else {
+          if (!window.confirm(`Publish approved “${selected.name}” to this client? Published history remains immutable.`)) return;
+          await publishConsultantDietPlan(selected.id);
+          setMessage('Approved Diet Plan version published.');
+        }
       }
       await load(selected.id);
     } catch (error) { onError(error.message || 'Unable to update Diet Plan.'); }
-    finally { setBusy(''); }
-  };
-
-  const download = async () => {
-    if (!selected || busy) return;
-    setBusy('download'); onError('');
-    try {
-      const { blob, filename } = await downloadExternalDietPlanVersion(clientId, selected.version.id);
-      const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
-      anchor.href = url; anchor.download = filename; anchor.click(); URL.revokeObjectURL(url);
-    } catch (error) { onError(error.message || 'Unable to export this Diet Plan version.'); }
     finally { setBusy(''); }
   };
 
@@ -118,7 +106,7 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
       {plans.length > 0 && <div className="mt-4 grid gap-3 md:grid-cols-2">{plans.map((plan) => <button key={plan.id} onClick={() => setSelectedId(plan.id)} className={`rounded-xl border p-4 text-left ${plan.id === selected?.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}><strong>{plan.name}</strong><p className="mt-1 text-xs text-slate-500">{plan.status.replaceAll('_', ' ')} · {plan.version.plan.dailyTargets.calories} kcal · {plan.version.plan.dailyTargets.protein} g protein</p><p className="mt-1 text-xs text-slate-400">Updated {new Date(plan.updatedAt).toLocaleString()}</p></button>)}</div>}
     </section>
 
-    {selected && <><section className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-blue-700">{selected.status === 'PUBLISHED' ? 'Published Plan' : 'Draft Plan'}</p><h3 className="mt-1 text-xl font-semibold">{selected.name} · Version {selected.version.number}</h3></div><div className="flex flex-wrap gap-2"><button disabled={busy} onClick={download} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy === 'download' ? 'Preparing DOCX…' : 'Download DOCX'}</button>{selected.status === 'DRAFT' && <button disabled={busy} onClick={() => persist('save')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save Draft'}</button>}<button disabled={busy || selected.status === 'PUBLISHED'} onClick={() => persist('publish')} className="min-h-11 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">{selected.status === 'PUBLISHED' ? 'Published' : busy === 'publish' ? 'Publishing…' : 'Publish to Client'}</button></div></div></section><section className="rounded-2xl border border-slate-200 bg-white p-5"><CommonFoodPlanEditor key={`${selected.id}:${selected.version.id}`} ref={editorRef} clientId={clientId} dietPlanId={selected.id} planVersionId={selected.version.id} generationRequestId={1} lifecycle={selected.status === 'DRAFT' ? 'draft' : 'published'} initialOptions={selected.version.plan.meals.flatMap((meal) => meal.options)} legacyMealPlan={{}} readOnly={selected.status !== 'DRAFT'} authoringApi={authoringApi} templatesEnabled={false} proposalsEnabled={false} autoBalanceEnabled={false} onStale={() => load(selected.id)} /></section><ExternalDietPlanHistory key={selected.id} clientId={clientId} planId={selected.id} onDraftCreated={() => load(selected.id)} onError={onError}/></>}
+    {selected && <><section className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-blue-700">{selected.status.replaceAll('_',' ')}</p><h3 className="mt-1 text-xl font-semibold">{selected.name} · Version {selected.version.number}</h3><p className="mt-1 text-sm text-slate-600">{selected.version.plan.dailyTargets.calories} kcal · {selected.version.plan.dailyTargets.protein} g protein</p></div><div className="flex flex-wrap gap-2">{['DRAFT','SAVED','CHANGES_REQUESTED'].includes(selected.status) && <button disabled={busy} onClick={() => persist('save')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save Draft'}</button>}<button disabled={busy || ['SUBMITTED','UNDER_REVIEW','PUBLISHED'].includes(selected.status)} onClick={() => persist('publish')} className="min-h-11 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">{selected.status === 'PUBLISHED' ? 'Published' : selected.status === 'APPROVED' ? 'Publish approved version' : busy === 'publish' ? 'Submitting…' : 'Submit for review'}</button></div></div></section><section className="rounded-2xl border border-slate-200 bg-white p-5"><CommonFoodPlanEditor key={`${selected.id}:${selected.version.id}`} ref={editorRef} clientId={clientId} dietPlanId={selected.id} planVersionId={selected.version.id} generationRequestId={1} lifecycle={['DRAFT','SAVED','CHANGES_REQUESTED'].includes(selected.status) ? 'draft' : 'published'} initialOptions={selected.version.plan.meals.flatMap((meal) => meal.options)} legacyMealPlan={{}} readOnly={!['DRAFT','SAVED','CHANGES_REQUESTED'].includes(selected.status)} authoringApi={authoringApi} templatesEnabled={false} proposalsEnabled={false} autoBalanceEnabled={false} onStale={() => load(selected.id)} /></section><section className="rounded-2xl border bg-white p-5"><h4 className="font-semibold">Version history</h4><ul className="mt-2 space-y-1 text-sm">{selected.versions.map(version=><li key={version.id}>Version {version.version} · {version.status} · {version.nutrition_snapshot?.option_count||0}/35 options</li>)}</ul></section></>}
 
     <form onSubmit={create} className="rounded-2xl border border-slate-200 bg-white p-5"><h3 className="text-lg font-semibold">Create another Diet Plan</h3><p className="mt-1 text-sm text-slate-500">Each plan has its own name, targets, draft and publication history.</p><div className="mt-4 grid gap-3 md:grid-cols-3"><label className="text-sm font-semibold">Plan name<input required minLength={2} maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label><label className="text-sm font-semibold">Calories (800–6000)<input required type="number" min="800" max="6000" value={form.dailyCalories} onChange={(event) => setForm({ ...form, dailyCalories: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label><label className="text-sm font-semibold">Protein (20–400 g)<input required type="number" min="20" max="400" step="0.1" value={form.dailyProtein} onChange={(event) => setForm({ ...form, dailyProtein: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label></div><button disabled={!valid || busy} className="mt-4 min-h-11 rounded-xl bg-slate-950 px-5 font-semibold text-white disabled:opacity-40">{busy === 'create' ? 'Creating…' : 'Create independent plan'}</button></form>
     {message && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{message}</p>}

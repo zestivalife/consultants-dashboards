@@ -26,7 +26,8 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            ProfessionTemplatePublish, ProfessionCustomQuestionCreate,
                            ProfessionIntakeReviewCreate, AssessmentAssign,
                            AssessmentAnswerSave, AssessmentComplete,
-                           ProfessionPlanCreate, ProfessionPlanSave)
+                           ProfessionPlanCreate, ProfessionPlanSave,
+                           DietPlanCreate, DietPlanSave, DietPlanReviewAction)
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
 from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete, FeedbackRequestCreate, FeedbackSubmit, FeedbackAction, TeleconsultConfigure, TeleconsultTransition, SecureConversationCreate, SecureMessageCreate, CalendarConnectionPrepare, CalendarBusyBlockImport, CalendarExternalChange, MarketplaceCommissionRuleCreate, MarketplacePayoutUpdate, RefundCreate, RefundTransition, SupportTicketCreate, SupportTicketUpdate
@@ -197,6 +198,13 @@ PLAN_CAPABILITIES = {
     "HABIT_PLAN":"HABIT_PLAN", "WELLNESS_PLAN":"CARE_PLAN", "BEHAVIOUR_INTERVENTION_PLAN":"BEHAVIOURAL_PLAN",
     "OT_PLAN":"THERAPY_PLAN", "DIABETES_EDUCATION_PLAN":"CARE_PLAN", "SUPPORT_PLAN":"THERAPY_PLAN",
 }
+
+DIET_PLAN_REVIEW_ROLES = {"SENIOR_CONSULTANT", "PRACTICE_ADMIN", "PRACTICE_OWNER", "SUPER_ADMIN", "SUPERUSER", "PLATFORM_OWNER"}
+
+def _diet_plan_actor_clause(ctx):
+    if ctx.get("role") in DIET_PLAN_REVIEW_ROLES:
+        return "", {}
+    return " AND authorised_consultant_id=:actor", {"actor": ctx["user_id"]}
 
 
 async def configuration(db: AsyncSession, ctx):
@@ -999,6 +1007,141 @@ async def publish_profession_plan(request:Request,plan_id:UUID,ctx=Depends(conte
     now=datetime.now(timezone.utc);version=(await db.execute(text("UPDATE external_profession_plan_versions SET status='PUBLISHED',published_at=:now WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version RETURNING id"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).scalar_one()
     await db.execute(text("UPDATE external_profession_plans SET status='PUBLISHED',updated_at=:now WHERE id=:plan AND tenant_id=:tenant"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"]})
     await db.execute(text("INSERT INTO external_profession_plan_audit_events(id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,created_at) VALUES (:id,:plan,:version,:tenant,:client,'PUBLISHED',:actor,:now)"),{"id":uuid4(),"plan":plan_id,"version":version,"tenant":ctx["tenant_id"],"client":plan["client_id"],"actor":ctx["user_id"],"now":now});await db.commit()
+    return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"]},"error":None,"request_id":request.state.correlation_id}
+
+async def _diet_plan_row(request, db, ctx, plan_id):
+    actor_clause, actor_params = _diet_plan_actor_clause(ctx)
+    row=(await db.execute(text(f"""SELECT id,tenant_id,client_id,profession_code,plan_type,title,status,current_version,
+      daily_calories_target,daily_protein_target_g,authorised_consultant_id,created_at,updated_at
+      FROM external_profession_plans WHERE id=:id AND tenant_id=:tenant AND plan_type='DIET_PLAN'{actor_clause}"""),
+      {"id":plan_id,"tenant":ctx["tenant_id"],**actor_params})).mappings().first()
+    return row
+
+async def _diet_plan_projection(db, plan):
+    versions=[dict(row) for row in (await db.execute(text("""SELECT id,version,status,title,nutrition_snapshot,published_at,created_at
+      FROM external_profession_plan_versions WHERE plan_id=:plan AND tenant_id=:tenant ORDER BY version DESC"""),
+      {"plan":plan["id"],"tenant":plan["tenant_id"]})).mappings().all()]
+    current=next((row for row in versions if row["version"]==plan["current_version"]),None)
+    options=[]
+    if current:
+        section=(await db.execute(text("""SELECT id FROM external_profession_plan_sections
+          WHERE plan_version_id=:version AND tenant_id=:tenant AND section_key='meal_options'"""),
+          {"version":current["id"],"tenant":plan["tenant_id"]})).scalar_one_or_none()
+        if section:
+            items=(await db.execute(text("""SELECT content FROM external_profession_plan_items
+              WHERE plan_section_id=:section AND tenant_id=:tenant ORDER BY sort_order"""),
+              {"section":section,"tenant":plan["tenant_id"]})).scalars().all()
+            options=[dict(item or {}) for item in items]
+    value=dict(plan);value["id"]=str(value["id"]);value["daily_protein_target_g"]=float(value["daily_protein_target_g"] or 0)
+    for version in versions: version["id"]=str(version["id"])
+    return {"plan":value,"versions":versions,"current_version":current,"options":options}
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/diet-plans")
+async def list_diet_plans(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    capability_denied=await require_capability(request,db,ctx,"DIET_PLAN")
+    if capability_denied:return capability_denied
+    actor_clause,actor_params=_diet_plan_actor_clause(ctx)
+    rows=(await db.execute(text(f"""SELECT id,tenant_id,client_id,profession_code,plan_type,title,status,current_version,
+      daily_calories_target,daily_protein_target_g,authorised_consultant_id,created_at,updated_at
+      FROM external_profession_plans WHERE tenant_id=:tenant AND client_id=:client AND plan_type='DIET_PLAN'{actor_clause}
+      ORDER BY updated_at DESC"""),{"tenant":ctx["tenant_id"],"client":client_id,**actor_params})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/diet-plans",status_code=201)
+async def create_diet_plan(request:Request,body:DietPlanCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    capability_denied=await require_capability(request,db,ctx,"DIET_PLAN")
+    if capability_denied:return capability_denied
+    config=await configuration(db,ctx);now=datetime.now(timezone.utc);plan_id=uuid4();version_id=uuid4()
+    await db.execute(text("""INSERT INTO external_profession_plans
+      (id,tenant_id,client_id,profession_code,plan_type,title,status,current_version,created_by,authorised_consultant_id,daily_calories_target,daily_protein_target_g,created_at,updated_at)
+      VALUES (:id,:tenant,:client,:profession,'DIET_PLAN',:title,'DRAFT',1,:actor,:actor,:calories,:protein,:now,:now)"""),
+      {"id":plan_id,"tenant":ctx["tenant_id"],"client":body.client_id,"profession":config["profession"],"title":body.name,"actor":ctx["user_id"],"calories":body.daily_calories_target,"protein":body.daily_protein_target_g,"now":now})
+    snapshot={"daily_calories_target":body.daily_calories_target,"daily_protein_target_g":body.daily_protein_target_g,"actual_calories":0,"actual_protein_g":0,"source":"CONSULTANT_AUTHORED"}
+    await db.execute(text("""INSERT INTO external_profession_plan_versions
+      (id,plan_id,tenant_id,client_id,version,status,title,nutrition_snapshot,created_by,created_at)
+      VALUES (:id,:plan,:tenant,:client,1,'DRAFT',:title,CAST(:snapshot AS jsonb),:actor,:now)"""),
+      {"id":version_id,"plan":plan_id,"tenant":ctx["tenant_id"],"client":body.client_id,"title":body.name,"snapshot":json.dumps(snapshot),"actor":ctx["user_id"],"now":now})
+    await db.execute(text("""INSERT INTO external_profession_plan_audit_events
+      (id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,metadata,created_at)
+      VALUES (:id,:plan,:version,:tenant,:client,'CREATED',:actor,CAST(:metadata AS jsonb),:now)"""),
+      {"id":uuid4(),"plan":plan_id,"version":version_id,"tenant":ctx["tenant_id"],"client":body.client_id,"actor":ctx["user_id"],"metadata":json.dumps(snapshot),"now":now})
+    await db.commit()
+    return {"success":True,"data":{"id":str(plan_id),"version_id":str(version_id),"status":"DRAFT","version":1},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/diet-plans/{plan_id}")
+async def get_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    plan=await _diet_plan_row(request,db,ctx,plan_id)
+    if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    return {"success":True,"data":await _diet_plan_projection(db,plan),"error":None,"request_id":request.state.correlation_id}
+
+@app.put("/api/v1/practice-operations/diet-plans/{plan_id}/draft")
+async def save_diet_plan(request:Request,plan_id:UUID,body:DietPlanSave,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    plan=await _diet_plan_row(request,db,ctx,plan_id)
+    if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    if plan["status"] in {"APPROVED","PUBLISHED","ARCHIVED"}:return error(request,409,"DIET_PLAN_IMMUTABLE","Approved and published Diet Plans are immutable")
+    if plan["current_version"]!=body.expected_version:return error(request,409,"STALE_WRITE","This Diet Plan changed. Refresh and retry")
+    now=datetime.now(timezone.utc);next_version=plan["current_version"]+1;version_id=uuid4()
+    actual_calories=sum(float((item.get("nutrition") or {}).get("kcal") or 0) for item in body.options if item.get("selected",True))
+    actual_protein=sum(float((item.get("nutrition") or {}).get("protein") or 0) for item in body.options if item.get("selected",True))
+    snapshot={"daily_calories_target":plan["daily_calories_target"],"daily_protein_target_g":float(plan["daily_protein_target_g"] or 0),"actual_calories":round(actual_calories,2),"actual_protein_g":round(actual_protein,2),"option_count":len(body.options)}
+    await db.execute(text("""INSERT INTO external_profession_plan_versions
+      (id,plan_id,tenant_id,client_id,version,status,title,nutrition_snapshot,created_by,created_at)
+      VALUES (:id,:plan,:tenant,:client,:version,'SAVED',:title,CAST(:snapshot AS jsonb),:actor,:now)"""),
+      {"id":version_id,"plan":plan_id,"tenant":ctx["tenant_id"],"client":plan["client_id"],"version":next_version,"title":plan["title"],"snapshot":json.dumps(snapshot),"actor":ctx["user_id"],"now":now})
+    section_id=uuid4();await db.execute(text("""INSERT INTO external_profession_plan_sections
+      (id,plan_version_id,tenant_id,section_key,title,content,sort_order) VALUES (:id,:version,:tenant,'meal_options','Meal options',CAST(:content AS jsonb),1)"""),
+      {"id":section_id,"version":version_id,"tenant":ctx["tenant_id"],"content":json.dumps(snapshot)})
+    for index,item in enumerate(body.options):
+        await db.execute(text("""INSERT INTO external_profession_plan_items
+          (id,plan_section_id,tenant_id,item_key,label,content,sort_order) VALUES (:id,:section,:tenant,:key,:label,CAST(:content AS jsonb),:sort)"""),
+          {"id":uuid4(),"section":section_id,"tenant":ctx["tenant_id"],"key":f"option_{index+1}","label":str(item.get("mealHead") or "Meal option"),"content":json.dumps(item),"sort":index+1})
+    await db.execute(text("UPDATE external_profession_plans SET status='SAVED',current_version=:version,updated_at=:now WHERE id=:plan AND tenant_id=:tenant"),{"version":next_version,"now":now,"plan":plan_id,"tenant":ctx["tenant_id"]})
+    await db.execute(text("""INSERT INTO external_profession_plan_audit_events
+      (id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,metadata,created_at)
+      VALUES (:id,:plan,:version,:tenant,:client,'SAVED',:actor,CAST(:metadata AS jsonb),:now)"""),
+      {"id":uuid4(),"plan":plan_id,"version":version_id,"tenant":ctx["tenant_id"],"client":plan["client_id"],"actor":ctx["user_id"],"metadata":json.dumps(snapshot),"now":now})
+    await db.commit()
+    return {"success":True,"data":{"id":str(plan_id),"version_id":str(version_id),"status":"SAVED","version":next_version,"nutrition":snapshot},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/diet-plans/{plan_id}/review")
+async def review_diet_plan(request:Request,plan_id:UUID,body:DietPlanReviewAction,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    plan=await _diet_plan_row(request,db,ctx,plan_id)
+    if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    if plan["current_version"]!=body.expected_version:return error(request,409,"STALE_WRITE","This Diet Plan changed. Refresh and retry")
+    transitions={"SUBMIT":({"DRAFT","SAVED","CHANGES_REQUESTED"},"SUBMITTED"),"START_REVIEW":({"SUBMITTED"},"UNDER_REVIEW"),"REQUEST_CHANGES":({"SUBMITTED","UNDER_REVIEW"},"CHANGES_REQUESTED"),"APPROVE":({"UNDER_REVIEW"},"APPROVED")}
+    allowed,target=transitions[body.action]
+    if plan["status"] not in allowed:return error(request,409,"INVALID_DIET_PLAN_TRANSITION",f"Cannot {body.action.lower().replace('_',' ')} a {plan['status'].lower()} Diet Plan")
+    if body.action!="SUBMIT" and ctx.get("role") not in DIET_PLAN_REVIEW_ROLES:return error(request,403,"SENIOR_REVIEW_REQUIRED","Senior Consultant or administrator authority is required")
+    now=datetime.now(timezone.utc);version_id=(await db.execute(text("SELECT id FROM external_profession_plan_versions WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version"),{"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).scalar_one()
+    await db.execute(text("UPDATE external_profession_plans SET status=:status,updated_at=:now WHERE id=:plan AND tenant_id=:tenant"),{"status":target,"now":now,"plan":plan_id,"tenant":ctx["tenant_id"]})
+    await db.execute(text("UPDATE external_profession_plan_versions SET status=:status WHERE id=:version AND tenant_id=:tenant"),{"status":target,"version":version_id,"tenant":ctx["tenant_id"]})
+    await db.execute(text("""INSERT INTO external_profession_plan_audit_events
+      (id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,metadata,created_at)
+      VALUES (:id,:plan,:version,:tenant,:client,:event,:actor,CAST(:metadata AS jsonb),:now)"""),
+      {"id":uuid4(),"plan":plan_id,"version":version_id,"tenant":ctx["tenant_id"],"client":plan["client_id"],"event":target,"actor":ctx["user_id"],"metadata":json.dumps({"reason":body.reason,"version":body.expected_version}),"now":now})
+    await db.commit()
+    return {"success":True,"data":{"id":str(plan_id),"status":target,"version":body.expected_version},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/diet-plans/{plan_id}/publish")
+async def publish_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    plan=await _diet_plan_row(request,db,ctx,plan_id)
+    if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    if plan["status"]!="APPROVED":return error(request,409,"DIET_PLAN_APPROVAL_REQUIRED","Publish the exact approved version")
+    now=datetime.now(timezone.utc);version_id=(await db.execute(text("UPDATE external_profession_plan_versions SET status='PUBLISHED',published_at=:now WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version RETURNING id"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).scalar_one()
+    await db.execute(text("UPDATE external_profession_plans SET status='PUBLISHED',updated_at=:now WHERE id=:plan AND tenant_id=:tenant"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"]})
+    await db.execute(text("INSERT INTO external_profession_plan_audit_events(id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,created_at) VALUES (:id,:plan,:version,:tenant,:client,'PUBLISHED',:actor,:now)"),{"id":uuid4(),"plan":plan_id,"version":version_id,"tenant":ctx["tenant_id"],"client":plan["client_id"],"actor":ctx["user_id"],"now":now});await db.commit()
     return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"]},"error":None,"request_id":request.state.correlation_id}
 
 async def _write_note_sections(db,tenant,version_id,sections):

@@ -34,6 +34,12 @@ export function createProfessionPlan(payload){return request('/profession-plans'
 export function getProfessionPlan(planId){return request(`/profession-plans/${encodeURIComponent(planId)}`);}
 export function saveProfessionPlan(planId,payload){return request(`/profession-plans/${encodeURIComponent(planId)}`,{method:'PATCH',body:JSON.stringify(payload)});}
 export function publishProfessionPlan(planId){return request(`/profession-plans/${encodeURIComponent(planId)}/publish`,{method:'POST'});}
+export function listConsultantDietPlans(clientId){return request(`/clients/${encodeURIComponent(clientId)}/diet-plans`);}
+export function createConsultantDietPlan(payload){return request('/diet-plans',{method:'POST',body:JSON.stringify(payload)});}
+export function getConsultantDietPlan(planId){return request(`/diet-plans/${encodeURIComponent(planId)}`);}
+export function saveConsultantDietPlan(planId,payload){return request(`/diet-plans/${encodeURIComponent(planId)}/draft`,{method:'PUT',body:JSON.stringify(payload)});}
+export function reviewConsultantDietPlan(planId,payload){return request(`/diet-plans/${encodeURIComponent(planId)}/review`,{method:'POST',body:JSON.stringify(payload)});}
+export function publishConsultantDietPlan(planId){return request(`/diet-plans/${encodeURIComponent(planId)}/publish`,{method:'POST'});}
 export function listSessionNotes(clientId){return request(`/clients/${encodeURIComponent(clientId)}/session-notes`);}
 export function createSessionNote(payload){return request('/session-notes',{method:'POST',body:JSON.stringify(payload)});}
 export function getSessionNote(noteId){return request(`/session-notes/${encodeURIComponent(noteId)}`);}
