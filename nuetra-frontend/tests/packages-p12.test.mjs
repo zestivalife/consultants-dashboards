@@ -11,7 +11,7 @@ const portal=fs.readFileSync(new URL('../pages/client-portal/[token].js',import.
 test('P12 adds the packages workspace without changing diet plan routing',()=>{
   assert.match(workspace,/\['packages', 'Packages', PackageOpen\]/);
   assert.match(workspace,/view==='packages'\?<ExternalPackages clients=\{clients\}/);
-  assert.match(workspace,/view==='plans'\?<PlanHistory/);
+  assert.match(workspace,/view==='plans'&&dietPlanEnabled\?<PlanHistory/);
 });
 
 test('package library supports create edit assignment and renewal truth',()=>{
