@@ -154,13 +154,13 @@ export function AuthProvider({ children }) {
 
   const clearError = () => setError(null);
 
-  async function login({ email, password, rememberMe = true, redirect = true }) {
+  async function login({ email, password, mfaCode = '', rememberMe = true, redirect = true }) {
     setIsLoading(true);
     setError(null);
 
     if (BACKEND_AUTH_ENABLED) {
       try {
-        const response = await authAPI.login(email, password);
+        const response = await authAPI.login(email, password, mfaCode);
         const nextUser = response?.user;
         const tokens = response?.tokens;
 

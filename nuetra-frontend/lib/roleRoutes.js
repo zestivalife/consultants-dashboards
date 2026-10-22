@@ -241,6 +241,10 @@ export function getAccountActionRoute(user) {
     return '/auth/change-temporary-password';
   }
 
+  if (String(user.role || '').toLowerCase() === 'internal_super_admin' && (!user.mfa_enabled || String(user.status || '').toUpperCase() === 'PENDING_MFA')) {
+    return '/auth/enrol-mfa';
+  }
+
   const status = String(user.status || 'ACTIVE').trim().toUpperCase();
   if (['INVITED', 'FIRST_LOGIN', 'ONBOARDING_IN_PROGRESS', 'PENDING_PROFILE'].includes(status)) {
     return '/profile';

@@ -118,10 +118,11 @@ async def accept(session: AsyncSession, *, token: str, password: str) -> tuple[s
     uri=f"otpauth://totp/{quote('Zestiva Internal:'+record.email)}?secret={secret}&issuer=Zestiva%20Internal&algorithm=SHA1&digits=6&period=30"
     return activation, uri
 
-async def confirm_mfa(session: AsyncSession, *, activation_token: str, code: str) -> User:
+async def confirm_mfa(session: AsyncSession, *, activation_token: str, code: str, expected_user_id: uuid.UUID | None = None) -> User:
     now=datetime.now(timezone.utc); digest=hash_token(activation_token)
     record=await session.scalar(select(InternalPrivilegedInvitation).where(InternalPrivilegedInvitation.activation_hash==digest))
     if not record or record.status!="ENROLLING_MFA" or not record.user_id: raise ForbiddenException("Invalid activation session")
+    if expected_user_id is not None and record.user_id != expected_user_id: raise ForbiddenException("MFA activation does not belong to this identity")
     if not record.expires_at or record.expires_at < now: raise ForbiddenException("Activation session expired")
     user=await UserRepository(session).get_by_id(record.user_id)
     if not user: raise NotFoundException("Identity not found")
@@ -132,6 +133,39 @@ async def confirm_mfa(session: AsyncSession, *, activation_token: str, code: str
     await AuditLogRepository(session).create("INTERNAL_PRIVILEGED_MFA_ENROLLED", user_id=user.id)
     await AuditLogRepository(session).create("INTERNAL_PRIVILEGED_ACCOUNT_ACTIVATED", user_id=user.id)
     await session.commit(); return user
+
+async def begin_first_admin_mfa_enrolment(session: AsyncSession, *, user_id: uuid.UUID) -> tuple[str, str]:
+    """Start MFA only after the bootstrap password has been permanently replaced."""
+    user = await UserRepository(session).get_by_id(user_id)
+    if not user or not user.role or user.role.name != ROLE:
+        raise NotFoundException("Internal privileged identity not found")
+    if user.must_change_password or user.credential_status == "TEMPORARY":
+        raise ForbiddenException("Permanent password replacement is required before MFA enrolment")
+    if user.mfa_enabled:
+        raise ConflictException("Privileged MFA is already enrolled")
+    if user.status != "PENDING_MFA":
+        raise ForbiddenException("Identity is not awaiting MFA enrolment")
+    record = await session.scalar(
+        select(InternalPrivilegedInvitation).where(
+            InternalPrivilegedInvitation.user_id == user.id,
+            InternalPrivilegedInvitation.role_name == ROLE,
+        ).with_for_update()
+    )
+    if not record or not record.bootstrap_grant_hash:
+        raise ForbiddenException("Governed first-administrator evidence is unavailable")
+    now = datetime.now(timezone.utc)
+    activation = secrets.token_urlsafe(48)
+    secret = base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
+    user.mfa_secret_encrypted = _fernet().encrypt(secret.encode()).decode()
+    user.mfa_enabled = False
+    user.mfa_last_accepted_step = None
+    record.activation_hash = hash_token(activation)
+    record.status = "ENROLLING_MFA"
+    record.expires_at = now + timedelta(minutes=15)
+    await AuditLogRepository(session).create("FIRST_INTERNAL_ADMIN_MFA_ENROLMENT_STARTED", user_id=user.id)
+    await session.commit()
+    uri = f"otpauth://totp/{quote('Zestiva Internal:'+record.email)}?secret={secret}&issuer=Zestiva%20Internal&algorithm=SHA1&digits=6&period=30"
+    return activation, uri
 
 async def assert_no_external_entitlement(session: AsyncSession, user_id: uuid.UUID) -> None:
     count = await session.scalar(select(UserProductAccess.id).where(UserProductAccess.user_id==user_id).limit(1))

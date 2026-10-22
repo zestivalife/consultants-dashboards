@@ -5,13 +5,13 @@ from html import escape
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import get_current_user
+from app.api.v1.dependencies import get_current_user, get_current_user_allow_password_change
 from app.config import get_settings
 from app.core.email import get_email_service
 from app.core.response import success_response
 from app.db.session import get_db
 from app.schemas.auth import UserResponse
-from app.schemas.internal_privileged_iam import PrivilegedInvitationAccept, PrivilegedInvitationCreate, PrivilegedMfaConfirm
+from app.schemas.internal_privileged_iam import PrivilegedInvitationAccept, PrivilegedInvitationCreate, PrivilegedMfaConfirm, PrivilegedMfaEnrollmentConfirm
 from app.services import internal_privileged_iam_service as service
 
 router = APIRouter(tags=["internal-privileged-iam"])
@@ -41,6 +41,16 @@ async def accept_invitation(body: PrivilegedInvitationAccept, session: AsyncSess
 async def confirm_mfa(body: PrivilegedMfaConfirm, session: AsyncSession=Depends(get_db)):
     await service.confirm_mfa(session,activation_token=body.activation_token,code=body.code)
     return success_response(data={"status":"ACTIVE","login_required":True},message="MFA enrolled; sign in with password and authenticator code")
+
+@router.post("/auth/internal-mfa/enrol")
+async def enrol_first_admin_mfa(session: AsyncSession=Depends(get_db), current_user: UserResponse=Depends(get_current_user_allow_password_change)):
+    activation,uri=await service.begin_first_admin_mfa_enrolment(session,user_id=current_user.id)
+    return success_response(data={"activation_token":activation,"otp_auth_uri":uri,"status":"MFA_ENROLMENT_REQUIRED"},message="MFA enrolment started")
+
+@router.post("/auth/internal-mfa/confirm")
+async def confirm_first_admin_mfa(body: PrivilegedMfaEnrollmentConfirm, session: AsyncSession=Depends(get_db), current_user: UserResponse=Depends(get_current_user_allow_password_change)):
+    await service.confirm_mfa(session,activation_token=body.activation_token,code=body.code,expected_user_id=current_user.id)
+    return success_response(data={"status":"ACTIVE","login_required":True},message="MFA enrolled; sign in again with password and authenticator code")
 
 @router.post("/owner/internal-privileged-users/{user_id}/revoke")
 async def revoke_privileged_user(user_id: uuid.UUID, session: AsyncSession=Depends(get_db), current_user: UserResponse=Depends(get_current_user)):

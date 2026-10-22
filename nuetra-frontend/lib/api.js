@@ -366,11 +366,11 @@ export const authAPI = {
     });
   },
 
-  login(identifier, password) {
+  login(identifier, password, mfaCode = '') {
     const isMobile = /^\+?[0-9][0-9\s-]{8,}$/.test(identifier.trim());
     return apiRequest('/auth/login', {
       method: 'POST',
-      body: isMobile ? { mobile_number: identifier, password } : { email: identifier, password },
+      body: isMobile ? { mobile_number: identifier, password, ...(mfaCode ? { mfa_code: mfaCode } : {}) } : { email: identifier, password, ...(mfaCode ? { mfa_code: mfaCode } : {}) },
     });
   },
 
@@ -398,6 +398,16 @@ export const authAPI = {
         new_password: newPassword,
         confirm_password: confirmPassword,
       },
+    });
+  },
+
+  beginInternalMfaEnrollment() {
+    return apiRequest('/auth/internal-mfa/enrol', { method: 'POST' });
+  },
+
+  confirmInternalMfaEnrollment(activationToken, code) {
+    return apiRequest('/auth/internal-mfa/confirm', {
+      method: 'POST', body: { activation_token: activationToken, code },
     });
   },
 

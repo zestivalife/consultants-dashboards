@@ -13,6 +13,7 @@ STATUS_ONBOARDING_COMPLETED = "ONBOARDING_COMPLETED"
 STATUS_UNDER_REVIEW = "UNDER_REVIEW"
 STATUS_APPROVED = "APPROVED"
 STATUS_PASSWORD_CHANGE_REQUIRED = "PASSWORD_CHANGE_REQUIRED"
+STATUS_PENDING_MFA = "PENDING_MFA"
 STATUS_ACTIVE = "ACTIVE"
 STATUS_REJECTED = "REJECTED"
 STATUS_ON_HOLD = "ON_HOLD"
@@ -36,6 +37,7 @@ AUTHENTICATABLE_STATUSES = {
     STATUS_UNDER_REVIEW,
     STATUS_APPROVED,
     STATUS_PASSWORD_CHANGE_REQUIRED,
+    STATUS_PENDING_MFA,
     STATUS_ACTIVE,
     LEGACY_STATUS_PENDING_PROFILE,
     LEGACY_STATUS_PENDING_VERIFICATION,
@@ -105,6 +107,13 @@ def next_action_for_user(user) -> NextAccountAction:
             type="PASSWORD_CHANGE_REQUIRED",
             route="/auth/change-temporary-password",
             reason="Permanent password must be created before workspace access.",
+        )
+
+    if status == STATUS_PENDING_MFA:
+        return NextAccountAction(
+            type="MFA_ENROLMENT_REQUIRED",
+            route="/auth/enrol-mfa",
+            reason="Authenticator enrolment must be confirmed before privileged access.",
         )
 
     if status in ONBOARDING_STATUSES:
