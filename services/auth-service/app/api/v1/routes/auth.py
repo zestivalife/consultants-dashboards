@@ -132,7 +132,6 @@ async def change_temporary_password(
         body.confirm_password,
         temporary_only=True,
         issue_new_session=True,
-        mfa_assured=current_user.mfa_assured,
         ip_address=_client_ip(request),
         user_agent=request.headers.get("User-Agent"),
     )

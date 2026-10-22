@@ -370,42 +370,6 @@ async def test_platform_owner_password_reset_preserves_lifecycle_invariants(sess
 
 
 @pytest.mark.asyncio
-async def test_internal_admin_password_reset_preserves_mfa_enrolment(session: AsyncSession):
-    internal_role = await _create_role(session, "internal_super_admin")
-    internal_admin = await _create_user(
-        session,
-        internal_role,
-        "internal-admin@zestiva.in",
-        is_active=True,
-        is_verified=True,
-        email_verified=True,
-        status="ACTIVE",
-        must_change_password=False,
-    )
-    internal_admin.mfa_enabled = True
-    internal_admin.mfa_secret_encrypted = "encrypted-secret-remains-encrypted"
-    internal_admin.mfa_last_accepted_step = 12345
-    owner_role = await _create_role(session, "platform_owner")
-    owner = await _create_user(session, owner_role, "reset-operator@zestiva.in")
-    actor = _actor_from_user(owner, permissions=["users.edit"])
-
-    await people_access_service.reset_user_password(
-        session,
-        internal_admin.id,
-        actor=actor,
-        ip_address="127.0.0.1",
-        user_agent="pytest",
-        request_id="req-reset-internal-admin",
-    )
-
-    assert internal_admin.must_change_password is True
-    assert internal_admin.credential_status == "TEMPORARY"
-    assert internal_admin.mfa_enabled is True
-    assert internal_admin.mfa_secret_encrypted == "encrypted-secret-remains-encrypted"
-    assert internal_admin.mfa_last_accepted_step == 12345
-
-
-@pytest.mark.asyncio
 async def test_create_user_rejects_duplicate_email(session: AsyncSession):
     owner_role = await _create_role(session, "platform_owner")
     consultant_role = await _create_role(session, "consultant")

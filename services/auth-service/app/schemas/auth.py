@@ -180,7 +180,6 @@ class UserResponse(BaseModel):
     next_action: NextAccountAction | None = None
     created_at: datetime
     mfa_assured: bool = False
-    mfa_enabled: bool = False
 
     model_config = {"from_attributes": True}
 

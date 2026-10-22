@@ -15,9 +15,5 @@ class PrivilegedMfaConfirm(BaseModel):
     activation_token: str = Field(min_length=40, max_length=256)
     code: str = Field(pattern=r"^[0-9]{6}$")
 
-class PrivilegedMfaEnrollmentConfirm(BaseModel):
-    activation_token: str = Field(min_length=40, max_length=256)
-    code: str = Field(pattern=r"^[0-9]{6}$")
-
 class PrivilegedInvitationId(BaseModel):
     invitation_id: uuid.UUID

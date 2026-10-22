@@ -273,7 +273,6 @@ async def _user_response(
             "reason": next_action.reason,
         },
         created_at=user.created_at,
-        mfa_enabled=bool(user.mfa_enabled),
     )
 
 
@@ -458,18 +457,14 @@ async def login(
 
     mfa_assured = False
     if user.role and user.role.name == "internal_super_admin":
-        from app.services.internal_privileged_iam_service import assert_no_external_entitlement, verify_totp
+        from app.services.internal_privileged_iam_service import assert_no_external_entitlement
         await assert_no_external_entitlement(session, user.id)
-        if user.mfa_enabled:
-            if not mfa_code:
-                await audit_repo.create("INTERNAL_PRIVILEGED_LOGIN_MFA_REQUIRED", user_id=user.id, ip_address=ip_address, user_agent=user_agent)
-                raise ForbiddenException("MFA code required")
-            step = verify_totp(user, mfa_code)
-            user.mfa_last_accepted_step = step
-            mfa_assured = True
-        elif not user.must_change_password and normalize_status(user.status) != "PENDING_MFA":
-            raise ForbiddenException("Privileged MFA enrolment required")
-        await audit_repo.create("INTERNAL_PRIVILEGED_PASSWORD_AUTHENTICATED", user_id=user.id, ip_address=ip_address, user_agent=user_agent)
+        await audit_repo.create(
+            "INTERNAL_PRIVILEGED_PASSWORD_AUTHENTICATED",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
 
     user.failed_login_attempts = 0
     user.lock_until = None
@@ -631,16 +626,6 @@ async def refresh(
     if user is None:
         raise UnauthorizedException("User not found")
 
-    if user.role and user.role.name == "internal_super_admin":
-        await audit_repo.create(
-            "INTERNAL_PRIVILEGED_REFRESH_REAUTH_REQUIRED",
-            user_id=user.id,
-            ip_address=ip_address,
-            user_agent=user_agent,
-        )
-        await session.commit()
-        raise ForbiddenException("Privileged session expired; password and MFA authentication are required")
-
     now = datetime.now(timezone.utc)
     if user.deleted_at is not None or str(user.status or "").upper() == "DELETED":
         await audit_repo.create(
@@ -745,7 +730,6 @@ async def change_password(
     *,
     temporary_only: bool = False,
     issue_new_session: bool = False,
-    mfa_assured: bool = False,
     ip_address: str | None = None,
     user_agent: str | None = None,
 ) -> dict | LoginResponse:
@@ -811,7 +795,7 @@ async def change_password(
         STATUS_APPROVED,
         STATUS_PASSWORD_CHANGE_REQUIRED,
     }:
-        user.status = "PENDING_MFA" if user.role and user.role.name == "internal_super_admin" and not user.mfa_enabled else STATUS_ACTIVE
+        user.status = STATUS_ACTIVE
     await user_repo.update(user)
     session.add(
         PasswordHistory(
@@ -850,7 +834,7 @@ async def change_password(
     permissions = await people_access_service.resolve_user_permissions(session, user)
     products = await people_access_service.resolve_user_products(session, user)
     return LoginResponse(
-        tokens=_build_tokens(user, raw_refresh, permissions, products, mfa_assured=mfa_assured),
+        tokens=_build_tokens(user, raw_refresh, permissions, products),
         user=await _user_response(session, user, permissions),
     )
 

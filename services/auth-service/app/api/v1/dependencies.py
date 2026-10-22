@@ -48,6 +48,4 @@ async def get_current_user(
     user = await get_current_user_allow_password_change(request, session)
     if user.must_change_password or user.credential_status == "TEMPORARY":
         raise ForbiddenException("Password change required before workspace access")
-    if user.role == "internal_super_admin" and not user.mfa_assured:
-        raise ForbiddenException("Recent MFA assurance is required for privileged access")
     return user

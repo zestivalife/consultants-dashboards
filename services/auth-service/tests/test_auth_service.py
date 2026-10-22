@@ -217,8 +217,7 @@ async def test_login_success(session: AsyncSession, seed_user: User):
 
 
 @pytest.mark.asyncio
-async def test_internal_super_admin_login_requires_and_accepts_totp(session: AsyncSession, monkeypatch):
-    monkeypatch.setattr(session, "commit", session.flush)
+async def test_internal_super_admin_login_succeeds_without_totp(session: AsyncSession):
     user = await _create_role_user(
         session,
         "internal_super_admin",
@@ -226,34 +225,23 @@ async def test_internal_super_admin_login_requires_and_accepts_totp(session: Asy
         password="Correct123!",
     )
     user.permissions = ["internal.users.read"]
-    user.mfa_enabled = True
-    user.mfa_secret_encrypted = "encrypted-test-secret"
     await session.flush()
-
-    with _always_allow_rate(), pytest.raises(ForbiddenException, match="MFA code required"):
-        await auth_service.login(session, email=user.email, password="Correct123!")
-
-    monkeypatch.setattr(
-        "app.services.internal_privileged_iam_service.verify_totp",
-        lambda target, code: 12345 if code == "123456" else (_ for _ in ()).throw(ForbiddenException("Invalid MFA code")),
-    )
-    with _always_allow_rate(), pytest.raises(ForbiddenException, match="Invalid MFA code"):
-        await auth_service.login(session, email=user.email, password="Correct123!", mfa_code="000000")
 
     with _always_allow_rate():
         result = await auth_service.login(
-            session, email=user.email, password="Correct123!", mfa_code="123456",
+            session,
+            email=user.email,
+            password="Correct123!",
         )
 
     claims = decode_access_token(result.tokens.access_token)
     assert result.user.role == "internal_super_admin"
-    assert claims["amr"] == ["pwd", "otp"]
-    assert claims["mfa_assured"] is True
+    assert claims["amr"] == ["pwd"]
+    assert claims["mfa_assured"] is False
 
 
 @pytest.mark.asyncio
-async def test_temporary_internal_admin_can_only_establish_password_change_session(session: AsyncSession, monkeypatch):
-    monkeypatch.setattr(session, "commit", session.flush)
+async def test_temporary_internal_admin_requires_replacement_then_receives_password_session(session: AsyncSession):
     user = await _create_role_user(
         session, "internal_super_admin", email="first-admin@nuetra.test", password="Temporary9!Pass",
     )
@@ -261,7 +249,6 @@ async def test_temporary_internal_admin_can_only_establish_password_change_sessi
     user.must_change_password = True
     user.credential_status = "TEMPORARY"
     user.status = "PASSWORD_CHANGE_REQUIRED"
-    user.mfa_enabled = False
     await session.flush()
 
     with _always_allow_rate():
@@ -276,37 +263,10 @@ async def test_temporary_internal_admin_can_only_establish_password_change_sessi
         temporary_only=True, issue_new_session=True,
     )
     changed_claims = decode_access_token(changed.tokens.access_token)
-    assert changed.user.status == "PENDING_MFA"
-    assert changed.user.next_action.route == "/auth/enrol-mfa"
+    assert changed.user.status == "ACTIVE"
+    assert changed.user.next_action is None
     assert changed_claims["mfa_assured"] is False
     assert changed_claims["password_change_required"] is False
-
-
-@pytest.mark.asyncio
-async def test_internal_admin_refresh_requires_fresh_password_and_mfa(session: AsyncSession, monkeypatch):
-    monkeypatch.setattr(session, "commit", session.flush)
-    user = await _create_role_user(
-        session, "internal_super_admin", email="internal-refresh@nuetra.test",
-    )
-    user.permissions = ["internal.users.read"]
-    user.mfa_enabled = True
-    user.mfa_secret_encrypted = "encrypted-by-test-double"
-    await session.flush()
-
-    monkeypatch.setattr(
-        "app.services.internal_privileged_iam_service.verify_totp",
-        lambda target, code: 424242,
-    )
-    with _always_allow_rate():
-        login_result = await auth_service.login(
-            session, email=user.email, password="Correct123!", mfa_code="123456",
-        )
-
-    with pytest.raises(ForbiddenException, match="password and MFA authentication"):
-        await auth_service.refresh(session, login_result.tokens.refresh_token)
-
-    with pytest.raises(UnauthorizedException, match="Invalid or expired refresh token"):
-        await auth_service.refresh(session, login_result.tokens.refresh_token)
 
 
 @pytest.mark.asyncio

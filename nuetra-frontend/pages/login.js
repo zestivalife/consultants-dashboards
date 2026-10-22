@@ -10,7 +10,7 @@ import AuthStoryPanel from '../components/public-consultant/AuthStoryPanel';
 
 export default function LoginPage() {
   const { login, user, isLoading, error, clearError, sampleUsers, isBackendAuthEnabled } = useAuth();
-  const [form, setForm] = useState({ email: isBackendAuthEnabled ? '' : sampleUsers?.[0]?.email || '', password: isBackendAuthEnabled ? '' : SAMPLE_PASSWORD, mfaCode: '', rememberMe: true });
+  const [form, setForm] = useState({ email: isBackendAuthEnabled ? '' : sampleUsers?.[0]?.email || '', password: isBackendAuthEnabled ? '' : SAMPLE_PASSWORD, rememberMe: true });
   const groupedUsers = useMemo(() => sampleUsers || [], [sampleUsers]);
 
   useEffect(() => {
@@ -71,8 +71,6 @@ export default function LoginPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-4">
-            {isBackendAuthEnabled ? <label className="block"><span className="mb-2 block text-sm text-[#424242]">Authenticator code <span className="text-[#616161]">(required for privileged Internal accounts)</span></span><div className="fluent-input flex items-center gap-3 rounded-[22px] px-4 py-3"><ShieldCheck className="h-4 w-4 text-[#616161]"/><input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={form.mfaCode} onChange={(event)=>setForm((current)=>({...current,mfaCode:event.target.value.replace(/\D/g,'')}))} className="w-full bg-transparent text-sm outline-none" placeholder="6-digit code"/></div></label> : null}
-
             <label className="block">
               <span className="mb-2 block text-sm text-[#424242]">Email or mobile number</span>
               <div className="fluent-input flex items-center gap-3 rounded-[22px] px-4 py-3 focus-within:border-[#0f6cbd]">
@@ -155,7 +153,7 @@ export default function LoginPage() {
                   <motion.button
                     key={account.id}
                     type="button"
-                    onClick={() => setForm({ email: account.email, password: SAMPLE_PASSWORD, mfaCode: '', rememberMe: true })}
+                    onClick={() => setForm({ email: account.email, password: SAMPLE_PASSWORD, rememberMe: true })}
                     whileHover={{ y: -2, borderColor: 'rgba(255,255,255,0.18)' }}
                     whileTap={{ scale: 0.995 }}
                     className="fluent-card-subtle fluent-card-hover flex w-full items-start justify-between gap-3 rounded-[22px] px-4 py-4 text-left"
