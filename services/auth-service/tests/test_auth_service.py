@@ -218,6 +218,7 @@ async def test_login_success(session: AsyncSession, seed_user: User):
 
 @pytest.mark.asyncio
 async def test_internal_super_admin_login_requires_and_accepts_totp(session: AsyncSession, monkeypatch):
+    monkeypatch.setattr(session, "commit", session.flush)
     user = await _create_role_user(
         session,
         "internal_super_admin",
@@ -251,7 +252,8 @@ async def test_internal_super_admin_login_requires_and_accepts_totp(session: Asy
 
 
 @pytest.mark.asyncio
-async def test_temporary_internal_admin_can_only_establish_password_change_session(session: AsyncSession):
+async def test_temporary_internal_admin_can_only_establish_password_change_session(session: AsyncSession, monkeypatch):
+    monkeypatch.setattr(session, "commit", session.flush)
     user = await _create_role_user(
         session, "internal_super_admin", email="first-admin@nuetra.test", password="Temporary9!Pass",
     )
@@ -282,6 +284,7 @@ async def test_temporary_internal_admin_can_only_establish_password_change_sessi
 
 @pytest.mark.asyncio
 async def test_internal_admin_refresh_requires_fresh_password_and_mfa(session: AsyncSession, monkeypatch):
+    monkeypatch.setattr(session, "commit", session.flush)
     user = await _create_role_user(
         session, "internal_super_admin", email="internal-refresh@nuetra.test",
     )

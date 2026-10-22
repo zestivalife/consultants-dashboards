@@ -3,10 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 from cryptography.fernet import Fernet
-from sqlalchemy import delete
 
 from app.core.exceptions import ForbiddenException
-from app.db.models.audit_log import AuthAuditLog
 from app.db.models.internal_privileged_invitation import InternalPrivilegedInvitation
 from app.db.models.role import Role
 from app.db.models.user import User
@@ -15,6 +13,7 @@ from app.services import internal_privileged_iam_service as service
 
 @pytest.mark.asyncio
 async def test_first_admin_mfa_enrolment_confirms_and_rejects_replay(session, monkeypatch):
+    monkeypatch.setattr(session, "commit", session.flush)
     role = Role(name="internal_super_admin")
     session.add(role)
     await session.flush()
@@ -49,14 +48,6 @@ async def test_first_admin_mfa_enrolment_confirms_and_rejects_replay(session, mo
     with pytest.raises(ForbiddenException, match="Invalid activation session"):
         await service.confirm_mfa(session, activation_token=activation, code=code, expected_user_id=user.id)
 
-    # The service commits by design. Remove this test's committed records so the
-    # session-scoped SQLite engine remains isolated for the rest of the suite.
-    await session.execute(delete(AuthAuditLog).where(AuthAuditLog.user_id == user.id))
-    await session.delete(invitation)
-    await session.delete(user)
-    await session.flush()
-    await session.delete(role)
-    await session.commit()
 
 
 def test_totp_rejects_expired_and_replayed_codes(monkeypatch):
