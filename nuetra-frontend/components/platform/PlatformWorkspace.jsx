@@ -40,6 +40,7 @@ import InternalClientProfileEnrichmentPanel from './InternalClientProfileEnrichm
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import { isCommonFoodCombinationEngineEnabled } from '../../lib/dietFeatureFlags';
 import { useAuth } from '../../context/AuthContext';
+import { useTenant } from '../../context/TenantContext';
 import { getInternalClientProfileEnrichment } from '../../lib/practiceOperationsApi';
 import { composeInternalClientProfile, formatDateOnlyDDMMYYYY } from '../../lib/internalClientProfile.mjs';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
@@ -1094,11 +1095,10 @@ function formatLifecycleLabel(value) {
   return String(value).replace(/_/g, ' ');
 }
 
-async function fetchRealClientWorkspace(clientId) {
-  const [baseProfile, enrichment] = await Promise.all([
-    getFiteatsyConsultantClientProfile(clientId),
-    getInternalClientProfileEnrichment(clientId),
-  ]);
+async function fetchRealClientWorkspace(clientId, includeInternalEnrichment = false) {
+  const baseProfile = await getFiteatsyConsultantClientProfile(clientId);
+  if (!includeInternalEnrichment) return baseProfile;
+  const enrichment = await getInternalClientProfileEnrichment(clientId);
   return composeInternalClientProfile(baseProfile, enrichment);
 }
 
@@ -1429,6 +1429,7 @@ function RealClientProfileDrawer({
   canManageNutrition = false,
   canReviewDietPlans = false,
   canPublishDietPlans = false,
+  canManageInternalProfile = false,
 }) {
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('Overview');
   const [nutritionSectionTab, setNutritionSectionTab] = useState('Diet Plan');
@@ -2542,7 +2543,7 @@ function RealClientProfileDrawer({
 
   const renderProfile = () => (
     <div className="space-y-4">
-      <InternalClientProfileEnrichmentPanel clientId={summaryClient?.id || client?.id} profile={profile} onSaved={onProfileRefresh} />
+      {canManageInternalProfile ? <InternalClientProfileEnrichmentPanel clientId={summaryClient?.id || client?.id} profile={profile} onSaved={onProfileRefresh} /> : null}
       {renderHealthProfile()}
       {renderLifestyle()}
     </div>
@@ -6768,6 +6769,7 @@ function OrganizationsPage({ organizationSignals }) {
 function PlatformWorkspace({ forcedRole }) {
   const router = useRouter();
   const { user, logout } = useAuth();
+  const { tenantType } = useTenant();
   const resolvedRole = forcedRole || user?.role || 'consultant';
   const roleKind = getRoleKind(resolvedRole);
   const isSeniorConsultant = String(resolvedRole).toLowerCase() === 'senior_consultant';
@@ -6776,6 +6778,7 @@ function PlatformWorkspace({ forcedRole }) {
   const canManageConsultantNutrition = roleKind === 'consultant' && consultantNutritionRoles.has(String(resolvedRole).toLowerCase());
   const [brandView, setBrandView] = useState('All Brands');
   const usesRealFiteatsyClients = roleKind === 'consultant' || brandView === 'Fiteatsy';
+  const usesInternalClientProfile = tenantType === 'ZESTIVA_INTERNAL';
   const [state, setState] = useState(() => {
     if (usesRealFiteatsyClients) return buildEmptyPlatformState();
 
@@ -7016,7 +7019,7 @@ function PlatformWorkspace({ forcedRole }) {
     setRealClientProfileLoading(true);
     setRealClientProfileError(null);
 
-    fetchRealClientWorkspace(selectedClientId)
+    fetchRealClientWorkspace(selectedClientId, usesInternalClientProfile)
       .then((payload) => {
         if (cancelled) return;
         setRealClientProfile(payload);
@@ -7034,14 +7037,14 @@ function PlatformWorkspace({ forcedRole }) {
     return () => {
       cancelled = true;
     };
-  }, [realClientDrawerOpen, selectedClientId, usesRealFiteatsyClients]);
+  }, [realClientDrawerOpen, selectedClientId, usesInternalClientProfile, usesRealFiteatsyClients]);
 
   const refreshRealClientProfile = useCallback(async (clientId) => {
-    const payload = await fetchRealClientWorkspace(clientId);
+    const payload = await fetchRealClientWorkspace(clientId, usesInternalClientProfile);
     setRealClientProfile(payload);
     setRealClientProfileError(null);
     return payload;
-  }, []);
+  }, [usesInternalClientProfile]);
 
   const mockClients = useMemo(() => buildClientRecords(state), [state]);
   const realFiteatsyClients = useMemo(() => buildFiteatsyClientRecords(fiteatsyClients), [fiteatsyClients]);
@@ -8211,6 +8214,7 @@ function PlatformWorkspace({ forcedRole }) {
           canManageNutrition={canManageConsultantNutrition}
           canReviewDietPlans={isSeniorConsultant}
           canPublishDietPlans={roleKind === 'consultant'}
+          canManageInternalProfile={usesInternalClientProfile}
         />
       ) : null}
 
