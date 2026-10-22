@@ -36,9 +36,12 @@ import CommonFoodPlanEditor from './CommonFoodPlanEditor';
 import Client360CareWorkspace from './Client360CareWorkspace';
 import { SeniorFoodProposalReviewPanel } from './FoodProposalUx';
 import FoodAuthorisationPage from './FoodAuthorisationPage';
+import InternalClientProfileEnrichmentPanel from './InternalClientProfileEnrichmentPanel';
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import { isCommonFoodCombinationEngineEnabled } from '../../lib/dietFeatureFlags';
 import { useAuth } from '../../context/AuthContext';
+import { getInternalClientProfileEnrichment } from '../../lib/practiceOperationsApi';
+import { composeInternalClientProfile, formatDateOnlyDDMMYYYY } from '../../lib/internalClientProfile.mjs';
 import { buildInitialPlatformState, getRoleDisplayName } from '../../data/mockPlatformData';
 import {
   approveFiteatsyConsultantDietPlan,
@@ -1092,7 +1095,11 @@ function formatLifecycleLabel(value) {
 }
 
 async function fetchRealClientWorkspace(clientId) {
-  return getFiteatsyConsultantClientProfile(clientId);
+  const [baseProfile, enrichment] = await Promise.all([
+    getFiteatsyConsultantClientProfile(clientId),
+    getInternalClientProfileEnrichment(clientId),
+  ]);
+  return composeInternalClientProfile(baseProfile, enrichment);
 }
 
 const mealPlanSectionEntries = [
@@ -1474,7 +1481,7 @@ function RealClientProfileDrawer({
     { key: 'Timeline', label: 'Timeline' },
   ];
   const goalLabel = onboarding?.goal || summaryClient?.program || 'Not assigned';
-  const profileStrength = syncMetadata?.completenessScore ?? healthProfile?.completionPercent ?? healthProfile?.profileCompleteness ?? summaryClient?.profileCompletedPercent;
+  const profileStrength = profile?.internalProfileCompleteness ?? syncMetadata?.completenessScore ?? healthProfile?.completionPercent ?? healthProfile?.profileCompleteness ?? summaryClient?.profileCompletedPercent;
   const lastSynced = syncMetadata?.lastSyncedAt || healthProfile?.updatedAtISO || healthProfile?.lastHealthUpdate || client?.lastActiveAt || summaryClient?.lastActivityAt;
   const clientPhoneIdentity = formatClientPhoneIdentity(client?.mobile || client?.phone || summaryClient?.mobile || summaryClient?.mobileNumberMasked);
   const publishedPlanVersionNumber = dailyNutritionMonitoring?.version?.versionNumber ?? null;
@@ -2007,7 +2014,7 @@ function RealClientProfileDrawer({
       <Surface className="p-5" animated>
         <h3 className={drawerSectionTitleClass}>Personal Information</h3>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <DetailField label="Age" value={formatDisplayValue(client?.age)} />
+          <DetailField label="Date of birth" value={formatDateOnlyDDMMYYYY(client?.dateOfBirth || client?.dob)} />
           <DetailField label="Gender" value={formatDisplayValue(client?.gender)} />
           <DetailField label="Height" value={onboarding?.height != null ? `${onboarding.height} cm` : 'Complete profile to calculate'} />
           <DetailField label="Weight" value={onboarding?.weight != null ? `${onboarding.weight} kg` : 'Complete profile to calculate'} />
@@ -2022,6 +2029,7 @@ function RealClientProfileDrawer({
           <DetailField label="Hip" value={bodyComposition.hipCm != null ? `${bodyComposition.hipCm} cm` : 'Not available'} />
           <DetailField label="Neck" value={bodyComposition.neckCm != null ? `${bodyComposition.neckCm} cm` : 'Not available'} />
           <DetailField label="Goal weight" value={bodyComposition.goalWeightKg != null ? `${bodyComposition.goalWeightKg} kg` : 'Not available'} />
+          <DetailField label="Waist-to-hip ratio" value={bodyMetrics?.waistHipRatio != null ? `${bodyMetrics.waistHipRatio}` : 'Waist and hip required'} />
         </div>
       </Surface>
       <Surface className="p-5" animated>
@@ -2034,6 +2042,7 @@ function RealClientProfileDrawer({
           <DetailField label="Heart conditions" value={formatDisplayValue(onboarding?.healthHistory?.heartConditions)} />
           <DetailField label="Medical conditions" value={formatDisplayValue(onboarding?.medicalConditions)} />
         </div>
+        {onboarding?.medicalHistoryNarrative !== undefined ? <p className="mt-4 whitespace-pre-wrap rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] p-4 text-sm">{onboarding.medicalHistoryNarrative || 'Intentionally cleared'}</p> : null}
       </Surface>
     </div>
   );
@@ -2051,6 +2060,7 @@ function RealClientProfileDrawer({
         <DetailField label="Allergies" value={formatDisplayValue(onboarding?.nutrition?.foodAllergies)} />
         <DetailField label="Dislikes" value={formatDisplayValue(onboarding?.nutrition?.foodDislikes)} />
       </div>
+      {onboarding?.sleepStressNarrative !== undefined ? <p className="mt-4 whitespace-pre-wrap rounded-[16px] bg-[var(--fluent-color-neutral-background-2)] p-4 text-sm">{onboarding.sleepStressNarrative || 'Intentionally cleared'}</p> : null}
     </Surface>
   );
 
@@ -2062,8 +2072,9 @@ function RealClientProfileDrawer({
           <div key={report.id || report.reportId} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{formatDateLabel(report.reportDate || report.createdAt || report.uploadedAt)}</p>
+                <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">Report date: {report.enrichmentDates?.report_date ? formatDateOnlyDDMMYYYY(report.enrichmentDates.report_date) : 'Not recorded'}</p>
                 <p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{report.title || report.originalFilename || 'Blood Report Uploaded'}</p>
+                <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Confirmation date: {report.enrichmentDates?.confirmation_date ? formatDateOnlyDDMMYYYY(report.enrichmentDates.confirmation_date) : 'Not recorded'}</p>
               </div>
               <StatusChip status={String(report.processingStatus || report.status || '').toUpperCase() === 'PUBLISHED' ? 'stable' : 'medium'}>{report.processingStatus || report.status || 'Uploaded'}</StatusChip>
             </div>
@@ -2337,7 +2348,7 @@ function RealClientProfileDrawer({
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <DetailField label="Age" value={formatDisplayValue(nutritionIntelligenceState?.clientSummary?.age)} />
             <DetailField label="Gender" value={formatDisplayValue(nutritionIntelligenceState?.clientSummary?.gender)} />
-            <DetailField label="Weight" value={nutritionIntelligenceState?.clientSummary?.weightKg != null ? `${nutritionIntelligenceState.clientSummary.weightKg} kg` : 'Not available'} />
+            <DetailField label="Weight" value={onboarding?.weight != null ? `${onboarding.weight} kg` : nutritionIntelligenceState?.clientSummary?.weightKg != null ? `${nutritionIntelligenceState.clientSummary.weightKg} kg` : 'Not available'} />
             <DetailField label="BMI" value={nutritionIntelligenceState?.clientSummary?.bmi != null ? `${nutritionIntelligenceState.clientSummary.bmi}` : 'Not available'} />
             <DetailField label="Stress" value={formatDisplayValue(nutritionIntelligenceState?.clientSummary?.stressBand)} />
             <DetailField label="Water intake" value={nutritionIntelligenceState?.clientSummary?.waterIntakeLiters != null ? `${nutritionIntelligenceState.clientSummary.waterIntakeLiters} L` : 'Not available'} />
@@ -2531,6 +2542,7 @@ function RealClientProfileDrawer({
 
   const renderProfile = () => (
     <div className="space-y-4">
+      <InternalClientProfileEnrichmentPanel clientId={summaryClient?.id || client?.id} profile={profile} onSaved={onProfileRefresh} />
       {renderHealthProfile()}
       {renderLifestyle()}
     </div>
