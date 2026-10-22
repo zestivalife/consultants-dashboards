@@ -56,7 +56,8 @@ from app.contracts import CommunicationPreparationCreate, CommunicationReminderC
 from app.contracts import PracticeLocationCreate, LocationResourceAssign
 from app.contracts import PaymentOrderCreate, PaymentVerification
 from app.contracts import AiDraftRequest
-from app.contracts import ClientExportRequest
+from app.contracts import ClientExportRequest, InternalClientProfileEnrichmentUpdate
+from app.internal_client_profile import merge_enrichment, projection as internal_profile_projection, validate_enrichment
 from app.document_storage import (StorageUnavailable, InvalidDocument, new_object_key,
                                   signed_upload, signed_download, signed_view, validate_document,
                                   verify_uploaded_object)
@@ -229,13 +230,13 @@ def error(request: Request, status: int, code: str, message: str, retryable: boo
     return JSONResponse(status_code=status, content={"success": False, "error": {"code": code, "safe_message": message, "correlation_id": getattr(request.state, "correlation_id", None), "retryable": retryable}})
 
 
-def context(x_user_id: str | None = Header(None), x_tenant_id: str | None = Header(None), x_user_role: str | None = Header(None), x_tenant_type: str | None = Header(None), x_user_email: str | None = Header(None), x_profession_code: str | None = Header(None)):
+def context(x_user_id: str | None = Header(None), x_tenant_id: str | None = Header(None), x_user_role: str | None = Header(None), x_tenant_type: str | None = Header(None), x_user_email: str | None = Header(None), x_profession_code: str | None = Header(None), x_user_permissions: str | None = Header(None)):
     role=(x_user_role or "member").upper()
     if not x_user_id:
         return None
     if not x_tenant_id and role not in {"SUPER_ADMIN","SUPERUSER","PLATFORM_OWNER"}:
         return None
-    return {"user_id": x_user_id, "tenant_id": x_tenant_id, "role": role, "tenant_type": x_tenant_type, "email": (x_user_email or "").lower(), "profession_code": x_profession_code}
+    return {"user_id": x_user_id, "tenant_id": x_tenant_id, "role": role, "tenant_type": x_tenant_type, "email": (x_user_email or "").lower(), "profession_code": x_profession_code, "permissions": {item.strip() for item in (x_user_permissions or "").split(",") if item.strip()}}
 
 
 def external_only(request: Request, ctx):
@@ -243,6 +244,19 @@ def external_only(request: Request, ctx):
         return error(request, 401, "AUTHENTICATION_REQUIRED", "Authentication is required")
     if ctx.get("tenant_type") not in {"INDEPENDENT_CONSULTANT", "PRACTICE", "CLINIC"}:
         return error(request, 403, "EXTERNAL_PRACTICE_SCOPE_REQUIRED", "External practice access is required")
+    return None
+
+
+def internal_profile_only(request: Request, ctx, *, write: bool = False):
+    if not ctx:
+        return error(request, 401, "AUTHENTICATION_REQUIRED", "Authentication is required")
+    if ctx.get("tenant_type") != "ZESTIVA_INTERNAL" or not ctx.get("tenant_id"):
+        return error(request, 403, "INTERNAL_PROFILE_SCOPE_REQUIRED", "Internal client profile access is required")
+    permissions = ctx.get("permissions", set())
+    read_allowed = bool(permissions & {"client_read", "internal.operations.manage"})
+    write_allowed = bool(permissions & {"plan_review", "internal.operations.manage"})
+    if not read_allowed or (write and not write_allowed):
+        return error(request, 403, "INTERNAL_CLIENT_PERMISSION_REQUIRED", "You do not have permission to access Internal client profiles")
     return None
 
 
@@ -254,6 +268,51 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Practice Operations Service", version=get_settings().app_version, lifespan=lifespan)
+
+
+@app.get("/api/v1/practice-operations/internal-client-profiles/{client_id}")
+async def get_internal_client_profile_enrichment(request: Request, client_id: str, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied = internal_profile_only(request, ctx)
+    if denied: return denied
+    row = (await db.execute(text("""SELECT values,version,schema_version,provenance,updated_at,updated_by
+      FROM internal_client_profile_enrichments WHERE tenant_id=:tenant AND client_id=:client"""),
+      {"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
+    if not row:
+        return {"success":True,"data":internal_profile_projection({},0,{"source":"INTERNAL_ENRICHMENT","tenant_id":ctx["tenant_id"],"client_id":client_id}),"error":None,"request_id":request.state.correlation_id}
+    provenance={**dict(row["provenance"] or {}),"source":"INTERNAL_ENRICHMENT","tenant_id":ctx["tenant_id"],"client_id":client_id,"updated_at":row["updated_at"].isoformat(),"updated_by":row["updated_by"]}
+    return {"success":True,"data":internal_profile_projection(dict(row["values"] or {}),row["version"],provenance),"error":None,"request_id":request.state.correlation_id}
+
+
+@app.put("/api/v1/practice-operations/internal-client-profiles/{client_id}")
+async def update_internal_client_profile_enrichment(request: Request, client_id: str, body: InternalClientProfileEnrichmentUpdate, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied = internal_profile_only(request, ctx, write=True)
+    if denied: return denied
+    try: values = validate_enrichment(body.values)
+    except (TypeError, ValueError) as exc: return error(request,422,"INVALID_INTERNAL_PROFILE_ENRICHMENT",str(exc))
+    now=datetime.now(timezone.utc)
+    event={"event":"INTERNAL_CLIENT_PROFILE_ENRICHMENT_UPDATED","actor_id":ctx["user_id"],"timestamp":now.isoformat(),"expected_version":body.expected_version,"changed_fields":sorted(values)}
+    if body.expected_version == 0:
+        try:
+            row=(await db.execute(text("""INSERT INTO internal_client_profile_enrichments
+              (tenant_id,client_id,values,version,schema_version,provenance,audit_history,created_by,updated_by,created_at,updated_at)
+              VALUES (:tenant,:client,CAST(:values AS jsonb),1,1,CAST(:provenance AS jsonb),CAST(:audit AS jsonb),:actor,:actor,:now,:now)
+              RETURNING values,version,provenance,updated_at"""),{"tenant":ctx["tenant_id"],"client":client_id,"values":json.dumps(values),"provenance":json.dumps({"source":"INTERNAL_ENRICHMENT"}),"audit":json.dumps([event]),"actor":ctx["user_id"],"now":now})).mappings().one()
+        except IntegrityError:
+            await db.rollback();return error(request,409,"STALE_WRITE","The profile changed in another session. Refresh and try again")
+    else:
+        current=(await db.execute(text("SELECT values FROM internal_client_profile_enrichments WHERE tenant_id=:tenant AND client_id=:client AND version=:version"),{"tenant":ctx["tenant_id"],"client":client_id,"version":body.expected_version})).mappings().first()
+        if not current:
+            return error(request,409,"STALE_WRITE","The profile changed in another session. Refresh and try again")
+        merged_values=merge_enrichment(dict(current["values"] or {}),values)
+        row=(await db.execute(text("""UPDATE internal_client_profile_enrichments SET
+          values=CAST(:values AS jsonb),version=version+1,updated_by=:actor,updated_at=:now,
+          provenance=provenance || CAST(:provenance AS jsonb),audit_history=audit_history || CAST(:audit AS jsonb)
+          WHERE tenant_id=:tenant AND client_id=:client AND version=:version RETURNING values,version,provenance,updated_at"""),{"tenant":ctx["tenant_id"],"client":client_id,"values":json.dumps(merged_values),"provenance":json.dumps({"source":"INTERNAL_ENRICHMENT","last_actor_id":ctx["user_id"]}),"audit":json.dumps([event]),"actor":ctx["user_id"],"now":now,"version":body.expected_version})).mappings().first()
+        if not row:
+            await db.rollback();return error(request,409,"STALE_WRITE","The profile changed in another session. Refresh and try again")
+    await db.commit()
+    provenance={**dict(row["provenance"] or {}),"source":"INTERNAL_ENRICHMENT","tenant_id":ctx["tenant_id"],"client_id":client_id,"updated_at":row["updated_at"].isoformat(),"updated_by":ctx["user_id"]}
+    return {"success":True,"data":internal_profile_projection(dict(row["values"] or {}),row["version"],provenance),"error":None,"request_id":request.state.correlation_id}
 
 
 @app.exception_handler(QaDelegationError)

@@ -832,6 +832,11 @@ class AiDraftRequest(BaseModel):
 class ClientExportRequest(BaseModel):
     sections: list[Literal["CONSENTS","PORTAL_ACTIVITY","BILLING","DOCUMENTS","REFERRALS","AUTOMATIONS","AI_DRAFTS","FORMS","GOALS","TASKS","APPOINTMENTS","PROGRESS"]] = Field(min_length=1,max_length=20)
 
+
+class InternalClientProfileEnrichmentUpdate(BaseModel):
+    expected_version: int = Field(ge=0)
+    values: dict[str, Any]
+
 class CalendarConnectionPrepare(BaseModel):
     provider: Literal["GOOGLE","MICROSOFT"]
 

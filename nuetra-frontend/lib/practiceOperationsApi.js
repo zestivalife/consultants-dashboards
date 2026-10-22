@@ -15,6 +15,8 @@ export function listPracticeResources(resource,{clientId,status,cursor,limit=25}
   const query=new URLSearchParams({limit:String(limit)});if(clientId)query.set('client_id',clientId);if(status)query.set('status',status);if(cursor)query.set('cursor',cursor);
   return request(`/${resource}?${query}`);
 }
+export function getInternalClientProfileEnrichment(clientId){return request(`/internal-client-profiles/${encodeURIComponent(clientId)}`);}
+export function saveInternalClientProfileEnrichment(clientId,payload){return request(`/internal-client-profiles/${encodeURIComponent(clientId)}`,{method:'PUT',body:JSON.stringify(payload)});}
 export function createPracticeResource(resource,payload){return request(`/${resource}`,{method:'POST',headers:{'Idempotency-Key':crypto.randomUUID()},body:JSON.stringify(payload)});}
 export function updatePracticeResource(resource,id,payload){return request(`/${resource}/${id}`,{method:'PATCH',body:JSON.stringify(payload)});}
 export function getPracticeConfiguration(){return request('/configuration');}

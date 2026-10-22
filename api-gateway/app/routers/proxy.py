@@ -26,6 +26,24 @@ DELEGATED_PERMISSION_PREFIXES: tuple[str, ...] = (
     "/api/v1/owner/master-data",
 )
 
+INTERNAL_PROFILE_PREFIX = "/api/v1/practice-operations/internal-client-profiles"
+
+
+async def _internal_client_visible(client: httpx.AsyncClient, service_url: str, authorization: str, client_id: str) -> bool:
+    """Re-use the canonical read-only Internal workspace lookup as the access decision."""
+    try:
+        response = await client.get(
+            f"{service_url.rstrip('/')}/v1/consultants/clients/{client_id}/workspace",
+            headers={"Authorization": authorization, "Accept": "application/json"},
+        )
+    except (httpx.HTTPError, ValueError) as exc:
+        raise PracticeTenantResolutionError("Internal client authority is unavailable") from exc
+    if response.status_code == 200:
+        return True
+    if response.status_code in {403, 404}:
+        return False
+    raise PracticeTenantResolutionError("Internal client authority is unavailable")
+
 async def get_http_client() -> httpx.AsyncClient:
     global _client
     if _client is None or _client.is_closed:
@@ -132,8 +150,20 @@ async def proxy(request: Request, path: str):
     body = await request.body()
 
     client = await get_http_client()
+    is_internal_profile_path = full_path == INTERNAL_PROFILE_PREFIX or full_path.startswith(INTERNAL_PROFILE_PREFIX + "/")
 
-    if is_practice_operations_path(full_path) and not is_platform_marketplace_admin_path(full_path):
+    if is_internal_profile_path:
+        internal_client_id = full_path[len(INTERNAL_PROFILE_PREFIX):].strip("/").split("/", 1)[0]
+        if not internal_client_id or not request.headers.get("Authorization"):
+            return JSONResponse(status_code=403, content={"success":False,"message":"Internal client authority required","data":None,"error":"Forbidden","request_id":request_id})
+        try:
+            visible = await _internal_client_visible(client, get_settings().fiteatsy_service_url, request.headers.get("Authorization") or "", internal_client_id)
+        except PracticeTenantResolutionError:
+            return JSONResponse(status_code=503, content={"success":False,"message":"Internal client authority unavailable","data":None,"error":"Service unavailable","request_id":request_id})
+        if not visible:
+            return JSONResponse(status_code=404, content={"success":False,"message":"Resource not found","data":None,"error":"Not found","request_id":request_id})
+
+    if is_practice_operations_path(full_path) and not is_platform_marketplace_admin_path(full_path) and not is_internal_profile_path:
         try:
             authority = await resolve_practice_tenant_authority(
                 client,
