@@ -264,7 +264,8 @@ async def test_temporary_internal_admin_requires_replacement_then_receives_passw
     )
     changed_claims = decode_access_token(changed.tokens.access_token)
     assert changed.user.status == "ACTIVE"
-    assert changed.user.next_action is None
+    assert changed.user.next_action.type == "DASHBOARD"
+    assert changed.user.next_action.route == ""
     assert changed_claims["mfa_assured"] is False
     assert changed_claims["password_change_required"] is False
 
