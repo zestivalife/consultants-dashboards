@@ -47,3 +47,11 @@ test('Internal UI exposes all ten persisted profile changes and avoids fabricate
   assert.match(workspace,/internalProfileCompleteness/);
   assert.doesNotMatch(workspace,/report\.reportDate \|\| report\.createdAt \|\| report\.uploadedAt/);
 });
+
+test('Internal enrichment is tenant-gated and cannot change External Client360 loading', () => {
+  const workspace=fs.readFileSync(new URL('../components/platform/PlatformWorkspace.jsx',import.meta.url),'utf8');
+  assert.match(workspace,/tenantType === 'ZESTIVA_INTERNAL'/);
+  assert.match(workspace,/if \(!includeInternalEnrichment\) return baseProfile/);
+  assert.match(workspace,/canManageInternalProfile=\{usesInternalClientProfile\}/);
+  assert.doesNotMatch(workspace,/Promise\.all\(\[\s*getFiteatsyConsultantClientProfile\(clientId\),\s*getInternalClientProfileEnrichment/);
+});
