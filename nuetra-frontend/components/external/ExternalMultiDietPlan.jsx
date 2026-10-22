@@ -61,7 +61,7 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
     if (!valid || busy) return;
     setBusy('create'); setMessage(''); onError('');
     try {
-      const result = await createConsultantDietPlan({ client_id: clientId, name: form.name.trim(), daily_calories_target: Number(form.dailyCalories), daily_protein_target_g: Number(form.dailyProtein) });
+      const result = await createConsultantDietPlan({ client_id: clientId, name: form.name.trim(), daily_calories_target: Number(form.dailyCalories), daily_protein_target_g: Number(form.dailyProtein), health_goals: context?.goals || [] });
       setForm(initialForm);
       await load(result.id);
       setMessage('A new independent Diet Plan draft was created and reloaded.');
@@ -91,7 +91,7 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
     finally { setBusy(''); }
   };
 
-  const fields = [['Primary goal', context?.goal], ['Diet preference', context?.dietPreference], ['Allergies', context?.allergies], ['Food restrictions', context?.restrictions], ['Weight', context?.weight], ['BMI', context?.bmi]];
+  const fields = [['Health & wellness goals', context?.goals], ['Diet preference', context?.dietPreference], ['Allergies', context?.allergies], ['Food restrictions', context?.restrictions], ['Weight', context?.weight], ['BMI', context?.bmi]];
   if (loading) return <div className="rounded-2xl bg-white p-12 text-center text-sm text-slate-500">Loading all Diet Plans…</div>;
 
   return <div className="space-y-4">

@@ -56,8 +56,9 @@ from app.contracts import CommunicationPreparationCreate, CommunicationReminderC
 from app.contracts import PracticeLocationCreate, LocationResourceAssign
 from app.contracts import PaymentOrderCreate, PaymentVerification
 from app.contracts import AiDraftRequest
-from app.contracts import ClientExportRequest, InternalClientProfileEnrichmentUpdate
+from app.contracts import ClientExportRequest, ExternalClientProfileEnrichmentUpdate, InternalClientProfileEnrichmentUpdate
 from app.internal_client_profile import merge_enrichment, projection as internal_profile_projection, validate_enrichment
+from app.external_client_profile import merge_external_enrichment, projection as external_profile_projection, validate_external_enrichment
 from app.document_storage import (StorageUnavailable, InvalidDocument, new_object_key,
                                   signed_upload, signed_download, signed_view, validate_document,
                                   verify_uploaded_object)
@@ -268,6 +269,50 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Practice Operations Service", version=get_settings().app_version, lifespan=lifespan)
+
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/profile-enrichment")
+async def get_external_client_profile_enrichment(request: Request, client_id: str, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied = external_only(request, ctx)
+    if denied: return denied
+    row = (await db.execute(text("""SELECT values,version,schema_version,provenance,updated_at,updated_by
+      FROM external_client_profile_enrichments WHERE tenant_id=:tenant AND client_id=:client"""),
+      {"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
+    if not row:
+        return {"success":True,"data":external_profile_projection({},0,{"source":"EXTERNAL_CLIENT360_ENRICHMENT","tenant_id":ctx["tenant_id"],"client_id":client_id}),"error":None,"request_id":request.state.correlation_id}
+    provenance={**dict(row["provenance"] or {}),"source":"EXTERNAL_CLIENT360_ENRICHMENT","tenant_id":ctx["tenant_id"],"client_id":client_id,"updated_at":row["updated_at"].isoformat(),"updated_by":row["updated_by"]}
+    return {"success":True,"data":external_profile_projection(dict(row["values"] or {}),row["version"],provenance),"error":None,"request_id":request.state.correlation_id}
+
+
+@app.put("/api/v1/practice-operations/clients/{client_id}/profile-enrichment")
+async def update_external_client_profile_enrichment(request: Request, client_id: str, body: ExternalClientProfileEnrichmentUpdate, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied = external_only(request, ctx)
+    if denied: return denied
+    try: values = validate_external_enrichment(body.values)
+    except (TypeError, ValueError) as exc: return error(request,422,"INVALID_EXTERNAL_PROFILE_ENRICHMENT",str(exc))
+    now=datetime.now(timezone.utc)
+    event={"event":"EXTERNAL_CLIENT_PROFILE_ENRICHMENT_UPDATED","actor_id":ctx["user_id"],"timestamp":now.isoformat(),"expected_version":body.expected_version,"changed_fields":sorted(values)}
+    if body.expected_version == 0:
+        try:
+            row=(await db.execute(text("""INSERT INTO external_client_profile_enrichments
+              (tenant_id,client_id,values,version,schema_version,provenance,audit_history,created_by,updated_by,created_at,updated_at)
+              VALUES (:tenant,:client,CAST(:values AS jsonb),1,1,CAST(:provenance AS jsonb),CAST(:audit AS jsonb),:actor,:actor,:now,:now)
+              RETURNING values,version,provenance,updated_at"""),{"tenant":ctx["tenant_id"],"client":client_id,"values":json.dumps(values),"provenance":json.dumps({"source":"EXTERNAL_CLIENT360_ENRICHMENT"}),"audit":json.dumps([event]),"actor":ctx["user_id"],"now":now})).mappings().one()
+        except IntegrityError:
+            await db.rollback();return error(request,409,"STALE_WRITE","The client profile changed in another session. Refresh and try again")
+    else:
+        current=(await db.execute(text("SELECT values FROM external_client_profile_enrichments WHERE tenant_id=:tenant AND client_id=:client AND version=:version"),{"tenant":ctx["tenant_id"],"client":client_id,"version":body.expected_version})).mappings().first()
+        if not current:return error(request,409,"STALE_WRITE","The client profile changed in another session. Refresh and try again")
+        merged_values=merge_external_enrichment(dict(current["values"] or {}),values)
+        row=(await db.execute(text("""UPDATE external_client_profile_enrichments SET
+          values=CAST(:values AS jsonb),version=version+1,updated_by=:actor,updated_at=:now,
+          provenance=provenance || CAST(:provenance AS jsonb),audit_history=audit_history || CAST(:audit AS jsonb)
+          WHERE tenant_id=:tenant AND client_id=:client AND version=:version RETURNING values,version,provenance,updated_at"""),{"tenant":ctx["tenant_id"],"client":client_id,"values":json.dumps(merged_values),"provenance":json.dumps({"source":"EXTERNAL_CLIENT360_ENRICHMENT","last_actor_id":ctx["user_id"]}),"audit":json.dumps([event]),"actor":ctx["user_id"],"now":now,"version":body.expected_version})).mappings().first()
+        if not row:
+            await db.rollback();return error(request,409,"STALE_WRITE","The client profile changed in another session. Refresh and try again")
+    await db.commit()
+    provenance={**dict(row["provenance"] or {}),"source":"EXTERNAL_CLIENT360_ENRICHMENT","tenant_id":ctx["tenant_id"],"client_id":client_id,"updated_at":row["updated_at"].isoformat(),"updated_by":ctx["user_id"]}
+    return {"success":True,"data":external_profile_projection(dict(row["values"] or {}),row["version"],provenance),"error":None,"request_id":request.state.correlation_id}
 
 
 @app.get("/api/v1/practice-operations/internal-client-profiles/{client_id}")
@@ -1131,7 +1176,7 @@ async def create_diet_plan(request:Request,body:DietPlanCreate,ctx=Depends(conte
       (id,tenant_id,client_id,profession_code,plan_type,title,status,current_version,created_by,authorised_consultant_id,daily_calories_target,daily_protein_target_g,created_at,updated_at)
       VALUES (:id,:tenant,:client,:profession,'DIET_PLAN',:title,'DRAFT',1,:actor,:actor,:calories,:protein,:now,:now)"""),
       {"id":plan_id,"tenant":ctx["tenant_id"],"client":body.client_id,"profession":config["profession"],"title":body.name,"actor":ctx["user_id"],"calories":body.daily_calories_target,"protein":body.daily_protein_target_g,"now":now})
-    snapshot={"daily_calories_target":body.daily_calories_target,"daily_protein_target_g":body.daily_protein_target_g,"actual_calories":0,"actual_protein_g":0,"source":"CONSULTANT_AUTHORED"}
+    snapshot={"daily_calories_target":body.daily_calories_target,"daily_protein_target_g":body.daily_protein_target_g,"health_goals":body.health_goals,"actual_calories":0,"actual_protein_g":0,"source":"CONSULTANT_AUTHORED"}
     await db.execute(text("""INSERT INTO external_profession_plan_versions
       (id,plan_id,tenant_id,client_id,version,status,title,nutrition_snapshot,created_by,created_at)
       VALUES (:id,:plan,:tenant,:client,1,'DRAFT',:title,CAST(:snapshot AS jsonb),:actor,:now)"""),

@@ -27,6 +27,8 @@ export function listCommunicationActivity(clientId){const query=clientId?`?clien
 export function listPracticeNotifications({unreadOnly=false}={}){return request(`/notifications?unread_only=${unreadOnly?'true':'false'}`);}
 export function recordOnboardingCompleted(payload){return request('/events/onboarding-completed',{method:'POST',body:JSON.stringify(payload)});}
 export function listClientTimeline(clientId){return request(`/clients/${encodeURIComponent(clientId)}/timeline`);}
+export function getExternalClientProfileEnrichment(clientId){return request(`/clients/${encodeURIComponent(clientId)}/profile-enrichment`);}
+export function updateExternalClientProfileEnrichment(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/profile-enrichment`,{method:'PUT',body:JSON.stringify(payload)});}
 export function createProfessionIntakeInvitation(clientId,payload={}){return request(`/clients/${encodeURIComponent(clientId)}/profession-intake-invitations`,{method:'POST',body:JSON.stringify(payload)});}
 export function revokeProfessionIntakeInvitation(clientId){return request(`/clients/${encodeURIComponent(clientId)}/profession-intake-invitations/revoke`,{method:'POST'});}
 export function getClientProfessionIntake(clientId){return request(`/clients/${encodeURIComponent(clientId)}/profession-intake`);}
