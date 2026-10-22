@@ -29,7 +29,7 @@ from app.services.password_service import password_service
 
 
 SUPERUSER_ROLE = "superuser"
-ACCOUNT_CLASSIFICATION = "INTERNAL_PRIVILEGED"
+ACCOUNT_CLASSIFICATION = "PRODUCTION_USER"
 
 
 @dataclass(frozen=True, slots=True)

@@ -81,7 +81,7 @@ async def test_provisions_exact_superuser_without_product_or_tenant_access(sessi
     assert amit.must_change_password is True
     assert amit.credential_status == "TEMPORARY"
     assert amit.temporary_password_expires_at is not None
-    assert amit.account_classification == "INTERNAL_PRIVILEGED"
+    assert amit.account_classification == "PRODUCTION_USER"
     assert amit.mfa_enabled is False
     assert result.role == "superuser"
     assert result.invitation_status == "REVOKED"
