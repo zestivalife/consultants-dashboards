@@ -11,6 +11,7 @@ import AuthStoryPanel from '../components/public-consultant/AuthStoryPanel';
 export default function LoginPage() {
   const { login, user, isLoading, error, clearError, sampleUsers, isBackendAuthEnabled } = useAuth();
   const [form, setForm] = useState({ email: isBackendAuthEnabled ? '' : sampleUsers?.[0]?.email || '', password: isBackendAuthEnabled ? '' : SAMPLE_PASSWORD, mfaCode: '', rememberMe: true });
+  const [mfaStep, setMfaStep] = useState(false);
   const groupedUsers = useMemo(() => sampleUsers || [], [sampleUsers]);
 
   useEffect(() => {
@@ -32,7 +33,10 @@ export default function LoginPage() {
 
   async function handleSubmit(event) {
     event.preventDefault();
-    await login(form);
+    const result = await login(form);
+    if (result?.error && /MFA code required/i.test(result.error)) {
+      setMfaStep(true);
+    }
   }
 
   return (
@@ -80,15 +84,14 @@ export default function LoginPage() {
                   value={form.email}
                   onChange={(event) => {
                     clearError();
-                    setForm((current) => ({ ...current, email: event.target.value }));
+                    setMfaStep(false);
+                    setForm((current) => ({ ...current, email: event.target.value, mfaCode: '' }));
                   }}
                   className="w-full bg-transparent text-sm text-[#242424] outline-none placeholder:text-[#616161]"
                   placeholder={isBackendAuthEnabled ? 'name@company.com or +91 mobile' : 'name@nuetra.in'}
                 />
               </div>
             </label>
-
-            {isBackendAuthEnabled ? <label className="block"><span className="mb-2 block text-sm text-[#424242]">Authenticator code <span className="text-[#616161]">(privileged Internal accounts)</span></span><div className="fluent-input flex items-center gap-3 rounded-[22px] px-4 py-3"><ShieldCheck className="h-4 w-4 text-[#616161]"/><input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={form.mfaCode} onChange={(event)=>setForm((current)=>({...current,mfaCode:event.target.value.replace(/\D/g,'')}))} className="w-full bg-transparent text-sm outline-none" placeholder="6-digit code"/></div></label> : null}
 
             <label className="block">
               <span className="mb-2 block text-sm text-[#424242]">Password</span>
@@ -99,13 +102,40 @@ export default function LoginPage() {
                   value={form.password}
                   onChange={(event) => {
                     clearError();
-                    setForm((current) => ({ ...current, password: event.target.value }));
+                    setMfaStep(false);
+                    setForm((current) => ({ ...current, password: event.target.value, mfaCode: '' }));
                   }}
                   className="w-full bg-transparent text-sm text-[#242424] outline-none placeholder:text-[#616161]"
                   placeholder={isBackendAuthEnabled ? 'Enter your password' : 'Enter sample password'}
                 />
               </div>
             </label>
+
+            {isBackendAuthEnabled && mfaStep ? (
+              <label className="block">
+                <span className="mb-2 block text-sm text-[#424242]">Authenticator code</span>
+                <p className="mb-2 text-xs text-[#616161]">
+                  Your account policy requires an enrolled authenticator after password verification.
+                </p>
+                <div className="fluent-input flex items-center gap-3 rounded-[22px] px-4 py-3 focus-within:border-[#0f6cbd]">
+                  <ShieldCheck className="h-4 w-4 text-[#616161]" />
+                  <input
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    required
+                    value={form.mfaCode}
+                    onChange={(event) => {
+                      clearError();
+                      setForm((current) => ({ ...current, mfaCode: event.target.value.replace(/\D/g, '') }));
+                    }}
+                    className="w-full bg-transparent text-sm text-[#242424] outline-none placeholder:text-[#616161]"
+                    placeholder="6-digit code"
+                  />
+                </div>
+              </label>
+            ) : null}
 
             <div className="flex items-center justify-between text-sm text-[#616161]">
               <label className="flex items-center gap-2">
