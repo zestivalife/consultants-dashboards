@@ -75,7 +75,6 @@ async def login(body: LoginRequest, request: Request, session: AsyncSession = De
         email=str(body.email) if body.email else None,
         mobile_number=body.mobile_number,
         password=body.password,
-        mfa_code=body.mfa_code,
         ip_address=_client_ip(request),
         user_agent=request.headers.get("User-Agent"),
     )

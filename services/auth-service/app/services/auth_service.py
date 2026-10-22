@@ -380,7 +380,6 @@ async def login(
     mobile_number: str | None = None,
     ip_address: str | None = None,
     user_agent: str | None = None,
-    mfa_code: str | None = None,
 ) -> LoginResponse:
     settings = get_settings()
     user_repo = UserRepository(session)

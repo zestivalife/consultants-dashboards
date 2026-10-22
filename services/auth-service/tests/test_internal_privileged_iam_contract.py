@@ -34,16 +34,31 @@ def test_invitation_is_new_scoped_single_use_two_person_flow():
     assert "user_invitations" in retired
     assert "user_invitations" not in source
 
-def test_legacy_mfa_material_remains_encrypted_but_login_is_password_only():
+def test_platform_login_and_privileged_activation_are_password_only():
     iam=(ROOT/'app/services/internal_privileged_iam_service.py').read_text()
     auth=(ROOT/'app/services/auth_service.py').read_text()
     people=(ROOT/'app/services/people_access_service.py').read_text()
-    assert "Fernet" in iam and "mfa_secret_encrypted" in iam
-    assert "MFA code has already been used" in iam
+    routes=(ROOT/'app/api/v1/routes/internal_privileged_iam.py').read_text()
+    schema=(ROOT/'app/schemas/auth.py').read_text()
     assert 'user.role.name == "internal_super_admin"' in auth
     assert '"mfa_assured": mfa_assured' in auth
     assert "verify_totp(user, mfa_code)" not in auth
     assert "Recent MFA assurance is required" not in people
+    assert "verify_totp" not in iam
+    assert "confirm-mfa" not in routes
+    assert "mfa_code" not in schema
+    assert "must_change_password=True" in iam
+    assert "credential_status=CREDENTIAL_TEMPORARY" in iam
+
+def test_password_only_policy_migration_reconciles_only_interrupted_privileged_activation():
+    migration=(ROOT/'alembic/versions/b6c7d8e9f0a1_password_only_login_policy.py').read_text()
+    assert 'down_revision = "a5b6c7d8e9f0"' in migration
+    assert "invitation.status = 'ENROLLING_MFA'" in migration
+    assert "u.status = 'PENDING_MFA'" in migration
+    assert "status = 'PASSWORD_CHANGE_REQUIRED'" in migration
+    assert "must_change_password = TRUE" in migration
+    assert "lower(invitation.role_name) = 'internal_super_admin'" in migration
+    assert "DELETE" not in migration
 
 def test_external_authority_sets_do_not_admit_internal_super_admin():
     bridge=(ROOT.parents[1]/'api-gateway/app/routers/fiteatsy_bridge.py').read_text()

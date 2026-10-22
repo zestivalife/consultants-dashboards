@@ -11,7 +11,7 @@ from app.core.email import get_email_service
 from app.core.response import success_response
 from app.db.session import get_db
 from app.schemas.auth import UserResponse
-from app.schemas.internal_privileged_iam import PrivilegedInvitationAccept, PrivilegedInvitationCreate, PrivilegedMfaConfirm
+from app.schemas.internal_privileged_iam import PrivilegedInvitationAccept, PrivilegedInvitationCreate
 from app.services import internal_privileged_iam_service as service
 
 router = APIRouter(tags=["internal-privileged-iam"])
@@ -25,7 +25,7 @@ async def request_invitation(body: PrivilegedInvitationCreate, session: AsyncSes
 async def approve_invitation(invitation_id: uuid.UUID, session: AsyncSession=Depends(get_db), current_user: UserResponse=Depends(get_current_user)):
     record,token=await service.approve(session,actor_id=current_user.id,invitation_id=invitation_id)
     link=f"{get_settings().frontend_url.rstrip('/')}/internal-admin/activate?token={token}"
-    body=f"<p>Hello {escape(record.first_name)},</p><p>Your Zestiva Internal administrator invitation was approved.</p><p><a href=\"{escape(link)}\">Verify email and enrol MFA</a></p><p>This single-use link expires shortly.</p>"
+    body=f"<p>Hello {escape(record.first_name)},</p><p>Your Zestiva Internal administrator invitation was approved.</p><p><a href=\"{escape(link)}\">Verify email and set your password</a></p><p>This single-use link expires shortly.</p>"
     try: await asyncio.to_thread(get_email_service().send,record.email,"Zestiva Internal administrator invitation",body)
     except Exception:
         record.status="PENDING_APPROVAL"; record.token_hash=None; record.approved_by_user_id=None; record.approved_at=None; record.expires_at=None
@@ -34,13 +34,8 @@ async def approve_invitation(invitation_id: uuid.UUID, session: AsyncSession=Dep
 
 @router.post("/auth/internal-privileged-invitations/accept")
 async def accept_invitation(body: PrivilegedInvitationAccept, session: AsyncSession=Depends(get_db)):
-    activation,uri=await service.accept(session,token=body.token,password=body.password)
-    return success_response(data={"activation_token":activation,"otp_auth_uri":uri,"status":"MFA_ENROLMENT_REQUIRED"},message="Email verified; MFA enrolment required")
-
-@router.post("/auth/internal-privileged-invitations/confirm-mfa")
-async def confirm_mfa(body: PrivilegedMfaConfirm, session: AsyncSession=Depends(get_db)):
-    await service.confirm_mfa(session,activation_token=body.activation_token,code=body.code)
-    return success_response(data={"status":"ACTIVE","login_required":True},message="MFA enrolled; sign in with password and authenticator code")
+    await service.accept(session,token=body.token,password=body.password)
+    return success_response(data={"status":"ACTIVE","login_required":True},message="Password set; sign in to your workspace")
 
 @router.post("/owner/internal-privileged-users/{user_id}/revoke")
 async def revoke_privileged_user(user_id: uuid.UUID, session: AsyncSession=Depends(get_db), current_user: UserResponse=Depends(get_current_user)):

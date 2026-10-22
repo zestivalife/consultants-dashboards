@@ -1,14 +1,7 @@
-import base64
-import hashlib
-import hmac
 import secrets
-import struct
-import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote
 
-from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +15,7 @@ from app.db.models.user import User
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.role_repository import RoleRepository
 from app.repositories.user_repository import UserRepository
+from app.services.iam_lifecycle import CREDENTIAL_TEMPORARY, STATUS_PASSWORD_CHANGE_REQUIRED, temporary_password_expiry
 from app.services.password_service import password_service
 
 ROLE = "internal_super_admin"
@@ -38,36 +32,6 @@ def require_bootstrap_authority(actor_id: uuid.UUID, *, approver: bool = False) 
     configured = settings.internal_iam_approver_user_ids if approver else settings.internal_iam_initiator_user_ids
     if actor_id not in _allowlist(configured):
         raise ForbiddenException("Designated Internal IAM bootstrap authority required")
-
-def _fernet() -> Fernet:
-    key = get_settings().internal_iam_mfa_encryption_key
-    if not key:
-        raise ForbiddenException("Internal privileged MFA is not configured")
-    try: return Fernet(key.encode())
-    except (ValueError, TypeError) as exc: raise ForbiddenException("Internal privileged MFA configuration is invalid") from exc
-
-def _totp_step(now: int | None = None) -> int:
-    return int(now or time.time()) // 30
-
-def _totp(secret: str, step: int) -> str:
-    key = base64.b32decode(secret + "=" * ((8 - len(secret) % 8) % 8), casefold=True)
-    digest = hmac.new(key, struct.pack(">Q", step), hashlib.sha1).digest()
-    offset = digest[-1] & 15
-    value = (struct.unpack(">I", digest[offset:offset+4])[0] & 0x7fffffff) % 1_000_000
-    return f"{value:06d}"
-
-def verify_totp(user: User, code: str) -> int:
-    if not user.mfa_secret_encrypted or not user.mfa_enabled:
-        raise ForbiddenException("Privileged MFA enrolment required")
-    try: secret = _fernet().decrypt(user.mfa_secret_encrypted.encode()).decode()
-    except InvalidToken as exc: raise ForbiddenException("Privileged MFA credential unavailable") from exc
-    current = _totp_step()
-    for step in (current - 1, current, current + 1):
-        if hmac.compare_digest(_totp(secret, step), str(code or "")):
-            if user.mfa_last_accepted_step is not None and step <= user.mfa_last_accepted_step:
-                raise ForbiddenException("MFA code has already been used")
-            return step
-    raise ForbiddenException("Invalid MFA code")
 
 async def initiate(session: AsyncSession, *, actor_id: uuid.UUID, email: str, phone: str, first_name: str, last_name: str):
     require_bootstrap_authority(actor_id)
@@ -95,7 +59,7 @@ async def approve(session: AsyncSession, *, actor_id: uuid.UUID, invitation_id: 
     await AuditLogRepository(session).create("INTERNAL_PRIVILEGED_INVITATION_APPROVED", user_id=actor_id); await session.commit()
     return record, token
 
-async def accept(session: AsyncSession, *, token: str, password: str) -> tuple[str, str]:
+async def accept(session: AsyncSession, *, token: str, password: str) -> User:
     now=datetime.now(timezone.utc); digest=hash_token(token)
     record=await session.scalar(select(InternalPrivilegedInvitation).where(InternalPrivilegedInvitation.token_hash==digest))
     if not record or record.status!="APPROVED": raise ForbiddenException("Invalid or consumed invitation")
@@ -107,29 +71,14 @@ async def accept(session: AsyncSession, *, token: str, password: str) -> tuple[s
     if not role: raise ForbiddenException("Internal Super Admin role is unavailable")
     password_service.validate_new_password(password)
     if existing:
-        user=existing; user.password_hash=password_service.hash_password(password,validate=False); user.first_name=record.first_name; user.last_name=record.last_name; user.phone=record.phone; user.mobile=record.phone; user.is_verified=True; user.email_verified=True; user.status="PENDING_MFA"; user.mfa_enabled=False; user.mfa_last_accepted_step=None
+        user=existing; user.password_hash=password_service.hash_password(password,validate=False); user.first_name=record.first_name; user.last_name=record.last_name; user.phone=record.phone; user.mobile=record.phone; user.is_verified=True; user.email_verified=True
     else:
-        user=User(email=record.email,mobile=record.phone,phone=record.phone,password_hash=password_service.hash_password(password,validate=False),first_name=record.first_name,last_name=record.last_name,role_id=role.id,is_active=False,is_verified=True,email_verified=True,status="PENDING_MFA",account_classification="INTERNAL_PRIVILEGED",mfa_enabled=False)
+        user=User(email=record.email,mobile=record.phone,phone=record.phone,password_hash=password_service.hash_password(password,validate=False),first_name=record.first_name,last_name=record.last_name,role_id=role.id,is_active=True,is_verified=True,email_verified=True,status=STATUS_PASSWORD_CHANGE_REQUIRED,account_classification="INTERNAL_PRIVILEGED",mfa_enabled=False)
         session.add(user)
     await session.flush()
-    activation=secrets.token_urlsafe(48); secret=base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
-    user.mfa_secret_encrypted=_fernet().encrypt(secret.encode()).decode(); record.activation_hash=hash_token(activation); record.token_hash=None; record.user_id=user.id; record.accepted_at=now; record.status="ENROLLING_MFA"; record.expires_at=now+timedelta(minutes=15)
-    await AuditLogRepository(session).create("INTERNAL_PRIVILEGED_EMAIL_VERIFIED", user_id=user.id); await session.commit()
-    uri=f"otpauth://totp/{quote('Zestiva Internal:'+record.email)}?secret={secret}&issuer=Zestiva%20Internal&algorithm=SHA1&digits=6&period=30"
-    return activation, uri
-
-async def confirm_mfa(session: AsyncSession, *, activation_token: str, code: str) -> User:
-    now=datetime.now(timezone.utc); digest=hash_token(activation_token)
-    record=await session.scalar(select(InternalPrivilegedInvitation).where(InternalPrivilegedInvitation.activation_hash==digest))
-    if not record or record.status!="ENROLLING_MFA" or not record.user_id: raise ForbiddenException("Invalid activation session")
-    if not record.expires_at or record.expires_at < now: raise ForbiddenException("Activation session expired")
-    user=await UserRepository(session).get_by_id(record.user_id)
-    if not user: raise NotFoundException("Identity not found")
-    user.mfa_enabled=True
-    # Temporarily enable verification helper, then persist the single-use step.
-    step=verify_totp(user,code); user.mfa_last_accepted_step=step; user.is_active=True; user.status="ACTIVE"
-    record.activation_hash=None; record.activated_at=now; record.status="ACTIVE"
-    await AuditLogRepository(session).create("INTERNAL_PRIVILEGED_MFA_ENROLLED", user_id=user.id)
+    user.is_active=True; user.status=STATUS_PASSWORD_CHANGE_REQUIRED; user.must_change_password=True; user.credential_status=CREDENTIAL_TEMPORARY; user.temporary_password_created_at=now; user.temporary_password_expires_at=temporary_password_expiry(now); user.temporary_password_consumed_at=None; user.mfa_enabled=False; user.mfa_secret_encrypted=None; user.mfa_last_accepted_step=None
+    record.activation_hash=None; record.token_hash=None; record.user_id=user.id; record.accepted_at=now; record.activated_at=now; record.status="ACTIVE"
+    await AuditLogRepository(session).create("INTERNAL_PRIVILEGED_EMAIL_VERIFIED", user_id=user.id)
     await AuditLogRepository(session).create("INTERNAL_PRIVILEGED_ACCOUNT_ACTIVATED", user_id=user.id)
     await session.commit(); return user
 
