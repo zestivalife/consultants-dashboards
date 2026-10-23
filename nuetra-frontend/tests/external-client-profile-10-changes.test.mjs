@@ -7,11 +7,20 @@ import {
   calculateExternalWaistHipRatio,
   composeExternalClientProfile,
   formatDateOnlyDDMMYYYY,
+  normalizeExternalDateOnly,
 } from '../lib/externalClientProfile.mjs';
 
 test('date-only presentation is DD/MM/YYYY and never includes a timestamp', () => {
   assert.equal(formatDateOnlyDDMMYYYY('1990-04-23T00:00:00.000Z'), '23/04/1990');
   assert.equal(formatDateOnlyDDMMYYYY(''), 'Not available');
+  assert.equal(normalizeExternalDateOnly('1990-04-23T23:30:00.000Z'), '1990-04-23');
+  assert.equal(normalizeExternalDateOnly('not-a-date'), null);
+});
+
+test('legacy timestamp DOB is normalized before form editing and overview rendering', () => {
+  const profile = composeExternalClientProfile({ overview: { dateOfBirth: '1990-01-15T00:00:00.000Z' }, sections: {} }, {});
+  assert.equal(profile.overview.dateOfBirth, '1990-01-15');
+  assert.equal(formatDateOnlyDDMMYYYY(profile.overview.dateOfBirth), '15/01/1990');
 });
 
 test('BMI and waist-to-hip ratio are derived only from valid measurements', () => {

@@ -12,6 +12,12 @@ export function formatDateOnlyDDMMYYYY(value) {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : 'Not available';
 }
 
+export function normalizeExternalDateOnly(value) {
+  if (!value) return null;
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
+}
+
 export function calculateExternalBmi(heightCm, weightKg) {
   const height = number(heightCm); const weight = number(weightKg);
   if (height === null || weight === null || height <= 0 || weight <= 0) return null;
@@ -52,7 +58,12 @@ export function composeExternalClientProfile(baseProfile, enrichment = {}) {
     sections.sleepStress = { ...(sections.sleepStress || {}), narrative: enrichment.sleep_stress_narrative };
   }
   const overview = { ...(profile.overview || {}) };
-  if (Object.prototype.hasOwnProperty.call(enrichment, 'date_of_birth')) overview.dateOfBirth = enrichment.date_of_birth;
+  const canonicalDateOfBirth = normalizeExternalDateOnly(
+    Object.prototype.hasOwnProperty.call(enrichment, 'date_of_birth')
+      ? enrichment.date_of_birth
+      : overview.dateOfBirth,
+  );
+  overview.dateOfBirth = canonicalDateOfBirth;
   const height = sections.measurements.heightCm ?? sections.measurements.height;
   const weight = sections.measurements.weightKg ?? sections.measurements.weight;
   const bmi = calculateExternalBmi(height, weight);

@@ -21,7 +21,7 @@ import {ClientDocumentVault} from './ExternalDocumentVault';
 import {createProfessionIntakeInvitation,getClientProfessionIntake,getExternalClientProfileEnrichment,listClientTimeline,openWhatsApp,revokeProfessionIntakeInvitation,updateExternalClientProfileEnrichment} from '../../lib/practiceOperationsApi';
 import { client360CapabilityState, resolveClient360Navigation } from '../../lib/client360Capabilities.mjs';
 import { assertCurrentClientBinding, resolveClientDietChartAction } from '../../lib/clientDietChartBinding.mjs';
-import {composeExternalClientProfile} from '../../lib/externalClientProfile.mjs';
+import {composeExternalClientProfile,formatDateOnlyDDMMYYYY} from '../../lib/externalClientProfile.mjs';
 import ExternalClientProfileEnhancements from './ExternalClientProfileEnhancements';
 
 const professionIntakeCodes=new Set(['DIABETES_EDUCATOR','PSYCHOLOGIST','WELLNESS_CONSULTANT','HEALTH_COACH','BEHAVIOURAL_THERAPIST','OCCUPATIONAL_THERAPIST','PHYSIOTHERAPIST','MENTAL_WELLNESS_THERAPIST']);
@@ -48,7 +48,8 @@ const dietWarningLabel = (warning) => ({
 
 function Provenance({ value }) { return <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{value || 'Self-reported'}</span>; }
 function SectionCard({ section, values, provenance, onEdit }) {
-  return <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h3 className="font-semibold">{title(section)}</h3>{onEdit&&<button onClick={() => onEdit(section, values)} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-semibold"><Pencil size={13}/>Edit</button>}</div>{!values || Object.keys(values).length === 0 ? <p className="mt-4 text-sm text-slate-500">Not provided</p> : <dl className="mt-4 grid gap-3 sm:grid-cols-2">{Object.entries(values).map(([key, value]) => <div key={key} className="rounded-xl bg-slate-50 p-3"><dt className="text-xs font-medium text-slate-500">{title(key)}<Provenance value={provenance?.[key]?.sourceLabel || provenance?.sourceLabel}/></dt><dd className="mt-1 break-words text-sm font-medium">{show(value)}</dd></div>)}</dl>}</section>;
+  const presentValue=(key,value)=>['dateOfBirth','dob'].includes(key)?formatDateOnlyDDMMYYYY(value):show(value);
+  return <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h3 className="font-semibold">{title(section)}</h3>{onEdit&&<button onClick={() => onEdit(section, values)} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-semibold"><Pencil size={13}/>Edit</button>}</div>{!values || Object.keys(values).length === 0 ? <p className="mt-4 text-sm text-slate-500">Not provided</p> : <dl className="mt-4 grid gap-3 sm:grid-cols-2">{Object.entries(values).map(([key, value]) => <div key={key} className="rounded-xl bg-slate-50 p-3"><dt className="text-xs font-medium text-slate-500">{title(key)}<Provenance value={provenance?.[key]?.sourceLabel || provenance?.sourceLabel}/></dt><dd className="mt-1 break-words text-sm font-medium">{presentValue(key,value)}</dd></div>)}</dl>}</section>;
 }
 
 export function ExternalClient360({ client, practiceName, onBack, onStatus, initialTab='Overview' }) {
