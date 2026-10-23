@@ -9,6 +9,11 @@ import {
 } from '../lib/roleRoutes';
 import { authAPI, clearTokens, getRefreshToken, getToken, isRememberedAuthSession, setRefreshToken, setToken } from '../lib/api';
 import { getFiteatsyConsultantOnboarding } from '../lib/fiteatsyConsultantsApi';
+import {
+  getExternalTemporaryPasswordIdentifier,
+  isExternalTemporaryPasswordUser,
+  isSameTemporaryPasswordUser,
+} from '../lib/temporaryPasswordBootstrap';
 
 const SESSION_KEY = 'nuetra_session';
 const LOGOUT_EVENT_KEY = 'nuetra_logout_event';
@@ -249,6 +254,35 @@ export function AuthProvider({ children }) {
     setIsLoading(true);
     setError(null);
     try {
+      // External temporary-password setup can be resumed after a frontend
+      // release or stale-tab recovery has preserved the account metadata but
+      // lost its short-lived access token. Re-authenticate the submitted
+      // temporary credential for the exact same External user before changing
+      // it. Internal and privileged account flows remain untouched.
+      if (isExternalTemporaryPasswordUser(user)) {
+        const identifier = getExternalTemporaryPasswordIdentifier(user);
+        if (!identifier) {
+          throw new Error('External account identifier is unavailable. Return to sign in and try again.');
+        }
+
+        const freshLogin = await authAPI.login(identifier, currentPassword);
+        const authenticatedUser = freshLogin?.user;
+        const freshTokens = freshLogin?.tokens;
+        if (
+          !isSameTemporaryPasswordUser(user, authenticatedUser)
+          || getAccountActionRoute(authenticatedUser) !== '/auth/change-temporary-password'
+          || !freshTokens?.access_token
+        ) {
+          throw new Error('Temporary password authority could not be verified. Return to sign in and try again.');
+        }
+
+        const rememberExternalSession = isRememberedAuthSession();
+        setToken(freshTokens.access_token, rememberExternalSession);
+        if (freshTokens.refresh_token) {
+          setRefreshToken(freshTokens.refresh_token, rememberExternalSession);
+        }
+      }
+
       const response = await authAPI.changeTemporaryPassword(currentPassword, newPassword, confirmPassword);
       const nextUser = response?.user;
       const tokens = response?.tokens;

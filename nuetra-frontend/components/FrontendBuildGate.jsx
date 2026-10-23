@@ -39,6 +39,21 @@ export default function FrontendBuildGate({ children }) {
   );
   const browserBundle = getBrowserBundleVersion();
 
+  const retryCurrentRuntime = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/version?build-retry=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      if (!response.ok) throw new Error('Runtime identity unavailable');
+      const runtime = await response.json();
+      sessionStorage.removeItem(BUILD_RELOAD_ATTEMPT_KEY);
+      window.location.replace(buildControlledReloadUrl(window.location.href, runtime?.commit_sha));
+    } catch {
+      setState(BUILD_GATE_STATE.RUNTIME_UNAVAILABLE);
+    }
+  }, []);
+
   const checkRuntime = useCallback(async ({ allowReload = true } = {}) => {
     if (!shouldEnforceBuildIdentity(process.env.NODE_ENV)) {
       setState(BUILD_GATE_STATE.CURRENT);
@@ -102,7 +117,7 @@ export default function FrontendBuildGate({ children }) {
 
   if (state === BUILD_GATE_STATE.CURRENT) return children;
   if (state === BUILD_GATE_STATE.RECOVERY_REQUIRED) {
-    return <RecoveryScreen onRetry={() => checkRuntime({ allowReload: false })} />;
+    return <RecoveryScreen onRetry={retryCurrentRuntime} />;
   }
   if (state === BUILD_GATE_STATE.RUNTIME_UNAVAILABLE) {
     return <RecoveryScreen unavailable onRetry={() => checkRuntime()} />;

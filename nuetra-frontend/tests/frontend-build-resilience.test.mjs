@@ -30,6 +30,13 @@ test('the same unresolved mismatch stops automatic reload looping', () => {
   );
 });
 
+test('manual recovery clears the one-shot marker and performs a controlled reload', () => {
+  assert.match(gateSource, /const retryCurrentRuntime = useCallback/);
+  assert.match(gateSource, /sessionStorage\.removeItem\(BUILD_RELOAD_ATTEMPT_KEY\)/);
+  assert.match(gateSource, /<RecoveryScreen onRetry=\{retryCurrentRuntime\}/);
+  assert.doesNotMatch(gateSource, /checkRuntime\(\{ allowReload: false \}\)/);
+});
+
 test('unverifiable runtime identity fails into controlled recovery', () => {
   assert.equal(classifyFrontendBuild({ bundleSha: shaA, runtimeSha: 'unknown' }), BUILD_GATE_STATE.RUNTIME_UNAVAILABLE);
 });

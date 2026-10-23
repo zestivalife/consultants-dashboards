@@ -3,7 +3,10 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
+  getExternalTemporaryPasswordIdentifier,
   getTemporaryPasswordBootstrapView,
+  isExternalTemporaryPasswordUser,
+  isSameTemporaryPasswordUser,
   TEMPORARY_PASSWORD_BOOTSTRAP_TIMEOUT_MS,
   TEMPORARY_PASSWORD_BOOTSTRAP_VIEW,
 } from '../lib/temporaryPasswordBootstrap.js';
@@ -71,4 +74,27 @@ test('successful password change persists the replacement session and routes by 
   assert.match(authSource, /authAPI\.changeTemporaryPassword/);
   assert.match(authSource, /persistSession\(session, rememberMe\)/);
   assert.match(authSource, /router\.replace\(getPostAuthPathForUser\(nextUser\)\)/);
+});
+
+test('only External consultant roles use the release-safe authority recovery', () => {
+  for (const role of ['consultant', 'external_consultant', 'provider', 'dietician', 'dietitian']) {
+    assert.equal(isExternalTemporaryPasswordUser({ role }), true);
+  }
+  for (const role of ['superuser', 'internal_super_admin', 'senior_consultant', 'practice_admin']) {
+    assert.equal(isExternalTemporaryPasswordUser({ role }), false);
+  }
+});
+
+test('External authority recovery is bound to the exact user identity', () => {
+  const user = { id: 'external-1', email: 'qa@example.invalid' };
+  assert.equal(getExternalTemporaryPasswordIdentifier(user), 'qa@example.invalid');
+  assert.equal(isSameTemporaryPasswordUser(user, { id: 'external-1' }), true);
+  assert.equal(isSameTemporaryPasswordUser(user, { id: 'external-2' }), false);
+});
+
+test('External temporary-password change reauthenticates before replacement without changing Internal flow', () => {
+  assert.match(authSource, /if \(isExternalTemporaryPasswordUser\(user\)\)/);
+  assert.match(authSource, /await authAPI\.login\(identifier, currentPassword\)/);
+  assert.match(authSource, /isSameTemporaryPasswordUser\(user, authenticatedUser\)/);
+  assert.match(authSource, /getAccountActionRoute\(authenticatedUser\) !== '\/auth\/change-temporary-password'/);
 });
