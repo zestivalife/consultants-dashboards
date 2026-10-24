@@ -62,7 +62,8 @@ from app.contracts import (ClientExportRequest, ExternalClientProfileEnrichmentU
 from app.internal_client_profile import merge_enrichment, projection as internal_profile_projection, validate_enrichment
 from app.external_client_profile import merge_external_enrichment, projection as external_profile_projection, validate_external_enrichment
 from app.external_measurements import calculated_health_parameters, validated_measurement
-from app.nutrition_foundation import (AssessmentReview, AssessmentStale,
+from app.measurement_context import assessment_measurement_sources, resolve_latest_measurements
+from app.nutrition_foundation import (AssessmentReview, AssessmentSource, AssessmentStale,
                                       ClinicalDocumentLink, DietPlanAssessmentBind,
                                       NutritionAssessmentCreate, NutritionAssessmentSave,
                                       NutritionAssessmentTransition, NutritionProfile,
@@ -351,15 +352,33 @@ async def _measurement_projection(db, tenant_id: str, client_id: str):
         if current is None or row["version"] > current["version"]:
             latest_series[row["series_id"]] = row
     current_rows = sorted(latest_series.values(), key=lambda row:(row["measured_at"],row["created_at"]), reverse=True)
-    latest = {}
-    for row in current_rows:
-        latest.setdefault(row["measurement_type"], row)
-    weight_history = [row for row in current_rows if row["measurement_type"] == "WEIGHT_KG"]
-    return {"latest":latest,"history":projected,
-            "calculations":calculated_health_parameters(latest,weight_history),
+    legacy_row=(await db.execute(text("""SELECT values,version,updated_at FROM external_client_profile_enrichments
+      WHERE tenant_id=:tenant AND client_id=:client"""),{"tenant":tenant_id,"client":client_id})).mappings().first()
+    legacy=dict((legacy_row or {}).get("values") or {}).get("measurements") or {}
+    resolved=resolve_latest_measurements(projected,legacy)
+    return {"latest":resolved["latest"],"eligible_latest":resolved["eligible_latest"],"history":projected,
+            "calculations":resolved["calculations"],"rejected":resolved["rejected"],
+            "measurement_context_fingerprint":resolved["fingerprint"],
+            "source_measurement_ids":resolved["source_measurement_ids"],
+            "requires_professional_confirmation":resolved["requires_professional_confirmation"],
+            "resolver_version":resolved["resolver_version"],
             "methodology_versions":["bmi.metric.v1","whr.metric.v1","whtr.metric.v1",
                                     "weight-change.metric.v1","weight-change-percent.metric.v1",
                                     "weight-trend.dated-observations.v1"]}
+
+
+async def _mark_measurement_context_changed(db, tenant_id: str, client_id: str, actor_id: str, now: datetime):
+    assessment=(await db.execute(text("""SELECT id,current_version,status FROM external_nutrition_assessments
+      WHERE tenant_id=:tenant AND client_id=:client ORDER BY updated_at DESC LIMIT 1 FOR UPDATE"""),
+      {"tenant":tenant_id,"client":client_id})).mappings().first()
+    if not assessment:return
+    await db.execute(text("""UPDATE external_nutrition_assessments SET stale=TRUE,
+      stale_reason='MEASUREMENT_CONTEXT_CHANGED',readiness_status='BLOCKED',updated_at=:now
+      WHERE id=:id AND tenant_id=:tenant"""),{"now":now,"id":assessment["id"],"tenant":tenant_id})
+    await _nutrition_event(db,assessment_id=assessment["id"],tenant_id=tenant_id,client_id=client_id,
+      version=assessment["current_version"],event_type="MEASUREMENT_CONTEXT_CHANGED",
+      from_status=assessment["status"],to_status=assessment["status"],actor_id=actor_id,now=now,
+      notes="A persisted measurement changed; professional reassessment is required before publication")
 
 
 @app.get("/api/v1/practice-operations/clients/{client_id}/measurements")
@@ -387,6 +406,7 @@ async def create_external_client_measurements(request: Request, client_id: str, 
           VALUES (:id,:id,:tenant,:client,:kind,:value,:unit,:measured,:source,:actor,:now,1)"""),
           {"id":record_id,"tenant":ctx["tenant_id"],"client":client_id,"kind":kind,"value":value,
            "unit":unit,"measured":body.measured_at,"source":body.source,"actor":ctx["user_id"],"now":now})
+    await _mark_measurement_context_changed(db,ctx["tenant_id"],client_id,ctx["user_id"],now)
     await db.commit();data=await _measurement_projection(db,ctx["tenant_id"],client_id)
     return {"success":True,"data":data,"error":None,"request_id":request.state.correlation_id}
 
@@ -413,6 +433,7 @@ async def correct_external_client_measurement(request: Request, client_id: str, 
       {"id":new_id,"series":row["series_id"],"tenant":ctx["tenant_id"],"client":client_id,"kind":kind,
        "value":value,"unit":unit,"measured":body.measured_at,"actor":ctx["user_id"],"now":now,
        "version":row["version"]+1,"prior":row["id"],"reason":body.reason})
+    await _mark_measurement_context_changed(db,ctx["tenant_id"],client_id,ctx["user_id"],now)
     await db.commit();data=await _measurement_projection(db,ctx["tenant_id"],client_id)
     return {"success":True,"data":data,"error":None,"request_id":request.state.correlation_id}
 
@@ -451,12 +472,22 @@ async def get_nutrition_assessment(request:Request,client_id:str,ctx=Depends(con
       WHERE a.tenant_id=:tenant AND a.client_id=:client ORDER BY a.updated_at DESC LIMIT 1"""),
       {"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
     if not row:
+        measurement_context=await _measurement_projection(db,ctx["tenant_id"],client_id)
         return {"success":True,"data":{"status":"NOT_STARTED","readiness_status":"NOT_STARTED","version":0,
-          "assessment_data":{},"readiness":{"outcome":"NOT_STARTED","checklist":{},"outstanding_information":[]},"history":[]},"error":None,"request_id":request.state.correlation_id}
+          "assessment_data":{},"readiness":{"outcome":"NOT_STARTED","checklist":{},"outstanding_information":[]},
+          "measurement_context":measurement_context,"history":[]},"error":None,"request_id":request.state.correlation_id}
     events=(await db.execute(text("""SELECT event_type,assessment_version,from_status,to_status,notes,actor_id,created_at
       FROM external_nutrition_assessment_events WHERE tenant_id=:tenant AND client_id=:client AND assessment_id=:assessment
       ORDER BY created_at DESC"""),{"tenant":ctx["tenant_id"],"client":client_id,"assessment":row["id"]})).mappings().all()
     data=_nutrition_assessment_projection(row);data["history"]=[{**dict(item),"created_at":item["created_at"].isoformat()} for item in events]
+    measurement_context=await _measurement_projection(db,ctx["tenant_id"],client_id)
+    saved_ids=sorted(str(item.get("source_id")) for item in (row["source_manifest"] or []) if item.get("source_type")=="MEASUREMENT")
+    data["measurement_context"]=measurement_context
+    data["measurement_context_changed"]=saved_ids!=measurement_context["source_measurement_ids"]
+    if data["measurement_context_changed"]:
+        data["stale"]=True;data["readiness_status"]="BLOCKED"
+        data["readiness"]={**dict(data.get("readiness") or {}),"outcome":"BLOCKED",
+          "outstanding_information":sorted(set(list((data.get("readiness") or {}).get("outstanding_information") or [])+["assessment_sources_changed"]))}
     return {"success":True,"data":data,"error":None,"request_id":request.state.correlation_id}
 
 
@@ -464,6 +495,10 @@ async def get_nutrition_assessment(request:Request,client_id:str,ctx=Depends(con
 async def save_nutrition_assessment(request:Request,client_id:str,body:NutritionAssessmentSave,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=await _nutrition_scope(request,db,ctx)
     if denied:return denied
+    measurement_context=await _measurement_projection(db,ctx["tenant_id"],client_id)
+    submitted_sources=[source for source in body.sources if source.source_type!="MEASUREMENT"]
+    canonical_sources=[AssessmentSource.model_validate(source) for source in assessment_measurement_sources(measurement_context)]
+    sources=submitted_sources+canonical_sources
     current=(await db.execute(text("""SELECT id,current_version,status,authorised_consultant_id,stale FROM external_nutrition_assessments
       WHERE tenant_id=:tenant AND client_id=:client ORDER BY updated_at DESC LIMIT 1 FOR UPDATE"""),
       {"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
@@ -474,14 +509,17 @@ async def save_nutrition_assessment(request:Request,client_id:str,body:Nutrition
     if current and current["status"] not in {"DRAFT","CHANGES_REQUESTED"}:
         return error(request,409,"INVALID_NUTRITION_ASSESSMENT_TRANSITION","Only draft or changes-requested assessments can be edited")
     new_status="SUBMITTED" if body.action=="SUBMIT" else "DRAFT"
-    readiness=diet_plan_readiness(body.profile,body.sources,workflow_status=new_status,
+    readiness=diet_plan_readiness(body.profile,sources,workflow_status=new_status,
       stale=False,clinical_safety_findings=body.clinical_safety_findings)
+    if measurement_context["requires_professional_confirmation"]:
+        readiness["outcome"]="BLOCKED"
+        readiness["outstanding_information"]=sorted(set(readiness["outstanding_information"]+["legacy_measurements_require_professional_confirmation"]))
     if body.action=="SUBMIT" and readiness["outcome"]=="INCOMPLETE":
         return error(request,409,"NUTRITION_ASSESSMENT_INCOMPLETE","Complete the outstanding information before submitting")
-    calculations=measurement_calculations(body.sources)
+    calculations=measurement_context["calculations"]
     profile_data=body.profile.model_dump(mode="json")
     fingerprint=hashlib.sha256(json.dumps({"client_id":client_id,"profile":profile_data,
-      "sources":[item.model_dump(mode="json") for item in body.sources],"calculations":calculations},sort_keys=True,default=str).encode()).hexdigest()
+      "sources":[item.model_dump(mode="json") for item in sources],"calculations":calculations},sort_keys=True,default=str).encode()).hexdigest()
     duplicate=(await db.execute(text("SELECT assessment_id,version FROM external_nutrition_assessment_versions WHERE tenant_id=:tenant AND client_id=:client AND fingerprint_sha256=:fingerprint"),
       {"tenant":ctx["tenant_id"],"client":client_id,"fingerprint":fingerprint})).first()
     if duplicate:
@@ -514,11 +552,11 @@ async def save_nutrition_assessment(request:Request,client_id:str,body:Nutrition
       VALUES (:vid,:id,:tenant,:client,:version,CAST(:manifest AS jsonb),CAST(:methods AS jsonb),CAST(:calculations AS jsonb),CAST(:complete AS jsonb),
        CAST(:safety AS jsonb),'[]'::jsonb,CAST(:provenance AS jsonb),:fingerprint,:actor,:now,CAST(:assessment AS jsonb),CAST(:readiness AS jsonb))"""),
       {"vid":version_id,"id":assessment_id,"tenant":ctx["tenant_id"],"client":client_id,"version":version,
-       "manifest":json.dumps(source_manifest(body.sources)),"methods":json.dumps(CALCULATION_VERSIONS),"calculations":json.dumps(calculations),
+       "manifest":json.dumps(source_manifest(sources)),"methods":json.dumps(CALCULATION_VERSIONS),"calculations":json.dumps(calculations),
        "complete":json.dumps({"complete":not readiness["outstanding_information"],"missing":readiness["outstanding_information"]}),
-       "safety":json.dumps(body.clinical_safety_findings),"provenance":json.dumps({"owner":"PRACTICE_OPERATIONS","scope":"EXTERNAL_ONLY"}),
+       "safety":json.dumps(body.clinical_safety_findings),"provenance":json.dumps({"owner":"PRACTICE_OPERATIONS","scope":"EXTERNAL_ONLY","measurement_context_fingerprint":measurement_context["measurement_context_fingerprint"]}),
        "fingerprint":fingerprint,"actor":ctx["user_id"],"now":now,"assessment":json.dumps(profile_data),"readiness":json.dumps(readiness)})
-    for source in body.sources:
+    for source in sources:
         await db.execute(text("""INSERT INTO external_nutrition_assessment_inputs
           (id,assessment_version_id,tenant_id,client_id,source_type,source_id,source_version,source_status,observed_at,provenance,created_at)
           VALUES (:id,:assessment_version,:tenant,:client,:type,:source,:source_version,:status,:observed,CAST(:provenance AS jsonb),:now)"""),
@@ -1500,6 +1538,41 @@ async def _current_diet_plan_readiness(db,ctx,client_id):
     if row["status"]!="REVIEWED" and outcome=="READY":outcome="NEEDS_REVIEW"
     return {"outcome":outcome,"assessment_id":str(row["id"]),"assessment_version":row["current_version"]}
 
+async def _diet_plan_health_context(db,ctx,client_id):
+    measurement=await _measurement_projection(db,ctx["tenant_id"],client_id)
+    assessment=(await db.execute(text("""SELECT a.id,a.current_version,a.status,a.readiness_status,a.stale,
+      v.source_manifest,v.assessment_data,v.calculations,v.reviewed_by,v.reviewed_at
+      FROM external_nutrition_assessments a JOIN external_nutrition_assessment_versions v
+      ON v.assessment_id=a.id AND v.version=a.current_version
+      WHERE a.tenant_id=:tenant AND a.client_id=:client ORDER BY a.updated_at DESC LIMIT 1"""),
+      {"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
+    saved_ids=sorted(str(item.get("source_id")) for item in ((assessment or {}).get("source_manifest") or []) if item.get("source_type")=="MEASUREMENT")
+    changed=bool(assessment) and saved_ids!=measurement["source_measurement_ids"]
+    readiness="NOT_STARTED" if not assessment else ("BLOCKED" if assessment["stale"] or changed else str(assessment["readiness_status"] or "INCOMPLETE"))
+    profile=dict((assessment or {}).get("assessment_data") or {})
+    return {
+      "measurement_context":measurement,
+      "assessment":{"id":str(assessment["id"]) if assessment else None,"version":assessment["current_version"] if assessment else None,
+        "status":assessment["status"] if assessment else "NOT_STARTED","readiness":readiness,
+        "reviewed_by":str(assessment["reviewed_by"]) if assessment and assessment["reviewed_by"] else None,
+        "reviewed_at":assessment["reviewed_at"].isoformat() if assessment and assessment["reviewed_at"] else None,
+        "measurement_context_changed":changed},
+      "profile":{"dietary_preference":profile.get("dietary_preference"),"allergies_intolerances":profile.get("allergies_intolerances") or [],
+        "food_restrictions":profile.get("food_restrictions") or [],"weight_management_goals":profile.get("weight_management_goals") or [],
+        "recovery_disease_management_goals":profile.get("recovery_disease_management_goals") or []},
+      "target_policy":{"methodology":"PROFESSIONAL_JUDGEMENT","automatic_calorie_prescription":False,
+        "professional_confirmation_required":True},
+    }
+
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/diet-plan-context")
+async def get_diet_plan_health_context(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    capability_denied=await require_capability(request,db,ctx,"DIET_PLAN")
+    if capability_denied:return capability_denied
+    return {"success":True,"data":await _diet_plan_health_context(db,ctx,client_id),"error":None,"request_id":request.state.correlation_id}
+
 def _diet_plan_readiness_error(request,readiness):
     return error(request,409,"DIET_PLAN_READINESS_REQUIRED",
       f"Nutrition Assessment readiness is {readiness['outcome']}. Complete and review the assessment before authoring or publishing a Diet Plan")
@@ -1520,7 +1593,11 @@ async def _diet_plan_projection(db, plan):
               {"section":section,"tenant":plan["tenant_id"]})).scalars().all()
             options=[dict(item or {}) for item in items]
     value=dict(plan);value["id"]=str(value["id"]);value["daily_protein_target_g"]=float(value["daily_protein_target_g"] or 0)
-    for version in versions: version["id"]=str(version["id"])
+    context=await _measurement_projection(db,plan["tenant_id"],plan["client_id"])
+    for version in versions:
+        version["id"]=str(version["id"])
+        snapshot=dict(version.get("nutrition_snapshot") or {})
+        version["measurement_context_changed"]=bool(snapshot.get("measurement_context_fingerprint")) and snapshot.get("measurement_context_fingerprint")!=context["measurement_context_fingerprint"]
     return {"plan":value,"versions":versions,"current_version":current,"options":options}
 
 @app.get("/api/v1/practice-operations/clients/{client_id}/diet-plans")
@@ -1544,12 +1621,19 @@ async def create_diet_plan(request:Request,body:DietPlanCreate,ctx=Depends(conte
     if capability_denied:return capability_denied
     readiness=await _current_diet_plan_readiness(db,ctx,body.client_id)
     if readiness["outcome"]!="READY":return _diet_plan_readiness_error(request,readiness)
+    health_context=await _diet_plan_health_context(db,ctx,body.client_id)
     config=await configuration(db,ctx);now=datetime.now(timezone.utc);plan_id=uuid4();version_id=uuid4()
     await db.execute(text("""INSERT INTO external_profession_plans
       (id,tenant_id,client_id,profession_code,plan_type,title,status,current_version,created_by,authorised_consultant_id,daily_calories_target,daily_protein_target_g,created_at,updated_at)
       VALUES (:id,:tenant,:client,:profession,'DIET_PLAN',:title,'DRAFT',1,:actor,:actor,:calories,:protein,:now,:now)"""),
       {"id":plan_id,"tenant":ctx["tenant_id"],"client":body.client_id,"profession":config["profession"],"title":body.name,"actor":ctx["user_id"],"calories":body.daily_calories_target,"protein":body.daily_protein_target_g,"now":now})
-    snapshot={"daily_calories_target":body.daily_calories_target,"daily_protein_target_g":body.daily_protein_target_g,"health_goals":body.health_goals,"actual_calories":0,"actual_protein_g":0,"source":"CONSULTANT_AUTHORED"}
+    measurement=health_context["measurement_context"]
+    snapshot={"daily_calories_target":body.daily_calories_target,"daily_protein_target_g":body.daily_protein_target_g,"health_goals":body.health_goals,"actual_calories":0,"actual_protein_g":0,"source":"CONSULTANT_AUTHORED",
+      "target_methodology":"PROFESSIONAL_JUDGEMENT","target_reviewed_by":ctx["user_id"],
+      "measurement_context_fingerprint":measurement["measurement_context_fingerprint"],
+      "measurement_source_ids":measurement["source_measurement_ids"],"measurement_snapshot":measurement["eligible_latest"],
+      "measurement_calculations":measurement["calculations"],"assessment_id":readiness["assessment_id"],
+      "assessment_version":readiness["assessment_version"]}
     await db.execute(text("""INSERT INTO external_profession_plan_versions
       (id,plan_id,tenant_id,client_id,version,status,title,nutrition_snapshot,created_by,created_at)
       VALUES (:id,:plan,:tenant,:client,1,'DRAFT',:title,CAST(:snapshot AS jsonb),:actor,:now)"""),
@@ -1577,10 +1661,19 @@ async def save_diet_plan(request:Request,plan_id:UUID,body:DietPlanSave,ctx=Depe
     if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
     if plan["status"] in {"APPROVED","PUBLISHED","ARCHIVED"}:return error(request,409,"DIET_PLAN_IMMUTABLE","Approved and published Diet Plans are immutable")
     if plan["current_version"]!=body.expected_version:return error(request,409,"STALE_WRITE","This Diet Plan changed. Refresh and retry")
+    readiness=await _current_diet_plan_readiness(db,ctx,plan["client_id"])
+    if readiness["outcome"]!="READY":return _diet_plan_readiness_error(request,readiness)
+    health_context=await _diet_plan_health_context(db,ctx,plan["client_id"])
     now=datetime.now(timezone.utc);next_version=plan["current_version"]+1;version_id=uuid4()
     actual_calories=sum(float((item.get("nutrition") or {}).get("kcal") or 0) for item in body.options if item.get("selected",True))
     actual_protein=sum(float((item.get("nutrition") or {}).get("protein") or 0) for item in body.options if item.get("selected",True))
-    snapshot={"daily_calories_target":plan["daily_calories_target"],"daily_protein_target_g":float(plan["daily_protein_target_g"] or 0),"actual_calories":round(actual_calories,2),"actual_protein_g":round(actual_protein,2),"option_count":len(body.options)}
+    measurement=health_context["measurement_context"]
+    snapshot={"daily_calories_target":plan["daily_calories_target"],"daily_protein_target_g":float(plan["daily_protein_target_g"] or 0),"actual_calories":round(actual_calories,2),"actual_protein_g":round(actual_protein,2),"option_count":len(body.options),
+      "target_methodology":"PROFESSIONAL_JUDGEMENT","target_reviewed_by":ctx["user_id"],
+      "measurement_context_fingerprint":measurement["measurement_context_fingerprint"],
+      "measurement_source_ids":measurement["source_measurement_ids"],"measurement_snapshot":measurement["eligible_latest"],
+      "measurement_calculations":measurement["calculations"],"assessment_id":readiness["assessment_id"],
+      "assessment_version":readiness["assessment_version"]}
     await db.execute(text("""INSERT INTO external_profession_plan_versions
       (id,plan_id,tenant_id,client_id,version,status,title,nutrition_snapshot,created_by,created_at)
       VALUES (:id,:plan,:tenant,:client,:version,'SAVED',:title,CAST(:snapshot AS jsonb),:actor,:now)"""),
@@ -1639,6 +1732,9 @@ async def publish_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db
       WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version"""),{"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).mappings().one()
     option_count=int((version_row["nutrition_snapshot"] or {}).get("option_count") or 0)
     if option_count<1:return error(request,409,"DIET_PLAN_CONTENT_REQUIRED","Add and save governed meal options before publication")
+    current_context=await _measurement_projection(db,ctx["tenant_id"],plan["client_id"])
+    if (version_row["nutrition_snapshot"] or {}).get("measurement_context_fingerprint")!=current_context["measurement_context_fingerprint"]:
+        return error(request,409,"DIET_PLAN_MEASUREMENT_CONTEXT_STALE","Measurements changed after this draft was saved. Review the assessment and save a new plan version")
     lineage=(await db.execute(text("""SELECT assessment_id,assessment_version FROM external_diet_plan_assessment_links
       WHERE tenant_id=:tenant AND client_id=:client AND external_plan_id=:plan AND external_plan_version=:version
       AND legacy_lineage_state='LINKED'"""),{"tenant":ctx["tenant_id"],"client":plan["client_id"],"plan":str(plan_id),"version":str(plan["current_version"])})).mappings().first()

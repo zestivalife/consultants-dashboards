@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   searchExternalCommonFoods,
 } from '../../lib/fiteatsyConsultantsApi';
-import { bindDietPlanAssessment, createConsultantDietPlan, getConsultantDietPlan, getNutritionAssessment, listConsultantDietPlans, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan } from '../../lib/practiceOperationsApi';
+import { bindDietPlanAssessment, createConsultantDietPlan, getConsultantDietPlan, getDietPlanHealthContext, getNutritionAssessment, listConsultantDietPlans, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan } from '../../lib/practiceOperationsApi';
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import CommonFoodPlanEditor from '../platform/CommonFoodPlanEditor';
 
@@ -28,7 +28,7 @@ const initialForm = { name: '', dailyCalories: '', dailyProtein: '' };
 const show = (value) => Array.isArray(value) ? value.join(', ') || 'Not provided' : value || 'Not provided';
 const projectDetail=(detail)=>({id:detail.plan.id,name:detail.plan.title,status:detail.plan.status,updatedAt:detail.plan.updated_at,version:{id:detail.current_version?.id,number:detail.plan.current_version,plan:{dailyTargets:{calories:detail.plan.daily_calories_target,protein:Number(detail.plan.daily_protein_target_g)},meals:COMMON_FOOD_MEALS.map(([mealHead])=>({mealHead,options:(detail.options||[]).filter(item=>item.mealHead===mealHead)}))}},versions:detail.versions});
 
-export default function ExternalMultiDietPlan({ clientId, context, onError }) {
+export default function ExternalMultiDietPlan({ clientId, context, onError, onReviewMeasurements }) {
   const [plans, setPlans] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [form, setForm] = useState(initialForm);
@@ -37,6 +37,7 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
   const [message, setMessage] = useState('');
   const [loadError, setLoadError] = useState('');
   const [readiness, setReadiness] = useState({ outcome: 'LOADING' });
+  const [healthContext, setHealthContext] = useState(null);
   const editorRef = useRef(null);
   const selected = useMemo(() => plans.find((plan) => plan.id === selectedId) || plans[0] || null, [plans, selectedId]);
   const valid = form.name.trim().length >= 2 && Number(form.dailyCalories) >= 800 && Number(form.dailyCalories) <= 6000 && Number(form.dailyProtein) >= 20 && Number(form.dailyProtein) <= 400;
@@ -44,10 +45,12 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
   const load = useCallback(async (preferredId) => {
     setLoading(true); setLoadError('');
     try {
-      const [plansResult,assessmentResult]=await Promise.allSettled([listConsultantDietPlans(clientId),getNutritionAssessment(clientId)]);
+      const [plansResult,assessmentResult,contextResult]=await Promise.allSettled([listConsultantDietPlans(clientId),getNutritionAssessment(clientId),getDietPlanHealthContext(clientId)]);
       if(plansResult.status==='rejected'){setPlans([]);setLoadError('Diet plans could not be loaded.');onError(plansResult.reason?.message||'Diet plans could not be loaded.');return;}
       if(assessmentResult.status==='fulfilled'){const assessment=assessmentResult.value;setReadiness({ outcome: assessment.readiness_status || assessment.readiness?.outcome || 'NOT_STARTED', assessmentId: assessment.id, assessmentVersion: assessment.current_version || assessment.version });}
       else{setReadiness({outcome:'UNAVAILABLE'});onError(assessmentResult.reason?.message||'Unable to load nutrition assessment.');}
+      if(contextResult.status==='fulfilled')setHealthContext(contextResult.value);
+      else{setHealthContext(null);onError(contextResult.reason?.message||'Unable to load Diet Plan health context.');}
       const details=await Promise.allSettled((plansResult.value.items||[]).map((item)=>getConsultantDietPlan(item.id).then(projectDetail)));
       const next=details.filter(item=>item.status==='fulfilled').map(item=>item.value);
       const failedDetails=details.length-next.length;
@@ -101,7 +104,8 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
     finally { setBusy(''); }
   };
 
-  const fields = [['Health & wellness goals', context?.goals], ['Diet preference', context?.dietPreference], ['Allergies', context?.allergies], ['Food restrictions', context?.restrictions], ['Weight', context?.weight], ['BMI', context?.bmi]];
+  const resolved=healthContext?.measurement_context||{};const latest=resolved.latest||{};const calculations=resolved.calculations||{};
+  const fields = [['Health & wellness goals', healthContext?.profile?.weight_management_goals?.length?healthContext.profile.weight_management_goals:context?.goals], ['Diet preference', healthContext?.profile?.dietary_preference||context?.dietPreference], ['Allergies', healthContext?.profile?.allergies_intolerances?.length?healthContext.profile.allergies_intolerances:context?.allergies], ['Food restrictions', healthContext?.profile?.food_restrictions?.length?healthContext.profile.food_restrictions:context?.restrictions], ['Current weight', latest.WEIGHT_KG?`${latest.WEIGHT_KG.value} ${latest.WEIGHT_KG.unit}`:'Not provided'], ['Current height', latest.HEIGHT_CM?`${latest.HEIGHT_CM.value} ${latest.HEIGHT_CM.unit}`:'Not provided'], ['BMI', calculations.bmi?.value??'Not available']];
   if (loading) return <div className="rounded-2xl bg-white p-12 text-center text-sm text-slate-500">Loading all Diet Plans…</div>;
 
   return <div className="space-y-4">
@@ -112,9 +116,12 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
       <p className="mt-1 text-sm">{readiness.outcome==='READY'?'The reviewed server-authoritative assessment permits Diet Plan authoring and publication.':'Complete and review the Nutrition Assessment before creating or publishing a Diet Plan. Existing drafts remain viewable.'}</p>
     </section>
     <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
-      <p className="text-xs font-bold uppercase tracking-wider text-blue-700">Read-only client context</p>
-      <h3 className="mt-1 text-lg font-semibold text-blue-950">Confirmed context for professional review</h3>
+      <p className="text-xs font-bold uppercase tracking-wider text-blue-700">Health Context for Diet Planning</p>
+      <h3 className="mt-1 text-lg font-semibold text-blue-950">Review the server-authoritative inputs before authoring</h3>
       <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{fields.map(([label, value]) => <div key={label} className="rounded-xl bg-white p-3"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 text-sm font-semibold">{show(value)}</dd></div>)}</dl>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">Measurement freshness and sources</p><p className="mt-1 text-sm font-semibold">{Object.values(latest).filter(item=>item.eligibility==='ELIGIBLE').length} eligible dated measurements</p><p className="mt-1 text-xs text-slate-500">{Object.values(latest).map(item=>`${String(item.measurement_type).replaceAll('_',' ')} · ${item.measured_at?new Date(item.measured_at).toLocaleDateString():'date unavailable'} · ${String(item.source||'unknown').replaceAll('_',' ')}`).join(' | ')||'No governed measurement context'}</p></div><div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">Target methodology</p><p className="mt-1 text-sm font-semibold">Professional judgement required</p><p className="mt-1 text-xs text-slate-500">Calories and protein are never prescribed from BMI alone. Existing approved targets are not overwritten.</p></div></div>
+      {(resolved.requires_professional_confirmation||healthContext?.assessment?.measurement_context_changed)&&<div role="alert" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{healthContext?.assessment?.measurement_context_changed?'Measurements changed after the current assessment. Re-review the Nutrition Assessment before saving or publishing a plan.':'Legacy self-reported measurements require professional confirmation before they can influence Diet Plan calculations.'}</div>}
+      <button type="button" onClick={onReviewMeasurements} className="mt-4 min-h-11 rounded-xl border border-blue-300 bg-white px-4 text-sm font-semibold text-blue-900">Review measurements in Client360</button>
     </section>
 
     <section className="rounded-2xl border border-slate-200 bg-white p-5">
