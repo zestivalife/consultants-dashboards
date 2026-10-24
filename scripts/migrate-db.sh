@@ -4,6 +4,11 @@
 
 set -e
 
+if [ "${MIGRATION_OPERATION_APPROVED:-}" != "YES" ] || [ -z "${MIGRATION_APPROVAL_REFERENCE:-}" ]; then
+    echo "Migration blocked: explicit approval and MIGRATION_APPROVAL_REFERENCE are required." >&2
+    exit 1
+fi
+
 echo "======================================================"
 echo "Nuetra Database Migration Initialization"
 echo "======================================================"

@@ -3,6 +3,11 @@
 
 set -e
 
+if [ "${MIGRATION_OPERATION_APPROVED:-}" != "YES" ] || [ -z "${MIGRATION_APPROVAL_REFERENCE:-}" ]; then
+    echo "Migration blocked: explicit approval and MIGRATION_APPROVAL_REFERENCE are required." >&2
+    exit 1
+fi
+
 SERVICES=(
   "auth-service:nuetra_auth:8001"
   "profile-service:nuetra_profile:8002"
