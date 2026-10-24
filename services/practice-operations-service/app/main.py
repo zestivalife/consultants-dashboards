@@ -1490,6 +1490,20 @@ async def _diet_plan_publication_eligibility(db,ctx,consultant_id):
     years=int((row["projection"] or {}).get("experience_years") or 0)
     return {"state":"VERIFIED","experience_years":years,"independent":years>=1}
 
+async def _current_diet_plan_readiness(db,ctx,client_id):
+    row=(await db.execute(text("""SELECT id,current_version,status,readiness_status,stale
+      FROM external_nutrition_assessments
+      WHERE tenant_id=:tenant AND client_id=:client ORDER BY updated_at DESC LIMIT 1"""),
+      {"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
+    if not row:return {"outcome":"NOT_STARTED","assessment_id":None,"assessment_version":None}
+    outcome="BLOCKED" if row["stale"] else str(row["readiness_status"] or "INCOMPLETE")
+    if row["status"]!="REVIEWED" and outcome=="READY":outcome="NEEDS_REVIEW"
+    return {"outcome":outcome,"assessment_id":str(row["id"]),"assessment_version":row["current_version"]}
+
+def _diet_plan_readiness_error(request,readiness):
+    return error(request,409,"DIET_PLAN_READINESS_REQUIRED",
+      f"Nutrition Assessment readiness is {readiness['outcome']}. Complete and review the assessment before authoring or publishing a Diet Plan")
+
 async def _diet_plan_projection(db, plan):
     versions=[dict(row) for row in (await db.execute(text("""SELECT id,version,status,title,nutrition_snapshot,published_at,created_at
       FROM external_profession_plan_versions WHERE plan_id=:plan AND tenant_id=:tenant ORDER BY version DESC"""),
@@ -1528,6 +1542,8 @@ async def create_diet_plan(request:Request,body:DietPlanCreate,ctx=Depends(conte
     if denied:return denied
     capability_denied=await require_capability(request,db,ctx,"DIET_PLAN")
     if capability_denied:return capability_denied
+    readiness=await _current_diet_plan_readiness(db,ctx,body.client_id)
+    if readiness["outcome"]!="READY":return _diet_plan_readiness_error(request,readiness)
     config=await configuration(db,ctx);now=datetime.now(timezone.utc);plan_id=uuid4();version_id=uuid4()
     await db.execute(text("""INSERT INTO external_profession_plans
       (id,tenant_id,client_id,profession_code,plan_type,title,status,current_version,created_by,authorised_consultant_id,daily_calories_target,daily_protein_target_g,created_at,updated_at)
@@ -1611,6 +1627,8 @@ async def publish_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db
     if denied:return denied
     plan=await _diet_plan_row(request,db,ctx,plan_id)
     if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    readiness=await _current_diet_plan_readiness(db,ctx,plan["client_id"])
+    if readiness["outcome"]!="READY":return _diet_plan_readiness_error(request,readiness)
     eligibility=await _diet_plan_publication_eligibility(db,ctx,plan["authorised_consultant_id"])
     independently_publishable=can_publish_independently(verification_state=eligibility["state"],experience_years=eligibility["experience_years"],plan_status=plan["status"],actor_is_author=str(ctx["user_id"])==str(plan["authorised_consultant_id"]))
     if plan["status"]!="APPROVED" and not independently_publishable:

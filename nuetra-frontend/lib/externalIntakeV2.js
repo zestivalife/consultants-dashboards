@@ -1,3 +1,5 @@
+import { validDateOfBirth } from './externalIntakeCorrections.mjs';
+
 export const intakeSections = [
   ['aboutYou','About you'],['medicalHistory','Medical history'],['conditionsSymptoms','Conditions & symptoms'],
   ['allergiesFamilyHistory','Allergies & family history'],['medicationsSupplements','Medicines & supplements'],
@@ -88,6 +90,8 @@ export const validateSection=(section,data,allAnswers={})=>{
   if(section==='aboutYou'){
     if(!data.firstName?.trim()||!data.lastName?.trim()||!data.gender)return 'First name, last name, and gender are required.';
     if(!data.mobile?.trim()&&!data.email?.trim())return 'Add at least one contact method.';
+    if(!data.dateOfBirth)return 'Date of birth is required.';
+    if(!validDateOfBirth(data.dateOfBirth))return 'Enter a valid date of birth that is not in the future.';
   }
   if(section==='allergiesFamilyHistory'&&data.hasAllergies==='YES'&&!(data.allergyTypes?.length))return 'Choose at least one allergy type.';
   if(section==='medicationsSupplements'&&data.takesMedication==='YES'&&!(data.medications||[]).some(row=>row.name?.trim()))return 'Add the name of each prescribed medicine.';

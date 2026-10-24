@@ -76,6 +76,15 @@ function copyResponseHeaders(upstreamResponse, res) {
   });
 }
 
+export function validateExternalIntakePdfUpload(req, upstreamPath, bodyBuffer) {
+  if (req.method !== 'POST' || !/^v1\/external\/intake\/[^/]+\/documents$/.test(upstreamPath)) return null;
+  const contentType = String(req.headers['content-type'] || '').toLowerCase();
+  if (!contentType.startsWith('multipart/form-data;') || !bodyBuffer?.length || bodyBuffer.length > 12 * 1024 * 1024 + 64 * 1024) return 'Choose a PDF no larger than 12 MB.';
+  const body = bodyBuffer.toString('latin1');
+  if (!/filename="[^"]+\.pdf"/i.test(body) || !/content-type:\s*application\/pdf/i.test(body) || !body.includes('%PDF-')) return 'Only valid PDF blood reports are supported.';
+  return null;
+}
+
 export default async function handler(req, res) {
   const pathSegments = Array.isArray(req.query.path) ? req.query.path : [];
   const upstreamPath = pathSegments.join('/');
@@ -85,6 +94,9 @@ export default async function handler(req, res) {
 
   const bodyBuffer =
     req.method === 'GET' || req.method === 'HEAD' ? null : await readRawBody(req);
+
+  const uploadError = validateExternalIntakePdfUpload(req, upstreamPath, bodyBuffer);
+  if (uploadError) return res.status(415).json({ success: false, safe_message: uploadError });
 
   try {
     const upstreamResponse = await fetch(upstreamUrl, {

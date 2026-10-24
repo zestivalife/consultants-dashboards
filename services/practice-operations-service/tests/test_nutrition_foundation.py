@@ -84,3 +84,13 @@ def test_additive_migration_and_external_api_contracts():
     assert app.count("denied=await _nutrition_scope(request,db,ctx)") >= 7
     assert "ASSESSMENT_INPUTS_UNCHANGED" in app
     assert "NUTRITION_ASSESSMENT_REQUIRED" in app
+
+
+def test_mp008_diet_plan_creation_and_publication_fail_closed_on_server_readiness():
+    app=(ROOT/"app/main.py").read_text()
+    assert "async def _current_diet_plan_readiness" in app
+    assert '"DIET_PLAN_READINESS_REQUIRED"' in app
+    create=app[app.index("async def create_diet_plan"):app.index("@app.get(\"/api/v1/practice-operations/diet-plans/{plan_id}\")")]
+    publish=app[app.index("async def publish_diet_plan"):app.index("async def _write_note_sections")]
+    assert 'readiness["outcome"]!="READY"' in create
+    assert 'readiness["outcome"]!="READY"' in publish

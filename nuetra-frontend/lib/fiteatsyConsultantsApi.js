@@ -338,13 +338,13 @@ export function submitExternalClientIntake(token) {
   return requestFiteatsy(`/v1/external/intake/${encodeURIComponent(token)}/submit`, { method: 'POST', body: { consentAccepted: true, consentVersion: 'external-health-intake-v1' } });
 }
 
-export async function uploadExternalClientIntakeDocument(token, category, file) {
+export async function uploadExternalClientIntakeDocument(token, category, file, idempotencyKey = crypto.randomUUID()) {
   const data = new FormData();
   data.append('category', category);
   data.append('document', file);
-  const response = await fetch(`${getFiteatsyApiBaseUrl()}/v1/external/intake/${encodeURIComponent(token)}/documents`, { method: 'POST', body: data, headers: { Accept: 'application/json' } });
+  const response = await fetch(`${getFiteatsyApiBaseUrl()}/v1/external/intake/${encodeURIComponent(token)}/documents`, { method: 'POST', body: data, headers: { Accept: 'application/json', 'Idempotency-Key': idempotencyKey } });
   const body = await readJsonResponse(response);
-  if (!response.ok) { const error = new Error(body?.message || body?.error || `Upload failed (${response.status})`); error.status = response.status; error.data = body; throw error; }
+  if (!response.ok) { const error = new Error(body?.safe_message || (response.status < 500 ? body?.message : null) || 'The blood report could not be uploaded.'); error.status = response.status; error.data = body; throw error; }
   return body;
 }
 

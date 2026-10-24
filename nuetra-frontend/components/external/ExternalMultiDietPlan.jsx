@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   searchExternalCommonFoods,
 } from '../../lib/fiteatsyConsultantsApi';
-import { createConsultantDietPlan, getConsultantDietPlan, listConsultantDietPlans, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan } from '../../lib/practiceOperationsApi';
+import { bindDietPlanAssessment, createConsultantDietPlan, getConsultantDietPlan, getNutritionAssessment, listConsultantDietPlans, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan } from '../../lib/practiceOperationsApi';
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import CommonFoodPlanEditor from '../platform/CommonFoodPlanEditor';
 
@@ -35,6 +35,7 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
+  const [readiness, setReadiness] = useState({ outcome: 'LOADING' });
   const editorRef = useRef(null);
   const selected = useMemo(() => plans.find((plan) => plan.id === selectedId) || plans[0] || null, [plans, selectedId]);
   const valid = form.name.trim().length >= 2 && Number(form.dailyCalories) >= 800 && Number(form.dailyCalories) <= 6000 && Number(form.dailyProtein) >= 20 && Number(form.dailyProtein) <= 400;
@@ -42,7 +43,8 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
   const load = useCallback(async (preferredId) => {
     setLoading(true);
     try {
-      const result = await listConsultantDietPlans(clientId);
+      const [result, assessment] = await Promise.all([listConsultantDietPlans(clientId), getNutritionAssessment(clientId)]);
+      setReadiness({ outcome: assessment.readiness_status || assessment.readiness?.outcome || 'NOT_STARTED', assessmentId: assessment.id, assessmentVersion: assessment.current_version || assessment.version });
       const next = await Promise.all((result.items || []).map((item) => getConsultantDietPlan(item.id).then(projectDetail)));
       next.forEach((plan) => editorVersionAliases.delete(plan.id));
       setPlans(next);
@@ -58,7 +60,7 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
 
   const create = async (event) => {
     event.preventDefault();
-    if (!valid || busy) return;
+    if (!valid || busy || readiness.outcome !== 'READY') return;
     setBusy('create'); setMessage(''); onError('');
     try {
       const result = await createConsultantDietPlan({ client_id: clientId, name: form.name.trim(), daily_calories_target: Number(form.dailyCalories), daily_protein_target_g: Number(form.dailyProtein), health_goals: context?.goals || [] });
@@ -82,6 +84,8 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
           setMessage('Exact Diet Plan version submitted for Senior Consultant review.');
         } else {
           if (!window.confirm(`Publish approved “${selected.name}” to this client? Published history remains immutable.`)) return;
+          try { await bindDietPlanAssessment(clientId, { external_plan_id: selected.id, external_plan_version: String(selected.version.number), assessment_id: readiness.assessmentId, assessment_version: readiness.assessmentVersion, plan_state: selected.status }); }
+          catch (bindingError) { if (bindingError.code !== 'PLAN_ASSESSMENT_LINK_EXISTS') throw bindingError; }
           await publishConsultantDietPlan(selected.id);
           setMessage('Approved Diet Plan version published.');
         }
@@ -95,6 +99,11 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
   if (loading) return <div className="rounded-2xl bg-white p-12 text-center text-sm text-slate-500">Loading all Diet Plans…</div>;
 
   return <div className="space-y-4">
+    <section className={`rounded-2xl border p-5 ${readiness.outcome==='READY'?'border-emerald-200 bg-emerald-50':'border-amber-200 bg-amber-50'}`}>
+      <p className="text-xs font-bold uppercase tracking-wider">Nutrition Assessment readiness</p>
+      <h3 className="mt-1 text-lg font-semibold">{readiness.outcome.replaceAll('_',' ')}</h3>
+      <p className="mt-1 text-sm">{readiness.outcome==='READY'?'The reviewed server-authoritative assessment permits Diet Plan authoring and publication.':'Complete and review the Nutrition Assessment before creating or publishing a Diet Plan. Existing drafts remain viewable.'}</p>
+    </section>
     <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
       <p className="text-xs font-bold uppercase tracking-wider text-blue-700">Read-only client context</p>
       <h3 className="mt-1 text-lg font-semibold text-blue-950">Confirmed context for professional review</h3>
@@ -106,9 +115,9 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
       {plans.length > 0 && <div className="mt-4 grid gap-3 md:grid-cols-2">{plans.map((plan) => <button key={plan.id} onClick={() => setSelectedId(plan.id)} className={`rounded-xl border p-4 text-left ${plan.id === selected?.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}><strong>{plan.name}</strong><p className="mt-1 text-xs text-slate-500">{plan.status.replaceAll('_', ' ')} · {plan.version.plan.dailyTargets.calories} kcal · {plan.version.plan.dailyTargets.protein} g protein</p><p className="mt-1 text-xs text-slate-400">Updated {new Date(plan.updatedAt).toLocaleString()}</p></button>)}</div>}
     </section>
 
-    {selected && <><section className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-blue-700">{selected.status.replaceAll('_',' ')}</p><h3 className="mt-1 text-xl font-semibold">{selected.name} · Version {selected.version.number}</h3><p className="mt-1 text-sm text-slate-600">{selected.version.plan.dailyTargets.calories} kcal · {selected.version.plan.dailyTargets.protein} g protein</p></div><div className="flex flex-wrap gap-2">{['DRAFT','SAVED','CHANGES_REQUESTED'].includes(selected.status) && <button disabled={busy} onClick={() => persist('save')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save Draft'}</button>}<button disabled={busy || ['SUBMITTED','UNDER_REVIEW','PUBLISHED'].includes(selected.status)} onClick={() => persist('publish')} className="min-h-11 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">{selected.status === 'PUBLISHED' ? 'Published' : selected.status === 'APPROVED' ? 'Publish approved version' : busy === 'publish' ? 'Submitting…' : 'Submit for review'}</button></div></div></section><section className="rounded-2xl border border-slate-200 bg-white p-5"><CommonFoodPlanEditor key={`${selected.id}:${selected.version.id}`} ref={editorRef} clientId={clientId} dietPlanId={selected.id} planVersionId={selected.version.id} generationRequestId={1} lifecycle={['DRAFT','SAVED','CHANGES_REQUESTED'].includes(selected.status) ? 'draft' : 'published'} initialOptions={selected.version.plan.meals.flatMap((meal) => meal.options)} legacyMealPlan={{}} readOnly={!['DRAFT','SAVED','CHANGES_REQUESTED'].includes(selected.status)} authoringApi={authoringApi} templatesEnabled={false} proposalsEnabled={false} autoBalanceEnabled={false} onStale={() => load(selected.id)} /></section><section className="rounded-2xl border bg-white p-5"><h4 className="font-semibold">Version history</h4><ul className="mt-2 space-y-1 text-sm">{selected.versions.map(version=><li key={version.id}>Version {version.version} · {version.status} · {version.nutrition_snapshot?.option_count||0}/35 options</li>)}</ul></section></>}
+    {selected && <><section className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-blue-700">{selected.status.replaceAll('_',' ')}</p><h3 className="mt-1 text-xl font-semibold">{selected.name} · Version {selected.version.number}</h3><p className="mt-1 text-sm text-slate-600">{selected.version.plan.dailyTargets.calories} kcal · {selected.version.plan.dailyTargets.protein} g protein</p></div><div className="flex flex-wrap gap-2">{['DRAFT','SAVED','CHANGES_REQUESTED'].includes(selected.status) && <button disabled={busy} onClick={() => persist('save')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save Draft'}</button>}<button disabled={busy || readiness.outcome!=='READY' || ['SUBMITTED','UNDER_REVIEW','PUBLISHED'].includes(selected.status)} onClick={() => persist('publish')} className="min-h-11 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">{selected.status === 'PUBLISHED' ? 'Published' : readiness.outcome!=='READY'?'Assessment review required':selected.status === 'APPROVED' ? 'Publish approved version' : busy === 'publish' ? 'Submitting…' : 'Submit for review'}</button></div></div></section><section className="rounded-2xl border border-slate-200 bg-white p-5"><CommonFoodPlanEditor key={`${selected.id}:${selected.version.id}`} ref={editorRef} clientId={clientId} dietPlanId={selected.id} planVersionId={selected.version.id} generationRequestId={1} lifecycle={['DRAFT','SAVED','CHANGES_REQUESTED'].includes(selected.status) ? 'draft' : 'published'} initialOptions={selected.version.plan.meals.flatMap((meal) => meal.options)} legacyMealPlan={{}} readOnly={!['DRAFT','SAVED','CHANGES_REQUESTED'].includes(selected.status)} authoringApi={authoringApi} templatesEnabled={false} proposalsEnabled={false} autoBalanceEnabled={false} onStale={() => load(selected.id)} /></section><section className="rounded-2xl border bg-white p-5"><h4 className="font-semibold">Version history</h4><ul className="mt-2 space-y-1 text-sm">{selected.versions.map(version=><li key={version.id}>Version {version.version} · {version.status} · {version.nutrition_snapshot?.option_count||0}/35 options</li>)}</ul></section></>}
 
-    <form onSubmit={create} className="rounded-2xl border border-slate-200 bg-white p-5"><h3 className="text-lg font-semibold">Create another Diet Plan</h3><p className="mt-1 text-sm text-slate-500">Each plan has its own name, targets, draft and publication history.</p><div className="mt-4 grid gap-3 md:grid-cols-3"><label className="text-sm font-semibold">Plan name<input required minLength={2} maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label><label className="text-sm font-semibold">Calories (800–6000)<input required type="number" min="800" max="6000" value={form.dailyCalories} onChange={(event) => setForm({ ...form, dailyCalories: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label><label className="text-sm font-semibold">Protein (20–400 g)<input required type="number" min="20" max="400" step="0.1" value={form.dailyProtein} onChange={(event) => setForm({ ...form, dailyProtein: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label></div><button disabled={!valid || busy} className="mt-4 min-h-11 rounded-xl bg-slate-950 px-5 font-semibold text-white disabled:opacity-40">{busy === 'create' ? 'Creating…' : 'Create independent plan'}</button></form>
+    <form onSubmit={create} className="rounded-2xl border border-slate-200 bg-white p-5"><h3 className="text-lg font-semibold">Create another Diet Plan</h3><p className="mt-1 text-sm text-slate-500">Each plan has its own name, targets, draft and publication history.</p><div className="mt-4 grid gap-3 md:grid-cols-3"><label className="text-sm font-semibold">Plan name<input required minLength={2} maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label><label className="text-sm font-semibold">Calories (800–6000)<input required type="number" min="800" max="6000" value={form.dailyCalories} onChange={(event) => setForm({ ...form, dailyCalories: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label><label className="text-sm font-semibold">Protein (20–400 g)<input required type="number" min="20" max="400" step="0.1" value={form.dailyProtein} onChange={(event) => setForm({ ...form, dailyProtein: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label></div><button disabled={!valid || busy || readiness.outcome!=='READY'} className="mt-4 min-h-11 rounded-xl bg-slate-950 px-5 font-semibold text-white disabled:opacity-40">{busy === 'create' ? 'Creating…' : readiness.outcome==='READY'?'Create independent plan':'Assessment review required'}</button></form>
     {message && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{message}</p>}
   </div>;
 }

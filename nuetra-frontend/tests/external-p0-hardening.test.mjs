@@ -6,11 +6,13 @@ const intake=fs.readFileSync(new URL('../components/external/ExternalClientHealt
 const client360=fs.readFileSync(new URL('../components/external/ExternalClient360.jsx',import.meta.url),'utf8');
 const api=fs.readFileSync(new URL('../lib/fiteatsyConsultantsApi.js',import.meta.url),'utf8');
 
-test('DOB is canonical, read-only, and never rendered through arbitrary Date parsing',()=>{
+test('DOB is canonical, editable only when absent, and never rendered through arbitrary Date parsing',()=>{
   assert.match(intake,/formatCanonicalDob/);
   assert.match(intake,/Date needs review/);
   assert.doesNotMatch(intake,/new Date\(`\$\{value\.dateOfBirth\}T00:00:00`\)/);
-  for(const label of ['First name','Last name','Date of birth','Mobile number','Email'])assert.match(intake,new RegExp(`ReadOnlyValue label="${label}"`));
+  for(const label of ['First name','Last name','Mobile number','Email'])assert.match(intake,new RegExp(`ReadOnlyValue label="${label}"`));
+  assert.match(intake,/value\.dateOfBirth\?<ReadOnlyValue label="Date of birth"/);
+  assert.match(intake,/<Text label="Date of birth" required type="date"/);
 });
 
 test('location is structured while legacy location remains readable',()=>{
