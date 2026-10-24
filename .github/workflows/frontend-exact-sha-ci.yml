@@ -74,8 +74,16 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: |
+            services/auth-service/requirements.txt
             services/practice-operations-service/requirements.txt
             api-gateway/requirements.txt
+
+      - name: Install locked Auth Service dependencies
+        run: python -m pip install -r services/auth-service/requirements.txt
+
+      - name: Run Auth Service regression
+        working-directory: services/auth-service
+        run: python -m pytest -q
 
       - name: Install locked backend dependencies
         run: python -m pip install -r services/practice-operations-service/requirements.txt
