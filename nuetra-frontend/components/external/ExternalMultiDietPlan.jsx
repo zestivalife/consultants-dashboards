@@ -35,17 +35,23 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
+  const [loadError, setLoadError] = useState('');
   const [readiness, setReadiness] = useState({ outcome: 'LOADING' });
   const editorRef = useRef(null);
   const selected = useMemo(() => plans.find((plan) => plan.id === selectedId) || plans[0] || null, [plans, selectedId]);
   const valid = form.name.trim().length >= 2 && Number(form.dailyCalories) >= 800 && Number(form.dailyCalories) <= 6000 && Number(form.dailyProtein) >= 20 && Number(form.dailyProtein) <= 400;
 
   const load = useCallback(async (preferredId) => {
-    setLoading(true);
+    setLoading(true); setLoadError('');
     try {
-      const [result, assessment] = await Promise.all([listConsultantDietPlans(clientId), getNutritionAssessment(clientId)]);
-      setReadiness({ outcome: assessment.readiness_status || assessment.readiness?.outcome || 'NOT_STARTED', assessmentId: assessment.id, assessmentVersion: assessment.current_version || assessment.version });
-      const next = await Promise.all((result.items || []).map((item) => getConsultantDietPlan(item.id).then(projectDetail)));
+      const [plansResult,assessmentResult]=await Promise.allSettled([listConsultantDietPlans(clientId),getNutritionAssessment(clientId)]);
+      if(plansResult.status==='rejected'){setPlans([]);setLoadError('Diet plans could not be loaded.');onError(plansResult.reason?.message||'Diet plans could not be loaded.');return;}
+      if(assessmentResult.status==='fulfilled'){const assessment=assessmentResult.value;setReadiness({ outcome: assessment.readiness_status || assessment.readiness?.outcome || 'NOT_STARTED', assessmentId: assessment.id, assessmentVersion: assessment.current_version || assessment.version });}
+      else{setReadiness({outcome:'UNAVAILABLE'});onError(assessmentResult.reason?.message||'Unable to load nutrition assessment.');}
+      const details=await Promise.allSettled((plansResult.value.items||[]).map((item)=>getConsultantDietPlan(item.id).then(projectDetail)));
+      const next=details.filter(item=>item.status==='fulfilled').map(item=>item.value);
+      const failedDetails=details.length-next.length;
+      if(failedDetails){setLoadError(`${failedDetails} Diet Plan ${failedDetails===1?'detail could':'details could'} not be loaded.`);onError('One or more Diet Plan details could not be loaded.');}
       next.forEach((plan) => editorVersionAliases.delete(plan.id));
       setPlans(next);
       setSelectedId((current) => preferredId || (next.some((plan) => plan.id === current) ? current : next[0]?.id || ''));
@@ -99,6 +105,7 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
   if (loading) return <div className="rounded-2xl bg-white p-12 text-center text-sm text-slate-500">Loading all Diet Plans…</div>;
 
   return <div className="space-y-4">
+    {loadError&&<section role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-900"><p className="font-semibold">{loadError}</p><button type="button" onClick={()=>load(selectedId)} className="mt-3 min-h-11 rounded-xl border border-rose-300 bg-white px-4 font-semibold">Retry</button></section>}
     <section className={`rounded-2xl border p-5 ${readiness.outcome==='READY'?'border-emerald-200 bg-emerald-50':'border-amber-200 bg-amber-50'}`}>
       <p className="text-xs font-bold uppercase tracking-wider">Nutrition Assessment readiness</p>
       <h3 className="mt-1 text-lg font-semibold">{readiness.outcome.replaceAll('_',' ')}</h3>
@@ -112,6 +119,7 @@ export default function ExternalMultiDietPlan({ clientId, context, onError }) {
 
     <section className="rounded-2xl border border-slate-200 bg-white p-5">
       <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-blue-700">All Diet Plans</p><h3 className="mt-1 text-xl font-semibold">{plans.length} independent {plans.length === 1 ? 'plan' : 'plans'}</h3></div>{plans.length > 0 && <label className="text-sm font-semibold">Selected plan<select aria-label="Selected Diet Plan" value={selected?.id || ''} onChange={(event) => setSelectedId(event.target.value)} className="ml-2 min-h-11 rounded-xl border border-slate-200 px-3">{plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · {plan.status.replaceAll('_', ' ')}</option>)}</select></label>}</div>
+      {plans.length===0&&!loadError&&<p className="mt-4 text-sm text-slate-500">No independent Diet Plans have been created for this client.</p>}
       {plans.length > 0 && <div className="mt-4 grid gap-3 md:grid-cols-2">{plans.map((plan) => <button key={plan.id} onClick={() => setSelectedId(plan.id)} className={`rounded-xl border p-4 text-left ${plan.id === selected?.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}><strong>{plan.name}</strong><p className="mt-1 text-xs text-slate-500">{plan.status.replaceAll('_', ' ')} · {plan.version.plan.dailyTargets.calories} kcal · {plan.version.plan.dailyTargets.protein} g protein</p><p className="mt-1 text-xs text-slate-400">Updated {new Date(plan.updatedAt).toLocaleString()}</p></button>)}</div>}
     </section>
 

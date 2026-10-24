@@ -2,12 +2,23 @@ import {getToken,refreshAccessToken} from './api';
 
 const BASE='/api/gateway/api/v1/practice-operations';
 
+const fallbackMessage=(status)=>({
+  401:'Your session has expired. Sign in again to continue.',
+  403:'You do not have permission to access this client.',
+  404:'The requested practice record could not be found.',
+  409:'This practice operation conflicts with the current record state.',
+  422:'The submitted practice information is not valid.',
+  500:'The practice service could not complete this request.',
+  502:'The practice service is temporarily unavailable.',
+  503:'The practice service is temporarily unavailable.',
+}[status]||'Practice operation could not be completed.');
+
 async function request(path,options={}){
   const send=token=>fetch(`${BASE}${path}`,{credentials:'include',...options,headers:{'Content-Type':'application/json',...(token?{'X-Nuetra-Authorization':`Bearer ${token}`}:{}),...(options.headers||{})}});
   let response=await send(getToken());
   if(response.status===401){const refreshedToken=await refreshAccessToken().catch(()=>null);if(refreshedToken)response=await send(refreshedToken);}
   const body=await response.json().catch(()=>null);
-  if(!response.ok){const error=new Error(body?.error?.safe_message||'Practice operation could not be completed.');error.code=body?.error?.code||'PRACTICE_OPERATION_FAILED';error.retryable=Boolean(body?.error?.retryable);error.correlationId=body?.error?.correlation_id;throw error;}
+  if(!response.ok){const error=new Error(body?.error?.safe_message||fallbackMessage(response.status));error.code=body?.error?.code||'PRACTICE_OPERATION_FAILED';error.retryable=body?.error?.retryable===undefined?response.status>=500:Boolean(body.error.retryable);error.correlationId=body?.error?.correlation_id||response.headers.get('x-correlation-id')||undefined;error.status=response.status;throw error;}
   return body?.data;
 }
 

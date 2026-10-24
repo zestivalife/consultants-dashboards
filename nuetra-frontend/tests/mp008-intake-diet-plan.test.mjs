@@ -5,6 +5,8 @@ import { canonicalPhoneDisplay, normaliseWaterIntake, validDateOfBirth, validate
 
 const intake=fs.readFileSync(new URL('../components/external/ExternalClientHealthIntake.jsx',import.meta.url),'utf8');
 const plans=fs.readFileSync(new URL('../components/external/ExternalMultiDietPlan.jsx',import.meta.url),'utf8');
+const client360=fs.readFileSync(new URL('../components/external/ExternalClient360.jsx',import.meta.url),'utf8');
+const practiceApi=fs.readFileSync(new URL('../lib/practiceOperationsApi.js',import.meta.url),'utf8');
 const proxy=fs.readFileSync(new URL('../pages/api/fiteatsy/[...path].js',import.meta.url),'utf8');
 
 test('DOB, Indian trunk phone and exact hydration choices are canonical',()=>{
@@ -17,6 +19,11 @@ test('DOB, Indian trunk phone and exact hydration choices are canonical',()=>{
   assert.deepEqual(WATER_INTAKE_OPTIONS.at(-1),['6000','6 ltr']);
   assert.equal(normaliseWaterIntake({waterIntake:'1_1_5_L'}),'');
   assert.equal(normaliseWaterIntake({waterIntakeMl:2500}),'2500');
+});
+
+test('Client360 header renders canonical Indian E.164 phone identity',()=>{
+  assert.match(client360,/canonicalPhoneDisplay\(overview\?\.primaryContact\|\|client\.mobile/);
+  assert.equal(canonicalPhoneDisplay('09762006688'),'+919762006688');
 });
 
 test('blood report intake accepts PDF only and uses persisted document contract',async()=>{
@@ -39,4 +46,11 @@ test('Diet Plan UI loads and fail-closes on server readiness',()=>{
   assert.match(plans,/readiness\.outcome !== 'READY'/);
   assert.match(plans,/bindDietPlanAssessment/);
   assert.match(plans,/Assessment review required/);
+  assert.match(plans,/Promise\.allSettled/);
+  assert.match(plans,/Diet plans could not be loaded/);
+  assert.match(plans,/No independent Diet Plans have been created/);
+  assert.match(plans,/>Retry</);
+  assert.match(client360,/Client 360 loaded, but/);
+  assert.match(practiceApi,/Your session has expired/);
+  assert.match(practiceApi,/x-correlation-id/);
 });
