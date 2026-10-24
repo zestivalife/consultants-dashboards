@@ -311,6 +311,8 @@ async def test_refresh_token(session: AsyncSession, seed_user: User):
         "consultant",
         "corporate_admin",
         "team_member",
+        "internal_super_admin",
+        "superuser",
         "future_role",
     ],
 )

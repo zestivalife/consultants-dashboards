@@ -22,7 +22,6 @@ class LoginRequest(BaseModel):
     email: str | None = Field(default=None, min_length=3, max_length=320)
     mobile_number: str | None = Field(default=None, min_length=10, max_length=32)
     password: str
-    mfa_code: str | None = Field(default=None, pattern=r"^[0-9]{6}$")
 
     @model_validator(mode="after")
     def validate_identifier(self):
@@ -179,8 +178,6 @@ class UserResponse(BaseModel):
     temporary_password_expires_at: datetime | None = None
     next_action: NextAccountAction | None = None
     created_at: datetime
-    mfa_assured: bool = False
-
     model_config = {"from_attributes": True}
 
 

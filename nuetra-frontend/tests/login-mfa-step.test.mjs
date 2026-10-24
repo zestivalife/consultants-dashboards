@@ -11,18 +11,11 @@ const authService = readFileSync(
 test('initial login requests only identifier and password', () => {
   assert.match(loginPage, /Email or mobile number/);
   assert.match(loginPage, /Enter your password/);
-  assert.match(loginPage, /isBackendAuthEnabled && mfaStep/);
-  assert.doesNotMatch(loginPage, /privileged Internal accounts/);
+  assert.doesNotMatch(loginPage, /mfaStep|mfaCode|Authenticator code|one-time-code/);
 });
 
-test('authenticator step appears only after an explicit backend MFA requirement', () => {
-  assert.match(loginPage, /result\?\.error && \/MFA code required\/i/);
-  assert.match(loginPage, /setMfaStep\(true\)/);
-  assert.match(loginPage, /required\s+value=\{form\.mfaCode\}/);
-});
-
-test('backend MFA enforcement remains limited to internal_super_admin', () => {
+test('backend preserves privileged isolation without an MFA runtime dependency', () => {
   assert.match(authService, /user\.role\.name == "internal_super_admin"/);
-  assert.match(authService, /verify_totp\(user, mfa_code\)/);
-  assert.doesNotMatch(authService, /user\.role\.name == "superuser"[\s\S]{0,200}verify_totp/);
+  assert.match(authService, /assert_no_external_entitlement/);
+  assert.doesNotMatch(authService, /verify_totp|mfa_code|mfa_assured/);
 });

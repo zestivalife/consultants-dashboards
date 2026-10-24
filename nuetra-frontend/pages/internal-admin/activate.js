@@ -2,11 +2,53 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { apiRequest } from '../../lib/api';
 
-export default function InternalAdminActivation(){
-  const router=useRouter(); const [password,setPassword]=useState(''); const [activation,setActivation]=useState(''); const [uri,setUri]=useState(''); const [code,setCode]=useState(''); const [state,setState]=useState('accept'); const [error,setError]=useState('');
-  const token=typeof router.query.token==='string'?router.query.token:'';
-  useEffect(()=>{ if(router.isReady&&!token)setError('This activation link is missing or invalid.'); },[router.isReady,token]);
-  async function accept(e){e.preventDefault();setError('');try{const data=await apiRequest('/auth/internal-privileged-invitations/accept',{method:'POST',body:{token,password},skipAuthRefresh:true});setActivation(data.activation_token);setUri(data.otp_auth_uri);window.history.replaceState({},'', '/internal-admin/activate');setState('mfa')}catch(x){setError(x.message)}}
-  async function confirm(e){e.preventDefault();setError('');try{await apiRequest('/auth/internal-privileged-invitations/confirm-mfa',{method:'POST',body:{activation_token:activation,code},skipAuthRefresh:true});setState('done')}catch(x){setError(x.message)}}
-  return <main className="min-h-screen bg-slate-50 px-4 py-20"><section className="mx-auto max-w-lg rounded-3xl border bg-white p-8 shadow-sm"><p className="text-xs font-bold uppercase tracking-widest text-blue-700">Zestiva Internal</p><h1 className="mt-2 text-2xl font-bold">Secure administrator activation</h1>{error?<p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-red-800">{error}</p>:null}{state==='accept'?<form onSubmit={accept} className="mt-6 space-y-4"><p className="text-sm text-slate-600">Verify ownership of this single-use invitation by setting a strong password. Privileged access remains inactive until MFA is confirmed.</p><input required minLength={12} type="password" autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="New password" className="min-h-12 w-full rounded-xl border px-4"/><button disabled={!token} className="min-h-12 w-full rounded-xl bg-blue-700 font-semibold text-white">Continue to MFA</button></form>:null}{state==='mfa'?<form onSubmit={confirm} className="mt-6 space-y-4"><p className="text-sm text-slate-600">Add this account to your authenticator app, then enter the current six-digit code.</p><textarea readOnly value={uri} aria-label="Authenticator setup URI" className="min-h-28 w-full break-all rounded-xl border bg-slate-50 p-3 font-mono text-xs"/><input required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,''))} placeholder="6-digit code" className="min-h-12 w-full rounded-xl border px-4"/><button className="min-h-12 w-full rounded-xl bg-blue-700 font-semibold text-white">Activate privileged account</button></form>:null}{state==='done'?<div className="mt-6"><p className="rounded-xl bg-green-50 p-4 text-green-900">Activation complete. Sign in with your password and authenticator code.</p><button onClick={()=>router.replace('/login')} className="mt-4 min-h-12 w-full rounded-xl bg-blue-700 font-semibold text-white">Go to login</button></div>:null}</section></main>
+export default function InternalAdminActivation() {
+  const router = useRouter();
+  const [password, setPassword] = useState('');
+  const [state, setState] = useState('accept');
+  const [error, setError] = useState('');
+  const token = typeof router.query.token === 'string' ? router.query.token : '';
+
+  useEffect(() => {
+    if (router.isReady && !token) setError('This activation link is missing or invalid.');
+  }, [router.isReady, token]);
+
+  async function accept(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      await apiRequest('/auth/internal-privileged-invitations/accept', {
+        method: 'POST',
+        body: { token, password },
+        skipAuthRefresh: true,
+      });
+      window.history.replaceState({}, '', '/internal-admin/activate');
+      setState('done');
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-50 px-4 py-20">
+      <section className="mx-auto max-w-lg rounded-3xl border bg-white p-8 shadow-sm">
+        <p className="text-xs font-bold uppercase tracking-widest text-blue-700">Zestiva Internal</p>
+        <h1 className="mt-2 text-2xl font-bold">Secure administrator activation</h1>
+        {error ? <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-red-800">{error}</p> : null}
+        {state === 'accept' ? (
+          <form onSubmit={accept} className="mt-6 space-y-4">
+            <p className="text-sm text-slate-600">Verify ownership of this single-use invitation by setting a strong temporary password. You must replace it after your first sign-in before privileged workspace access is available.</p>
+            <input required minLength={12} type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Temporary password" className="min-h-12 w-full rounded-xl border px-4" />
+            <button disabled={!token} className="min-h-12 w-full rounded-xl bg-blue-700 font-semibold text-white">Activate account</button>
+          </form>
+        ) : null}
+        {state === 'done' ? (
+          <div className="mt-6">
+            <p className="rounded-xl bg-green-50 p-4 text-green-900">Activation complete. Sign in with your temporary password, then replace it to enter the workspace.</p>
+            <button onClick={() => router.replace('/login')} className="mt-4 min-h-12 w-full rounded-xl bg-blue-700 font-semibold text-white">Go to login</button>
+          </div>
+        ) : null}
+      </section>
+    </main>
+  );
 }

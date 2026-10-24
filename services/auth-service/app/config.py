@@ -32,9 +32,7 @@ class Settings(BaseSettings):
     account_lock_minutes: int = 15
     internal_iam_initiator_user_ids: str = ""
     internal_iam_approver_user_ids: str = ""
-    internal_iam_mfa_encryption_key: str | None = None
     internal_privileged_invitation_ttl_minutes: int = 60
-    internal_mfa_assurance_minutes: int = 15
 
     # SMTP / Email (fallback when EMAIL_PROVIDER=smtp)
     smtp_host: str = "smtp.sendgrid.net"
@@ -114,8 +112,6 @@ class Settings(BaseSettings):
             self.frontend_url = "https://consultant.nuetra.in"
         if self.app_env.lower() == "production" and not self.fiteatsy_delegation_private_key:
             raise ValueError("FITEATSY_DELEGATION_PRIVATE_KEY must be set in production")
-        if self.app_env.lower() == "production" and self.internal_iam_initiator_user_ids and not self.internal_iam_mfa_encryption_key:
-            raise ValueError("INTERNAL_IAM_MFA_ENCRYPTION_KEY is required when privileged IAM is enabled")
         return self
 
 

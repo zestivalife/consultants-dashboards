@@ -10,8 +10,7 @@ import AuthStoryPanel from '../components/public-consultant/AuthStoryPanel';
 
 export default function LoginPage() {
   const { login, user, isLoading, error, clearError, sampleUsers, isBackendAuthEnabled } = useAuth();
-  const [form, setForm] = useState({ email: isBackendAuthEnabled ? '' : sampleUsers?.[0]?.email || '', password: isBackendAuthEnabled ? '' : SAMPLE_PASSWORD, mfaCode: '', rememberMe: true });
-  const [mfaStep, setMfaStep] = useState(false);
+  const [form, setForm] = useState({ email: isBackendAuthEnabled ? '' : sampleUsers?.[0]?.email || '', password: isBackendAuthEnabled ? '' : SAMPLE_PASSWORD, rememberMe: true });
   const groupedUsers = useMemo(() => sampleUsers || [], [sampleUsers]);
 
   useEffect(() => {
@@ -33,10 +32,7 @@ export default function LoginPage() {
 
   async function handleSubmit(event) {
     event.preventDefault();
-    const result = await login(form);
-    if (result?.error && /MFA code required/i.test(result.error)) {
-      setMfaStep(true);
-    }
+    await login(form);
   }
 
   return (
@@ -84,8 +80,7 @@ export default function LoginPage() {
                   value={form.email}
                   onChange={(event) => {
                     clearError();
-                    setMfaStep(false);
-                    setForm((current) => ({ ...current, email: event.target.value, mfaCode: '' }));
+                    setForm((current) => ({ ...current, email: event.target.value }));
                   }}
                   className="w-full bg-transparent text-sm text-[#242424] outline-none placeholder:text-[#616161]"
                   placeholder={isBackendAuthEnabled ? 'name@company.com or +91 mobile' : 'name@nuetra.in'}
@@ -102,40 +97,13 @@ export default function LoginPage() {
                   value={form.password}
                   onChange={(event) => {
                     clearError();
-                    setMfaStep(false);
-                    setForm((current) => ({ ...current, password: event.target.value, mfaCode: '' }));
+                    setForm((current) => ({ ...current, password: event.target.value }));
                   }}
                   className="w-full bg-transparent text-sm text-[#242424] outline-none placeholder:text-[#616161]"
                   placeholder={isBackendAuthEnabled ? 'Enter your password' : 'Enter sample password'}
                 />
               </div>
             </label>
-
-            {isBackendAuthEnabled && mfaStep ? (
-              <label className="block">
-                <span className="mb-2 block text-sm text-[#424242]">Authenticator code</span>
-                <p className="mb-2 text-xs text-[#616161]">
-                  Your account policy requires an enrolled authenticator after password verification.
-                </p>
-                <div className="fluent-input flex items-center gap-3 rounded-[22px] px-4 py-3 focus-within:border-[#0f6cbd]">
-                  <ShieldCheck className="h-4 w-4 text-[#616161]" />
-                  <input
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    pattern="[0-9]{6}"
-                    maxLength={6}
-                    required
-                    value={form.mfaCode}
-                    onChange={(event) => {
-                      clearError();
-                      setForm((current) => ({ ...current, mfaCode: event.target.value.replace(/\D/g, '') }));
-                    }}
-                    className="w-full bg-transparent text-sm text-[#242424] outline-none placeholder:text-[#616161]"
-                    placeholder="6-digit code"
-                  />
-                </div>
-              </label>
-            ) : null}
 
             <div className="flex items-center justify-between text-sm text-[#616161]">
               <label className="flex items-center gap-2">
@@ -185,7 +153,7 @@ export default function LoginPage() {
                   <motion.button
                     key={account.id}
                     type="button"
-                    onClick={() => setForm({ email: account.email, password: SAMPLE_PASSWORD, mfaCode: '', rememberMe: true })}
+                    onClick={() => setForm({ email: account.email, password: SAMPLE_PASSWORD, rememberMe: true })}
                     whileHover={{ y: -2, borderColor: 'rgba(255,255,255,0.18)' }}
                     whileTap={{ scale: 0.995 }}
                     className="fluent-card-subtle fluent-card-hover flex w-full items-start justify-between gap-3 rounded-[22px] px-4 py-4 text-left"

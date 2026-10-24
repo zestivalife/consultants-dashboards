@@ -140,7 +140,6 @@ async def reconcile() -> None:
             "remember_me": "BOOLEAN NOT NULL DEFAULT false",
             "password_changed_at": "TIMESTAMPTZ",
             "must_change_password": "BOOLEAN NOT NULL DEFAULT false",
-            "mfa_enabled": "BOOLEAN NOT NULL DEFAULT false",
             "current_session_version": "INTEGER NOT NULL DEFAULT 1",
             "refresh_token_version": "INTEGER NOT NULL DEFAULT 1",
             "is_active": "BOOLEAN NOT NULL DEFAULT true",

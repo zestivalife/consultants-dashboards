@@ -35,7 +35,5 @@ async def get_current_user(
     request: Request,
     session: AsyncSession = Depends(get_db),
 ) -> UserResponse:
-    user_id, payload = _extract_identity(request)
-    user = await auth_service.get_current_user(session, user_id)
-    user.mfa_assured = bool(payload.get("mfa_assured"))
-    return user
+    user_id, _payload = _extract_identity(request)
+    return await auth_service.get_current_user(session, user_id)
