@@ -8,6 +8,7 @@ const plans=fs.readFileSync(new URL('../components/external/ExternalMultiDietPla
 const client360=fs.readFileSync(new URL('../components/external/ExternalClient360.jsx',import.meta.url),'utf8');
 const practiceApi=fs.readFileSync(new URL('../lib/practiceOperationsApi.js',import.meta.url),'utf8');
 const proxy=fs.readFileSync(new URL('../pages/api/fiteatsy/[...path].js',import.meta.url),'utf8');
+const profileEnhancements=fs.readFileSync(new URL('../components/external/ExternalClientProfileEnhancements.jsx',import.meta.url),'utf8');
 
 test('DOB, Indian trunk phone and exact hydration choices are canonical',()=>{
   assert.equal(validDateOfBirth('1990-02-28'),true);
@@ -24,6 +25,20 @@ test('DOB, Indian trunk phone and exact hydration choices are canonical',()=>{
 test('Client360 header renders canonical Indian E.164 phone identity',()=>{
   assert.match(client360,/canonicalPhoneDisplay\(overview\?\.primaryContact\|\|client\.mobile/);
   assert.equal(canonicalPhoneDisplay('09762006688'),'+919762006688');
+});
+
+test('measurement history distinguishes loading, failure and successful empty states',()=>{
+  assert.match(client360,/measurementState/);
+  assert.match(client360,/loadMeasurements/);
+  assert.match(profileEnhancements,/measurementState\.status==='loading'/);
+  assert.match(profileEnhancements,/measurementState\.status==='failed'/);
+  assert.match(profileEnhancements,/measurementState\.status==='ready'/);
+  assert.match(profileEnhancements,/no empty history has been inferred/);
+  assert.match(profileEnhancements,/Retry measurement history/);
+  assert.match(profileEnhancements,/value="CLIENT_REPORTED"/);
+  assert.match(profileEnhancements,/value="DOCUMENT_DERIVED"/);
+  assert.doesNotMatch(profileEnhancements,/value="SELF_REPORTED"/);
+  assert.doesNotMatch(profileEnhancements,/value="IMPORTED"/);
 });
 
 test('blood report intake accepts PDF only and uses persisted document contract',async()=>{
