@@ -59,6 +59,13 @@ from app.contracts import AiDraftRequest
 from app.contracts import ClientExportRequest, ExternalClientProfileEnrichmentUpdate, InternalClientProfileEnrichmentUpdate
 from app.internal_client_profile import merge_enrichment, projection as internal_profile_projection, validate_enrichment
 from app.external_client_profile import merge_external_enrichment, projection as external_profile_projection, validate_external_enrichment
+from app.nutrition_foundation import (AssessmentReview, AssessmentStale,
+                                      ClinicalDocumentLink, DietPlanAssessmentBind,
+                                      NutritionAssessmentCreate,
+                                      assessment_fingerprint,
+                                      measurement_calculations,
+                                      source_manifest,
+                                      CALCULATION_VERSIONS)
 from app.document_storage import (StorageUnavailable, InvalidDocument, new_object_key,
                                   signed_upload, signed_download, signed_view, validate_document,
                                   verify_uploaded_object)
@@ -313,6 +320,150 @@ async def update_external_client_profile_enrichment(request: Request, client_id:
     await db.commit()
     provenance={**dict(row["provenance"] or {}),"source":"EXTERNAL_CLIENT360_ENRICHMENT","tenant_id":ctx["tenant_id"],"client_id":client_id,"updated_at":row["updated_at"].isoformat(),"updated_by":ctx["user_id"]}
     return {"success":True,"data":external_profile_projection(dict(row["values"] or {}),row["version"],provenance),"error":None,"request_id":request.state.correlation_id}
+
+
+def _nutrition_assessment_projection(row):
+    value=dict(row)
+    for key in ("id","assessment_id"):
+        if value.get(key) is not None:value[key]=str(value[key])
+    return value
+
+
+async def _nutrition_scope(request,db,ctx):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    return await require_capability(request,db,ctx,"DIET_PLAN")
+
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/nutrition-assessment")
+async def get_nutrition_assessment(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _nutrition_scope(request,db,ctx)
+    if denied:return denied
+    row=(await db.execute(text("""SELECT a.*,v.id AS assessment_version_id,v.source_manifest,v.calculation_methodologies,
+      v.calculations,v.input_completeness,v.clinical_safety_findings,v.nutrition_considerations,v.provenance,
+      v.fingerprint_sha256,v.created_at AS version_created_at,v.reviewed_by,v.reviewed_at
+      FROM external_nutrition_assessments a JOIN external_nutrition_assessment_versions v
+      ON v.assessment_id=a.id AND v.version=a.current_version
+      WHERE a.tenant_id=:tenant AND a.client_id=:client ORDER BY a.updated_at DESC LIMIT 1"""),
+      {"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
+    return {"success":True,"data":_nutrition_assessment_projection(row) if row else None,"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/nutrition-assessments",status_code=201)
+async def create_nutrition_assessment(request:Request,client_id:str,body:NutritionAssessmentCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _nutrition_scope(request,db,ctx)
+    if denied:return denied
+    try:
+        calculations=measurement_calculations(body.sources)
+        fingerprint=assessment_fingerprint(client_id,body.sources,calculations)
+    except ValueError as exc:
+        return error(request,422,"UNSAFE_NUTRITION_ASSESSMENT_INPUT",str(exc))
+    now=datetime.now(timezone.utc);assessment_id=body.assessment_id or uuid4()
+    existing=(await db.execute(text("""SELECT id,current_version,authorised_consultant_id FROM external_nutrition_assessments
+      WHERE id=:id AND tenant_id=:tenant AND client_id=:client FOR UPDATE"""),{"id":assessment_id,"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
+    if body.assessment_id and not existing:return error(request,404,"NUTRITION_ASSESSMENT_NOT_FOUND","Nutrition Assessment not found")
+    if existing and str(existing["authorised_consultant_id"])!=str(ctx["user_id"]) and ctx.get("role") not in DIET_PLAN_REVIEW_ROLES:
+        return error(request,403,"NUTRITION_ASSESSMENT_ACCESS_DENIED","This Nutrition Assessment is assigned to another practitioner")
+    duplicate=(await db.execute(text("""SELECT assessment_id,version FROM external_nutrition_assessment_versions
+      WHERE tenant_id=:tenant AND client_id=:client AND fingerprint_sha256=:fingerprint"""),
+      {"tenant":ctx["tenant_id"],"client":client_id,"fingerprint":fingerprint})).mappings().first()
+    if duplicate:
+        return error(request,409,"ASSESSMENT_INPUTS_UNCHANGED","An immutable assessment version already represents these inputs")
+    version=(existing["current_version"]+1) if existing else 1;version_id=uuid4()
+    manifest=source_manifest(body.sources)
+    completeness={"source_types":sorted({source.source_type for source in body.sources}),"source_count":len(body.sources),"complete":body.consent_state=="CONFIRMED"}
+    provenance={"owner":"PRACTICE_OPERATIONS","scope":"EXTERNAL_ONLY","created_by":ctx["user_id"],"immutable":True}
+    if existing:
+        await db.execute(text("""UPDATE external_nutrition_assessments SET current_version=:version,status='DRAFT',
+          review_state=:review,consent_state=:consent,stale=FALSE,stale_reason=NULL,updated_at=:now
+          WHERE id=:id AND tenant_id=:tenant AND client_id=:client"""),{"version":version,"review":body.professional_review_state,"consent":body.consent_state,"now":now,"id":assessment_id,"tenant":ctx["tenant_id"],"client":client_id})
+    else:
+        await db.execute(text("""INSERT INTO external_nutrition_assessments
+          (id,tenant_id,client_id,authorised_consultant_id,status,current_version,review_state,consent_state,stale,created_at,updated_at)
+          VALUES (:id,:tenant,:client,:actor,'DRAFT',1,:review,:consent,FALSE,:now,:now)"""),{"id":assessment_id,"tenant":ctx["tenant_id"],"client":client_id,"actor":ctx["user_id"],"review":body.professional_review_state,"consent":body.consent_state,"now":now})
+    await db.execute(text("""INSERT INTO external_nutrition_assessment_versions
+      (id,assessment_id,tenant_id,client_id,version,source_manifest,calculation_methodologies,calculations,input_completeness,
+       clinical_safety_findings,nutrition_considerations,provenance,fingerprint_sha256,created_by,created_at)
+      VALUES (:vid,:id,:tenant,:client,:version,CAST(:manifest AS jsonb),CAST(:methods AS jsonb),CAST(:calculations AS jsonb),CAST(:completeness AS jsonb),
+       CAST(:safety AS jsonb),CAST(:considerations AS jsonb),CAST(:provenance AS jsonb),:fingerprint,:actor,:now)"""),
+      {"vid":version_id,"id":assessment_id,"tenant":ctx["tenant_id"],"client":client_id,"version":version,"manifest":json.dumps(manifest),"methods":json.dumps(CALCULATION_VERSIONS),"calculations":json.dumps(calculations),"completeness":json.dumps(completeness),"safety":json.dumps(body.clinical_safety_findings),"considerations":json.dumps([item.model_dump() for item in body.nutrition_considerations]),"provenance":json.dumps(provenance),"fingerprint":fingerprint,"actor":ctx["user_id"],"now":now})
+    for source in body.sources:
+        await db.execute(text("""INSERT INTO external_nutrition_assessment_inputs
+          (id,assessment_version_id,tenant_id,client_id,source_type,source_id,source_version,source_status,observed_at,provenance,created_at)
+          VALUES (:id,:version,:tenant,:client,:type,:source,:source_version,:status,:observed,CAST(:provenance AS jsonb),:now)"""),
+          {"id":uuid4(),"version":version_id,"tenant":ctx["tenant_id"],"client":client_id,"type":source.source_type,"source":source.source_id,"source_version":source.source_version,"status":source.status,"observed":source.observed_at,"provenance":json.dumps(source.provenance),"now":now})
+    await db.commit()
+    return {"success":True,"data":{"id":str(assessment_id),"version":version,"status":"DRAFT","fingerprint":fingerprint,"calculations":calculations},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/nutrition-assessments/{assessment_id}/review")
+async def review_nutrition_assessment(request:Request,assessment_id:UUID,body:AssessmentReview,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _nutrition_scope(request,db,ctx)
+    if denied:return denied
+    if body.decision!="START_REVIEW" and ctx.get("role") not in DIET_PLAN_REVIEW_ROLES:return error(request,403,"NUTRITION_REVIEW_AUTHORITY_REQUIRED","Senior review authority is required")
+    states={"START_REVIEW":("IN_REVIEW","IN_REVIEW"),"APPROVE":("APPROVED","REVIEWED"),"REQUEST_CHANGES":("CHANGES_REQUESTED","CHANGES_REQUESTED")};status,review=states[body.decision];now=datetime.now(timezone.utc)
+    row=(await db.execute(text("""UPDATE external_nutrition_assessments SET status=:status,review_state=:review,updated_at=:now
+      WHERE id=:id AND tenant_id=:tenant AND current_version=:version RETURNING client_id,current_version"""),{"status":status,"review":review,"now":now,"id":assessment_id,"tenant":ctx["tenant_id"],"version":body.expected_version})).mappings().first()
+    if not row:return error(request,409,"STALE_OR_MISSING_ASSESSMENT","Assessment changed or is unavailable")
+    if body.decision=="APPROVE":await db.execute(text("UPDATE external_nutrition_assessment_versions SET reviewed_by=:actor,reviewed_at=:now WHERE assessment_id=:id AND tenant_id=:tenant AND version=:version"),{"actor":ctx["user_id"],"now":now,"id":assessment_id,"tenant":ctx["tenant_id"],"version":body.expected_version})
+    await db.commit();return {"success":True,"data":{"id":str(assessment_id),"version":body.expected_version,"status":status,"review_state":review},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/nutrition-assessments/{assessment_id}/stale")
+async def mark_nutrition_assessment_stale(request:Request,assessment_id:UUID,body:AssessmentStale,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _nutrition_scope(request,db,ctx)
+    if denied:return denied
+    now=datetime.now(timezone.utc);row=(await db.execute(text("""UPDATE external_nutrition_assessments SET stale=TRUE,stale_reason=:reason,updated_at=:now
+      WHERE id=:id AND tenant_id=:tenant RETURNING client_id"""),{"reason":body.reason,"now":now,"id":assessment_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"NUTRITION_ASSESSMENT_NOT_FOUND","Nutrition Assessment not found")
+    await db.execute(text("""INSERT INTO external_nutrition_staleness_events
+      (id,assessment_id,tenant_id,client_id,source_type,source_id,source_version,reason,created_by,created_at)
+      VALUES (:event,:assessment,:tenant,:client,:type,:source,:version,:reason,:actor,:now)"""),{"event":uuid4(),"assessment":assessment_id,"tenant":ctx["tenant_id"],"client":row["client_id"],"type":body.source_type,"source":body.source_id,"version":body.source_version,"reason":body.reason,"actor":ctx["user_id"],"now":now})
+    await db.commit();return {"success":True,"data":{"id":str(assessment_id),"stale":True,"reason":body.reason},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/diet-plan-assessment-links",status_code=201)
+async def bind_diet_plan_assessment(request:Request,client_id:str,body:DietPlanAssessmentBind,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _nutrition_scope(request,db,ctx)
+    if denied:return denied
+    assessment=(await db.execute(text("""SELECT a.id,a.current_version,a.status,a.stale,v.fingerprint_sha256,v.calculation_methodologies
+      FROM external_nutrition_assessments a JOIN external_nutrition_assessment_versions v ON v.assessment_id=a.id AND v.version=:version
+      WHERE a.id=:id AND a.tenant_id=:tenant AND a.client_id=:client"""),{"version":body.assessment_version,"id":body.assessment_id,"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
+    if not assessment:return error(request,404,"ASSESSMENT_BINDING_INVALID","Assessment does not belong to this tenant and client")
+    if assessment["status"]!="APPROVED" or assessment["stale"]:return error(request,409,"ASSESSMENT_NOT_READY","An approved current assessment is required")
+    now=datetime.now(timezone.utc)
+    try:await db.execute(text("""INSERT INTO external_diet_plan_assessment_links
+      (id,tenant_id,client_id,external_plan_id,external_plan_version,assessment_id,assessment_version,source_fingerprint_sha256,
+       calculation_methodologies,plan_state,legacy_lineage_state,created_by,created_at)
+      VALUES (:id,:tenant,:client,:plan,:plan_version,:assessment,:assessment_version,:fingerprint,CAST(:methods AS jsonb),:state,'LINKED',:actor,:now)"""),{"id":uuid4(),"tenant":ctx["tenant_id"],"client":client_id,"plan":body.external_plan_id,"plan_version":body.external_plan_version,"assessment":assessment["id"],"assessment_version":body.assessment_version,"fingerprint":assessment["fingerprint_sha256"],"methods":json.dumps(dict(assessment["calculation_methodologies"] or {})),"state":body.plan_state,"actor":ctx["user_id"],"now":now})
+    except IntegrityError:await db.rollback();return error(request,409,"PLAN_ASSESSMENT_LINK_EXISTS","This plan version already has assessment lineage")
+    await db.commit();return {"success":True,"data":{"client_id":client_id,"external_plan_id":body.external_plan_id,"external_plan_version":body.external_plan_version,"assessment_id":body.assessment_id,"assessment_version":body.assessment_version},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.put("/api/v1/practice-operations/clients/{client_id}/clinical-document-links/{document_reference}")
+async def upsert_clinical_document_link(request:Request,client_id:str,document_reference:str,body:ClinicalDocumentLink,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _nutrition_scope(request,db,ctx)
+    if denied:return denied
+    if body.document_reference!=document_reference:return error(request,422,"DOCUMENT_REFERENCE_MISMATCH","Document reference does not match the route")
+    now=datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_clinical_document_links
+      (id,tenant_id,client_id,document_reference,health_record_reference,extraction_run_reference,observation_references,source_available,source_status,created_by,created_at,updated_at)
+      VALUES (:id,:tenant,:client,:document,:health,:extraction,CAST(:observations AS jsonb),:available,:status,:actor,:now,:now)
+      ON CONFLICT(tenant_id,client_id,document_reference) DO UPDATE SET health_record_reference=EXCLUDED.health_record_reference,
+      extraction_run_reference=EXCLUDED.extraction_run_reference,observation_references=EXCLUDED.observation_references,
+      source_available=EXCLUDED.source_available,source_status=EXCLUDED.source_status,updated_at=EXCLUDED.updated_at"""),{"id":uuid4(),"tenant":ctx["tenant_id"],"client":client_id,"document":document_reference,"health":body.health_record_reference,"extraction":body.extraction_run_reference,"observations":json.dumps(body.observation_references),"available":body.source_available,"status":body.source_status,"actor":ctx["user_id"],"now":now})
+    await db.commit();return {"success":True,"data":body.model_dump(),"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/clinical-document-links")
+async def list_clinical_document_links(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _nutrition_scope(request,db,ctx)
+    if denied:return denied
+    rows=(await db.execute(text("""SELECT document_reference,health_record_reference,extraction_run_reference,
+      observation_references,source_available,source_status,created_at,updated_at
+      FROM external_clinical_document_links WHERE tenant_id=:tenant AND client_id=:client ORDER BY updated_at DESC"""),
+      {"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+    return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
 
 
 @app.get("/api/v1/practice-operations/internal-client-profiles/{client_id}")
@@ -1264,6 +1415,10 @@ async def publish_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db
       WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version"""),{"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).mappings().one()
     option_count=int((version_row["nutrition_snapshot"] or {}).get("option_count") or 0)
     if option_count<1:return error(request,409,"DIET_PLAN_CONTENT_REQUIRED","Add and save governed meal options before publication")
+    lineage=(await db.execute(text("""SELECT assessment_id,assessment_version FROM external_diet_plan_assessment_links
+      WHERE tenant_id=:tenant AND client_id=:client AND external_plan_id=:plan AND external_plan_version=:version
+      AND legacy_lineage_state='LINKED'"""),{"tenant":ctx["tenant_id"],"client":plan["client_id"],"plan":str(plan_id),"version":str(plan["current_version"])})).mappings().first()
+    if not lineage:return error(request,409,"NUTRITION_ASSESSMENT_REQUIRED","Bind an approved current Nutrition Assessment before publication")
     now=datetime.now(timezone.utc);version_id=(await db.execute(text("UPDATE external_profession_plan_versions SET status='PUBLISHED',published_at=:now WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version RETURNING id"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).scalar_one()
     await db.execute(text("UPDATE external_profession_plans SET status='PUBLISHED',updated_at=:now WHERE id=:plan AND tenant_id=:tenant"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"]})
     await db.execute(text("INSERT INTO external_profession_plan_audit_events(id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,created_at) VALUES (:id,:plan,:version,:tenant,:client,'PUBLISHED',:actor,:now)"),{"id":uuid4(),"plan":plan_id,"version":version_id,"tenant":ctx["tenant_id"],"client":plan["client_id"],"actor":ctx["user_id"],"now":now});await db.commit()

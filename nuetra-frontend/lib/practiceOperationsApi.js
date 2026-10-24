@@ -44,6 +44,13 @@ export function getConsultantDietPlan(planId){return request(`/diet-plans/${enco
 export function saveConsultantDietPlan(planId,payload){return request(`/diet-plans/${encodeURIComponent(planId)}/draft`,{method:'PUT',body:JSON.stringify(payload)});}
 export function reviewConsultantDietPlan(planId,payload){return request(`/diet-plans/${encodeURIComponent(planId)}/review`,{method:'POST',body:JSON.stringify(payload)});}
 export function publishConsultantDietPlan(planId){return request(`/diet-plans/${encodeURIComponent(planId)}/publish`,{method:'POST'});}
+export function getNutritionAssessment(clientId){return request(`/clients/${encodeURIComponent(clientId)}/nutrition-assessment`);}
+export function createNutritionAssessment(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/nutrition-assessments`,{method:'POST',body:JSON.stringify(payload)});}
+export function reviewNutritionAssessment(assessmentId,payload){return request(`/nutrition-assessments/${encodeURIComponent(assessmentId)}/review`,{method:'POST',body:JSON.stringify(payload)});}
+export function markNutritionAssessmentStale(assessmentId,payload){return request(`/nutrition-assessments/${encodeURIComponent(assessmentId)}/stale`,{method:'POST',body:JSON.stringify(payload)});}
+export function bindDietPlanAssessment(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/diet-plan-assessment-links`,{method:'POST',body:JSON.stringify(payload)});}
+export function saveClinicalDocumentLineage(clientId,documentReference,payload){return request(`/clients/${encodeURIComponent(clientId)}/clinical-document-links/${encodeURIComponent(documentReference)}`,{method:'PUT',body:JSON.stringify(payload)});}
+export function listClinicalDocumentLineage(clientId){return request(`/clients/${encodeURIComponent(clientId)}/clinical-document-links`);}
 export function listSessionNotes(clientId){return request(`/clients/${encodeURIComponent(clientId)}/session-notes`);}
 export function createSessionNote(payload){return request('/session-notes',{method:'POST',body:JSON.stringify(payload)});}
 export function getSessionNote(noteId){return request(`/session-notes/${encodeURIComponent(noteId)}`);}

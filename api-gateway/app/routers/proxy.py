@@ -27,6 +27,8 @@ DELEGATED_PERMISSION_PREFIXES: tuple[str, ...] = (
 )
 
 INTERNAL_PROFILE_PREFIX = "/api/v1/practice-operations/internal-client-profiles"
+LEGACY_SIMULATED_REPORT_PATH = "/api/v1/profile/upload-report"
+EXTERNAL_TENANT_TYPES = {"INDEPENDENT_CONSULTANT", "PRACTICE", "CLINIC"}
 
 
 async def _internal_client_visible(client: httpx.AsyncClient, service_url: str, authorization: str, client_id: str) -> bool:
@@ -78,6 +80,24 @@ def _resolve_upstream(path: str) -> tuple[str, str, str | None] | None:
 )
 async def proxy(request: Request, path: str):
     full_path = f"/{path}"
+    tenant_type = str(getattr(request.state, "tenant_type", "") or "").upper()
+    if full_path == LEGACY_SIMULATED_REPORT_PATH and tenant_type in EXTERNAL_TENANT_TYPES:
+        logger.warning(
+            "legacy_simulated_report_path_blocked",
+            path=full_path,
+            tenant_type=tenant_type,
+            mutation_performed=False,
+        )
+        return JSONResponse(
+            status_code=503,
+            content={
+                "success": False,
+                "message": "Clinical extraction is unavailable on this legacy endpoint. Use External Health Records.",
+                "data": None,
+                "error": "CLINICAL_EXTRACTION_UNAVAILABLE",
+                "request_id": getattr(request.state, "request_id", None),
+            },
+        )
     required_permissions = required_owner_permissions(full_path, request.method.upper())
     user_permissions = set(getattr(request.state, "user_permissions", []) or [])
     delegated_permissions = any(
