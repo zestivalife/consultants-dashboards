@@ -100,6 +100,18 @@ class ServiceRoutesTest(unittest.TestCase):
         self.assertFalse(_is_public("/api/v1/owner/unknown"))
         self.assertFalse(_is_public("/api/v1/unknown-public-path"))
 
+    def test_client_information_has_one_narrow_public_prefix(self):
+        from app.config import Settings
+        from app.middleware.jwt import _is_public
+
+        settings = Settings(practice_operations_service_url="http://practice-operations-service:8006")
+        routes = {route["prefix"]: route["upstream"] for route in settings.get_service_routes()}
+        self.assertEqual(routes["/api/v1/client-information"], "http://practice-operations-service:8006")
+        self.assertTrue(_is_public("/api/v1/client-information/opaque-token"))
+        self.assertTrue(_is_public("/api/v1/client-information/opaque-token/submit"))
+        self.assertFalse(_is_public("/api/v1/client-information"))
+        self.assertFalse(_is_public("/api/v1/practice-operations/information-requests/id/review"))
+
     def test_marketplace_has_one_narrow_public_prefix_and_practice_upstream(self):
         from app.middleware.jwt import _is_public
 

@@ -31,6 +31,7 @@ PUBLIC_PREFIXES: list[str] = [
     "/api/v1/auth/logout",
     "/api/v1/profession-intake/",
     "/api/v1/client-portal/",
+    "/api/v1/client-information/",
     "/api/v1/public/consultants",
 ]
 

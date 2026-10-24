@@ -139,6 +139,37 @@ MIGRATIONS: tuple[ExternalMigration, ...] = (
         "CREATE INDEX IF NOT EXISTS ix_external_client_measurements_latest ON external_client_measurements(tenant_id,client_id,measurement_type,measured_at DESC,version DESC)",
         "CREATE INDEX IF NOT EXISTS ix_external_client_measurements_series ON external_client_measurements(tenant_id,client_id,series_id,version DESC)",
     )),
+    ExternalMigration("external_0056_smart_intake_requests", (
+        """CREATE TABLE IF NOT EXISTS external_client_information_requests (
+          id UUID PRIMARY KEY, tenant_id VARCHAR(80) NOT NULL, client_id VARCHAR(120) NOT NULL,
+          consultant_id VARCHAR(120) NOT NULL, token_hash_sha256 VARCHAR(64) NOT NULL UNIQUE,
+          field_ids JSONB NOT NULL, field_schema_version INTEGER NOT NULL,
+          status VARCHAR(32) NOT NULL, delivery_state VARCHAR(32) NOT NULL DEFAULT 'NOT_SENT',
+          version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0), expires_at TIMESTAMPTZ NOT NULL,
+          opened_at TIMESTAMPTZ, submitted_at TIMESTAMPTZ, reviewed_at TIMESTAMPTZ,
+          revoked_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL,
+          audit_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+          CHECK(jsonb_typeof(field_ids)='array'),
+          CHECK(status IN ('CREATED','SENT','OPENED','PARTIALLY_COMPLETED','SUBMITTED','REVIEWED','COMPLETED','EXPIRED','REVOKED','SUPERSEDED')),
+          CHECK(delivery_state IN ('NOT_SENT','LINK_COPIED','QUEUED','DELIVERED','FAILED'))
+        )""",
+        "CREATE INDEX IF NOT EXISTS ix_external_information_requests_scope ON external_client_information_requests(tenant_id,client_id,created_at DESC)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_external_information_request_active ON external_client_information_requests(tenant_id,client_id,field_ids) WHERE status IN ('CREATED','SENT','OPENED','PARTIALLY_COMPLETED')",
+        """CREATE TABLE IF NOT EXISTS external_client_information_request_submissions (
+          id UUID PRIMARY KEY, request_id UUID NOT NULL REFERENCES external_client_information_requests(id) ON DELETE RESTRICT,
+          tenant_id VARCHAR(80) NOT NULL, client_id VARCHAR(120) NOT NULL, version INTEGER NOT NULL,
+          patch JSONB NOT NULL, provenance JSONB NOT NULL, status VARCHAR(32) NOT NULL,
+          submitted_at TIMESTAMPTZ NOT NULL, reviewed_by VARCHAR(120), reviewed_at TIMESTAMPTZ,
+          review_decisions JSONB NOT NULL DEFAULT '{}'::jsonb, review_notes TEXT,
+          UNIQUE(request_id,version), CHECK(jsonb_typeof(patch)='object'), CHECK(jsonb_typeof(provenance)='object'))""",
+        "CREATE INDEX IF NOT EXISTS ix_external_information_submissions_scope ON external_client_information_request_submissions(tenant_id,client_id,submitted_at DESC)",
+        """CREATE TABLE IF NOT EXISTS external_client_information_request_audit (
+          id UUID PRIMARY KEY, request_id UUID NOT NULL REFERENCES external_client_information_requests(id) ON DELETE RESTRICT,
+          tenant_id VARCHAR(80) NOT NULL, client_id VARCHAR(120) NOT NULL, event_type VARCHAR(48) NOT NULL,
+          actor_type VARCHAR(32) NOT NULL, actor_id VARCHAR(120), metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL, CHECK(jsonb_typeof(metadata)='object'))""",
+        "CREATE INDEX IF NOT EXISTS ix_external_information_audit_scope ON external_client_information_request_audit(tenant_id,client_id,created_at DESC)",
+    )),
 )
 
 PRECONDITIONS = {
@@ -158,6 +189,10 @@ PRECONDITIONS = {
        'external_nutrition_assessment_inputs','external_diet_plan_assessment_links',
        'external_clinical_document_links','external_nutrition_staleness_events'))""",
     "external_0055_client_measurements": "SELECT to_regclass('public.external_client_measurements') IS NULL",
+    "external_0056_smart_intake_requests": """SELECT NOT EXISTS (
+      SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name IN
+      ('external_client_information_requests','external_client_information_request_submissions',
+       'external_client_information_request_audit'))""",
 }
 
 

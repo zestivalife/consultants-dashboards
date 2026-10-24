@@ -1,7 +1,7 @@
 """Executable P50 release-readiness audit helpers."""
 import ast,re
 from pathlib import Path
-PUBLIC_PREFIXES=('/health','/version','/api/v1/public/','/api/v1/practice-operations/public-booking/','/api/v1/practice-operations/client-portal/','/api/v1/practice-operations/profession-intake/')
+PUBLIC_PREFIXES=('/health','/version','/api/v1/public/','/api/v1/client-information/','/api/v1/practice-operations/public-booking/','/api/v1/practice-operations/client-portal/','/api/v1/practice-operations/profession-intake/')
 ROLES={'PLATFORM_OWNER','SUPER_ADMIN','PRACTICE_OWNER','PRACTICE_ADMIN','PRACTITIONER','ASSISTANT','RECEPTIONIST','CLIENT_PORTAL'}
 TENANT_DOMAINS={'clients','appointments','billing','documents','marketplace','reviews','messages','reports','feedback','support','payouts','subscriptions'}
 def route_inventory(source):

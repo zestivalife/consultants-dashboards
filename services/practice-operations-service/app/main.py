@@ -72,6 +72,9 @@ from app.nutrition_foundation import (AssessmentReview, AssessmentSource, Assess
                                       measurement_calculations,
                                       source_manifest,
                                       CALCULATION_VERSIONS)
+from app.smart_intake import (FIELD_REGISTRY, FIELD_SCHEMA_VERSION, InformationRequestCreate,
+                              InformationRequestPatch, InformationRequestReview,
+                              resolve_completeness, scoped_patch)
 from app.document_storage import (StorageUnavailable, InvalidDocument, new_object_key,
                                   signed_upload, signed_download, signed_view, validate_document,
                                   verify_uploaded_object)
@@ -452,6 +455,170 @@ async def _nutrition_event(db, *, assessment_id, tenant_id, client_id, version, 
       VALUES (:id,:assessment,:tenant,:client,:version,:event,:before,:after,:notes,:actor,:now)"""),
       {"id":uuid4(),"assessment":assessment_id,"tenant":tenant_id,"client":client_id,"version":version,
        "event":event_type,"before":from_status,"after":to_status,"notes":notes,"actor":actor_id,"now":now})
+
+
+async def _information_audit(db,row,event_type,actor_type,actor_id,now,metadata=None):
+    await db.execute(text("""INSERT INTO external_client_information_request_audit
+      (id,request_id,tenant_id,client_id,event_type,actor_type,actor_id,metadata,created_at)
+      VALUES (:id,:request,:tenant,:client,:event,:actor_type,:actor,CAST(:metadata AS jsonb),:now)"""),
+      {"id":uuid4(),"request":row["id"],"tenant":row["tenant_id"],"client":row["client_id"],"event":event_type,
+       "actor_type":actor_type,"actor":actor_id,"metadata":json.dumps(metadata or {}),"now":now})
+
+
+async def _canonical_intake(db,tenant_id,client_id):
+    row=(await db.execute(text("SELECT values,updated_at FROM external_client_profile_enrichments WHERE tenant_id=:tenant AND client_id=:client"),
+      {"tenant":tenant_id,"client":client_id})).mappings().first()
+    return (dict(row["values"] or {}),row["updated_at"]) if row else ({},None)
+
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/information-completeness")
+async def client_information_completeness(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _nutrition_scope(request,db,ctx)
+    if denied:return denied
+    values,updated_at=await _canonical_intake(db,ctx["tenant_id"],client_id)
+    request_rows=(await db.execute(text("""SELECT field_ids,status FROM external_client_information_requests WHERE tenant_id=:tenant AND client_id=:client
+      AND status IN ('CREATED','SENT','OPENED','PARTIALLY_COMPLETED','SUBMITTED','COMPLETED')"""),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+    pending={field for row in request_rows if row["status"] in {'CREATED','SENT','OPENED','PARTIALLY_COMPLETED'} for field in (row["field_ids"] or [])}
+    review={field for row in request_rows if row["status"]=='SUBMITTED' for field in (row["field_ids"] or [])}
+    confirmed={field for row in request_rows if row["status"]=='COMPLETED' for field in (row["field_ids"] or [])}
+    return {"success":True,"data":resolve_completeness(values,pending_fields=pending,review_fields=review,confirmed_fields=confirmed,updated_at=updated_at),"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/information-requests",status_code=201)
+async def create_information_request(request:Request,client_id:str,body:InformationRequestCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _nutrition_scope(request,db,ctx)
+    if denied:return denied
+    values,updated_at=await _canonical_intake(db,ctx["tenant_id"],client_id);resolved=resolve_completeness(values,updated_at=updated_at)
+    requestable={row["field_id"] for row in resolved["fields"] if row["client_can_provide"] and row["status"] in {"MISSING","INVALID","REQUIRES_CONFIRMATION"}}
+    if not set(body.field_ids)<=requestable:return error(request,409,"INFORMATION_FIELDS_NOT_REQUESTABLE","A field is already complete or is not client-answerable")
+    existing=(await db.execute(text("""SELECT id FROM external_client_information_requests WHERE tenant_id=:tenant AND client_id=:client
+      AND field_ids=CAST(:fields AS jsonb) AND status IN ('CREATED','SENT','OPENED','PARTIALLY_COMPLETED') LIMIT 1"""),
+      {"tenant":ctx["tenant_id"],"client":client_id,"fields":json.dumps(body.field_ids)})).first()
+    if existing:return error(request,409,"EQUIVALENT_INFORMATION_REQUEST_ACTIVE","An equivalent request is already active")
+    token=secrets.token_urlsafe(32);now=datetime.now(timezone.utc);row={"id":uuid4(),"tenant_id":ctx["tenant_id"],"client_id":client_id}
+    state="SENT" if body.delivery_channel in {"EMAIL","WHATSAPP"} else "CREATED";delivery={"COPY_LINK":"LINK_COPIED","EMAIL":"QUEUED","WHATSAPP":"LINK_COPIED"}[body.delivery_channel]
+    await db.execute(text("""INSERT INTO external_client_information_requests
+      (id,tenant_id,client_id,consultant_id,token_hash_sha256,field_ids,field_schema_version,status,delivery_state,version,expires_at,created_at,updated_at,audit_metadata)
+      VALUES (:id,:tenant,:client,:actor,:token,CAST(:fields AS jsonb),:schema,:status,:delivery,1,:expires,:now,:now,CAST(:audit AS jsonb))"""),
+      {"id":row["id"],"tenant":row["tenant_id"],"client":client_id,"actor":ctx["user_id"],"token":hashlib.sha256(token.encode()).hexdigest(),"fields":json.dumps(body.field_ids),"schema":FIELD_SCHEMA_VERSION,"status":state,"delivery":delivery,"expires":now+timedelta(hours=body.expires_in_hours),"now":now,"audit":json.dumps({"created_by":ctx["user_id"]})})
+    await _information_audit(db,row,"REQUEST_CREATED","CONSULTANT",ctx["user_id"],now,{"field_ids":body.field_ids,"delivery_channel":body.delivery_channel});await db.commit()
+    return {"success":True,"data":{"id":str(row["id"]),"status":state,"delivery_state":delivery,"token":token,"field_ids":body.field_ids,"expires_at":(now+timedelta(hours=body.expires_in_hours)).isoformat()},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/information-requests")
+async def list_information_requests(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _nutrition_scope(request,db,ctx)
+    if denied:return denied
+    rows=(await db.execute(text("""SELECT r.id,r.field_ids,r.status,r.delivery_state,r.version,r.created_at,r.expires_at,
+      s.patch,s.provenance,s.submitted_at,s.review_decisions,s.review_notes FROM external_client_information_requests r
+      LEFT JOIN LATERAL (SELECT patch,provenance,submitted_at,review_decisions,review_notes FROM external_client_information_request_submissions WHERE request_id=r.id ORDER BY version DESC LIMIT 1) s ON TRUE
+      WHERE r.tenant_id=:tenant AND r.client_id=:client ORDER BY r.created_at DESC"""),{"tenant":ctx["tenant_id"],"client":client_id})).mappings().all()
+    items=[]
+    for row in rows:
+        item=dict(row);item["id"]=str(item["id"]);items.append(item)
+    return {"success":True,"data":{"items":items},"error":None,"request_id":request.state.correlation_id}
+
+
+async def _client_information_scope(db,token,for_update=False):
+    row=(await db.execute(text("""SELECT id,tenant_id,client_id,consultant_id,field_ids,field_schema_version,status,
+      delivery_state,version,expires_at,opened_at,submitted_at,reviewed_at,revoked_at,created_at,updated_at
+      FROM external_client_information_requests WHERE token_hash_sha256=:hash"""+(" FOR UPDATE" if for_update else "")),{"hash":hashlib.sha256(token.encode()).hexdigest()})).mappings().first()
+    if not row:return None,"INVALID"
+    if row["revoked_at"] or row["status"]=="REVOKED":return row,"REVOKED"
+    if row["expires_at"]<=datetime.now(timezone.utc):return row,"EXPIRED"
+    if row["status"] in {"COMPLETED","SUPERSEDED"}:return row,row["status"]
+    return row,None
+
+
+@app.get("/api/v1/client-information/{token}")
+async def open_client_information_request(request:Request,token:str,db:AsyncSession=Depends(get_db)):
+    row,state=await _client_information_scope(db,token,True)
+    if not row:return error(request,404,"INFORMATION_REQUEST_INVALID","This secure update link is invalid")
+    if state:return error(request,410,f"INFORMATION_REQUEST_{state}","This secure update link is no longer active")
+    values,_=await _canonical_intake(db,row["tenant_id"],row["client_id"]);by_id={item["field_id"]:item for item in resolve_completeness(values)["fields"]}
+    fields=[{**by_id[field],"kind":FIELD_REGISTRY[field]["kind"],"options":FIELD_REGISTRY[field].get("options",[])} for field in row["field_ids"] if by_id[field]["status"] not in {"CAPTURED","CONFIRMED","NOT_APPLICABLE"}]
+    draft=(await db.execute(text("""SELECT patch FROM external_client_information_request_submissions
+      WHERE request_id=:id AND status='DRAFT' ORDER BY version DESC LIMIT 1"""),{"id":row["id"]})).scalar_one_or_none() or {}
+    now=datetime.now(timezone.utc)
+    if row["status"] in {"CREATED","SENT"}:
+        await db.execute(text("UPDATE external_client_information_requests SET status='OPENED',opened_at=COALESCE(opened_at,:now),updated_at=:now WHERE id=:id"),{"now":now,"id":row["id"]});await _information_audit(db,row,"REQUEST_OPENED","CLIENT",None,now);await db.commit()
+    return {"success":True,"data":{"request_id":str(row["id"]),"version":row["version"],"status":"OPENED","fields":fields,"initial_values":{key:value for key,value in dict(draft).items() if key in {field["field_id"] for field in fields}},"all_complete":not fields,"expires_at":row["expires_at"].isoformat()},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.patch("/api/v1/client-information/{token}")
+async def save_client_information_request(request:Request,token:str,body:InformationRequestPatch,db:AsyncSession=Depends(get_db)):
+    row,state=await _client_information_scope(db,token,True)
+    if not row:return error(request,404,"INFORMATION_REQUEST_INVALID","This secure update link is invalid")
+    if state:return error(request,410,f"INFORMATION_REQUEST_{state}","This secure update link is no longer active")
+    if row["version"]!=body.expected_version:return error(request,409,"STALE_INFORMATION_REQUEST","Refresh before saving")
+    if not set(body.values)<=set(row["field_ids"]):return error(request,422,"INFORMATION_FIELD_OUT_OF_SCOPE","A submitted field was not requested")
+    now=datetime.now(timezone.utc);version=int(row["version"])+1
+    await db.execute(text("""INSERT INTO external_client_information_request_submissions
+      (id,request_id,tenant_id,client_id,version,patch,provenance,status,submitted_at) VALUES
+      (:id,:request,:tenant,:client,:version,CAST(:patch AS jsonb),CAST(:provenance AS jsonb),'DRAFT',:now)"""),
+      {"id":uuid4(),"request":row["id"],"tenant":row["tenant_id"],"client":row["client_id"],"version":version,"patch":json.dumps(body.values),"provenance":json.dumps({"source":"CLIENT_FOLLOW_UP","request_id":str(row["id"])}),"now":now})
+    await db.execute(text("UPDATE external_client_information_requests SET status='PARTIALLY_COMPLETED',version=:version,updated_at=:now WHERE id=:id"),{"version":version,"now":now,"id":row["id"]});await _information_audit(db,row,"DRAFT_SAVED","CLIENT",None,now,{"fields":sorted(body.values)});await db.commit()
+    return {"success":True,"data":{"version":version,"status":"PARTIALLY_COMPLETED"},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/client-information/{token}/submit")
+async def submit_client_information_request(request:Request,token:str,body:InformationRequestPatch,db:AsyncSession=Depends(get_db)):
+    row,state=await _client_information_scope(db,token,True)
+    if not row:return error(request,404,"INFORMATION_REQUEST_INVALID","This secure update link is invalid")
+    if state:return error(request,410,f"INFORMATION_REQUEST_{state}","This secure update link is no longer active")
+    if row["status"]=="SUBMITTED":
+        prior=(await db.execute(text("""SELECT patch FROM external_client_information_request_submissions
+          WHERE request_id=:id AND status='PENDING_CONSULTANT_REVIEW' ORDER BY version DESC LIMIT 1"""),{"id":row["id"]})).scalar_one_or_none()
+        if dict(prior or {})==body.values:
+            return {"success":True,"data":{"version":row["version"],"status":"SUBMITTED","professional_review_required":True,"idempotent":True},"error":None,"request_id":request.state.correlation_id}
+        return error(request,409,"INFORMATION_REQUEST_ALREADY_SUBMITTED","This request is awaiting consultant review")
+    if row["version"]!=body.expected_version:return error(request,409,"STALE_INFORMATION_REQUEST","Refresh before submitting")
+    values,_=await _canonical_intake(db,row["tenant_id"],row["client_id"])
+    resolved=resolve_completeness(values);by_id={item["field_id"]:item for item in resolved["fields"]}
+    remaining={field for field in row["field_ids"] if by_id[field]["status"] not in {"CAPTURED","CONFIRMED","NOT_APPLICABLE"}}
+    draft=(await db.execute(text("""SELECT patch FROM external_client_information_request_submissions
+      WHERE request_id=:id AND status='DRAFT' ORDER BY version DESC LIMIT 1"""),{"id":row["id"]})).scalar_one_or_none() or {}
+    submitted={**dict(draft),**body.values}
+    if set(submitted)!=remaining:return error(request,422,"INFORMATION_REQUEST_INCOMPLETE","Submit every field still requested")
+    try:merged=scoped_patch(values,submitted,remaining)
+    except ValueError as exc:return error(request,422,"INVALID_INFORMATION_RESPONSE",str(exc))
+    now=datetime.now(timezone.utc);version=int(row["version"])+1;audit={"event":"CLIENT_INFORMATION_SUBMITTED","request_id":str(row["id"]),"fields":sorted(submitted),"at":now.isoformat()}
+    exists=(await db.execute(text("SELECT version FROM external_client_profile_enrichments WHERE tenant_id=:tenant AND client_id=:client FOR UPDATE"),{"tenant":row["tenant_id"],"client":row["client_id"]})).scalar_one_or_none()
+    if exists:
+        await db.execute(text("""UPDATE external_client_profile_enrichments SET values=CAST(:values AS jsonb),version=version+1,provenance=provenance||CAST(:provenance AS jsonb),audit_history=audit_history||CAST(:audit AS jsonb),updated_by='CLIENT_FOLLOW_UP',updated_at=:now WHERE tenant_id=:tenant AND client_id=:client"""),{"values":json.dumps(merged),"provenance":json.dumps({"client_follow_up":audit}),"audit":json.dumps([audit]),"now":now,"tenant":row["tenant_id"],"client":row["client_id"]})
+    else:
+        await db.execute(text("""INSERT INTO external_client_profile_enrichments (tenant_id,client_id,values,version,schema_version,provenance,audit_history,created_by,updated_by,created_at,updated_at) VALUES (:tenant,:client,CAST(:values AS jsonb),1,1,CAST(:provenance AS jsonb),CAST(:audit AS jsonb),'CLIENT_FOLLOW_UP','CLIENT_FOLLOW_UP',:now,:now)"""),{"tenant":row["tenant_id"],"client":row["client_id"],"values":json.dumps(merged),"provenance":json.dumps({"client_follow_up":audit}),"audit":json.dumps([audit]),"now":now})
+    await db.execute(text("""UPDATE external_nutrition_assessments SET stale=TRUE,stale_reason='CLIENT_INFORMATION_UPDATED',
+      readiness_status='BLOCKED',updated_at=:now WHERE tenant_id=:tenant AND client_id=:client"""),
+      {"now":now,"tenant":row["tenant_id"],"client":row["client_id"]})
+    await db.execute(text("""INSERT INTO external_client_information_request_submissions (id,request_id,tenant_id,client_id,version,patch,provenance,status,submitted_at) VALUES (:id,:request,:tenant,:client,:version,CAST(:patch AS jsonb),CAST(:provenance AS jsonb),'PENDING_CONSULTANT_REVIEW',:now)"""),{"id":uuid4(),"request":row["id"],"tenant":row["tenant_id"],"client":row["client_id"],"version":version,"patch":json.dumps(submitted),"provenance":json.dumps(audit),"now":now})
+    await db.execute(text("UPDATE external_client_information_requests SET status='SUBMITTED',version=:version,submitted_at=:now,updated_at=:now WHERE id=:id"),{"version":version,"now":now,"id":row["id"]});await _information_audit(db,row,"REQUEST_SUBMITTED","CLIENT",None,now,{"fields":sorted(submitted)});await db.commit()
+    return {"success":True,"data":{"version":version,"status":"SUBMITTED","professional_review_required":True},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/information-requests/{request_id}/review")
+async def review_client_information_request(request:Request,request_id:UUID,body:InformationRequestReview,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _nutrition_scope(request,db,ctx)
+    if denied:return denied
+    row=(await db.execute(text("""SELECT id,tenant_id,client_id,consultant_id,field_ids,status,version,expires_at,revoked_at
+      FROM external_client_information_requests WHERE id=:id AND tenant_id=:tenant FOR UPDATE"""),{"id":request_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,404,"INFORMATION_REQUEST_NOT_FOUND","Client information request not found")
+    if row["status"]!="SUBMITTED" or row["version"]!=body.expected_version:return error(request,409,"STALE_INFORMATION_REVIEW","Refresh before review")
+    if set(body.decisions)!=set(row["field_ids"]):return error(request,422,"REVIEW_SCOPE_INCOMPLETE","Review every submitted field without expanding the request scope")
+    clarification=any(value=="REQUEST_CLARIFICATION" for value in body.decisions.values());now=datetime.now(timezone.utc);status="PARTIALLY_COMPLETED" if clarification else "COMPLETED"
+    await db.execute(text("""UPDATE external_client_information_request_submissions SET status=:submission,reviewed_by=:actor,reviewed_at=:now,review_decisions=CAST(:decisions AS jsonb),review_notes=:notes WHERE request_id=:id AND version=:version"""),{"submission":"CLARIFICATION_REQUESTED" if clarification else "CONFIRMED","actor":ctx["user_id"],"now":now,"decisions":json.dumps(body.decisions),"notes":body.notes,"id":request_id,"version":body.expected_version})
+    await db.execute(text("UPDATE external_client_information_requests SET status=:status,reviewed_at=:now,updated_at=:now,version=version+1 WHERE id=:id"),{"status":status,"now":now,"id":request_id});await _information_audit(db,row,"CLARIFICATION_REQUESTED" if clarification else "REQUEST_COMPLETED","CONSULTANT",ctx["user_id"],now,{"decisions":body.decisions});await db.commit()
+    return {"success":True,"data":{"status":status,"version":body.expected_version+1},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/information-requests/{request_id}/revoke")
+async def revoke_client_information_request(request:Request,request_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _nutrition_scope(request,db,ctx)
+    if denied:return denied
+    now=datetime.now(timezone.utc);row=(await db.execute(text("""UPDATE external_client_information_requests SET status='REVOKED',revoked_at=:now,updated_at=:now,version=version+1 WHERE id=:id AND tenant_id=:tenant AND status IN ('CREATED','SENT','OPENED','PARTIALLY_COMPLETED') RETURNING *"""),{"now":now,"id":request_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not row:return error(request,409,"INFORMATION_REQUEST_NOT_ACTIVE","The request is missing or inactive")
+    await _information_audit(db,row,"REQUEST_REVOKED","CONSULTANT",ctx["user_id"],now);await db.commit()
+    return {"success":True,"data":{"id":str(request_id),"status":"REVOKED"},"error":None,"request_id":request.state.correlation_id}
 
 
 async def _nutrition_scope(request,db,ctx):

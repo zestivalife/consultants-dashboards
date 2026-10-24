@@ -65,6 +65,11 @@ export function transitionNutritionAssessment(assessmentId,payload){return reque
 export function createNutritionAssessment(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/nutrition-assessments`,{method:'POST',body:JSON.stringify(payload)});}
 export function reviewNutritionAssessment(assessmentId,payload){return request(`/nutrition-assessments/${encodeURIComponent(assessmentId)}/review`,{method:'POST',body:JSON.stringify(payload)});}
 export function markNutritionAssessmentStale(assessmentId,payload){return request(`/nutrition-assessments/${encodeURIComponent(assessmentId)}/stale`,{method:'POST',body:JSON.stringify(payload)});}
+export function getClientInformationCompleteness(clientId){return request(`/clients/${encodeURIComponent(clientId)}/information-completeness`);}
+export function createClientInformationRequest(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/information-requests`,{method:'POST',body:JSON.stringify(payload)});}
+export function listClientInformationRequests(clientId){return request(`/clients/${encodeURIComponent(clientId)}/information-requests`);}
+export function reviewClientInformationRequest(requestId,payload){return request(`/information-requests/${encodeURIComponent(requestId)}/review`,{method:'POST',body:JSON.stringify(payload)});}
+export function revokeClientInformationRequest(requestId){return request(`/information-requests/${encodeURIComponent(requestId)}/revoke`,{method:'POST'});}
 export function bindDietPlanAssessment(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/diet-plan-assessment-links`,{method:'POST',body:JSON.stringify(payload)});}
 export function saveClinicalDocumentLineage(clientId,documentReference,payload){return request(`/clients/${encodeURIComponent(clientId)}/clinical-document-links/${encodeURIComponent(documentReference)}`,{method:'PUT',body:JSON.stringify(payload)});}
 export function listClinicalDocumentLineage(clientId){return request(`/clients/${encodeURIComponent(clientId)}/clinical-document-links`);}
