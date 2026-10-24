@@ -74,7 +74,7 @@ from app.nutrition_foundation import (AssessmentReview, AssessmentSource, Assess
                                       CALCULATION_VERSIONS)
 from app.smart_intake import (FIELD_REGISTRY, FIELD_SCHEMA_VERSION, InformationRequestCreate,
                               InformationRequestPatch, InformationRequestReview,
-                              resolve_completeness, scoped_patch)
+                              resolve_assessment, resolve_completeness, scoped_patch)
 from app.document_storage import (StorageUnavailable, InvalidDocument, new_object_key,
                                   signed_upload, signed_download, signed_view, validate_document,
                                   verify_uploaded_object)
@@ -574,14 +574,15 @@ async def submit_client_information_request(request:Request,token:str,body:Infor
         return error(request,409,"INFORMATION_REQUEST_ALREADY_SUBMITTED","This request is awaiting consultant review")
     if row["version"]!=body.expected_version:return error(request,409,"STALE_INFORMATION_REQUEST","Refresh before submitting")
     values,_=await _canonical_intake(db,row["tenant_id"],row["client_id"])
-    resolved=resolve_completeness(values);by_id={item["field_id"]:item for item in resolved["fields"]}
-    remaining={field for field in row["field_ids"] if by_id[field]["status"] not in {"CAPTURED","CONFIRMED","NOT_APPLICABLE"}}
     draft=(await db.execute(text("""SELECT patch FROM external_client_information_request_submissions
       WHERE request_id=:id AND status='DRAFT' ORDER BY version DESC LIMIT 1"""),{"id":row["id"]})).scalar_one_or_none() or {}
     submitted={**dict(draft),**body.values}
-    if set(submitted)!=remaining:return error(request,422,"INFORMATION_REQUEST_INCOMPLETE","Submit every field still requested")
-    try:merged=scoped_patch(values,submitted,remaining)
+    if not submitted or not set(submitted)<=set(row["field_ids"]):return error(request,422,"INFORMATION_REQUEST_INCOMPLETE","Submit every applicable field still requested")
+    try:merged=scoped_patch(values,submitted,set(row["field_ids"]))
     except ValueError as exc:return error(request,422,"INVALID_INFORMATION_RESPONSE",str(exc))
+    after={item["field_id"]:item for item in resolve_completeness(merged)["fields"]}
+    unresolved={field for field in row["field_ids"] if after[field]["status"] not in {"CAPTURED","CONFIRMED","NOT_APPLICABLE"}}
+    if unresolved:return error(request,422,"INFORMATION_REQUEST_INCOMPLETE","Submit every applicable field still requested")
     now=datetime.now(timezone.utc);version=int(row["version"])+1;audit={"event":"CLIENT_INFORMATION_SUBMITTED","request_id":str(row["id"]),"fields":sorted(submitted),"at":now.isoformat()}
     exists=(await db.execute(text("SELECT version FROM external_client_profile_enrichments WHERE tenant_id=:tenant AND client_id=:client FOR UPDATE"),{"tenant":row["tenant_id"],"client":row["client_id"]})).scalar_one_or_none()
     if exists:
@@ -604,7 +605,9 @@ async def review_client_information_request(request:Request,request_id:UUID,body
       FROM external_client_information_requests WHERE id=:id AND tenant_id=:tenant FOR UPDATE"""),{"id":request_id,"tenant":ctx["tenant_id"]})).mappings().first()
     if not row:return error(request,404,"INFORMATION_REQUEST_NOT_FOUND","Client information request not found")
     if row["status"]!="SUBMITTED" or row["version"]!=body.expected_version:return error(request,409,"STALE_INFORMATION_REVIEW","Refresh before review")
-    if set(body.decisions)!=set(row["field_ids"]):return error(request,422,"REVIEW_SCOPE_INCOMPLETE","Review every submitted field without expanding the request scope")
+    submitted_patch=(await db.execute(text("""SELECT patch FROM external_client_information_request_submissions
+      WHERE request_id=:id AND version=:version AND status='PENDING_CONSULTANT_REVIEW'"""),{"id":request_id,"version":body.expected_version})).scalar_one_or_none() or {}
+    if set(body.decisions)!=set(submitted_patch):return error(request,422,"REVIEW_SCOPE_INCOMPLETE","Review every submitted field without expanding the request scope")
     clarification=any(value=="REQUEST_CLARIFICATION" for value in body.decisions.values());now=datetime.now(timezone.utc);status="PARTIALLY_COMPLETED" if clarification else "COMPLETED"
     await db.execute(text("""UPDATE external_client_information_request_submissions SET status=:submission,reviewed_by=:actor,reviewed_at=:now,review_decisions=CAST(:decisions AS jsonb),review_notes=:notes WHERE request_id=:id AND version=:version"""),{"submission":"CLARIFICATION_REQUESTED" if clarification else "CONFIRMED","actor":ctx["user_id"],"now":now,"decisions":json.dumps(body.decisions),"notes":body.notes,"id":request_id,"version":body.expected_version})
     await db.execute(text("UPDATE external_client_information_requests SET status=:status,reviewed_at=:now,updated_at=:now,version=version+1 WHERE id=:id"),{"status":status,"now":now,"id":request_id});await _information_audit(db,row,"CLARIFICATION_REQUESTED" if clarification else "REQUEST_COMPLETED","CONSULTANT",ctx["user_id"],now,{"decisions":body.decisions});await db.commit()
@@ -638,15 +641,19 @@ async def get_nutrition_assessment(request:Request,client_id:str,ctx=Depends(con
       ON v.assessment_id=a.id AND v.version=a.current_version
       WHERE a.tenant_id=:tenant AND a.client_id=:client ORDER BY a.updated_at DESC LIMIT 1"""),
       {"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
+    canonical,intake_updated_at=await _canonical_intake(db,ctx["tenant_id"],client_id)
     if not row:
         measurement_context=await _measurement_projection(db,ctx["tenant_id"],client_id)
+        resolved=resolve_assessment(canonical,intake_updated_at=intake_updated_at)
         return {"success":True,"data":{"status":"NOT_STARTED","readiness_status":"NOT_STARTED","version":0,
-          "assessment_data":{},"readiness":{"outcome":"NOT_STARTED","checklist":{},"outstanding_information":[]},
+          **resolved,"readiness":{"outcome":"NOT_STARTED","checklist":{},"outstanding_information":[]},
           "measurement_context":measurement_context,"history":[]},"error":None,"request_id":request.state.correlation_id}
     events=(await db.execute(text("""SELECT event_type,assessment_version,from_status,to_status,notes,actor_id,created_at
       FROM external_nutrition_assessment_events WHERE tenant_id=:tenant AND client_id=:client AND assessment_id=:assessment
       ORDER BY created_at DESC"""),{"tenant":ctx["tenant_id"],"client":client_id,"assessment":row["id"]})).mappings().all()
     data=_nutrition_assessment_projection(row);data["history"]=[{**dict(item),"created_at":item["created_at"].isoformat()} for item in events]
+    data.update(resolve_assessment(canonical,dict(row["assessment_data"] or {}),intake_updated_at=intake_updated_at,
+      professionally_confirmed=bool(row["reviewed_at"] or row["status"]=="REVIEWED")))
     measurement_context=await _measurement_projection(db,ctx["tenant_id"],client_id)
     saved_ids=sorted(str(item.get("source_id")) for item in (row["source_manifest"] or []) if item.get("source_type")=="MEASUREMENT")
     data["measurement_context"]=measurement_context

@@ -13,9 +13,15 @@ import {
   getNutritionAssessment,
   listClientInformationRequests,
   reviewClientInformationRequest,
+  revokeClientInformationRequest,
   saveNutritionAssessment,
   transitionNutritionAssessment,
 } from "../../lib/practiceOperationsApi";
+import { choices } from "../../lib/externalIntakeV2";
+import {
+  reconcileCompleteness,
+  resolveNutritionAssessment,
+} from "../../lib/nutritionAssessmentSync.mjs";
 
 const EMPTY = {
   dietary_preference: "",
@@ -73,7 +79,11 @@ function buildSources(data, measurements, biomarkers) {
   push(
     "CLIENT_INTAKE",
     "client360-intake",
-    sections.personal || data?.overview || {},
+    {
+      ...(sections.aboutYou || sections.personal || data?.overview || {}),
+      conditionsSymptoms: sections.conditionsSymptoms || {},
+      goals: sections.goals || {},
+    },
   );
   push("DIETARY_PREFERENCES", "client360-nutrition", sections.nutrition || {});
   push(
@@ -188,7 +198,7 @@ function Readiness({ value }) {
   );
 }
 
-function InformationCompleteness({ clientId, onError, onChanged }) {
+function InformationCompleteness({ clientId, resolved, onError, onChanged }) {
   const [value, setValue] = useState(null);
   const [selected, setSelected] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -200,7 +210,7 @@ function InformationCompleteness({ clientId, onError, onChanged }) {
         getClientInformationCompleteness(clientId),
         listClientInformationRequests(clientId),
       ]);
-      setValue(next);
+      setValue(reconcileCompleteness(next, resolved));
       setRequests(history.items || []);
       setSelected(
         next.fields
@@ -220,7 +230,7 @@ function InformationCompleteness({ clientId, onError, onChanged }) {
   };
   useEffect(() => {
     void load();
-  }, [clientId]);
+  }, [clientId, resolved]);
   const toggle = (id) =>
     setSelected((current) =>
       current.includes(id)
@@ -246,12 +256,9 @@ function InformationCompleteness({ clientId, onError, onChanged }) {
       setBusy(false);
     }
   };
-  const review = async (item, decision) => {
+  const review = async (item, decisions) => {
     setBusy(`review-${item.id}`);
     try {
-      const decisions = Object.fromEntries(
-        item.field_ids.map((field) => [field, decision]),
-      );
       await reviewClientInformationRequest(item.id, {
         expected_version: item.version,
         decisions,
@@ -259,6 +266,17 @@ function InformationCompleteness({ clientId, onError, onChanged }) {
       });
       await load();
       onChanged?.();
+    } catch (error) {
+      onError(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const revoke = async (item) => {
+    setBusy(`revoke-${item.id}`);
+    try {
+      await revokeClientInformationRequest(item.id);
+      await load();
     } catch (error) {
       onError(error.message);
     } finally {
@@ -349,13 +367,9 @@ function InformationCompleteness({ clientId, onError, onChanged }) {
         )}
       </div>
       {link && (
-        <p
-          role="status"
-          className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800"
-        >
-          Secure link copied. Delivery state is tracked separately.
-        </p>
+        <div role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800"><p>Selective secure link copied. This is separate from the original 14-step Health Profile invitation.</p><a href={`https://wa.me/?text=${encodeURIComponent(`Please complete only the missing health information requested by your consultant: ${link}`)}`} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-9 items-center rounded-lg border border-emerald-300 bg-white px-3 font-bold">Share through WhatsApp</a></div>
       )}
+      {requests.some((item)=>["CREATED","SENT","OPENED","PARTIALLY_COMPLETED"].includes(item.status))&&<div className="mt-5 border-t border-slate-200 pt-4"><h4 className="font-semibold">Pending selective requests</h4>{requests.filter((item)=>["CREATED","SENT","OPENED","PARTIALLY_COMPLETED"].includes(item.status)).map((item)=><article key={item.id} className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-3 text-sm"><span><strong>{item.field_ids.length} requested field{item.field_ids.length===1?'':'s'}</strong><span className="block text-xs text-slate-500">{label(item.status)} · expires {new Date(item.expires_at).toLocaleString()}</span></span><button type="button" disabled={Boolean(busy)} onClick={()=>revoke(item)} className="min-h-10 rounded-lg border border-red-200 px-3 text-xs font-semibold text-red-700">Revoke request</button></article>)}</div>}
       {requests.some((item) => item.status === "SUBMITTED") && (
         <div className="mt-6 border-t border-slate-200 pt-5">
           <h4 className="font-semibold">Review newly submitted answers</h4>
@@ -363,26 +377,18 @@ function InformationCompleteness({ clientId, onError, onChanged }) {
             {requests
               .filter((item) => item.status === "SUBMITTED")
               .map((item) => (
-                <article key={item.id} className="rounded-xl bg-slate-50 p-4">
-                  <dl className="grid gap-2 text-sm sm:grid-cols-2">
-                    {Object.entries(item.patch || {}).map(([field, answer]) => (
-                      <div key={field}>
-                        <dt className="text-xs text-slate-500">{label(field)}</dt>
-                        <dd className="font-medium">{Array.isArray(answer) ? answer.map(label).join(", ") : label(answer)}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button type="button" disabled={Boolean(busy)} onClick={() => review(item, "CONFIRM")} className="min-h-11 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white disabled:opacity-40">Confirm valid information</button>
-                    <button type="button" disabled={Boolean(busy)} onClick={() => review(item, "REQUEST_CLARIFICATION")} className="min-h-11 rounded-xl border border-amber-300 px-4 text-sm font-semibold text-amber-900 disabled:opacity-40">Request clarification</button>
-                  </div>
-                </article>
+                <ReviewRequest key={item.id} item={item} busy={Boolean(busy)} onSubmit={(decisions)=>review(item,decisions)}/>
               ))}
           </div>
         </div>
       )}
     </section>
   );
+}
+
+function ReviewRequest({item,busy,onSubmit}){
+  const answers=Object.entries(item.patch||{});const [decisions,setDecisions]=useState(Object.fromEntries(answers.map(([field])=>[field,'CONFIRM'])));
+  return <article className="rounded-xl bg-slate-50 p-4"><div className="space-y-3">{answers.map(([field,answer])=><div key={field} className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">{label(field)}</p><p className="mt-1 font-medium">{Array.isArray(answer)?answer.map(label).join(', '):label(answer)}</p><div className="mt-3 flex flex-wrap gap-2">{['CONFIRM','REQUEST_CLARIFICATION'].map((decision)=><button key={decision} type="button" aria-pressed={decisions[field]===decision} onClick={()=>setDecisions((current)=>({...current,[field]:decision}))} className={`min-h-10 rounded-lg border px-3 text-xs font-semibold ${decisions[field]===decision?(decision==='CONFIRM'?'border-emerald-700 bg-emerald-700 text-white':'border-amber-500 bg-amber-50 text-amber-900'):'border-slate-300 bg-white'}`}>{decision==='CONFIRM'?'Confirm':'Request clarification'}</button>)}</div></div>)}</div><button type="button" disabled={busy||!answers.length} onClick={()=>onSubmit(decisions)} className="mt-4 min-h-11 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white disabled:opacity-40">Save field-level review</button></article>;
 }
 
 export default function ExternalNutritionAssessment({
@@ -396,16 +402,28 @@ export default function ExternalNutritionAssessment({
   const [form, setForm] = useState(EMPTY);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
+  const [fieldProvenance, setFieldProvenance] = useState({});
+  const [editingClientFields, setEditingClientFields] = useState([]);
   const sources = useMemo(
     () => buildSources(data, measurements, biomarkers),
     [data, measurements, biomarkers],
+  );
+  const completenessResolution = useMemo(
+    () => ({ values: form, provenance: fieldProvenance }),
+    [form, fieldProvenance],
   );
   const load = async () => {
     setState((current) => ({ ...current, loading: true }));
     try {
       const value = await getNutritionAssessment(clientId);
+      const resolved = resolveNutritionAssessment(
+        data?.sections || {},
+        value.assessment_data || {},
+        value.field_provenance || {},
+      );
       setState({ loading: false, value });
-      setForm({ ...EMPTY, ...(value.assessment_data || {}) });
+      setForm({ ...EMPTY, ...resolved.values });
+      setFieldProvenance(resolved.provenance);
     } catch (error) {
       setState({ loading: false, value: null });
       onError(error.message);
@@ -413,7 +431,7 @@ export default function ExternalNutritionAssessment({
   };
   useEffect(() => {
     void load();
-  }, [clientId]);
+  }, [clientId, data]);
   const set = (key, value) =>
     setForm((current) => ({ ...current, [key]: value }));
   const save = async (action) => {
@@ -476,6 +494,7 @@ export default function ExternalNutritionAssessment({
       <div className="space-y-5">
         <InformationCompleteness
           clientId={clientId}
+          resolved={completenessResolution}
           onError={onError}
           onChanged={load}
         />
@@ -509,108 +528,19 @@ export default function ExternalNutritionAssessment({
             </p>
           )}
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            <Field label="Dietary preference">
-              <select
-                value={form.dietary_preference || ""}
-                onChange={(event) =>
-                  set("dietary_preference", event.target.value || null)
-                }
-                className={fieldClass}
-              >
-                <option value="">Not provided</option>
-                {["VEGETARIAN", "EGG", "NON_VEGETARIAN", "VEGAN"].map(
-                  (value) => (
-                    <option key={value} value={value}>
-                      {label(value)}
-                    </option>
-                  ),
-                )}
-              </select>
-            </Field>
-            <ListField
-              label="Allergies and intolerances"
-              value={form.allergies_intolerances}
-              onChange={(value) => set("allergies_intolerances", value)}
-            />
-            <ListField
-              label="Food restrictions"
-              value={form.food_restrictions}
-              onChange={(value) => set("food_restrictions", value)}
-            />
-            <Field label="Meal timing and frequency">
-              <textarea
-                rows="3"
-                value={form.meal_timing_frequency || ""}
-                onChange={(event) =>
-                  set("meal_timing_frequency", event.target.value)
-                }
-                className={fieldClass}
-              />
-            </Field>
-            <Field wide label="Typical dietary intake">
-              <textarea
-                rows="4"
-                value={form.typical_dietary_intake || ""}
-                onChange={(event) =>
-                  set("typical_dietary_intake", event.target.value)
-                }
-                className={fieldClass}
-              />
-            </Field>
-            <Field label="Appetite and eating patterns">
-              <textarea
-                rows="3"
-                value={form.appetite_eating_patterns || ""}
-                onChange={(event) =>
-                  set("appetite_eating_patterns", event.target.value)
-                }
-                className={fieldClass}
-              />
-            </Field>
-            <Field label="Water intake">
-              <input
-                value={form.water_intake || ""}
-                onChange={(event) => set("water_intake", event.target.value)}
-                className={fieldClass}
-              />
-            </Field>
-            <Field wide label="Food dislikes and preferences">
-              <textarea
-                rows="3"
-                value={form.food_dislikes_preferences || ""}
-                onChange={(event) =>
-                  set("food_dislikes_preferences", event.target.value)
-                }
-                className={fieldClass}
-              />
-            </Field>
-            <ListField
-              label="Nutrition-related medical conditions"
-              value={form.nutrition_medical_conditions}
-              onChange={(value) => set("nutrition_medical_conditions", value)}
-            />
-            <ListField
-              label="Relevant medications"
-              value={form.relevant_medications}
-              onChange={(value) => set("relevant_medications", value)}
-            />
-            <ListField
-              label="Relevant supplements"
-              value={form.relevant_supplements}
-              onChange={(value) => set("relevant_supplements", value)}
-            />
-            <ListField
-              label="Weight-management goals"
-              value={form.weight_management_goals}
-              onChange={(value) => set("weight_management_goals", value)}
-            />
-            <ListField
-              label="Recovery and disease-management goals"
-              value={form.recovery_disease_management_goals}
-              onChange={(value) =>
-                set("recovery_disease_management_goals", value)
-              }
-            />
+            <AssessmentChoice field="dietary_preference" caption="Dietary preference" value={form.dietary_preference} options={["VEGETARIAN","EGG","NON_VEGETARIAN","VEGAN"]} provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("dietary_preference",value)} />
+            <AssessmentChoice field="allergies_intolerances" caption="Allergies and intolerances" value={form.allergies_intolerances} options={["YES","NO","NOT_SURE","MILK_DAIRY","PEANUTS","TREE_NUTS","EGG","WHEAT","SOY","FISH","SHELLFISH","OTHER"]} multiple provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("allergies_intolerances",value)} />
+            <AssessmentChoice field="food_restrictions" caption="Food restrictions" value={form.food_restrictions} options={[...choices.restrictions,"NO_DAIRY","GLUTEN_FREE","NO_ADDED_SUGAR","LOW_SODIUM"]} multiple provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("food_restrictions",value)} />
+            <AssessmentChoice field="meal_timing_frequency" caption="Meals per day" value={form.meal_timing_frequency} options={choices.mealsPerDay} provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("meal_timing_frequency",value)} />
+            <AssessmentChoice wide field="typical_dietary_intake" caption="Typical dietary intake" value={form.typical_dietary_intake} options={["HOME_COOKED","MIXED_HOME_OUTSIDE","FREQUENT_RESTAURANT","REGULAR_SNACKING","IRREGULAR_SCHEDULE"]} provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("typical_dietary_intake",value)} />
+            <AssessmentChoice field="appetite_eating_patterns" caption="Appetite and eating patterns" value={form.appetite_eating_patterns} options={["NORMAL_APPETITE","LOW_APPETITE","HIGH_APPETITE","IRREGULAR_HUNGER","SKIPS_MEALS","LATE_NIGHT_EATING","FREQUENT_SNACKING","EMOTIONAL_EATING","NONE","OTHER"]} multiple provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("appetite_eating_patterns",value)} />
+            <AssessmentChoice field="water_intake" caption="Water intake" value={form.water_intake} options={Array.from({length:11},(_,index)=>`${1+index*.5} L/day`)} provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("water_intake",value)} />
+            <AssessmentChoice wide field="food_dislikes_preferences" caption="Food dislikes and preferences" value={form.food_dislikes_preferences} options={[...choices.cravings,"NO_SPECIFIC_PREFERENCES"]} multiple provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("food_dislikes_preferences",value)} />
+            <AssessmentChoice field="nutrition_medical_conditions" caption="Nutrition-related medical conditions" value={form.nutrition_medical_conditions} options={choices.conditions} multiple provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("nutrition_medical_conditions",value)} />
+            <AssessmentChoice field="relevant_medications" caption="Relevant medications" value={form.relevant_medications} options={[...(form.relevant_medications||[]),"NONE"]} multiple provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("relevant_medications",value)} />
+            <AssessmentChoice field="relevant_supplements" caption="Relevant supplements" value={form.relevant_supplements} options={[...choices.supplementTypes,"NONE"]} multiple provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("relevant_supplements",value)} />
+            <AssessmentChoice field="weight_management_goals" caption="Weight-management goals" value={form.weight_management_goals} options={["LOSE_WEIGHT","GAIN_WEIGHT","GAIN_MUSCLE","MAINTAIN_WEIGHT"]} multiple provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("weight_management_goals",value)} />
+            <AssessmentChoice field="recovery_disease_management_goals" caption="Recovery and disease-management goals" value={form.recovery_disease_management_goals} options={choices.goals.filter((goal)=>!["LOSE_WEIGHT","GAIN_WEIGHT","GAIN_MUSCLE","MAINTAIN_WEIGHT"].includes(goal))} multiple provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("recovery_disease_management_goals",value)} />
             <Field wide label="Consultant notes">
               <textarea
                 rows="4"
@@ -719,6 +649,29 @@ function Field({ label: caption, wide = false, children }) {
     </label>
   );
 }
+function AssessmentChoice({field,caption,value,options,multiple=false,wide=false,provenance,editing,setEditing,onChange}) {
+  const source=provenance[field]?.source;
+  const clientSupplied=source==="CLIENT_SUBMITTED";
+  const locked=clientSupplied&&!editing.includes(field);
+  const selected=multiple?list(value):(value?[value]:[]);
+  const allOptions=[...new Set([...options,...selected])];
+  const toggle=(option)=>{
+    if(!multiple){onChange(option);return;}
+    const exclusive=["NONE","NO","NOT_SURE","NO_SPECIFIC_PREFERENCES"];
+    if(exclusive.includes(option)){onChange(selected.includes(option)?[]:[option]);return;}
+    const clean=selected.filter((item)=>!exclusive.includes(item));
+    onChange(clean.includes(option)?clean.filter((item)=>item!==option):[...clean,option]);
+  };
+  return <fieldset className={`${wide?"sm:col-span-2 ":""}rounded-2xl border border-slate-200 p-4`}>
+    <div className="flex items-start justify-between gap-3"><div><legend className="text-sm font-semibold text-slate-800">{caption}</legend><SourceBadge source={source} confirmed={provenance[field]?.confirmed}/></div>{locked&&<button type="button" onClick={()=>setEditing((current)=>[...current,field])} className="min-h-9 rounded-lg border border-slate-300 px-3 text-xs font-semibold">Correct</button>}</div>
+    {selected.length===0&&<p className="mt-3 text-sm text-slate-500">Not provided</p>}
+    <div className="mt-3 flex flex-wrap gap-2">{allOptions.map((option)=>{const active=selected.includes(option);return <button key={option} type="button" role={multiple?"checkbox":"radio"} aria-checked={active} disabled={locked} onClick={()=>toggle(option)} className={`min-h-11 rounded-full border px-4 py-2 text-sm font-semibold disabled:cursor-default ${active?"border-emerald-700 bg-emerald-700 text-white":"border-slate-300 bg-white text-slate-700"}`}>{label(option)}</button>})}</div>
+  </fieldset>;
+}
+function SourceBadge({source,confirmed}){
+  const text=confirmed?"Consultant confirmed":source==="CLIENT_SUBMITTED"?"Client submitted":source==="CONSULTANT_ASSESSMENT"?"Consultant assessment":source?label(source):"Missing";
+  return <span className={`mt-1 inline-flex rounded-full px-2 py-1 text-[11px] font-bold ${source?"bg-blue-50 text-blue-700":"bg-slate-100 text-slate-500"}`}>{text}</span>;
+}
 function ListField({ label: caption, value, onChange }) {
   return (
     <Field label={`${caption} (comma separated)`}>
@@ -746,12 +699,12 @@ function SourceSummary({ data, measurements, biomarkers }) {
     ],
     [
       "Medical conditions",
-      list(data?.sections?.medicalHistory?.conditions).join(", ") ||
+      list(data?.sections?.conditionsSymptoms?.conditions || data?.sections?.medicalHistory?.conditions).join(", ") ||
         "Not provided",
     ],
     [
       "Health goals",
-      list(data?.sections?.goals?.selectedGoals).join(", ") || "Not provided",
+      list(data?.sections?.goals?.goals || data?.sections?.goals?.selectedGoals).join(", ") || "Not provided",
     ],
     [
       "Confirmed biomarkers",

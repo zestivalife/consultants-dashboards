@@ -81,9 +81,9 @@ class NutritionProfile(BaseModel):
     food_restrictions: list[str] = Field(default_factory=list, max_length=100)
     meal_timing_frequency: str | None = Field(default=None, max_length=4000)
     typical_dietary_intake: str | None = Field(default=None, max_length=8000)
-    appetite_eating_patterns: str | None = Field(default=None, max_length=4000)
+    appetite_eating_patterns: str | list[str] | None = None
     water_intake: str | None = Field(default=None, max_length=1000)
-    food_dislikes_preferences: str | None = Field(default=None, max_length=4000)
+    food_dislikes_preferences: str | list[str] | None = None
     nutrition_medical_conditions: list[str] = Field(default_factory=list, max_length=100)
     relevant_medications: list[str] = Field(default_factory=list, max_length=100)
     relevant_supplements: list[str] = Field(default_factory=list, max_length=100)
