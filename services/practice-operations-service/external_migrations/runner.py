@@ -123,6 +123,22 @@ MIGRATIONS: tuple[ExternalMigration, ...] = (
           resolved_at TIMESTAMPTZ, created_by VARCHAR(120) NOT NULL, created_at TIMESTAMPTZ NOT NULL)""",
         "CREATE INDEX IF NOT EXISTS ix_external_nutrition_stale_client ON external_nutrition_staleness_events(tenant_id,client_id,created_at DESC)",
     )),
+    ExternalMigration("external_0055_client_measurements", (
+        """CREATE TABLE IF NOT EXISTS external_client_measurements (
+          id UUID PRIMARY KEY, series_id UUID NOT NULL, tenant_id VARCHAR(80) NOT NULL,
+          client_id VARCHAR(120) NOT NULL, measurement_type VARCHAR(40) NOT NULL,
+          value NUMERIC(10,3) NOT NULL, unit VARCHAR(12) NOT NULL, measured_at TIMESTAMPTZ NOT NULL,
+          source VARCHAR(40) NOT NULL, recorded_by VARCHAR(120) NOT NULL, created_at TIMESTAMPTZ NOT NULL,
+          version INTEGER NOT NULL CHECK(version > 0), supersedes_id UUID REFERENCES external_client_measurements(id) ON DELETE RESTRICT,
+          correction_reason TEXT, UNIQUE(series_id,version),
+          CHECK(measurement_type IN ('HEIGHT_CM','WEIGHT_KG','WAIST_CM','HIP_CM','NECK_CM','CHEST_CM','MID_UPPER_ARM_CM','THIGH_CM','CALF_CM')),
+          CHECK(source IN ('CLIENT_REPORTED','PROFESSIONALLY_RECORDED','DOCUMENT_DERIVED')),
+          CHECK((measurement_type='WEIGHT_KG' AND unit='kg') OR (measurement_type<>'WEIGHT_KG' AND unit='cm')),
+          CHECK(value > 0), CHECK((version=1 AND supersedes_id IS NULL AND correction_reason IS NULL) OR
+                                  (version>1 AND supersedes_id IS NOT NULL AND length(correction_reason)>=3)))""",
+        "CREATE INDEX IF NOT EXISTS ix_external_client_measurements_latest ON external_client_measurements(tenant_id,client_id,measurement_type,measured_at DESC,version DESC)",
+        "CREATE INDEX IF NOT EXISTS ix_external_client_measurements_series ON external_client_measurements(tenant_id,client_id,series_id,version DESC)",
+    )),
 )
 
 PRECONDITIONS = {
@@ -141,6 +157,7 @@ PRECONDITIONS = {
       ('external_nutrition_assessments','external_nutrition_assessment_versions',
        'external_nutrition_assessment_inputs','external_diet_plan_assessment_links',
        'external_clinical_document_links','external_nutrition_staleness_events'))""",
+    "external_0055_client_measurements": "SELECT to_regclass('public.external_client_measurements') IS NULL",
 }
 
 

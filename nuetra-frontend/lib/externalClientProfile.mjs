@@ -30,7 +30,30 @@ export function calculateExternalWaistHipRatio(waistCm, hipCm) {
   return Math.round((waist / hip) * 100) / 100;
 }
 
-export function composeExternalClientProfile(baseProfile, enrichment = {}) {
+export function calculateCalendarAge(value, today = new Date()) {
+  const dateOnly = normalizeExternalDateOnly(value);
+  if (!dateOnly) return null;
+  const [year, month, day] = dateOnly.split('-').map(Number);
+  const current = [today.getUTCFullYear(), today.getUTCMonth() + 1, today.getUTCDate()];
+  if ([year, month, day].some((part) => !Number.isInteger(part)) || year > current[0] || (year === current[0] && (month > current[1] || (month === current[1] && day > current[2])))) return null;
+  return current[0] - year - ((current[1] < month || (current[1] === month && current[2] < day)) ? 1 : 0);
+}
+
+const measurementKeys = {
+  HEIGHT_CM: ['height', 'heightCm'], WEIGHT_KG: ['weight', 'weightKg'], WAIST_CM: ['waistCm'],
+  HIP_CM: ['hipCm'], NECK_CM: ['neckCm'], CHEST_CM: ['chestCm'], MID_UPPER_ARM_CM: ['midUpperArmCm'],
+  THIGH_CM: ['thighCm'], CALF_CM: ['calfCm'],
+};
+
+export function measurementValues(projection = {}) {
+  const result = {};
+  Object.entries(projection.latest || {}).forEach(([kind, item]) => {
+    (measurementKeys[kind] || []).forEach((key) => { result[key] = item.value; });
+  });
+  return result;
+}
+
+export function composeExternalClientProfile(baseProfile, enrichment = {}, measurementProjection = {}) {
   const profile = structuredClone(baseProfile || {});
   const sections = { ...(profile.sections || {}) };
   const baseMeasurements = sections.measurements || {};
@@ -47,6 +70,7 @@ export function composeExternalClientProfile(baseProfile, enrichment = {}) {
     ...(present(measurements.thigh_cm) ? { thighCm: measurements.thigh_cm } : {}),
     ...(present(measurements.calf_cm) ? { calfCm: measurements.calf_cm } : {}),
     ...(measurements.recorded_at ? { recordedAt: measurements.recorded_at } : {}),
+    ...measurementValues(measurementProjection),
   };
   if (Object.prototype.hasOwnProperty.call(enrichment, 'goals')) {
     sections.goals = { ...(sections.goals || {}), selectedGoals: enrichment.goals, primaryGoal: enrichment.goals[0] || null };
@@ -64,22 +88,21 @@ export function composeExternalClientProfile(baseProfile, enrichment = {}) {
       : overview.dateOfBirth,
   );
   overview.dateOfBirth = canonicalDateOfBirth;
+  overview.age = calculateCalendarAge(canonicalDateOfBirth);
   const height = sections.measurements.heightCm ?? sections.measurements.height;
   const weight = sections.measurements.weightKg ?? sections.measurements.weight;
   const bmi = calculateExternalBmi(height, weight);
   const waistHipRatio = calculateExternalWaistHipRatio(sections.measurements.waistCm, sections.measurements.hipCm);
-  const required = [
-    overview.dateOfBirth,
-    height,
-    weight,
-    sections.goals?.selectedGoals?.length || sections.goals?.primaryGoal,
-    sections.medicalHistory?.narrative || sections.medicalHistory?.conditions,
-    sections.sleepStress?.narrative || sections.sleepStress?.sleepQuality,
-    sections.measurements.waistCm,
-    sections.measurements.hipCm,
-  ];
-  const completed = required.filter(present).length;
-  overview.profileCompleteness = Math.round((completed / required.length) * 100);
+  const categories = {
+    personalProfile: [['Date of birth', overview.dateOfBirth], ['Health goals', sections.goals?.selectedGoals?.length || sections.goals?.primaryGoal]],
+    medicalBackground: [['Medical history', sections.medicalHistory?.narrative || sections.medicalHistory?.conditions]],
+    bodyMeasurements: [['Height', height], ['Weight', weight], ['Waist', sections.measurements.waistCm], ['Hip', sections.measurements.hipCm]],
+    lifestyle: [['Sleep & stress', sections.sleepStress?.narrative || sections.sleepStress?.sleepQuality]],
+  };
+  const missingChecklist = Object.entries(categories).flatMap(([category, items]) => items.filter(([, value]) => !present(value)).map(([label]) => ({ category, label })));
+  const requiredCount = Object.values(categories).flat().length;
+  overview.profileCompleteness = Math.round(((requiredCount - missingChecklist.length) / requiredCount) * 100);
+  overview.completeness = {categories, missingChecklist, clinicalEvidenceOptional: true};
   const datedRecords = Object.values(enrichment.health_record_dates || {}).filter((item) => item?.report_date && item?.confirmation_date).length;
   const evidenceUnits = [present(height) && present(weight), present(sections.measurements.waistCm) && present(sections.measurements.hipCm), datedRecords > 0];
   const evidenceCompleteness = Math.round((evidenceUnits.filter(Boolean).length / evidenceUnits.length) * 100);
@@ -89,10 +112,16 @@ export function composeExternalClientProfile(baseProfile, enrichment = {}) {
     sections,
     derived: {
       ...(profile.derived || {}),
-      bmi: bmi === null ? { status: 'NOT_AVAILABLE', value: null } : { status: 'AVAILABLE', value: bmi, unit: 'kg/m²', source: 'EXTERNAL_CLIENT360_MEASUREMENTS' },
+      bmi: measurementProjection.calculations?.bmi || (bmi === null ? { status: 'NOT_AVAILABLE', value: null } : { status: 'AVAILABLE', value: bmi, unit: 'kg/m²', methodology: 'bmi.metric.v1' }),
       waistHipRatio,
+      waistHipRatioMetric: measurementProjection.calculations?.waist_to_hip_ratio || (waistHipRatio == null ? null : {value: waistHipRatio, methodology: 'whr.metric.v1'}),
+      waistToHeightRatio: measurementProjection.calculations?.waist_to_height_ratio || null,
+      weightChange: measurementProjection.calculations?.weight_change || null,
+      weightChangePercentage: measurementProjection.calculations?.weight_change_percentage || null,
+      weightTrend: measurementProjection.calculations?.weight_trend || null,
     },
     externalEnrichment: enrichment,
+    measurementProjection,
     evidenceCompleteness,
   };
 }

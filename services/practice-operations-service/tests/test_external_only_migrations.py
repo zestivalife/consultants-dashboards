@@ -63,6 +63,7 @@ def test_external_lineage_contains_only_required_external_changes():
         "external_0051_multi_diet_plans",
         "external_0053_client_profile",
         "external_0054_nutrition_foundation",
+        "external_0055_client_measurements",
     ]
     sql = "\n".join(statement for migration in MIGRATIONS for statement in migration.statements).lower()
     assert "internal_" not in sql

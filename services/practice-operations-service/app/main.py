@@ -56,9 +56,12 @@ from app.contracts import CommunicationPreparationCreate, CommunicationReminderC
 from app.contracts import PracticeLocationCreate, LocationResourceAssign
 from app.contracts import PaymentOrderCreate, PaymentVerification
 from app.contracts import AiDraftRequest
-from app.contracts import ClientExportRequest, ExternalClientProfileEnrichmentUpdate, InternalClientProfileEnrichmentUpdate
+from app.contracts import (ClientExportRequest, ExternalClientProfileEnrichmentUpdate,
+                           ExternalMeasurementCorrection, ExternalMeasurementCreate,
+                           InternalClientProfileEnrichmentUpdate)
 from app.internal_client_profile import merge_enrichment, projection as internal_profile_projection, validate_enrichment
 from app.external_client_profile import merge_external_enrichment, projection as external_profile_projection, validate_external_enrichment
+from app.external_measurements import calculated_health_parameters, validated_measurement
 from app.nutrition_foundation import (AssessmentReview, AssessmentStale,
                                       ClinicalDocumentLink, DietPlanAssessmentBind,
                                       NutritionAssessmentCreate,
@@ -320,6 +323,96 @@ async def update_external_client_profile_enrichment(request: Request, client_id:
     await db.commit()
     provenance={**dict(row["provenance"] or {}),"source":"EXTERNAL_CLIENT360_ENRICHMENT","tenant_id":ctx["tenant_id"],"client_id":client_id,"updated_at":row["updated_at"].isoformat(),"updated_by":ctx["user_id"]}
     return {"success":True,"data":external_profile_projection(dict(row["values"] or {}),row["version"],provenance),"error":None,"request_id":request.state.correlation_id}
+
+
+def _measurement_row(row):
+    value = dict(row)
+    for key in ("id", "series_id", "supersedes_id"):
+        if value.get(key) is not None:
+            value[key] = str(value[key])
+    value["value"] = float(value["value"])
+    for key in ("measured_at", "created_at"):
+        value[key] = value[key].isoformat()
+    return value
+
+
+async def _measurement_projection(db, tenant_id: str, client_id: str):
+    rows = (await db.execute(text("""SELECT id,series_id,measurement_type,value,unit,measured_at,source,
+      recorded_by,created_at,version,supersedes_id,correction_reason
+      FROM external_client_measurements WHERE tenant_id=:tenant AND client_id=:client
+      ORDER BY measured_at DESC,created_at DESC,version DESC"""),
+      {"tenant":tenant_id,"client":client_id})).mappings().all()
+    projected = [_measurement_row(row) for row in rows]
+    latest_series = {}
+    for row in projected:
+        current = latest_series.get(row["series_id"])
+        if current is None or row["version"] > current["version"]:
+            latest_series[row["series_id"]] = row
+    current_rows = sorted(latest_series.values(), key=lambda row:(row["measured_at"],row["created_at"]), reverse=True)
+    latest = {}
+    for row in current_rows:
+        latest.setdefault(row["measurement_type"], row)
+    weight_history = [row for row in current_rows if row["measurement_type"] == "WEIGHT_KG"]
+    return {"latest":latest,"history":projected,
+            "calculations":calculated_health_parameters(latest,weight_history),
+            "methodology_versions":["bmi.metric.v1","whr.metric.v1","whtr.metric.v1",
+                                    "weight-change.metric.v1","weight-change-percent.metric.v1",
+                                    "weight-trend.dated-observations.v1"]}
+
+
+@app.get("/api/v1/practice-operations/clients/{client_id}/measurements")
+async def list_external_client_measurements(request: Request, client_id: str, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    data=await _measurement_projection(db,ctx["tenant_id"],client_id)
+    return {"success":True,"data":data,"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/measurements",status_code=201)
+async def create_external_client_measurements(request: Request, client_id: str, body: ExternalMeasurementCreate, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    now=datetime.now(timezone.utc);seen=set()
+    try:
+        validated=[validated_measurement(item.measurement_type,item.value,item.unit) for item in body.measurements]
+    except ValueError as exc:return error(request,422,"INVALID_EXTERNAL_MEASUREMENT",str(exc))
+    if any(kind in seen or seen.add(kind) for kind,_,_ in validated):
+        return error(request,422,"DUPLICATE_MEASUREMENT_TYPE","Each measurement type may appear once per entry")
+    for kind,value,unit in validated:
+        record_id=uuid4()
+        await db.execute(text("""INSERT INTO external_client_measurements
+          (id,series_id,tenant_id,client_id,measurement_type,value,unit,measured_at,source,recorded_by,created_at,version)
+          VALUES (:id,:id,:tenant,:client,:kind,:value,:unit,:measured,:source,:actor,:now,1)"""),
+          {"id":record_id,"tenant":ctx["tenant_id"],"client":client_id,"kind":kind,"value":value,
+           "unit":unit,"measured":body.measured_at,"source":body.source,"actor":ctx["user_id"],"now":now})
+    await db.commit();data=await _measurement_projection(db,ctx["tenant_id"],client_id)
+    return {"success":True,"data":data,"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/measurements/{measurement_id}/corrections",status_code=201)
+async def correct_external_client_measurement(request: Request, client_id: str, measurement_id: UUID, body: ExternalMeasurementCorrection, ctx=Depends(context), db: AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    row=(await db.execute(text("""SELECT m.* FROM external_client_measurements m
+      WHERE m.id=:id AND m.tenant_id=:tenant AND m.client_id=:client FOR UPDATE"""),
+      {"id":measurement_id,"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
+    if not row:return error(request,404,"MEASUREMENT_NOT_FOUND","Measurement was not found")
+    maximum=(await db.execute(text("SELECT max(version) FROM external_client_measurements WHERE tenant_id=:tenant AND client_id=:client AND series_id=:series"),
+      {"tenant":ctx["tenant_id"],"client":client_id,"series":row["series_id"]})).scalar_one()
+    if row["version"] != maximum:return error(request,409,"STALE_MEASUREMENT_VERSION","Refresh before correcting this measurement")
+    try:kind,value,unit=validated_measurement(row["measurement_type"],body.value,body.unit)
+    except ValueError as exc:return error(request,422,"INVALID_EXTERNAL_MEASUREMENT",str(exc))
+    now=datetime.now(timezone.utc);new_id=uuid4()
+    await db.execute(text("""INSERT INTO external_client_measurements
+      (id,series_id,tenant_id,client_id,measurement_type,value,unit,measured_at,source,recorded_by,
+       created_at,version,supersedes_id,correction_reason)
+      VALUES (:id,:series,:tenant,:client,:kind,:value,:unit,:measured,'PROFESSIONALLY_RECORDED',:actor,
+              :now,:version,:prior,:reason)"""),
+      {"id":new_id,"series":row["series_id"],"tenant":ctx["tenant_id"],"client":client_id,"kind":kind,
+       "value":value,"unit":unit,"measured":body.measured_at,"actor":ctx["user_id"],"now":now,
+       "version":row["version"]+1,"prior":row["id"],"reason":body.reason})
+    await db.commit();data=await _measurement_projection(db,ctx["tenant_id"],client_id)
+    return {"success":True,"data":data,"error":None,"request_id":request.state.correlation_id}
 
 
 def _nutrition_assessment_projection(row):

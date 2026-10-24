@@ -58,6 +58,25 @@ class GoalProgressCreate(BaseModel):
     note: str | None = Field(default=None, max_length=1000)
 
 
+class ExternalMeasurementValue(BaseModel):
+    measurement_type: str = Field(min_length=3, max_length=40)
+    value: float
+    unit: str = Field(min_length=1, max_length=12)
+
+
+class ExternalMeasurementCreate(BaseModel):
+    measured_at: datetime
+    source: Literal["CLIENT_REPORTED", "PROFESSIONALLY_RECORDED", "DOCUMENT_DERIVED"]
+    measurements: list[ExternalMeasurementValue] = Field(min_length=1, max_length=9)
+
+
+class ExternalMeasurementCorrection(BaseModel):
+    value: float
+    unit: str = Field(min_length=1, max_length=12)
+    measured_at: datetime
+    reason: str = Field(min_length=3, max_length=1000)
+
+
 class MediaReferenceCreate(BaseModel):
     client_id: str
     captured_at: datetime

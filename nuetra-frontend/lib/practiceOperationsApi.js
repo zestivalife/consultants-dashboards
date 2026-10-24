@@ -29,6 +29,9 @@ export function recordOnboardingCompleted(payload){return request('/events/onboa
 export function listClientTimeline(clientId){return request(`/clients/${encodeURIComponent(clientId)}/timeline`);}
 export function getExternalClientProfileEnrichment(clientId){return request(`/clients/${encodeURIComponent(clientId)}/profile-enrichment`);}
 export function updateExternalClientProfileEnrichment(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/profile-enrichment`,{method:'PUT',body:JSON.stringify(payload)});}
+export function listExternalClientMeasurements(clientId){return request(`/clients/${encodeURIComponent(clientId)}/measurements`);}
+export function createExternalClientMeasurements(clientId,payload){const source=payload.source==='SELF_REPORTED'?'CLIENT_REPORTED':payload.source==='IMPORTED'?'DOCUMENT_DERIVED':payload.source;return request(`/clients/${encodeURIComponent(clientId)}/measurements`,{method:'POST',body:JSON.stringify({...payload,source})});}
+export function correctExternalClientMeasurement(clientId,measurementId,payload){return request(`/clients/${encodeURIComponent(clientId)}/measurements/${encodeURIComponent(measurementId)}/corrections`,{method:'POST',body:JSON.stringify(payload)});}
 export function createProfessionIntakeInvitation(clientId,payload={}){return request(`/clients/${encodeURIComponent(clientId)}/profession-intake-invitations`,{method:'POST',body:JSON.stringify(payload)});}
 export function revokeProfessionIntakeInvitation(clientId){return request(`/clients/${encodeURIComponent(clientId)}/profession-intake-invitations/revoke`,{method:'POST'});}
 export function getClientProfessionIntake(clientId){return request(`/clients/${encodeURIComponent(clientId)}/profession-intake`);}
