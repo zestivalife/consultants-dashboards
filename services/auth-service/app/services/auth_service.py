@@ -391,6 +391,10 @@ async def login(
     user = await user_repo.get_by_mobile(identifier) if mobile_number else await user_repo.get_by_email(identifier)
     if user is None:
         await audit_repo.create("LOGIN_FAILED", ip_address=ip_address, user_agent=user_agent)
+        # Authentication failures leave the request through an exception. The
+        # request-scoped session consequently rolls back unless security state
+        # is committed before raising.
+        await session.commit()
         raise UnauthorizedException("Invalid credentials")
 
     now = datetime.now(timezone.utc)
@@ -399,6 +403,7 @@ async def login(
         await audit_repo.create(
             "LOGIN_BLOCKED_DELETED", user_id=user.id, ip_address=ip_address, user_agent=user_agent,
         )
+        await session.commit()
         raise ForbiddenException("Account is deleted. Please contact support.")
 
     if (
@@ -423,18 +428,21 @@ async def login(
             ip_address=ip_address,
             user_agent=user_agent,
         )
+        await session.commit()
         raise ForbiddenException("Temporary password has expired. Please contact your administrator.")
 
     if user.lock_until and user.lock_until > now:
         await audit_repo.create(
             "LOGIN_BLOCKED_LOCKED", user_id=user.id, ip_address=ip_address, user_agent=user_agent,
         )
+        await session.commit()
         _ensure_authenticatable_user(user, now=now)
 
     if not user.is_active:
         await audit_repo.create(
             "LOGIN_BLOCKED_INACTIVE", user_id=user.id, ip_address=ip_address, user_agent=user_agent,
         )
+        await session.commit()
         _ensure_authenticatable_user(user, now=now)
 
     if not password_service.verify_password(password, user.password_hash):
@@ -449,6 +457,7 @@ async def login(
         await audit_repo.create(
             "LOGIN_FAILED", user_id=user.id, ip_address=ip_address, user_agent=user_agent,
         )
+        await session.commit()
         raise UnauthorizedException("Invalid credentials")
 
     if user.role and user.role.name == "internal_super_admin":
@@ -490,6 +499,7 @@ async def login(
         await audit_repo.create(
             "LOGIN_BLOCKED_UNVERIFIED", user_id=user.id, ip_address=ip_address, user_agent=user_agent,
         )
+        await session.commit()
         _ensure_authenticatable_user(user, now=now)
 
     raw_refresh = generate_refresh_token()

@@ -251,6 +251,22 @@ async def test_login_wrong_password(session: AsyncSession, seed_user: User):
         with pytest.raises(UnauthorizedException, match="Invalid credentials"):
             await auth_service.login(session, "test@nuetra.com", "WrongPassword!")
 
+    # The route exits through an exception and its dependency rolls back. The
+    # security counter and audit record must already be durable.
+    await session.rollback()
+    persisted_user = await session.get(User, seed_user.id)
+    assert persisted_user is not None
+    assert persisted_user.failed_login_attempts == 1
+    failed_log = await session.scalar(
+        select(AuthAuditLog)
+        .where(
+            AuthAuditLog.user_id == seed_user.id,
+            AuthAuditLog.event_type == "LOGIN_FAILED",
+        )
+        .order_by(AuthAuditLog.created_at.desc())
+    )
+    assert failed_log is not None
+
 
 # ──────────────────────────────────────────────
 #  Login Failure — account lockout after 5 attempts
