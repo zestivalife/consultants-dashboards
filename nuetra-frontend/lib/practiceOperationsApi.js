@@ -48,6 +48,8 @@ export function saveConsultantDietPlan(planId,payload){return request(`/diet-pla
 export function reviewConsultantDietPlan(planId,payload){return request(`/diet-plans/${encodeURIComponent(planId)}/review`,{method:'POST',body:JSON.stringify(payload)});}
 export function publishConsultantDietPlan(planId){return request(`/diet-plans/${encodeURIComponent(planId)}/publish`,{method:'POST'});}
 export function getNutritionAssessment(clientId){return request(`/clients/${encodeURIComponent(clientId)}/nutrition-assessment`);}
+export function saveNutritionAssessment(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/nutrition-assessment`,{method:'PUT',body:JSON.stringify(payload)});}
+export function transitionNutritionAssessment(assessmentId,payload){return request(`/nutrition-assessments/${encodeURIComponent(assessmentId)}/transition`,{method:'POST',body:JSON.stringify(payload)});}
 export function createNutritionAssessment(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/nutrition-assessments`,{method:'POST',body:JSON.stringify(payload)});}
 export function reviewNutritionAssessment(assessmentId,payload){return request(`/nutrition-assessments/${encodeURIComponent(assessmentId)}/review`,{method:'POST',body:JSON.stringify(payload)});}
 export function markNutritionAssessmentStale(assessmentId,payload){return request(`/nutrition-assessments/${encodeURIComponent(assessmentId)}/stale`,{method:'POST',body:JSON.stringify(payload)});}

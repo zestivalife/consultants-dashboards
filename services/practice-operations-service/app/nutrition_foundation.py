@@ -75,6 +75,37 @@ class NutritionAssessmentCreate(BaseModel):
         return self
 
 
+class NutritionProfile(BaseModel):
+    dietary_preference: Literal["VEGETARIAN", "EGG", "NON_VEGETARIAN", "VEGAN"] | None = None
+    allergies_intolerances: list[str] = Field(default_factory=list, max_length=100)
+    food_restrictions: list[str] = Field(default_factory=list, max_length=100)
+    meal_timing_frequency: str | None = Field(default=None, max_length=4000)
+    typical_dietary_intake: str | None = Field(default=None, max_length=8000)
+    appetite_eating_patterns: str | None = Field(default=None, max_length=4000)
+    water_intake: str | None = Field(default=None, max_length=1000)
+    food_dislikes_preferences: str | None = Field(default=None, max_length=4000)
+    nutrition_medical_conditions: list[str] = Field(default_factory=list, max_length=100)
+    relevant_medications: list[str] = Field(default_factory=list, max_length=100)
+    relevant_supplements: list[str] = Field(default_factory=list, max_length=100)
+    weight_management_goals: list[str] = Field(default_factory=list, max_length=50)
+    recovery_disease_management_goals: list[str] = Field(default_factory=list, max_length=50)
+    consultant_notes: str | None = Field(default=None, max_length=8000)
+
+
+class NutritionAssessmentSave(BaseModel):
+    expected_version: int = Field(ge=0)
+    action: Literal["SAVE_DRAFT", "SUBMIT"]
+    profile: NutritionProfile
+    sources: list[AssessmentSource] = Field(default_factory=list, max_length=500)
+    clinical_safety_findings: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+
+
+class NutritionAssessmentTransition(BaseModel):
+    action: Literal["START_REVIEW", "MARK_REVIEWED", "REQUEST_CHANGES"]
+    expected_version: int = Field(ge=1)
+    notes: str | None = Field(default=None, max_length=4000)
+
+
 class AssessmentReview(BaseModel):
     decision: Literal["START_REVIEW", "APPROVE", "REQUEST_CHANGES"]
     expected_version: int = Field(ge=1)
@@ -170,3 +201,43 @@ def source_manifest(sources: list[AssessmentSource]) -> list[dict[str, Any]]:
         "observed_at": source.observed_at.isoformat() if source.observed_at else None,
         "provenance": source.provenance,
     } for source in sources]
+
+
+REQUIRED_PROFILE_FIELDS = (
+    "dietary_preference", "meal_timing_frequency", "typical_dietary_intake",
+    "appetite_eating_patterns", "water_intake",
+)
+
+
+def diet_plan_readiness(profile: NutritionProfile, sources: list[AssessmentSource], *,
+                        workflow_status: str, stale: bool = False,
+                        clinical_safety_findings: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    source_types = {source.get("source_type") if isinstance(source, dict) else source.source_type for source in sources}
+    missing = [field for field in REQUIRED_PROFILE_FIELDS if not getattr(profile, field)]
+    checklist = {
+        "profile_complete": not missing,
+        "body_measurement_available": "MEASUREMENT" in source_types,
+        "dietary_preference_reviewed": bool(profile.dietary_preference),
+        "allergy_restriction_reviewed": "ALLERGIES" in source_types,
+        "medical_history_reviewed": "MEDICAL_HISTORY" in source_types,
+        "nutrition_assessment_complete": not missing,
+        "consultant_review_complete": workflow_status == "REVIEWED",
+    }
+    if not sources and not any(profile.model_dump().values()):
+        outcome = "NOT_STARTED"
+    elif stale or clinical_safety_findings or profile.dietary_preference == "VEGAN":
+        outcome = "BLOCKED"
+    elif missing or not checklist["allergy_restriction_reviewed"] or not checklist["medical_history_reviewed"]:
+        outcome = "INCOMPLETE"
+    elif workflow_status != "REVIEWED":
+        outcome = "NEEDS_REVIEW"
+    else:
+        outcome = "READY"
+    blockers = list(missing)
+    if not checklist["allergy_restriction_reviewed"]: blockers.append("allergy_restriction_review")
+    if not checklist["medical_history_reviewed"]: blockers.append("medical_history_review")
+    if profile.dietary_preference == "VEGAN": blockers.append("vegan_food_engine_not_supported")
+    if stale: blockers.append("assessment_sources_changed")
+    if clinical_safety_findings: blockers.append("clinical_safety_review")
+    return {"outcome": outcome, "checklist": checklist, "outstanding_information": blockers,
+            "operational_only": True, "clinical_safety_guarantee": False}

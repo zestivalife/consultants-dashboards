@@ -64,8 +64,10 @@ from app.external_client_profile import merge_external_enrichment, projection as
 from app.external_measurements import calculated_health_parameters, validated_measurement
 from app.nutrition_foundation import (AssessmentReview, AssessmentStale,
                                       ClinicalDocumentLink, DietPlanAssessmentBind,
-                                      NutritionAssessmentCreate,
+                                      NutritionAssessmentCreate, NutritionAssessmentSave,
+                                      NutritionAssessmentTransition, NutritionProfile,
                                       assessment_fingerprint,
+                                      diet_plan_readiness,
                                       measurement_calculations,
                                       source_manifest,
                                       CALCULATION_VERSIONS)
@@ -422,6 +424,15 @@ def _nutrition_assessment_projection(row):
     return value
 
 
+async def _nutrition_event(db, *, assessment_id, tenant_id, client_id, version, event_type,
+                           from_status, to_status, actor_id, now, notes=None):
+    await db.execute(text("""INSERT INTO external_nutrition_assessment_events
+      (id,assessment_id,tenant_id,client_id,assessment_version,event_type,from_status,to_status,notes,actor_id,created_at)
+      VALUES (:id,:assessment,:tenant,:client,:version,:event,:before,:after,:notes,:actor,:now)"""),
+      {"id":uuid4(),"assessment":assessment_id,"tenant":tenant_id,"client":client_id,"version":version,
+       "event":event_type,"before":from_status,"after":to_status,"notes":notes,"actor":actor_id,"now":now})
+
+
 async def _nutrition_scope(request,db,ctx):
     denied=external_only(request,ctx)
     if denied:return denied
@@ -434,12 +445,114 @@ async def get_nutrition_assessment(request:Request,client_id:str,ctx=Depends(con
     if denied:return denied
     row=(await db.execute(text("""SELECT a.*,v.id AS assessment_version_id,v.source_manifest,v.calculation_methodologies,
       v.calculations,v.input_completeness,v.clinical_safety_findings,v.nutrition_considerations,v.provenance,
-      v.fingerprint_sha256,v.created_at AS version_created_at,v.reviewed_by,v.reviewed_at
+      v.fingerprint_sha256,v.created_at AS version_created_at,v.reviewed_by,v.reviewed_at,v.assessment_data,v.readiness
       FROM external_nutrition_assessments a JOIN external_nutrition_assessment_versions v
       ON v.assessment_id=a.id AND v.version=a.current_version
       WHERE a.tenant_id=:tenant AND a.client_id=:client ORDER BY a.updated_at DESC LIMIT 1"""),
       {"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
-    return {"success":True,"data":_nutrition_assessment_projection(row) if row else None,"error":None,"request_id":request.state.correlation_id}
+    if not row:
+        return {"success":True,"data":{"status":"NOT_STARTED","readiness_status":"NOT_STARTED","version":0,
+          "assessment_data":{},"readiness":{"outcome":"NOT_STARTED","checklist":{},"outstanding_information":[]},"history":[]},"error":None,"request_id":request.state.correlation_id}
+    events=(await db.execute(text("""SELECT event_type,assessment_version,from_status,to_status,notes,actor_id,created_at
+      FROM external_nutrition_assessment_events WHERE tenant_id=:tenant AND client_id=:client AND assessment_id=:assessment
+      ORDER BY created_at DESC"""),{"tenant":ctx["tenant_id"],"client":client_id,"assessment":row["id"]})).mappings().all()
+    data=_nutrition_assessment_projection(row);data["history"]=[{**dict(item),"created_at":item["created_at"].isoformat()} for item in events]
+    return {"success":True,"data":data,"error":None,"request_id":request.state.correlation_id}
+
+
+@app.put("/api/v1/practice-operations/clients/{client_id}/nutrition-assessment")
+async def save_nutrition_assessment(request:Request,client_id:str,body:NutritionAssessmentSave,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _nutrition_scope(request,db,ctx)
+    if denied:return denied
+    current=(await db.execute(text("""SELECT id,current_version,status,authorised_consultant_id,stale FROM external_nutrition_assessments
+      WHERE tenant_id=:tenant AND client_id=:client ORDER BY updated_at DESC LIMIT 1 FOR UPDATE"""),
+      {"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
+    if (current and current["current_version"]!=body.expected_version) or (not current and body.expected_version!=0):
+        return error(request,409,"STALE_NUTRITION_ASSESSMENT","The Nutrition Assessment changed in another session. Refresh and try again")
+    if current and str(current["authorised_consultant_id"])!=str(ctx["user_id"]) and ctx.get("role") not in DIET_PLAN_REVIEW_ROLES:
+        return error(request,403,"NUTRITION_ASSESSMENT_ACCESS_DENIED","This Nutrition Assessment is assigned to another practitioner")
+    if current and current["status"] not in {"DRAFT","CHANGES_REQUESTED"}:
+        return error(request,409,"INVALID_NUTRITION_ASSESSMENT_TRANSITION","Only draft or changes-requested assessments can be edited")
+    new_status="SUBMITTED" if body.action=="SUBMIT" else "DRAFT"
+    readiness=diet_plan_readiness(body.profile,body.sources,workflow_status=new_status,
+      stale=False,clinical_safety_findings=body.clinical_safety_findings)
+    if body.action=="SUBMIT" and readiness["outcome"]=="INCOMPLETE":
+        return error(request,409,"NUTRITION_ASSESSMENT_INCOMPLETE","Complete the outstanding information before submitting")
+    calculations=measurement_calculations(body.sources)
+    profile_data=body.profile.model_dump(mode="json")
+    fingerprint=hashlib.sha256(json.dumps({"client_id":client_id,"profile":profile_data,
+      "sources":[item.model_dump(mode="json") for item in body.sources],"calculations":calculations},sort_keys=True,default=str).encode()).hexdigest()
+    duplicate=(await db.execute(text("SELECT assessment_id,version FROM external_nutrition_assessment_versions WHERE tenant_id=:tenant AND client_id=:client AND fingerprint_sha256=:fingerprint"),
+      {"tenant":ctx["tenant_id"],"client":client_id,"fingerprint":fingerprint})).first()
+    if duplicate:
+        if current and duplicate.assessment_id==current["id"] and duplicate.version==current["current_version"]:
+            readiness["outcome"]="BLOCKED" if readiness["outcome"]=="BLOCKED" else ("NEEDS_REVIEW" if new_status=="SUBMITTED" else readiness["outcome"])
+            now=datetime.now(timezone.utc)
+            if current["status"]!=new_status:
+                await db.execute(text("""UPDATE external_nutrition_assessments SET status=:status,readiness_status=:readiness,updated_at=:now
+                  WHERE id=:id AND tenant_id=:tenant AND current_version=:version"""),{"status":new_status,"readiness":readiness["outcome"],"now":now,"id":current["id"],"tenant":ctx["tenant_id"],"version":current["current_version"]})
+                await _nutrition_event(db,assessment_id=current["id"],tenant_id=ctx["tenant_id"],client_id=client_id,version=current["current_version"],event_type=body.action,from_status=current["status"],to_status=new_status,actor_id=ctx["user_id"],now=now)
+                await db.commit()
+            return {"success":True,"data":{"id":str(current["id"]),"version":current["current_version"],"status":new_status,
+              "readiness_status":readiness["outcome"],"assessment_data":profile_data,"readiness":readiness,"idempotent":current["status"]==new_status},"error":None,"request_id":request.state.correlation_id}
+        return error(request,409,"ASSESSMENT_INPUTS_UNCHANGED","The saved assessment already represents these inputs")
+    now=datetime.now(timezone.utc);assessment_id=current["id"] if current else uuid4();version=body.expected_version+1;version_id=uuid4()
+    readiness["outcome"]="BLOCKED" if readiness["outcome"]=="BLOCKED" else ("NEEDS_REVIEW" if new_status=="SUBMITTED" else readiness["outcome"])
+    if current:
+        await db.execute(text("""UPDATE external_nutrition_assessments SET current_version=:version,status=:status,
+          review_state='NOT_REVIEWED',readiness_status=:readiness,stale=FALSE,stale_reason=NULL,updated_at=:now
+          WHERE id=:id AND tenant_id=:tenant AND current_version=:expected"""),
+          {"version":version,"status":new_status,"readiness":readiness["outcome"],"now":now,"id":assessment_id,"tenant":ctx["tenant_id"],"expected":body.expected_version})
+    else:
+        await db.execute(text("""INSERT INTO external_nutrition_assessments
+          (id,tenant_id,client_id,authorised_consultant_id,status,current_version,review_state,consent_state,stale,readiness_status,created_at,updated_at)
+          VALUES (:id,:tenant,:client,:actor,:status,1,'NOT_REVIEWED','CONFIRMED',FALSE,:readiness,:now,:now)"""),
+          {"id":assessment_id,"tenant":ctx["tenant_id"],"client":client_id,"actor":ctx["user_id"],"status":new_status,"readiness":readiness["outcome"],"now":now})
+    await db.execute(text("""INSERT INTO external_nutrition_assessment_versions
+      (id,assessment_id,tenant_id,client_id,version,source_manifest,calculation_methodologies,calculations,input_completeness,
+       clinical_safety_findings,nutrition_considerations,provenance,fingerprint_sha256,created_by,created_at,assessment_data,readiness)
+      VALUES (:vid,:id,:tenant,:client,:version,CAST(:manifest AS jsonb),CAST(:methods AS jsonb),CAST(:calculations AS jsonb),CAST(:complete AS jsonb),
+       CAST(:safety AS jsonb),'[]'::jsonb,CAST(:provenance AS jsonb),:fingerprint,:actor,:now,CAST(:assessment AS jsonb),CAST(:readiness AS jsonb))"""),
+      {"vid":version_id,"id":assessment_id,"tenant":ctx["tenant_id"],"client":client_id,"version":version,
+       "manifest":json.dumps(source_manifest(body.sources)),"methods":json.dumps(CALCULATION_VERSIONS),"calculations":json.dumps(calculations),
+       "complete":json.dumps({"complete":not readiness["outstanding_information"],"missing":readiness["outstanding_information"]}),
+       "safety":json.dumps(body.clinical_safety_findings),"provenance":json.dumps({"owner":"PRACTICE_OPERATIONS","scope":"EXTERNAL_ONLY"}),
+       "fingerprint":fingerprint,"actor":ctx["user_id"],"now":now,"assessment":json.dumps(profile_data),"readiness":json.dumps(readiness)})
+    for source in body.sources:
+        await db.execute(text("""INSERT INTO external_nutrition_assessment_inputs
+          (id,assessment_version_id,tenant_id,client_id,source_type,source_id,source_version,source_status,observed_at,provenance,created_at)
+          VALUES (:id,:assessment_version,:tenant,:client,:type,:source,:source_version,:status,:observed,CAST(:provenance AS jsonb),:now)"""),
+          {"id":uuid4(),"assessment_version":version_id,"tenant":ctx["tenant_id"],"client":client_id,"type":source.source_type,
+           "source":source.source_id,"source_version":source.source_version,"status":source.status,"observed":source.observed_at,
+           "provenance":json.dumps(source.provenance),"now":now})
+    await _nutrition_event(db,assessment_id=assessment_id,tenant_id=ctx["tenant_id"],client_id=client_id,version=version,
+      event_type=body.action,from_status=current["status"] if current else None,to_status=new_status,actor_id=ctx["user_id"],now=now)
+    await db.commit()
+    return {"success":True,"data":{"id":str(assessment_id),"version":version,"status":new_status,
+      "readiness_status":readiness["outcome"],"assessment_data":profile_data,"readiness":readiness},"error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/nutrition-assessments/{assessment_id}/transition")
+async def transition_nutrition_assessment(request:Request,assessment_id:UUID,body:NutritionAssessmentTransition,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=await _nutrition_scope(request,db,ctx)
+    if denied:return denied
+    current=(await db.execute(text("""SELECT a.client_id,a.current_version,a.status,a.stale,v.assessment_data,v.source_manifest,v.clinical_safety_findings
+      FROM external_nutrition_assessments a JOIN external_nutrition_assessment_versions v ON v.assessment_id=a.id AND v.version=a.current_version
+      WHERE a.id=:id AND a.tenant_id=:tenant FOR UPDATE"""),{"id":assessment_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not current:return error(request,404,"NUTRITION_ASSESSMENT_NOT_FOUND","Nutrition Assessment not found")
+    if current["current_version"]!=body.expected_version:return error(request,409,"STALE_NUTRITION_ASSESSMENT","Refresh before changing assessment status")
+    transitions={("SUBMITTED","START_REVIEW"):"IN_REVIEW",("IN_REVIEW","MARK_REVIEWED"):"REVIEWED",("SUBMITTED","MARK_REVIEWED"):"REVIEWED",
+      ("SUBMITTED","REQUEST_CHANGES"):"CHANGES_REQUESTED",("IN_REVIEW","REQUEST_CHANGES"):"CHANGES_REQUESTED"}
+    target=transitions.get((current["status"],body.action))
+    if not target:return error(request,409,"INVALID_NUTRITION_ASSESSMENT_TRANSITION",f"Cannot {body.action.lower().replace('_',' ')} from {current['status'].lower()}")
+    profile=NutritionProfile.model_validate(dict(current["assessment_data"] or {}));readiness=diet_plan_readiness(profile,list(current["source_manifest"] or []),workflow_status=target,stale=current["stale"],clinical_safety_findings=list(current["clinical_safety_findings"] or []))
+    if target=="REVIEWED" and readiness["outcome"] not in {"BLOCKED","INCOMPLETE"}:readiness["outcome"]="READY"
+    review={"IN_REVIEW":"IN_REVIEW","REVIEWED":"REVIEWED","CHANGES_REQUESTED":"CHANGES_REQUESTED"}[target];now=datetime.now(timezone.utc)
+    await db.execute(text("""UPDATE external_nutrition_assessments SET status=:status,review_state=:review,readiness_status=:readiness,updated_at=:now
+      WHERE id=:id AND tenant_id=:tenant AND current_version=:version"""),{"status":target,"review":review,"readiness":readiness["outcome"],"now":now,"id":assessment_id,"tenant":ctx["tenant_id"],"version":body.expected_version})
+    if target=="REVIEWED":await db.execute(text("UPDATE external_nutrition_assessment_versions SET reviewed_by=:actor,reviewed_at=:now,readiness=CAST(:readiness AS jsonb) WHERE assessment_id=:id AND version=:version"),{"actor":ctx["user_id"],"now":now,"readiness":json.dumps(readiness),"id":assessment_id,"version":body.expected_version})
+    await _nutrition_event(db,assessment_id=assessment_id,tenant_id=ctx["tenant_id"],client_id=current["client_id"],version=body.expected_version,event_type=body.action,from_status=current["status"],to_status=target,actor_id=ctx["user_id"],now=now,notes=body.notes)
+    await db.commit();return {"success":True,"data":{"id":str(assessment_id),"version":body.expected_version,"status":target,"review_state":review,"readiness_status":readiness["outcome"],"readiness":readiness},"error":None,"request_id":request.state.correlation_id}
 
 
 @app.post("/api/v1/practice-operations/clients/{client_id}/nutrition-assessments",status_code=201)
@@ -494,7 +607,7 @@ async def review_nutrition_assessment(request:Request,assessment_id:UUID,body:As
     denied=await _nutrition_scope(request,db,ctx)
     if denied:return denied
     if body.decision!="START_REVIEW" and ctx.get("role") not in DIET_PLAN_REVIEW_ROLES:return error(request,403,"NUTRITION_REVIEW_AUTHORITY_REQUIRED","Senior review authority is required")
-    states={"START_REVIEW":("IN_REVIEW","IN_REVIEW"),"APPROVE":("APPROVED","REVIEWED"),"REQUEST_CHANGES":("CHANGES_REQUESTED","CHANGES_REQUESTED")};status,review=states[body.decision];now=datetime.now(timezone.utc)
+    states={"START_REVIEW":("IN_REVIEW","IN_REVIEW"),"APPROVE":("REVIEWED","REVIEWED"),"REQUEST_CHANGES":("CHANGES_REQUESTED","CHANGES_REQUESTED")};status,review=states[body.decision];now=datetime.now(timezone.utc)
     row=(await db.execute(text("""UPDATE external_nutrition_assessments SET status=:status,review_state=:review,updated_at=:now
       WHERE id=:id AND tenant_id=:tenant AND current_version=:version RETURNING client_id,current_version"""),{"status":status,"review":review,"now":now,"id":assessment_id,"tenant":ctx["tenant_id"],"version":body.expected_version})).mappings().first()
     if not row:return error(request,409,"STALE_OR_MISSING_ASSESSMENT","Assessment changed or is unavailable")
@@ -523,7 +636,7 @@ async def bind_diet_plan_assessment(request:Request,client_id:str,body:DietPlanA
       FROM external_nutrition_assessments a JOIN external_nutrition_assessment_versions v ON v.assessment_id=a.id AND v.version=:version
       WHERE a.id=:id AND a.tenant_id=:tenant AND a.client_id=:client"""),{"version":body.assessment_version,"id":body.assessment_id,"tenant":ctx["tenant_id"],"client":client_id})).mappings().first()
     if not assessment:return error(request,404,"ASSESSMENT_BINDING_INVALID","Assessment does not belong to this tenant and client")
-    if assessment["status"]!="APPROVED" or assessment["stale"]:return error(request,409,"ASSESSMENT_NOT_READY","An approved current assessment is required")
+    if assessment["status"]!="REVIEWED" or assessment["stale"]:return error(request,409,"ASSESSMENT_NOT_READY","A reviewed current assessment is required")
     now=datetime.now(timezone.utc)
     try:await db.execute(text("""INSERT INTO external_diet_plan_assessment_links
       (id,tenant_id,client_id,external_plan_id,external_plan_version,assessment_id,assessment_version,source_fingerprint_sha256,

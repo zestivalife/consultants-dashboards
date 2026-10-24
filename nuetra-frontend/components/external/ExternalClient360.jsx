@@ -23,6 +23,7 @@ import { client360CapabilityState, resolveClient360Navigation } from '../../lib/
 import { assertCurrentClientBinding, resolveClientDietChartAction } from '../../lib/clientDietChartBinding.mjs';
 import {composeExternalClientProfile,formatDateOnlyDDMMYYYY} from '../../lib/externalClientProfile.mjs';
 import ExternalClientProfileEnhancements from './ExternalClientProfileEnhancements';
+import ExternalNutritionAssessment from './ExternalNutritionAssessment';
 
 const professionIntakeCodes=new Set(['DIABETES_EDUCATOR','PSYCHOLOGIST','WELLNESS_CONSULTANT','HEALTH_COACH','BEHAVIOURAL_THERAPIST','OCCUPATIONAL_THERAPIST','PHYSIOTHERAPIST','MENTAL_WELLNESS_THERAPIST']);
 
@@ -141,8 +142,9 @@ export function ExternalClient360({ client, practiceName, onBack, onStatus, init
       {active === 'Billing' && <ClientBillingPanel clientId={client.id}/>}
       {active === 'Resources & Homework' && <ClientHomeworkAdherence clientId={client.id}/>}
 	      {active === 'Goals / Progress' && <div className="space-y-4"><SectionCard section="goals" values={data.sections.goals} provenance={data.provenance.goals} onEdit={edit}/><ExternalProgressReports clients={[client]} clientId={client.id} profession={professionConfig?.profession||'OTHER'}/></div>}
+	      {active === 'Nutrition' && <ExternalNutritionAssessment clientId={client.id} data={data} measurements={measurementData} biomarkers={biomarkers.latest} onError={setError}/>}
 	      <ExternalClientProfileEnhancements active={active} data={data} enrichment={profileEnrichment} measurements={measurementData} biomarkers={biomarkers.latest} documents={data.documents||[]} practiceTimeline={practiceTimeline} pendingReportCount={pendingReportReviews.count||0} onSave={saveProfileEnrichment} onAddMeasurements={addMeasurements} onCorrectMeasurement={correctMeasurement}/>
-      {visibleSections.length > 0 && <div className="grid gap-4 lg:grid-cols-2">{visibleSections.filter((section) => section !== 'womensHealth' || overview.gender === 'FEMALE').map((section) => <SectionCard key={section} section={section} values={data.sections[section]} provenance={data.provenance[section]} onEdit={['medicalHistory','sleepStress'].includes(section)?null:edit}/>)}</div>}
+      {active !== 'Nutrition' && visibleSections.length > 0 && <div className="grid gap-4 lg:grid-cols-2">{visibleSections.filter((section) => section !== 'womensHealth' || overview.gender === 'FEMALE').map((section) => <SectionCard key={section} section={section} values={data.sections[section]} provenance={data.provenance[section]} onEdit={['medicalHistory','sleepStress'].includes(section)?null:edit}/>)}</div>}
 	      {active === 'Health Profile' && <ProfileEvidencePanel completeness={overview.profileCompleteness} evidenceCompleteness={data.evidenceCompleteness} biomarkers={biomarkers.latest} reviews={profileEvidenceReviews} onReview={async(review,action)=>{const reason=window.prompt('Add a review reason');if(!reason)return;await reviewExternalProfileEvidence(client.id,review.id,action,reason);const result=await listExternalProfileEvidenceReviews(client.id);setProfileEvidenceReviews(result.reviews||[]);}}/>}
 	      {active === 'Health Records' && <ExternalHealthRecords
 	        clientId={client.id}
