@@ -4599,7 +4599,7 @@ async def list_referrals(request:Request,direction:str="outgoing",client_id:str=
     if client_id:clause+=" AND r.client_id=:client"
     rows=(await db.execute(text(f"""SELECT r.id,r.tenant_id,r.client_id,r.referring_practitioner_id,r.receiving_practitioner_id,
       r.receiving_tenant_id,r.receiving_profession_code,r.destination_name,r.reason,r.status,r.created_at,r.sent_at,r.accepted_at,
-      c.status consent_status,c.allowed_data_scopes,c.expires_at FROM external_referrals r
+      c.status consent_status,COALESCE(c.allowed_data_scopes,(SELECT jsonb_agg(s.scope_code ORDER BY s.scope_code) FROM external_referral_shared_scopes s WHERE s.tenant_id=r.tenant_id AND s.referral_id=r.id),'[]'::jsonb) allowed_data_scopes,c.expires_at FROM external_referrals r
       LEFT JOIN external_referral_consents c ON c.referral_id=r.id AND c.tenant_id=r.tenant_id
       WHERE {clause} ORDER BY r.created_at DESC"""),{"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"client":client_id})).mappings().all()
     return {"success":True,"data":{"items":[dict(row) for row in rows],"direction":direction},"error":None,"request_id":request.state.correlation_id}
