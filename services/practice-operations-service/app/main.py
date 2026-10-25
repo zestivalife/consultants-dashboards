@@ -77,7 +77,7 @@ from app.smart_intake import (FIELD_REGISTRY, FIELD_SCHEMA_VERSION, InformationR
                               resolve_assessment, resolve_completeness, scoped_patch)
 from app.document_storage import (StorageUnavailable, InvalidDocument, new_object_key,
                                   signed_upload, signed_download, signed_view, validate_document,
-                                  verify_uploaded_object)
+                                  upload_object, verify_uploaded_object)
 from app.billing import calculate_line
 from app.p15 import adherence_summary, homework_transition
 from app.p16 import (ACTION_TYPES, CONFIRMATION_ACTIONS, SAFE_ACTIONS,
@@ -5794,11 +5794,38 @@ async def finalise_marketplace_photo(request:Request,body:ProfilePhotoFinalise,c
     await db.execute(text("UPDATE external_consultant_profile_photos SET status='AVAILABLE',uploaded_at=:now WHERE id=:id"),{"now":now,"id":body.photo_id})
     version=(await db.execute(text("SELECT projection FROM external_consultant_public_profile_versions WHERE profile_id=:profile AND version=:version FOR UPDATE"),{"profile":profile["id"],"version":profile["working_version"]})).mappings().first()
     projection=dict(version["projection"] or {});projection["profile_photo_url"]=public_url
-    verified=(await db.execute(text("SELECT COUNT(*) FROM external_consultant_qualifications WHERE profile_id=:profile AND verification_status='VERIFIED' AND (expiry_date IS NULL OR expiry_date>=CURRENT_DATE)"),{"profile":profile["id"]})).scalar_one();score,missing=completeness(projection,verified)
+    qualifications=(await db.execute(text("SELECT COUNT(*) FROM external_consultant_qualifications WHERE profile_id=:profile AND verification_status IN ('PENDING','VERIFIED') AND (expiry_date IS NULL OR expiry_date>=CURRENT_DATE)"),{"profile":profile["id"]})).scalar_one();score,missing=completeness(projection,qualifications)
     await db.execute(text("UPDATE external_consultant_public_profile_versions SET projection=CAST(:projection AS jsonb),completeness=:score,missing_fields=CAST(:missing AS jsonb) WHERE profile_id=:profile AND version=:version"),{"projection":json.dumps(projection),"score":score,"missing":json.dumps(missing),"profile":profile["id"],"version":profile["working_version"]})
     await _marketplace_audit(db,profile["id"],ctx["tenant_id"],"PROFILE_PHOTO_UPDATED",ctx["user_id"],ctx["role"],metadata={"photo_id":str(body.photo_id)})
     await db.commit()
     return {"success":True,"data":{"profile_photo_url":public_url,"completeness":score,"missing_fields":missing},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/marketplace/profile/photo")
+async def upload_marketplace_photo(request:Request,filename:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    profile=await _marketplace_profile(db,ctx,True)
+    if not profile:return error(request,409,"PROFILE_DRAFT_REQUIRED","Save the profile draft before uploading a photo")
+    content_type=(request.headers.get("content-type") or "").split(";",1)[0].lower()
+    if content_type not in {"image/jpeg","image/png"}:return error(request,422,"INVALID_PROFILE_PHOTO","Profile photo must be a JPEG or PNG image")
+    content_length=int(request.headers.get("content-length") or 0)
+    if content_length>5*1024*1024:return error(request,422,"INVALID_PROFILE_PHOTO","Profile photo exceeds the 5 MB limit")
+    content=await request.body()
+    try:clean_name=validate_document(filename,content_type,len(content))
+    except InvalidDocument as exc:return error(request,422,"INVALID_PROFILE_PHOTO",str(exc))
+    if len(content)>5*1024*1024:return error(request,422,"INVALID_PROFILE_PHOTO","Profile photo exceeds the 5 MB limit")
+    photo_id=uuid4();key=new_object_key(ctx["tenant_id"],profile["id"],photo_id,clean_name)
+    try:upload_object(key,content_type,content);verify_uploaded_object(key,content_type,len(content))
+    except StorageUnavailable:return error(request,503,"PROFILE_PHOTO_STORAGE_UNAVAILABLE","Profile photo storage is not configured")
+    except InvalidDocument as exc:return error(request,422,"PROFILE_PHOTO_UPLOAD_INVALID",str(exc))
+    now=datetime.now(timezone.utc);public_url=f"/api/gateway/api/v1/public/consultant-profile-photos/{photo_id}"
+    await db.execute(text("UPDATE external_consultant_profile_photos SET status='REPLACED',replaced_at=:now WHERE profile_id=:profile AND status='AVAILABLE' AND replaced_at IS NULL"),{"now":now,"profile":profile["id"]})
+    await db.execute(text("INSERT INTO external_consultant_profile_photos(id,profile_id,tenant_id,object_key,filename,content_type,size_bytes,status,created_by,created_at,uploaded_at) VALUES(:id,:profile,:tenant,:key,:filename,:type,:size,'AVAILABLE',:actor,:now,:now)"),{"id":photo_id,"profile":profile["id"],"tenant":ctx["tenant_id"],"key":key,"filename":clean_name,"type":content_type,"size":len(content),"actor":ctx["user_id"],"now":now})
+    version=(await db.execute(text("SELECT projection FROM external_consultant_public_profile_versions WHERE profile_id=:profile AND version=:version FOR UPDATE"),{"profile":profile["id"],"version":profile["working_version"]})).mappings().first();projection=dict(version["projection"] or {});projection["profile_photo_url"]=public_url
+    qualifications=(await db.execute(text("SELECT COUNT(*) FROM external_consultant_qualifications WHERE profile_id=:profile AND verification_status IN ('PENDING','VERIFIED') AND (expiry_date IS NULL OR expiry_date>=CURRENT_DATE)"),{"profile":profile["id"]})).scalar_one();score,missing=completeness(projection,qualifications)
+    await db.execute(text("UPDATE external_consultant_public_profile_versions SET projection=CAST(:projection AS jsonb),completeness=:score,missing_fields=CAST(:missing AS jsonb) WHERE profile_id=:profile AND version=:version"),{"projection":json.dumps(projection),"score":score,"missing":json.dumps(missing),"profile":profile["id"],"version":profile["working_version"]})
+    await _marketplace_audit(db,profile["id"],ctx["tenant_id"],"PROFILE_PHOTO_UPDATED",ctx["user_id"],ctx["role"],metadata={"photo_id":str(photo_id)})
+    await db.commit();return {"success":True,"data":{"profile_photo_url":public_url,"completeness":score,"missing_fields":missing},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/public/consultant-profile-photos/{photo_id}")
 async def public_marketplace_photo(photo_id:UUID,db:AsyncSession=Depends(get_db)):
@@ -5911,7 +5938,7 @@ async def add_marketplace_qualification(request:Request,body:QualificationCreate
     if denied:return denied
     profile=await _marketplace_profile(db,ctx)
     if not profile:return error(request,404,"PROFILE_NOT_FOUND","Create the public profile draft first")
-    document=UUID(body.credential_document_id) if body.credential_document_id else None
+    document=body.credential_document_id
     if document:
         owned=(await db.execute(text("SELECT 1 FROM external_documents WHERE id=:id AND tenant_id=:tenant AND visibility IN ('PRACTITIONER_PRIVATE','PRACTICE_ADMINISTRATIVE')"),{"id":document,"tenant":ctx["tenant_id"]})).first()
         if not owned:return error(request,422,"PRIVATE_CREDENTIAL_DOCUMENT_REQUIRED","Credential evidence must be a private governed document")

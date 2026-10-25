@@ -253,10 +253,13 @@ export function getMarketplaceProfile(includeAnalytics=true){return request(`/ma
 export function getMarketplaceContact(){return request('/marketplace/contact');}
 export function saveMarketplaceContact(payload){return request('/marketplace/contact',{method:'PUT',body:JSON.stringify(payload)});}
 export async function uploadMarketplaceProfilePhoto(file){
-  const pending=await request('/marketplace/profile/photo-upload',{method:'POST',body:JSON.stringify({filename:file.name,content_type:file.type,size_bytes:file.size})});
-  const response=await fetch(pending.upload.url,{method:'PUT',headers:pending.upload.required_headers,body:file});
-  if(!response.ok)throw new Error('Profile photo upload failed. The existing photo remains unchanged.');
-  return request('/marketplace/profile/photo-finalise',{method:'POST',body:JSON.stringify({photo_id:pending.photo_id})});
+  const path=`/marketplace/profile/photo?filename=${encodeURIComponent(file.name)}`;
+  const send=token=>fetch(`${BASE}${path}`,{method:'POST',credentials:'include',headers:{'Content-Type':file.type,...(token?{'X-Nuetra-Authorization':`Bearer ${token}`}:{})},body:file});
+  let response=await send(getToken());
+  if(response.status===401){const refreshedToken=await refreshAccessToken().catch(()=>null);if(refreshedToken)response=await send(refreshedToken);}
+  const body=await response.json().catch(()=>null);
+  if(!response.ok)throw new Error(body?.error?.safe_message||'Profile photo upload failed. The existing photo remains unchanged.');
+  return body?.data;
 }
 export function getMarketplaceReadiness(){return request('/marketplace/readiness');}
 export function listMarketplaceReviews(){return request('/marketplace/reviews');}

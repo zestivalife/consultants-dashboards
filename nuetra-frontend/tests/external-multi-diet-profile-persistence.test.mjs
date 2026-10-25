@@ -30,8 +30,10 @@ test('generated governed food snapshots survive first draft persistence',()=>{
 test('marketplace contact and photo forms use persistent APIs and reload after success',()=>{
   for(const term of ['saveMarketplaceContact','uploadMarketplaceProfilePhoto','onReload','country_iso2','national_number'])assert.match(marketplace,new RegExp(term));
   assert.match(profileApi,/marketplace\/contact/);
-  assert.match(profileApi,/marketplace\/profile\/photo-upload/);
-  assert.match(profileApi,/marketplace\/profile\/photo-finalise/);
+  assert.match(profileApi,/marketplace\/profile\/photo\?filename=/);
+  assert.match(profileApi,/body:file/);
+  assert.match(marketplace,/valid document UUID/);
+  assert.match(marketplace,/Expiry date must be current or future/);
 });
 
 test('profile save verifies the server projection before showing success',()=>{

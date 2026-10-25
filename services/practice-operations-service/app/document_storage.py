@@ -80,6 +80,10 @@ def signed_view(key, content_type):
     return client.generate_presigned_url("get_object", Params={"Bucket": settings.document_storage_bucket,
         "Key": key, "ResponseContentType": content_type}, ExpiresIn=300)
 
+def upload_object(key, content_type, content):
+    client, settings = _client()
+    client.put_object(Bucket=settings.document_storage_bucket, Key=key, Body=content, ContentType=content_type)
+
 def verify_uploaded_object(key, expected_type, expected_size, expected_checksum=None):
     client, settings = _client()
     try:

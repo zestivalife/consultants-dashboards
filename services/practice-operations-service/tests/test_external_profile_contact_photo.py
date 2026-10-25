@@ -1,7 +1,7 @@
 from pathlib import Path
 import pytest
 from pydantic import ValidationError
-from app.marketplace import ConsultantContactSave, ProfilePhotoPrepare
+from app.marketplace import ConsultantContactSave, ProfilePhotoPrepare, QualificationCreate
 
 ROOT=Path(__file__).parents[1]
 
@@ -27,3 +27,12 @@ def test_routes_parse_e164_and_complete_object_storage_lifecycle():
     for proof in ["phonenumbers.is_valid_number","PhoneNumberFormat.E164","signed_upload","verify_uploaded_object","signed_view"]:assert proof in main
     assert '@app.put("/api/v1/practice-operations/marketplace/contact")' in main
     assert '@app.post("/api/v1/practice-operations/marketplace/profile/photo-finalise")' in main
+    assert '@app.post("/api/v1/practice-operations/marketplace/profile/photo")' in main
+    assert "upload_object" in main
+    assert "verification_status IN ('PENDING','VERIFIED')" in main
+
+def test_qualification_rejects_bad_document_ids_and_expired_credentials():
+    good=dict(qualification_type="DEGREE",title="BSc Nutrition",institution="QA University",award_year=2025)
+    assert QualificationCreate(**good).credential_document_id is None
+    with pytest.raises(ValidationError):QualificationCreate(**good,credential_document_id="ABCD1234")
+    with pytest.raises(ValidationError):QualificationCreate(**good,expiry_date="2018-06-12")

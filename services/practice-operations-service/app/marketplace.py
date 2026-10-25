@@ -53,7 +53,12 @@ class ProfilePhotoFinalise(BaseModel):
 class QualificationCreate(BaseModel):
     qualification_type:str=Field(min_length=2,max_length=80);title:str=Field(min_length=2,max_length=240);institution:str=Field(min_length=2,max_length=240)
     award_year:int=Field(ge=1900,le=date.today().year);country:str|None=Field(default=None,max_length=100);registration_number:str|None=Field(default=None,max_length=160)
-    issuing_body:str|None=Field(default=None,max_length=240);expiry_date:date|None=None;credential_document_id:str|None=None
+    issuing_body:str|None=Field(default=None,max_length=240);expiry_date:date|None=None;credential_document_id:UUID|None=None
+    @field_validator("expiry_date")
+    @classmethod
+    def current_expiry(cls,value):
+        if value and value < date.today():raise ValueError("Expiry date must be current or future; leave it blank when the qualification does not expire")
+        return value
 
 class AdminDecision(BaseModel):action:str;reason:str|None=Field(default=None,max_length=1000)
 class QualificationDecision(BaseModel):action:str;reason:str|None=Field(default=None,max_length=1000)
