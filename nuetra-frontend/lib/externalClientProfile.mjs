@@ -3,6 +3,33 @@ export const EXTERNAL_HEALTH_GOALS = [
   'Improve fitness', 'Manage a health condition', 'Improve nutrition', 'Healthy ageing',
 ];
 
+const EXTERNAL_HEALTH_GOAL_ALIASES = {
+  GAIN_WEIGHT: 'Weight management',
+  LOSE_WEIGHT: 'Weight management',
+  MAINTAIN_WEIGHT: 'Weight management',
+  GAIN_MUSCLE: 'Improve fitness',
+  IMPROVE_ENERGY: 'Improve energy',
+  BETTER_SLEEP: 'Better sleep',
+  STRESS_MANAGEMENT: 'Stress management',
+  IMPROVE_FITNESS: 'Improve fitness',
+  MANAGE_HEALTH_CONDITION: 'Manage a health condition',
+  IMPROVE_NUTRITION: 'Improve nutrition',
+  HEALTHY_AGEING: 'Healthy ageing',
+};
+
+export function normalizeExternalHealthGoals(value) {
+  const unwrap = (input) => {
+    if (Array.isArray(input)) return input;
+    if (!input || typeof input !== 'object') return input == null || input === '' ? [] : [input];
+    return unwrap(input.goals ?? input.selectedGoals ?? input.healthGoals ?? input.value ?? []);
+  };
+  return [...new Set(unwrap(value).map((goal) => {
+    const raw = String(goal?.name ?? goal?.label ?? goal?.code ?? goal ?? '').trim();
+    if (!raw) return '';
+    return EXTERNAL_HEALTH_GOAL_ALIASES[raw.toUpperCase()] || raw.replaceAll('_', ' ').toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
+  }).filter(Boolean))].slice(0, 3);
+}
+
 const present = (value) => value !== null && value !== undefined && value !== '' && value !== 0 && (!Array.isArray(value) || value.length > 0);
 const number = (value) => present(value) && Number.isFinite(Number(value)) ? Number(value) : null;
 
@@ -73,7 +100,8 @@ export function composeExternalClientProfile(baseProfile, enrichment = {}, measu
     ...measurementValues(measurementProjection),
   };
   if (Object.prototype.hasOwnProperty.call(enrichment, 'goals')) {
-    sections.goals = { ...(sections.goals || {}), selectedGoals: enrichment.goals, primaryGoal: enrichment.goals[0] || null };
+    const goals = normalizeExternalHealthGoals(enrichment.goals);
+    sections.goals = { ...(sections.goals || {}), selectedGoals: goals, primaryGoal: goals[0] || null };
   }
   if (Object.prototype.hasOwnProperty.call(enrichment, 'medical_history_narrative')) {
     sections.medicalHistory = { ...(sections.medicalHistory || {}), narrative: enrichment.medical_history_narrative };

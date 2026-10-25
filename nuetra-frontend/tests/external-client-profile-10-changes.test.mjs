@@ -7,6 +7,7 @@ import {
   calculateExternalWaistHipRatio,
   composeExternalClientProfile,
   formatDateOnlyDDMMYYYY,
+  normalizeExternalHealthGoals,
   normalizeExternalDateOnly,
 } from '../lib/externalClientProfile.mjs';
 
@@ -62,13 +63,17 @@ test('External Client360 renders ordinary-text editors and dedicated anthropomet
 
 test('goal editor normalizes legacy structured goal envelopes before selection checks', () => {
   const component = fs.readFileSync(new URL('../components/external/ExternalClientProfileEnhancements.jsx', import.meta.url), 'utf8');
-  assert.match(component, /Array\.isArray\(enrichment\.goals\?\.goals\)\?enrichment\.goals\.goals:\[\]/);
+  assert.match(component, /normalizeExternalHealthGoals/);
+  assert.deepEqual(normalizeExternalHealthGoals({goals:['GAIN_WEIGHT','LOSE_WEIGHT']}), ['Weight management']);
+  assert.deepEqual(normalizeExternalHealthGoals({selectedGoals:['IMPROVE_ENERGY','BETTER_SLEEP']}), ['Improve energy','Better sleep']);
 });
 
 test('all selected goals are passed into the persisted Diet Plan snapshot', () => {
   const component = fs.readFileSync(new URL('../components/external/ExternalMultiDietPlan.jsx', import.meta.url), 'utf8');
   assert.match(component, /health_goals: valueList\(context\?\.goals\)\.slice\(0, 3\)/);
   assert.match(component, /Health & wellness goals/);
+  assert.match(component, /Confirmed biomarkers for consultant review/);
+  assert.match(component, /do not silently prescribe foods or targets/);
 });
 
 test('Health Record dates are editable and enrichment uses the tenant-scoped Practice API', () => {

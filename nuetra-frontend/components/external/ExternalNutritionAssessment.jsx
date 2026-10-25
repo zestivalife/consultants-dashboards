@@ -681,7 +681,7 @@ function SourceSummary({ data, measurements, biomarkers }) {
     ],
     [
       "Health goals",
-      list(data?.sections?.goals?.goals || data?.sections?.goals?.selectedGoals).join(", ") || "Not provided",
+      list(data?.sections?.goals?.goals || data?.sections?.goals?.selectedGoals?.goals || data?.sections?.goals?.selectedGoals).join(", ") || "Not provided",
     ],
     [
       "Confirmed biomarkers",
