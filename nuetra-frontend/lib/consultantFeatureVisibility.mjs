@@ -1,11 +1,13 @@
 /** MP-011 UI visibility only; APIs, data and background execution are preserved. */
+const roundTwoFeaturesEnabled = process.env.NEXT_PUBLIC_EXTERNAL_ROUND2_FEATURES === 'true';
+
 export const CONSULTANT_FEATURE_VISIBILITY = Object.freeze({
-  standaloneReports: false,
-  neckMeasurement: false,
-  automations: false,
-  governedPermissionCounts: false,
-  practiceSettings: false,
-  personalHealthProfileFields: false,
+  standaloneReports: roundTwoFeaturesEnabled,
+  neckMeasurement: roundTwoFeaturesEnabled,
+  automations: roundTwoFeaturesEnabled,
+  governedPermissionCounts: roundTwoFeaturesEnabled,
+  practiceSettings: roundTwoFeaturesEnabled,
+  personalHealthProfileFields: roundTwoFeaturesEnabled,
 });
 
 export const CONSULTANT_VIEW_FEATURE = Object.freeze({

@@ -24,6 +24,17 @@ test('legacy timestamp DOB is normalized before form editing and overview render
   assert.equal(formatDateOnlyDDMMYYYY(profile.overview.dateOfBirth), '15/01/1990');
 });
 
+test('partial Client360 payloads materialize optional health sections without crashing navigation', () => {
+  const profile = composeExternalClientProfile({
+    overview: { name: 'Synthetic client' },
+    sections: { aboutYou: { email: 'synthetic@example.invalid' } },
+  });
+  assert.deepEqual(profile.sections.medicalHistory, {});
+  assert.deepEqual(profile.sections.sleepStress, {});
+  assert.deepEqual(profile.sections.activityHydration, {});
+  assert.deepEqual(profile.provenance.medicalHistory, {});
+});
+
 test('BMI and waist-to-hip ratio are derived only from valid measurements', () => {
   assert.equal(calculateExternalBmi(170, 70), 24.2);
   assert.equal(calculateExternalBmi(undefined, 70), null);

@@ -82,7 +82,19 @@ export function measurementValues(projection = {}) {
 
 export function composeExternalClientProfile(baseProfile, enrichment = {}, measurementProjection = {}) {
   const profile = structuredClone(baseProfile || {});
-  const sections = { ...(profile.sections || {}) };
+  const sectionKeys = [
+    'aboutYou', 'medicalHistory', 'conditionsSymptoms', 'allergiesFamilyHistory',
+    'medicationsSupplements', 'lifestyle', 'sleepStress', 'activityHydration',
+    'nutrition', 'goals', 'measurements', 'womensHealth', 'reportsDocuments',
+  ];
+  const sections = Object.fromEntries(sectionKeys.map((key) => [key, { ...(profile.sections?.[key] || {}) }]));
+  Object.entries(profile.sections || {}).forEach(([key, value]) => {
+    if (!Object.prototype.hasOwnProperty.call(sections, key)) sections[key] = value || {};
+  });
+  const provenance = Object.fromEntries(sectionKeys.map((key) => [key, { ...(profile.provenance?.[key] || {}) }]));
+  Object.entries(profile.provenance || {}).forEach(([key, value]) => {
+    if (!Object.prototype.hasOwnProperty.call(provenance, key)) provenance[key] = value || {};
+  });
   const baseMeasurements = sections.measurements || {};
   const measurements = enrichment.measurements || {};
   sections.measurements = {
@@ -156,6 +168,7 @@ export function composeExternalClientProfile(baseProfile, enrichment = {}, measu
     ...profile,
     overview,
     sections,
+    provenance,
     derived: {
       ...(profile.derived || {}),
       bmi: measurementProjection.calculations?.bmi || (bmi === null ? { status: 'NOT_AVAILABLE', value: null } : { status: 'AVAILABLE', value: bmi, unit: 'kg/m²', methodology: 'bmi.metric.v1' }),
