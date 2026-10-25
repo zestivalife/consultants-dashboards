@@ -21,6 +21,12 @@ test('calorie and protein target boundaries are explicit client and API contract
   assert.match(multi,/Number\(form\.dailyProtein\) <= 400/);
 });
 
+test('generated governed food snapshots survive first draft persistence',()=>{
+  assert.match(multi,/generatedOptionsByPlan\.set\(planId,meals\.flatMap/);
+  assert.match(multi,/mergePersistedOptions\(result\.options,payload\.options,generatedOptionsByPlan\.get\(planId\)\)/);
+  assert.match(multi,/nutrition:current\?\.nutrition\|\|\{\}/);
+});
+
 test('marketplace contact and photo forms use persistent APIs and reload after success',()=>{
   for(const term of ['saveMarketplaceContact','uploadMarketplaceProfilePhoto','onReload','country_iso2','national_number'])assert.match(marketplace,new RegExp(term));
   assert.match(profileApi,/marketplace\/contact/);
