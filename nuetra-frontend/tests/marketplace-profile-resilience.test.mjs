@@ -13,5 +13,5 @@ test('core consultant profile remains editable when optional marketplace depende
 });
 
 test('consultant profile explains the governed approval and public-directory lifecycle',()=>{
-  for(const text of ['Complete your consultant profile','Super Admin approval','Zestiva Consultants directory','Submit for review','Public preview'])assert.match(marketplace,new RegExp(text));
+  for(const text of ['Complete your consultant profile','Super Admin approval','Zestiva Consultants directory','Submit for review','Preview draft'])assert.match(marketplace,new RegExp(text));
 });

@@ -26,7 +26,7 @@ test('tasks and consultations carry client, due date, priority and notes through
 });
 
 test('professional profile and public preview share the marketplace projection',()=>{
-  for(const value of ['My professional profile','Qualifications','Previous workplaces','Professional biography','Public preview'])assert.equal(marketplace.includes(value),true,value);
+  for(const value of ['My professional profile','Qualifications','Previous workplaces','Professional biography','Preview draft'])assert.equal(marketplace.includes(value),true,value);
   for(const value of ['professional_title','experience_years','specialisations','bio'])assert.equal(publicProfile.includes(value),true,value);
   assert.equal(account.includes("onNavigate?.('marketplace')"),true);
 });

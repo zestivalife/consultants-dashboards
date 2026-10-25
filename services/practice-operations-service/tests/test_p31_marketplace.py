@@ -14,9 +14,9 @@ def test_public_projection_allowlist_excludes_every_private_field():
     assert projection["display_name"]=="Priya Sharma"
     assert projection["previous_workplaces"]==["Demo Wellness Centre"]
 
-def test_completeness_is_deterministic_and_requires_verified_qualification():
+def test_completeness_is_deterministic_and_requires_a_qualification_for_review():
     score,missing=completeness(payload(),0)
-    assert score==90 and missing==["Verified qualification"]
+    assert score==90 and missing==["Qualification added"]
     assert completeness(payload(),1)==(100,[])
 
 def test_approved_is_not_published_and_visibility_fails_closed():
@@ -84,6 +84,12 @@ def test_complete_super_admin_lifecycle_keeps_approval_and_publication_separate(
     for current,target in path:assert_transition(current,target)
     approved={"status":"APPROVED","public_visibility":False,"approval_valid":True,"approved_version":2,"working_version":2,"suspended_at":None}
     assert can_publish(approved) and not publicly_visible(approved)
+
+def test_super_admin_cannot_approve_or_publish_without_verified_qualification():
+    main=(ROOT/"app/main.py").read_text()
+    section=main[main.index('async def admin_marketplace_decision'):main.index('@app.post("/api/v1/practice-operations/admin/marketplace/qualifications/')]
+    assert 'action in {"APPROVE_PROFILE","PUBLISH_PROFILE"}' in section
+    assert 'VERIFIED_QUALIFICATION_REQUIRED' in section
 
 def test_rating_includes_only_published_verified_engagements_and_never_zero_stars():
     reviews=[{"overall_rating":5,"verified_engagement":True,"status":"PUBLISHED"},{"overall_rating":1,"verified_engagement":False,"status":"PUBLISHED"},{"overall_rating":2,"verified_engagement":True,"status":"HIDDEN"}]

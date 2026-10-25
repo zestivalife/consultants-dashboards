@@ -113,8 +113,8 @@ class MarketplaceComparisonEvent(BaseModel):
 
 def slug_base(value):return re.sub(r"[^a-z0-9]+","-",value.lower()).strip("-") or "consultant"
 def public_projection(payload):return {key:payload.get(key) for key in PUBLIC_FIELDS if key in payload}
-def completeness(payload,verified_qualifications=0):
-    checks={"Photo":payload.get("profile_photo_url"),"Profession":payload.get("profession_code"),"Title":payload.get("professional_title"),"Bio":payload.get("bio"),"Experience":payload.get("experience_years") is not None,"Specialisation":payload.get("specialisations"),"Verified qualification":verified_qualifications>0,"Consultation mode":payload.get("consultation_modes"),"Service":payload.get("services"),"Location or online":payload.get("public_locations") or "ONLINE" in payload.get("consultation_modes",[])}
+def completeness(payload,qualification_count=0):
+    checks={"Photo":payload.get("profile_photo_url"),"Profession":payload.get("profession_code"),"Title":payload.get("professional_title"),"Bio":payload.get("bio"),"Experience":payload.get("experience_years") is not None,"Specialisation":payload.get("specialisations"),"Qualification added":qualification_count>0,"Consultation mode":payload.get("consultation_modes"),"Service":payload.get("services"),"Location or online":payload.get("public_locations") or "ONLINE" in payload.get("consultation_modes",[])}
     missing=[label for label,ok in checks.items() if not ok];return round((len(checks)-len(missing))*100/len(checks)),missing
 def assert_transition(current,target):
     if target not in PROFILE_TRANSITIONS.get(current,set()):raise ValueError(f"Transition {current} to {target} is not allowed")
