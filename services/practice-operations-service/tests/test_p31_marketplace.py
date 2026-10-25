@@ -5,13 +5,14 @@ from app.marketplace import (PRIVATE_FIELDS,ProfileSave,assert_transition,can_pu
 
 ROOT=Path(__file__).parents[1]
 
-def payload():return {"display_name":"Priya Sharma","professional_title":"Health Coach","profession_code":"HEALTH_COACH","profile_photo_url":"https://cdn.example/photo.jpg","specialisations":["Habits"],"experience_years":8,"bio":"A sufficiently detailed professional public biography.","languages":["English"],"consultation_modes":["ONLINE"],"areas_of_focus":["Sleep"],"public_locations":[],"services":[{"name":"Coaching"}],"programmes":[],"session_duration":60,"public_fee_from":250000,"accepting_new_clients":True}
+def payload():return {"display_name":"Priya Sharma","professional_title":"Health Coach","profession_code":"HEALTH_COACH","profile_photo_url":"https://cdn.example/photo.jpg","specialisations":["Habits"],"experience_years":8,"previous_workplaces":["Demo Wellness Centre"],"bio":"A sufficiently detailed professional public biography.","languages":["English"],"consultation_modes":["ONLINE"],"areas_of_focus":["Sleep"],"public_locations":[],"services":[{"name":"Coaching"}],"programmes":[],"session_duration":60,"public_fee_from":250000,"accepting_new_clients":True}
 
 def test_public_projection_allowlist_excludes_every_private_field():
     source={**payload(),**{key:"secret" for key in PRIVATE_FIELDS}}
     projection=public_projection(source)
     assert not (set(projection)&PRIVATE_FIELDS)
     assert projection["display_name"]=="Priya Sharma"
+    assert projection["previous_workplaces"]==["Demo Wellness Centre"]
 
 def test_completeness_is_deterministic_and_requires_verified_qualification():
     score,missing=completeness(payload(),0)

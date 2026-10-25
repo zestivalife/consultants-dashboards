@@ -7,7 +7,8 @@ from typing import Any
 
 PROFILE_FIELDS = {
     "goals", "date_of_birth", "measurements", "medical_history_narrative",
-    "sleep_stress_narrative", "health_record_dates",
+    "sleep_stress_narrative", "health_record_dates", "allergies_family_history",
+    "activity_hydration", "medications_supplements", "lifestyle",
 }
 MEASUREMENT_RANGES = {
     "height_cm": (30, 300), "weight_kg": (1, 500), "waist_cm": (10, 400),
@@ -66,6 +67,26 @@ def validate_external_enrichment(values: dict[str, Any]) -> dict[str, Any]:
             if value is not None and (not isinstance(value, str) or len(value) > 10000):
                 raise ValueError(f"{field} must contain at most 10000 characters")
             result[field] = value.strip() if isinstance(value, str) else None
+    for field in ("allergies_family_history", "activity_hydration", "medications_supplements", "lifestyle"):
+        if field in values:
+            value = values[field]
+            if not isinstance(value, dict) or len(value) > 100:
+                raise ValueError(f"{field} must be an object of at most 100 fields")
+            cleaned = {}
+            for key, item in value.items():
+                if not key or len(str(key)) > 120:
+                    raise ValueError(f"Invalid {field} field name")
+                if isinstance(item, str):
+                    if len(item) > 2000:
+                        raise ValueError(f"{field}.{key} is too long; use at most 2000 characters")
+                    cleaned[str(key)] = item.strip()
+                elif item is None or isinstance(item, (bool, int, float)):
+                    cleaned[str(key)] = item
+                elif isinstance(item, list) and len(item) <= 100 and all(isinstance(entry, (str, int, float, bool)) for entry in item):
+                    cleaned[str(key)] = item
+                else:
+                    raise ValueError(f"Unsupported {field}.{key} value")
+            result[field] = cleaned
     if "health_record_dates" in values:
         records = values["health_record_dates"]
         if not isinstance(records, dict) or len(records) > 250:
@@ -89,7 +110,10 @@ def validate_external_enrichment(values: dict[str, Any]) -> dict[str, Any]:
 
 def merge_external_enrichment(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
     merged = {**existing, **incoming}
-    for field in ("measurements", "health_record_dates"):
+    for field in (
+        "measurements", "health_record_dates", "allergies_family_history",
+        "activity_hydration", "medications_supplements", "lifestyle",
+    ):
         if field in incoming:
             merged[field] = {**(existing.get(field) or {}), **incoming[field]}
     return merged

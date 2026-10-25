@@ -109,6 +109,17 @@ export function composeExternalClientProfile(baseProfile, enrichment = {}, measu
   if (Object.prototype.hasOwnProperty.call(enrichment, 'sleep_stress_narrative')) {
     sections.sleepStress = { ...(sections.sleepStress || {}), narrative: enrichment.sleep_stress_narrative };
   }
+  const sectionOverlays = {
+    allergies_family_history: 'allergiesFamilyHistory',
+    activity_hydration: 'activityHydration',
+    medications_supplements: 'medicationsSupplements',
+    lifestyle: 'lifestyle',
+  };
+  Object.entries(sectionOverlays).forEach(([source, target]) => {
+    if (Object.prototype.hasOwnProperty.call(enrichment, source)) {
+      sections[target] = { ...(sections[target] || {}), ...(enrichment[source] || {}) };
+    }
+  });
   const overview = { ...(profile.overview || {}) };
   const canonicalDateOfBirth = normalizeExternalDateOnly(
     Object.prototype.hasOwnProperty.call(enrichment, 'date_of_birth')
@@ -123,9 +134,16 @@ export function composeExternalClientProfile(baseProfile, enrichment = {}, measu
   const waistHipRatio = calculateExternalWaistHipRatio(sections.measurements.waistCm, sections.measurements.hipCm);
   const categories = {
     personalProfile: [['Date of birth', overview.dateOfBirth], ['Health goals', sections.goals?.selectedGoals?.length || sections.goals?.primaryGoal]],
-    medicalBackground: [['Medical history', sections.medicalHistory?.narrative || sections.medicalHistory?.conditions]],
+    medicalBackground: [
+      ['Medical history', sections.medicalHistory?.narrative || sections.medicalHistory?.conditions],
+      ['Allergy status', sections.allergiesFamilyHistory?.hasAllergies || sections.allergiesFamilyHistory?.allergies],
+    ],
     bodyMeasurements: [['Height', height], ['Weight', weight], ['Waist', sections.measurements.waistCm], ['Hip', sections.measurements.hipCm]],
-    lifestyle: [['Sleep & stress', sections.sleepStress?.narrative || sections.sleepStress?.sleepQuality]],
+    lifestyle: [
+      ['Sleep & stress', sections.sleepStress?.narrative || sections.sleepStress?.sleepQuality],
+      ['Activity', sections.activityHydration?.activityLevel || sections.lifestyle?.physicalActivity],
+      ['Hydration', sections.activityHydration?.waterIntakeMl || sections.activityHydration?.hydration || sections.activityHydration?.waterIntake || sections.lifestyle?.hydration],
+    ],
   };
   const missingChecklist = Object.entries(categories).flatMap(([category, items]) => items.filter(([, value]) => !present(value)).map(([label]) => ({ category, label })));
   const requiredCount = Object.values(categories).flat().length;

@@ -62,6 +62,34 @@ def test_external_partial_merge_preserves_other_client_fields():
     assert merged["goals"] == ["A"]
 
 
+def test_external_health_sections_merge_independently_and_preserve_explicit_answers():
+    current = {
+        "allergies_family_history": {"allergy_status": "NONE", "family_history": ["HYPERTENSION"]},
+        "activity_hydration": {"activity_level": "MODERATE", "water_litres": 2.5},
+        "medications_supplements": {"medications": ["NONE"]},
+        "lifestyle": {"smoking": "NO", "alcohol": "NOT_SURE"},
+    }
+    incoming = validate_external_enrichment({
+        "allergies_family_history": {"allergy_status": "NOT_SURE"},
+        "activity_hydration": {"water_litres": 3},
+    })
+    merged = merge_external_enrichment(current, incoming)
+    assert merged["allergies_family_history"] == {
+        "allergy_status": "NOT_SURE",
+        "family_history": ["HYPERTENSION"],
+    }
+    assert merged["activity_hydration"] == {"activity_level": "MODERATE", "water_litres": 3}
+    assert merged["medications_supplements"] == {"medications": ["NONE"]}
+    assert merged["lifestyle"] == {"smoking": "NO", "alcohol": "NOT_SURE"}
+
+
+def test_external_health_sections_reject_arrays_and_oversized_values():
+    with pytest.raises(ValueError, match="must be an object"):
+        validate_external_enrichment({"activity_hydration": ["invalid"]})
+    with pytest.raises(ValueError, match="too long"):
+        validate_external_enrichment({"lifestyle": {"notes": "x" * 2001}})
+
+
 def test_external_only_additive_migration_and_api_are_tenant_client_scoped():
     migration = (ROOT / "alembic/versions/0053_external_client_profile_enrichments.py").read_text()
     source = (ROOT / "app/main.py").read_text()

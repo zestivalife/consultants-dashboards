@@ -4,7 +4,7 @@ from datetime import date,datetime,timezone
 from uuid import UUID
 from pydantic import BaseModel,Field,field_validator
 
-PUBLIC_FIELDS={"profile_photo_url","display_name","professional_title","profession_code","specialisations","experience_years","bio","languages","consultation_modes","areas_of_focus","public_locations","services","programmes","session_duration","public_fee_from","public_fee_currency","accepting_new_clients"}
+PUBLIC_FIELDS={"profile_photo_url","display_name","professional_title","profession_code","specialisations","experience_years","previous_workplaces","bio","languages","consultation_modes","areas_of_focus","public_locations","services","programmes","session_duration","public_fee_from","public_fee_currency","accepting_new_clients"}
 PRIVATE_FIELDS={"aadhaar","pan","identity_proof","private_address","private_email","private_phone","bank_details","verification_notes","admin_notes","tenant_secret","credential_document_url"}
 PROFILE_TRANSITIONS={
  "DRAFT":{"SUBMITTED_FOR_REVIEW"},"SUBMITTED_FOR_REVIEW":{"DRAFT","UNDER_REVIEW"},"UNDER_REVIEW":{"CHANGES_REQUIRED","APPROVED","REJECTED"},
@@ -26,7 +26,7 @@ class PublicProgramme(BaseModel):
 
 class ProfileSave(BaseModel):
     display_name:str=Field(min_length=2,max_length=160);professional_title:str=Field(min_length=2,max_length=180);profession_code:str=Field(min_length=2,max_length=80)
-    profile_photo_url:str|None=None;specialisations:list[str]=Field(default_factory=list,max_length=20);experience_years:int=Field(ge=0,le=80)
+    profile_photo_url:str|None=None;specialisations:list[str]=Field(default_factory=list,max_length=20);experience_years:int=Field(ge=0,le=80);previous_workplaces:list[str]=Field(default_factory=list,max_length=30)
     bio:str=Field(min_length=20,max_length=4000);languages:list[str]=Field(default_factory=list,max_length=20);consultation_modes:list[str]=Field(default_factory=list,max_length=4)
     areas_of_focus:list[str]=Field(default_factory=list,max_length=30);public_locations:list[PublicLocation]=Field(default_factory=list,max_length=20);services:list[PublicService]=Field(default_factory=list,max_length=30)
     programmes:list[PublicProgramme]=Field(default_factory=list,max_length=30);session_duration:int|None=Field(default=None,ge=10,le=480);public_fee_from:int|None=Field(default=None,ge=0);public_fee_currency:str|None=Field(default=None,pattern="^[A-Z]{3}$")

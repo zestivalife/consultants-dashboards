@@ -41,6 +41,8 @@ test('profile and evidence completion reflect actual saved information', () => {
     goals: ['Improve nutrition', 'Improve energy', 'Better sleep'],
     medical_history_narrative: 'No prior surgery.',
     sleep_stress_narrative: 'Seven hours sleep.',
+    allergies_family_history: { hasAllergies: 'NO' },
+    activity_hydration: { activityLevel: 'MODERATELY_ACTIVE', waterIntakeMl: 2500 },
     measurements: { height_cm: 170, weight_kg: 70, waist_cm: 80, hip_cm: 100 },
     health_record_dates: { record: { report_date: '2026-10-01', confirmation_date: '2026-10-02' } },
   });
