@@ -7,7 +7,7 @@ const marketplace=readFileSync(new URL('../components/external/ExternalMarketpla
 const profileApi=readFileSync(new URL('../lib/practiceOperationsApi.js',import.meta.url),'utf8');
 
 test('multiple named plans are listed, selected, created and persisted by immutable plan id',()=>{
-  for(const term of ['listConsultantDietPlans','createConsultantDietPlan','saveConsultantDietPlan','reviewConsultantDietPlan','publishConsultantDietPlan','Create another Diet Plan','Selected Diet Plan'])assert.match(multi,new RegExp(term));
+  for(const term of ['listConsultantDietPlans','createConsultantDietPlan','saveConsultantDietPlan','reviewConsultantDietPlan','publishConsultantDietPlan','Generate Diet Chart','Selected Diet Plan'])assert.match(multi,new RegExp(term));
   assert.match(profileApi,/diet-plans\/\$\{encodeURIComponent\(planId\)\}\/draft/);
   assert.match(profileApi,/diet-plans\/\$\{encodeURIComponent\(planId\)\}\/review/);
   assert.match(profileApi,/diet-plans\/\$\{encodeURIComponent\(planId\)\}\/publish/);
