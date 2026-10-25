@@ -27,3 +27,8 @@ def test_signed_upload_does_not_sign_content_length(monkeypatch):
         "Key": "tenant/document/file.pdf",
         "ContentType": "application/pdf",
     }
+
+
+def test_railway_storage_uses_virtual_hosted_addressing():
+    assert document_storage._addressing_style("https://t3.storageapi.dev") == "virtual"
+    assert document_storage._addressing_style("https://s3.example.invalid") == "auto"

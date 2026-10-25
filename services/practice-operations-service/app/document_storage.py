@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from app.config import get_settings
@@ -26,15 +27,21 @@ class StorageUnavailable(RuntimeError):
 class InvalidDocument(ValueError):
     pass
 
+def _addressing_style(endpoint: str | None) -> str:
+    host = (urlparse(endpoint).hostname or "") if endpoint else ""
+    return "virtual" if host == "storageapi.dev" or host.endswith(".storageapi.dev") else "auto"
+
 def _client():
     settings = get_settings()
     if not all((settings.document_storage_bucket, settings.document_storage_access_key,
                 settings.document_storage_secret_key)):
         raise StorageUnavailable("Governed document storage is not configured")
     import boto3
+    from botocore.config import Config
     args = {"aws_access_key_id": settings.document_storage_access_key,
             "aws_secret_access_key": settings.document_storage_secret_key,
-            "region_name": settings.document_storage_region}
+            "region_name": settings.document_storage_region,
+            "config": Config(signature_version="s3v4", s3={"addressing_style": _addressing_style(settings.document_storage_endpoint)})}
     if settings.document_storage_endpoint:
         args["endpoint_url"] = settings.document_storage_endpoint
     return boto3.client("s3", **args), settings
