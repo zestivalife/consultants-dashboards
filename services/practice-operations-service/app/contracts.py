@@ -5,7 +5,7 @@ except ImportError:  # Python 3.10 test/runtime compatibility; native in Python 
     from enum import Enum
     class StrEnum(str, Enum):
         pass
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
@@ -443,8 +443,8 @@ class AppointmentTypeCreate(BaseModel):
 
 class AvailabilityRuleCreate(BaseModel):
     weekday: int = Field(ge=0, le=6)
-    start_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
-    end_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    start_time: time
+    end_time: time
     timezone: str = Field(min_length=1, max_length=80)
     effective_from: date | None = None
     effective_until: date | None = None

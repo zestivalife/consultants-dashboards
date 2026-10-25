@@ -2940,6 +2940,7 @@ async def create_availability(request: Request, body: AvailabilityRuleCreate,
       "id":item_id,"tenant":ctx["tenant_id"],"weekday":body.weekday,"start":body.start_time,"end":body.end_time,
       "timezone":body.timezone,"effective_from":body.effective_from,"effective_until":body.effective_until,
       "actor":ctx["user_id"],"now":now})
+    await db.commit()
     return {"success":True,"data":{"id":str(item_id)},"error":None,"request_id":request.state.correlation_id}
 
 @app.delete("/api/v1/practice-operations/scheduling/availability/{rule_id}")

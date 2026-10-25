@@ -38,4 +38,6 @@ test('profile save verifies the server projection before showing success',()=>{
   assert.match(marketplace,/await getMarketplaceProfile\(\)/);
   assert.match(marketplace,/server response did not match the submitted profile/i);
   assert.match(marketplace,/if\(saving\)return/);
+  assert.match(marketplace,/public_fee_currency:null/);
+  assert.match(marketplace,/currency:source\.currency\|\|null/);
 });

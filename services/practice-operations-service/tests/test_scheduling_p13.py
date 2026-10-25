@@ -23,6 +23,7 @@ def test_scheduling_contracts_enforce_safe_windows_and_durations():
     rule=AvailabilityRuleCreate(weekday=1,start_time="09:00",end_time="17:00",timezone="Asia/Kolkata")
     waitlist=WaitlistCreate(client_id="client-a",appointment_type_id="8df2829e-8c09-4c62-b52d-f32f366fc5ed")
     assert kind.duration_minutes == 45 and rule.weekday == 1 and waitlist.client_id == "client-a"
+    assert rule.start_time.isoformat() == "09:00:00" and rule.end_time.isoformat() == "17:00:00"
     with pytest.raises(ValidationError):
         AppointmentTypeCreate(name="Invalid",duration_minutes=1,location_type="ONLINE")
     with pytest.raises(ValidationError):
@@ -38,6 +39,8 @@ def test_scheduling_routes_are_tenant_scoped_conflict_safe_and_audited():
     assert "token_hash=:hash" in section
     assert "attendance_status" in section and 'body.status=="NO_SHOW"' in section
     assert "UPDATE practice_consultations" not in section
+    availability=section[section.index('@app.post("/api/v1/practice-operations/scheduling/availability"'):section.index('@app.delete("/api/v1/practice-operations/scheduling/availability')]
+    assert "await db.commit()" in availability
 
 
 def test_calendar_projection_is_additive_and_waitlist_never_auto_books():
