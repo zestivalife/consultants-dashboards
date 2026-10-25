@@ -15,7 +15,6 @@ import {
   reviewClientInformationRequest,
   revokeClientInformationRequest,
   saveNutritionAssessment,
-  transitionNutritionAssessment,
 } from "../../lib/practiceOperationsApi";
 import { choices } from "../../lib/externalIntakeV2";
 import {
@@ -447,32 +446,7 @@ export default function ExternalNutritionAssessment({
         clinical_safety_findings: [],
       });
       await load();
-      setNotice(
-        action === "SUBMIT"
-          ? "Assessment submitted for review."
-          : "Draft saved.",
-      );
-    } catch (error) {
-      onError(error.message);
-    } finally {
-      setBusy("");
-    }
-  };
-  const transition = async (action) => {
-    setBusy(action);
-    try {
-      const value = await transitionNutritionAssessment(state.value.id, {
-        action,
-        expected_version: state.value.current_version ?? state.value.version,
-        notes: null,
-      });
-      await load();
-      setNotice(
-        action === "MARK_REVIEWED"
-          ? "Assessment reviewed. Diet Plan readiness recalculated."
-          : "Assessment workflow updated.",
-      );
-      return value;
+      setNotice("Diet planning context saved.");
     } catch (error) {
       onError(error.message);
     } finally {
@@ -511,8 +485,8 @@ export default function ExternalNutritionAssessment({
                 Diet planning context
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                Review source-backed client context, record the assessment, then
-                complete consultant review.
+                Review source-backed client context and save the consultant's
+                assessment.
               </p>
             </div>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
@@ -561,45 +535,8 @@ export default function ExternalNutritionAssessment({
               onClick={() => save("SAVE_DRAFT")}
               className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold disabled:opacity-40"
             >
-              {busy === "SAVE_DRAFT" ? "Saving…" : "Save draft"}
+              {busy === "SAVE_DRAFT" ? "Saving…" : "Save assessment"}
             </button>
-            <button
-              disabled={
-                Boolean(busy) ||
-                !["NOT_STARTED", "DRAFT", "CHANGES_REQUESTED"].includes(status)
-              }
-              onClick={() => save("SUBMIT")}
-              className="min-h-11 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white disabled:opacity-40"
-            >
-              {busy === "SUBMIT" ? "Submitting…" : "Submit for review"}
-            </button>
-            {status === "SUBMITTED" && (
-              <button
-                disabled={Boolean(busy)}
-                onClick={() => transition("START_REVIEW")}
-                className="min-h-11 rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white"
-              >
-                Start review
-              </button>
-            )}
-            {["SUBMITTED", "IN_REVIEW"].includes(status) && (
-              <>
-                <button
-                  disabled={Boolean(busy)}
-                  onClick={() => transition("MARK_REVIEWED")}
-                  className="min-h-11 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white"
-                >
-                  Mark reviewed
-                </button>
-                <button
-                  disabled={Boolean(busy)}
-                  onClick={() => transition("REQUEST_CHANGES")}
-                  className="min-h-11 rounded-xl border border-amber-300 px-4 text-sm font-semibold text-amber-900"
-                >
-                  Request changes
-                </button>
-              </>
-            )}
           </div>
         </section>
         <SourceSummary

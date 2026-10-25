@@ -10,7 +10,9 @@ const migration=readFileSync(new URL('../../services/practice-operations-service
 test('MP-007 mounts the real Nutrition Assessment inside capability-gated Client360',()=>{
   assert.match(client360,/ExternalNutritionAssessment/);
   assert.match(client360,/active === 'Nutrition'/);
-  for(const value of ['Nutrition Assessment','Diet Plan readiness','Save draft','Submit for review','Mark reviewed','Assessment history','Existing client information'])assert.match(component,new RegExp(value));
+  for(const value of ['Nutrition Assessment','Diet Plan readiness','Save assessment','Assessment history','Existing client information'])assert.match(component,new RegExp(value));
+  for(const removed of ['Save draft','Submit for review','Mark reviewed','Start review'])assert.doesNotMatch(component,new RegExp(removed));
+  assert.match(component,/save\("SAVE_DRAFT"\)/);
 });
 
 test('MP-007 uses persisted server-governed workflow contracts',()=>{
