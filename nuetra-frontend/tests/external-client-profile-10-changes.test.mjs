@@ -62,7 +62,7 @@ test('External Client360 renders ordinary-text editors and dedicated anthropomet
 
 test('all selected goals are passed into the persisted Diet Plan snapshot', () => {
   const component = fs.readFileSync(new URL('../components/external/ExternalMultiDietPlan.jsx', import.meta.url), 'utf8');
-  assert.match(component, /health_goals: context\?\.goals \|\| \[\]/);
+  assert.match(component, /health_goals: valueList\(context\?\.goals\)\.slice\(0, 3\)/);
   assert.match(component, /Health & wellness goals/);
 });
 

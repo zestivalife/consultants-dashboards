@@ -41,6 +41,13 @@ test('non-weight health goals satisfy the health-goal completeness field',()=>{
   const next=reconcileCompleteness(server,resolved);assert.equal(next.fields[0].status,'CAPTURED');assert.deepEqual(next.blocking_fields,[]);
 });
 
+test('structured client goal values are normalised before assessment and Diet Chart rendering',()=>{
+  const value=canonicalAssessmentFromOnboarding({goals:{selectedGoals:{code:'BLOOD_SUGAR',label:'Blood sugar'}}});
+  assert.deepEqual(value.recovery_disease_management_goals,['BLOOD_SUGAR']);
+  assert.match(assessment,/Client information received/);
+  assert.match(assessment,/Edit assessment/);
+});
+
 test('selective client form uses governed choices rather than comma-separated entry',()=>{
   assert.match(page,/role=\{field\.kind==='list'\?'checkbox':'radio'\}/);assert.doesNotMatch(page,/Separate items with commas/);assert.match(page,/completed health profile is not restarted/);
 });

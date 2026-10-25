@@ -86,11 +86,15 @@ def test_additive_migration_and_external_api_contracts():
     assert "NUTRITION_ASSESSMENT_REQUIRED" in app
 
 
-def test_mp008_diet_plan_creation_and_publication_fail_closed_on_server_readiness():
+def test_mp010_diet_plan_drafts_use_available_information_and_publication_fails_closed():
     app=(ROOT/"app/main.py").read_text()
     assert "async def _current_diet_plan_readiness" in app
     assert '"DIET_PLAN_READINESS_REQUIRED"' in app
     create=app[app.index("async def create_diet_plan"):app.index("@app.get(\"/api/v1/practice-operations/diet-plans/{plan_id}\")")]
+    save=app[app.index("async def save_diet_plan"):app.index("@app.post(\"/api/v1/practice-operations/diet-plans/{plan_id}/review\")")]
     publish=app[app.index("async def publish_diet_plan"):app.index("async def _write_note_sections")]
-    assert 'readiness["outcome"]!="READY"' in create
+    assert 'readiness["outcome"]!="READY"' not in create
+    assert 'readiness["outcome"]!="READY"' not in save
+    assert '"assessment_id":readiness["assessment_id"]' in create
+    assert '"assessment_id":readiness["assessment_id"]' in save
     assert 'readiness["outcome"]!="READY"' in publish

@@ -1794,7 +1794,6 @@ async def create_diet_plan(request:Request,body:DietPlanCreate,ctx=Depends(conte
     capability_denied=await require_capability(request,db,ctx,"DIET_PLAN")
     if capability_denied:return capability_denied
     readiness=await _current_diet_plan_readiness(db,ctx,body.client_id)
-    if readiness["outcome"]!="READY":return _diet_plan_readiness_error(request,readiness)
     health_context=await _diet_plan_health_context(db,ctx,body.client_id)
     config=await configuration(db,ctx);now=datetime.now(timezone.utc);plan_id=uuid4();version_id=uuid4()
     await db.execute(text("""INSERT INTO external_profession_plans
@@ -1836,7 +1835,6 @@ async def save_diet_plan(request:Request,plan_id:UUID,body:DietPlanSave,ctx=Depe
     if plan["status"] in {"APPROVED","PUBLISHED","ARCHIVED"}:return error(request,409,"DIET_PLAN_IMMUTABLE","Approved and published Diet Plans are immutable")
     if plan["current_version"]!=body.expected_version:return error(request,409,"STALE_WRITE","This Diet Plan changed. Refresh and retry")
     readiness=await _current_diet_plan_readiness(db,ctx,plan["client_id"])
-    if readiness["outcome"]!="READY":return _diet_plan_readiness_error(request,readiness)
     health_context=await _diet_plan_health_context(db,ctx,plan["client_id"])
     now=datetime.now(timezone.utc);next_version=plan["current_version"]+1;version_id=uuid4()
     actual_calories=sum(float((item.get("nutrition") or {}).get("kcal") or 0) for item in body.options if item.get("selected",True))

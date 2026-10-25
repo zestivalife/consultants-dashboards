@@ -1,5 +1,12 @@
 const present = (value) => value !== undefined && value !== null && value !== '' && !(Array.isArray(value) && value.length === 0);
-const list = (value) => Array.isArray(value) ? value.filter(Boolean).map((item) => typeof item === 'object' ? item.name || item.code || item.value : item).filter(Boolean) : present(value) ? [value] : [];
+const scalar = (value) => {
+  if (value == null) return null;
+  if (typeof value !== 'object') return value;
+  return value.name ?? value.code ?? value.value ?? value.label ?? value.id ?? null;
+};
+const list = (value) => (Array.isArray(value) ? value : present(value) ? [value] : [])
+  .map(scalar)
+  .filter((item) => present(item));
 const first = (...values) => values.find((value) => present(value) || value === 0 || value === false);
 const WEIGHT_GOALS = new Set(['LOSE_WEIGHT','GAIN_WEIGHT','GAIN_MUSCLE','MAINTAIN_WEIGHT']);
 const ARRAY_FIELDS = new Set(['allergies_intolerances','food_restrictions','appetite_eating_patterns','food_dislikes_preferences','nutrition_medical_conditions','relevant_medications','relevant_supplements','weight_management_goals','recovery_disease_management_goals']);

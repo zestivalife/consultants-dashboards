@@ -304,11 +304,11 @@ function InformationCompleteness({ clientId, resolved, onError, onChanged }) {
           {value.total_relevant} relevant fields available
         </h3>
         <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-800">
-          {label(value.readiness)}
+          {selected.length ? "Information missing" : "Information received"}
         </span>
       </div>
       <p className="mt-2 text-sm text-slate-500">
-        Save the assessment yourself, or share a secure link so the client can complete only the missing information.
+        Existing client answers are already available. Use a secure link only when you want the client to provide specific missing details.
       </p>
       <div className="mt-4 flex flex-wrap gap-3">
         <button type="button" onClick={()=>setExpanded((current)=>!current)} aria-expanded={expanded} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold">
@@ -409,6 +409,7 @@ export default function ExternalNutritionAssessment({
   const [fieldProvenance, setFieldProvenance] = useState({});
   const [editingClientFields, setEditingClientFields] = useState([]);
   const [openSection, setOpenSection] = useState("essentials");
+  const [assessmentExpanded, setAssessmentExpanded] = useState(false);
   const sources = useMemo(
     () => buildSources(data, measurements, biomarkers),
     [data, measurements, biomarkers],
@@ -469,6 +470,12 @@ export default function ExternalNutritionAssessment({
       </section>
     );
   const status = state.value?.status || "NOT_STARTED";
+  const receivedFromClient = Object.values(fieldProvenance).some(
+    (item) => item?.source === "CLIENT_SUBMITTED",
+  );
+  const availableFieldCount = Object.entries(form).filter(
+    ([key, value]) => key !== "consultant_notes" && list(value).length > 0,
+  ).length;
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
       <div className="space-y-5">
@@ -479,6 +486,24 @@ export default function ExternalNutritionAssessment({
           onChanged={load}
         />
         <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">
+                Nutrition Assessment
+              </p>
+              <h2 className="mt-1 text-xl font-semibold">
+                {receivedFromClient ? "Client information received" : "Diet planning context"}
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {availableFieldCount} assessment field{availableFieldCount === 1 ? "" : "s"} available. Open only when you need to add or correct information.
+              </p>
+            </div>
+            <button type="button" onClick={() => setAssessmentExpanded((current) => !current)} aria-expanded={assessmentExpanded} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold">
+              {assessmentExpanded ? "Close assessment" : "Edit assessment"}
+            </button>
+          </div>
+        </section>
+        {assessmentExpanded && <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="flex items-center gap-2 text-blue-700">
@@ -553,7 +578,7 @@ export default function ExternalNutritionAssessment({
               {busy === "SAVE_DRAFT" ? "Saving…" : "Save assessment"}
             </button>
           </div>
-        </section>
+        </section>}
         <SourceSummary
           data={data}
           measurements={measurements}
