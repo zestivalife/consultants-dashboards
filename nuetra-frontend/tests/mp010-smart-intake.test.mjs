@@ -8,7 +8,7 @@ const page=fs.readFileSync(new URL('../pages/client-information/[token].js',impo
 const api=fs.readFileSync(new URL('../lib/practiceOperationsApi.js',import.meta.url),'utf8');
 
 test('consultant receives server-authoritative completeness and scoped request actions',()=>{
-  for(const value of ['Client Information Completeness','Request Missing Information','Copy secure link','getClientInformationCompleteness','createClientInformationRequest'])assert.match(assessment,new RegExp(value));
+  for(const value of ['Assessment Link','Create Assessment Link','Copy secure link','getClientInformationCompleteness','createClientInformationRequest'])assert.match(assessment,new RegExp(value));
   assert.match(api,/information-completeness/);assert.match(api,/information-requests/);
 });
 

@@ -203,6 +203,7 @@ function InformationCompleteness({ clientId, resolved, onError, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [link, setLink] = useState("");
   const [requests, setRequests] = useState([]);
+  const [expanded, setExpanded] = useState(false);
   const load = async () => {
     try {
       const [next, history] = await Promise.all([
@@ -295,7 +296,7 @@ function InformationCompleteness({ clientId, resolved, onError, onChanged }) {
   return (
     <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <p className="text-xs font-bold uppercase tracking-[0.16em] text-violet-700">
-        Client Information Completeness
+        Assessment Link
       </p>
       <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-xl font-semibold">
@@ -307,10 +308,23 @@ function InformationCompleteness({ clientId, resolved, onError, onChanged }) {
         </span>
       </div>
       <p className="mt-2 text-sm text-slate-500">
-        Only client-answerable missing fields can be requested. Optional blanks
-        do not block readiness.
+        Save the assessment yourself, or share a secure link so the client can complete only the missing information.
       </p>
-      <div className="mt-5 space-y-2">
+      <div className="mt-4 flex flex-wrap gap-3">
+        <button type="button" onClick={()=>setExpanded((current)=>!current)} aria-expanded={expanded} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold">
+          {expanded ? "Hide information details" : `Choose missing fields (${selected.length})`}
+        </button>
+        <button
+          type="button"
+          disabled={!selected.length || busy}
+          onClick={create}
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-violet-700 px-4 text-sm font-semibold text-white disabled:opacity-40"
+        >
+          <Send size={16} />
+          {busy ? "Creating…" : "Create Assessment Link"}
+        </button>
+      </div>
+      {expanded&&<div className="mt-5 space-y-2">
         {value.fields
           .filter((item) => item.status !== "NOT_APPLICABLE")
           .map((item) => (
@@ -343,17 +357,8 @@ function InformationCompleteness({ clientId, resolved, onError, onChanged }) {
               </span>
             </label>
           ))}
-      </div>
-      <div className="mt-5 flex flex-wrap gap-3">
-        <button
-          type="button"
-          disabled={!selected.length || busy}
-          onClick={create}
-          className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-violet-700 px-4 text-sm font-semibold text-white disabled:opacity-40"
-        >
-          <Send size={16} />
-          {busy ? "Creating…" : "Request Missing Information"}
-        </button>
+      </div>}
+      <div className="mt-3 flex flex-wrap gap-3">
         {link && (
           <button
             type="button"
@@ -403,6 +408,7 @@ export default function ExternalNutritionAssessment({
   const [notice, setNotice] = useState("");
   const [fieldProvenance, setFieldProvenance] = useState({});
   const [editingClientFields, setEditingClientFields] = useState([]);
+  const [openSection, setOpenSection] = useState("essentials");
   const sources = useMemo(
     () => buildSources(data, measurements, biomarkers),
     [data, measurements, biomarkers],
@@ -501,15 +507,23 @@ export default function ExternalNutritionAssessment({
               {notice}
             </p>
           )}
-          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <div className="mt-5 grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1" role="tablist" aria-label="Assessment sections">
+            {[['essentials','Essentials'],['patterns','Eating pattern'],['health','Health & goals']].map(([key,caption])=><button key={key} type="button" role="tab" aria-selected={openSection===key} onClick={()=>setOpenSection(key)} className={`min-h-11 rounded-xl px-3 text-sm font-semibold ${openSection===key?'bg-white text-slate-950 shadow-sm':'text-slate-500'}`}>{caption}</button>)}
+          </div>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            {openSection==='essentials'&&<>
             <AssessmentChoice field="dietary_preference" caption="Dietary preference" value={form.dietary_preference} options={["VEGETARIAN","EGG","NON_VEGETARIAN","VEGAN"]} provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("dietary_preference",value)} />
             <AssessmentChoice field="allergies_intolerances" caption="Allergies and intolerances" value={form.allergies_intolerances} options={["YES","NO","NOT_SURE","MILK_DAIRY","PEANUTS","TREE_NUTS","EGG","WHEAT","SOY","FISH","SHELLFISH","OTHER"]} multiple provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("allergies_intolerances",value)} />
             <AssessmentChoice field="food_restrictions" caption="Food restrictions" value={form.food_restrictions} options={[...choices.restrictions,"NO_DAIRY","GLUTEN_FREE","NO_ADDED_SUGAR","LOW_SODIUM"]} multiple provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("food_restrictions",value)} />
             <AssessmentChoice field="meal_timing_frequency" caption="Meals per day" value={form.meal_timing_frequency} options={choices.mealsPerDay} provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("meal_timing_frequency",value)} />
+            </>}
+            {openSection==='patterns'&&<>
             <AssessmentChoice wide field="typical_dietary_intake" caption="Typical dietary intake" value={form.typical_dietary_intake} options={["HOME_COOKED","MIXED_HOME_OUTSIDE","FREQUENT_RESTAURANT","REGULAR_SNACKING","IRREGULAR_SCHEDULE"]} provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("typical_dietary_intake",value)} />
             <AssessmentChoice field="appetite_eating_patterns" caption="Appetite and eating patterns" value={form.appetite_eating_patterns} options={["NORMAL_APPETITE","LOW_APPETITE","HIGH_APPETITE","IRREGULAR_HUNGER","SKIPS_MEALS","LATE_NIGHT_EATING","FREQUENT_SNACKING","EMOTIONAL_EATING","NONE","OTHER"]} multiple provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("appetite_eating_patterns",value)} />
             <AssessmentChoice field="water_intake" caption="Water intake" value={form.water_intake} options={Array.from({length:11},(_,index)=>`${1+index*.5} L/day`)} provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("water_intake",value)} />
             <AssessmentChoice wide field="food_dislikes_preferences" caption="Food dislikes and preferences" value={form.food_dislikes_preferences} options={[...choices.cravings,"NO_SPECIFIC_PREFERENCES"]} multiple provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("food_dislikes_preferences",value)} />
+            </>}
+            {openSection==='health'&&<>
             <AssessmentChoice field="nutrition_medical_conditions" caption="Nutrition-related medical conditions" value={form.nutrition_medical_conditions} options={choices.conditions} multiple provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("nutrition_medical_conditions",value)} />
             <AssessmentChoice field="relevant_medications" caption="Relevant medications" value={form.relevant_medications} options={[...(form.relevant_medications||[]),"NONE"]} multiple provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("relevant_medications",value)} />
             <AssessmentChoice field="relevant_supplements" caption="Relevant supplements" value={form.relevant_supplements} options={[...choices.supplementTypes,"NONE"]} multiple provenance={fieldProvenance} editing={editingClientFields} setEditing={setEditingClientFields} onChange={(value)=>set("relevant_supplements",value)} />
@@ -525,6 +539,7 @@ export default function ExternalNutritionAssessment({
                 className={fieldClass}
               />
             </Field>
+            </>}
           </div>
           <div className="mt-6 flex flex-wrap gap-3">
             <button

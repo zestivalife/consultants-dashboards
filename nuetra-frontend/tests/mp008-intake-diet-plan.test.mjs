@@ -60,7 +60,8 @@ test('Diet Plan UI loads and fail-closes on server readiness',()=>{
   assert.match(plans,/getNutritionAssessment\(clientId\)/);
   assert.match(plans,/readiness\.outcome !== 'READY'/);
   assert.match(plans,/bindDietPlanAssessment/);
-  assert.match(plans,/Assessment review required/);
+  assert.doesNotMatch(plans,/Assessment review required/);
+  assert.match(plans,/Generate Diet Chart/);
   assert.match(plans,/Promise\.allSettled/);
   assert.match(plans,/Diet plans could not be loaded/);
   assert.match(plans,/No independent Diet Plans have been created/);
