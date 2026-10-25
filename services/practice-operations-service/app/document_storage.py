@@ -60,7 +60,7 @@ def new_object_key(tenant_id, document_id, version_id, filename):
 def signed_upload(key, content_type, size_bytes):
     client, settings = _client()
     return client.generate_presigned_url("put_object", Params={"Bucket": settings.document_storage_bucket,
-        "Key": key, "ContentType": content_type, "ContentLength": size_bytes}, ExpiresIn=600)
+        "Key": key, "ContentType": content_type}, ExpiresIn=600)
 
 def signed_download(key, filename):
     client, settings = _client()
