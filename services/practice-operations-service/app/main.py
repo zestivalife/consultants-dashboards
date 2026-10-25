@@ -5033,6 +5033,10 @@ async def update_document(request:Request,document_id:UUID,body:DocumentUpdate,c
     if result.rowcount!=1:return error(request,404,"DOCUMENT_NOT_FOUND","Document not found")
     await db.commit();return {"success":True,"data":{"id":str(document_id)},"error":None,"request_id":request.state.correlation_id}
 
+@app.post("/api/v1/practice-operations/documents/{document_id}/download")
+async def document_download_route(request:Request,document_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    return await document_download(request,document_id,ctx,db)
+
 @app.post("/api/v1/practice-operations/documents/{document_id}/{action}")
 async def document_state(request:Request,document_id:UUID,action:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied,_=await _team_guard(request,db,ctx,"DOCUMENT_MANAGE")
@@ -5045,7 +5049,6 @@ async def document_state(request:Request,document_id:UUID,action:str,ctx=Depends
     if target=="QUARANTINED":await db.execute(text("UPDATE external_document_versions SET status='QUARANTINED' WHERE document_id=:id AND tenant_id=:tenant AND status='AVAILABLE'"),{"id":document_id,"tenant":ctx["tenant_id"]})
     await db.commit();return {"success":True,"data":{"id":str(document_id),"status":target},"error":None,"request_id":request.state.correlation_id}
 
-@app.post("/api/v1/practice-operations/documents/{document_id}/download")
 async def document_download(request:Request,document_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     row=(await db.execute(text("SELECT d.id,d.client_id,d.visibility,d.status,d.created_by,v.object_key,v.filename FROM external_documents d JOIN external_document_versions v ON v.document_id=d.id AND v.version=d.current_version WHERE d.id=:id AND d.tenant_id=:tenant AND v.tenant_id=:tenant"),{"id":document_id,"tenant":ctx["tenant_id"]})).mappings().first()
     if not row:return error(request,404,"DOCUMENT_NOT_FOUND","Document not found")
