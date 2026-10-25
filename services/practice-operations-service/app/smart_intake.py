@@ -113,18 +113,29 @@ def _strings(value: Any) -> list[str]:
     return result
 
 
+def _single_choice(value: Any) -> str | None:
+    """Accept legacy single-choice answers persisted as one-item lists."""
+    if isinstance(value, list):
+        values = _strings(value)
+        return values[0] if values else None
+    if isinstance(value, dict):
+        values = _strings([value])
+        return values[0] if values else None
+    return str(value).strip() if value is not None and str(value).strip() else None
+
+
 def canonical_assessment_values(canonical: dict[str, Any]) -> dict[str, Any]:
     """Map the persisted 14-step intake contract into NutritionProfile values."""
     nutrition = canonical.get("nutrition") if isinstance(canonical.get("nutrition"), dict) else {}
-    allergy_status = _first(canonical, ("allergiesFamilyHistory", "hasAllergies"))
+    allergy_status = _single_choice(_first(canonical, ("allergiesFamilyHistory", "hasAllergies")))
     allergies = _strings(_first(canonical, ("allergiesFamilyHistory", "foodAllergies")))
     if allergy_status in {"NO", "NOT_SURE"} and not allergies:
         allergies = [allergy_status]
-    diet = _first(canonical, ("nutrition", "dietPreference"))
+    diet = _single_choice(_first(canonical, ("nutrition", "dietPreference")))
     if diet == "EGGITARIAN":
         diet = "EGG"
     meals = _first(canonical, ("nutrition", "mealsPerDay"))
-    skip = _first(canonical, ("nutrition", "skipMeals"))
+    skip = _single_choice(_first(canonical, ("nutrition", "skipMeals")))
     eating_patterns = []
     if skip == "NEVER":
         eating_patterns = ["NONE"]

@@ -92,6 +92,16 @@ def test_explicit_negative_values_are_captured_not_missing():
     assert rows["food_restrictions"]["status"]=="CAPTURED"
 
 
+def test_legacy_single_choice_lists_do_not_crash_assessment_resolution():
+    intake=complete()
+    intake["allergiesFamilyHistory"]={"hasAllergies":["NO"]}
+    intake["nutrition"].update({"dietPreference":["VEGETARIAN"],"skipMeals":["NEVER"]})
+    values=resolve_assessment(intake)["assessment_data"]
+    assert values["dietary_preference"]=="VEGETARIAN"
+    assert values["allergies_intolerances"]==["NO"]
+    assert values["appetite_eating_patterns"]==["NONE"]
+
+
 def test_completeness_uses_legacy_goal_alias_and_structured_meal_history():
     intake=complete()
     intake["goals"]={"selectedGoals":["BLOOD_SUGAR"]}
