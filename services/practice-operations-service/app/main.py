@@ -5807,13 +5807,15 @@ async def public_marketplace_photo(photo_id:UUID,db:AsyncSession=Depends(get_db)
     except StorageUnavailable:return Response(status_code=503)
 
 @app.get("/api/v1/practice-operations/marketplace/profile")
-async def marketplace_profile(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+async def marketplace_profile(request:Request,include_analytics:bool=True,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=external_only(request,ctx)
     if denied:return denied
     profile=await _marketplace_profile(db,ctx)
     if not profile:return {"success":True,"data":{"state":"CONFIRMED_EMPTY","profile":None,"qualifications":[],"analytics":None},"error":None,"request_id":request.state.correlation_id}
     version=(await db.execute(text("SELECT version,status,projection,completeness,missing_fields,submitted_at,approved_at,published_at FROM external_consultant_public_profile_versions WHERE profile_id=:profile AND version=:version"),{"profile":profile["id"],"version":profile["working_version"]})).mappings().first()
     qualifications=[dict(row) for row in (await db.execute(text("SELECT id,qualification_type,title,institution,award_year,country,registration_number,issuing_body,expiry_date,verification_status,credential_document_id,created_at,updated_at FROM external_consultant_qualifications WHERE profile_id=:profile ORDER BY created_at DESC"),{"profile":profile["id"]})).mappings().all()]
+    if not include_analytics:
+        return {"success":True,"data":{"state":"READY","profile":dict(profile),"version":dict(version) if version else None,"qualifications":qualifications,"analytics":None},"error":None,"request_id":request.state.correlation_id}
     analytics=(await db.execute(text("""SELECT
       (SELECT COUNT(*) FROM external_consultant_marketplace_events WHERE profile_id=:profile AND event_type='PROFILE_VIEW')::int profile_views,
       (SELECT COUNT(*) FROM external_consultant_marketplace_events WHERE profile_id=:profile AND event_type='ENROL_CLICK')::int enrol_clicks,

@@ -249,7 +249,7 @@ export function getCalendarSyncStatus(){return request('/calendar-sync');}
 export function prepareCalendarConnection(provider){return request('/calendar-sync/connections',{method:'POST',body:JSON.stringify({provider})});}
 export function importCalendarBusyBlock(id,payload){return request(`/calendar-sync/connections/${encodeURIComponent(id)}/busy-blocks`,{method:'POST',body:JSON.stringify(payload)});}
 export function detectExternalCalendarChange(id,payload){return request(`/calendar-sync/connections/${encodeURIComponent(id)}/external-changes`,{method:'POST',body:JSON.stringify(payload)});}
-export function getMarketplaceProfile(){return request('/marketplace/profile');}
+export function getMarketplaceProfile(includeAnalytics=true){return request(`/marketplace/profile?include_analytics=${includeAnalytics?'true':'false'}`);}
 export function getMarketplaceContact(){return request('/marketplace/contact');}
 export function saveMarketplaceContact(payload){return request('/marketplace/contact',{method:'PUT',body:JSON.stringify(payload)});}
 export async function uploadMarketplaceProfilePhoto(file){
