@@ -6,7 +6,7 @@ from app.config import get_settings
 
 MAX_DOCUMENT_BYTES = 50 * 1024 * 1024
 ALLOWED_CONTENT_TYPES = frozenset({
-    "application/pdf", "image/jpeg", "image/png", "text/plain", "text/csv",
+    "application/pdf", "image/jpeg", "image/png", "image/webp", "text/plain", "text/csv",
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.ms-excel",
@@ -14,7 +14,7 @@ ALLOWED_CONTENT_TYPES = frozenset({
 })
 EXTENSIONS_BY_TYPE = {
     "application/pdf": {".pdf"}, "image/jpeg": {".jpg", ".jpeg"},
-    "image/png": {".png"}, "text/plain": {".txt"}, "text/csv": {".csv"},
+    "image/png": {".png"}, "image/webp": {".webp"}, "text/plain": {".txt"}, "text/csv": {".csv"},
     "application/msword": {".doc"},
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {".docx"},
     "application/vnd.ms-excel": {".xls"},

@@ -72,7 +72,7 @@ test("marketplace contact and photo forms use persistent APIs and reload after s
   assert.match(profileApi, /marketplace\/contact/);
   assert.match(profileApi, /marketplace\/profile\/photo\?filename=/);
   assert.match(profileApi, /body:file/);
-  assert.match(marketplace, /Certificate image/);
+  assert.match(marketplace, /Certificate file/);
   assert.match(marketplace, /Add optional certificate/);
   assert.match(marketplace, /manual Super Admin review/);
 });

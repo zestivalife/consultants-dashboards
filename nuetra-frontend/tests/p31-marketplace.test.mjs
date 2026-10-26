@@ -138,7 +138,7 @@ test("real data readiness reuses governed P12 P13 P23 and P26 sources", () => {
     "Add governed service",
     "Add governed programme",
     "Add governed location",
-    "Certificate image",
+    "Certificate file",
     "Choose photo",
     "stored securely",
   ])

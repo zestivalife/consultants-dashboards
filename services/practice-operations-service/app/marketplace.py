@@ -52,8 +52,8 @@ class ProfilePhotoFinalise(BaseModel):
 
 class QualificationEvidencePrepare(BaseModel):
     filename:str=Field(min_length=1,max_length=255)
-    content_type:str=Field(pattern="^image/jpeg$")
-    size_bytes:int=Field(gt=0,le=1024*1024)
+    content_type:str=Field(pattern="^(image/(jpeg|png|webp)|application/pdf)$")
+    size_bytes:int=Field(gt=0,le=10*1024*1024)
 
 class QualificationEvidenceFinalise(BaseModel):
     document_id:UUID

@@ -6,11 +6,12 @@ const external = await readFile(new URL("../components/external/ExternalMarketpl
 const governance = await readFile(new URL("../components/platform/MarketplaceGovernanceModule.jsx", import.meta.url), "utf8");
 const api = await readFile(new URL("../lib/practiceOperationsApi.js", import.meta.url), "utf8");
 
-test("optional consultant qualification evidence uses the private JPEG upload contract", () => {
-  assert.match(external, /accept="\.jpg,\.jpeg,image\/jpeg"/);
-  assert.match(external, /Certificate image \(optional\)/);
-  assert.match(api, /file\.type!=='image\/jpeg'/);
-  assert.match(api, /file\.size>1024\*1024/);
+test("optional consultant qualification evidence supports common safe formats up to 10 MB", () => {
+  assert.match(external, /accept="\.jpg,\.jpeg,\.png,\.webp,\.pdf,image\/jpeg,image\/png,image\/webp,application\/pdf"/);
+  assert.match(external, /Certificate file \(optional\)/);
+  assert.match(api, /image\/webp/);
+  assert.match(api, /application\/pdf/);
+  assert.match(api, /file\.size>10\*1024\*1024/);
   assert.match(api, /evidence-finalise/);
 });
 

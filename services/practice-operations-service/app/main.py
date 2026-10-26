@@ -5957,22 +5957,20 @@ async def prepare_qualification_evidence(qualification_id:UUID,request:Request,b
     if not profile:return error(request,404,"PROFILE_NOT_FOUND","Create the public profile draft first")
     qualification=(await db.execute(text("SELECT id,title FROM external_consultant_qualifications WHERE id=:id AND profile_id=:profile AND tenant_id=:tenant"),{"id":qualification_id,"profile":profile["id"],"tenant":ctx["tenant_id"]})).mappings().first()
     if not qualification:return error(request,404,"QUALIFICATION_NOT_FOUND","Qualification was not found")
-    filename=body.filename.strip()
-    if not filename.lower().endswith((".jpg",".jpeg")):
-        return error(request,422,"INVALID_CREDENTIAL_EVIDENCE","Certificate evidence must be a JPEG or JPG image")
-    try:filename=validate_document(filename,"image/jpeg",body.size_bytes)
+    filename=body.filename.strip();content_type=body.content_type.lower()
+    try:filename=validate_document(filename,content_type,body.size_bytes)
     except InvalidDocument as exc:return error(request,422,"INVALID_CREDENTIAL_EVIDENCE",str(exc))
-    if body.size_bytes>1024*1024:return error(request,422,"INVALID_CREDENTIAL_EVIDENCE","Certificate evidence exceeds the 1 MB limit")
+    if body.size_bytes>10*1024*1024:return error(request,422,"INVALID_CREDENTIAL_EVIDENCE","Certificate evidence exceeds the 10 MB limit")
     document_id=uuid4();version_id=uuid4();key=new_credential_evidence_key(ctx["tenant_id"],profile["id"],qualification_id,filename)
-    try:url=signed_upload(key,"image/jpeg",body.size_bytes)
+    try:url=signed_upload(key,content_type,body.size_bytes)
     except StorageUnavailable:return error(request,503,"CREDENTIAL_EVIDENCE_STORAGE_UNAVAILABLE","Certificate storage is not configured")
     now=datetime.now(timezone.utc)
     await db.execute(text("INSERT INTO external_documents(id,tenant_id,client_id,title,category,visibility,status,tags,current_version,created_by,created_at,updated_at) VALUES (:id,:tenant,NULL,:title,'MARKETPLACE_CREDENTIAL','PRACTITIONER_PRIVATE','PENDING_UPLOAD',CAST(:tags AS jsonb),1,:actor,:now,:now)"),{"id":document_id,"tenant":ctx["tenant_id"],"title":f"{qualification['title']} certificate","tags":json.dumps(["marketplace-credential",str(qualification_id)]),"actor":ctx["user_id"],"now":now})
-    await db.execute(text("INSERT INTO external_document_versions(id,document_id,tenant_id,version,status,object_key,filename,content_type,size_bytes,checksum_sha256,uploaded_by,uploaded_at) VALUES (:id,:document,:tenant,1,'PENDING_UPLOAD',:key,:filename,'image/jpeg',:size,NULL,:actor,NULL)"),{"id":version_id,"document":document_id,"tenant":ctx["tenant_id"],"key":key,"filename":filename,"size":body.size_bytes,"actor":ctx["user_id"]})
+    await db.execute(text("INSERT INTO external_document_versions(id,document_id,tenant_id,version,status,object_key,filename,content_type,size_bytes,checksum_sha256,uploaded_by,uploaded_at) VALUES (:id,:document,:tenant,1,'PENDING_UPLOAD',:key,:filename,:content_type,:size,NULL,:actor,NULL)"),{"id":version_id,"document":document_id,"tenant":ctx["tenant_id"],"key":key,"filename":filename,"content_type":content_type,"size":body.size_bytes,"actor":ctx["user_id"]})
     await db.execute(text("INSERT INTO external_document_links(id,document_id,tenant_id,link_type,linked_id,created_at) VALUES (:id,:document,:tenant,'MARKETPLACE_QUALIFICATION',:linked,:now)"),{"id":uuid4(),"document":document_id,"tenant":ctx["tenant_id"],"linked":str(qualification_id),"now":now})
     await db.execute(text("INSERT INTO external_document_audit_events(id,document_id,tenant_id,event_type,actor_id,metadata,created_at) VALUES (:id,:document,:tenant,'UPLOAD_REQUESTED',:actor,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"document":document_id,"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"metadata":json.dumps({"qualification_id":str(qualification_id),"version_id":str(version_id)}),"now":now})
     await db.commit()
-    return {"success":True,"data":{"document_id":str(document_id),"version_id":str(version_id),"upload":{"url":url,"method":"PUT","expires_in":600,"required_headers":{"Content-Type":"image/jpeg"}}},"error":None,"request_id":request.state.correlation_id}
+    return {"success":True,"data":{"document_id":str(document_id),"version_id":str(version_id),"upload":{"url":url,"method":"PUT","expires_in":600,"required_headers":{"Content-Type":content_type}}},"error":None,"request_id":request.state.correlation_id}
 
 @app.post("/api/v1/practice-operations/marketplace/qualifications/{qualification_id}/evidence-finalise")
 async def finalise_qualification_evidence(qualification_id:UUID,request:Request,body:QualificationEvidenceFinalise,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
@@ -5982,7 +5980,7 @@ async def finalise_qualification_evidence(qualification_id:UUID,request:Request,
     if not profile:return error(request,404,"PROFILE_NOT_FOUND","Profile was not found")
     row=(await db.execute(text("SELECT q.credential_document_id,d.id document_id,v.id version_id,v.object_key,v.content_type,v.size_bytes FROM external_consultant_qualifications q JOIN external_document_links l ON l.link_type='MARKETPLACE_QUALIFICATION' AND l.linked_id=CAST(q.id AS text) JOIN external_documents d ON d.id=l.document_id AND d.tenant_id=q.tenant_id JOIN external_document_versions v ON v.document_id=d.id AND v.id=:version WHERE q.id=:qualification AND q.profile_id=:profile AND q.tenant_id=:tenant AND d.id=:document AND d.status='PENDING_UPLOAD' AND v.status='PENDING_UPLOAD' FOR UPDATE"),{"qualification":qualification_id,"profile":profile["id"],"tenant":ctx["tenant_id"],"document":body.document_id,"version":body.version_id})).mappings().first()
     if not row:return error(request,404,"CREDENTIAL_EVIDENCE_UPLOAD_NOT_FOUND","Pending certificate upload was not found")
-    try:verify_jpeg_object(row["object_key"],row["size_bytes"])
+    try:verify_uploaded_object(row["object_key"],row["content_type"],row["size_bytes"])
     except StorageUnavailable:return error(request,503,"CREDENTIAL_EVIDENCE_STORAGE_UNAVAILABLE","Certificate storage is not configured")
     except InvalidDocument as exc:return error(request,422,"CREDENTIAL_EVIDENCE_UPLOAD_INVALID",str(exc))
     now=datetime.now(timezone.utc)
@@ -6138,7 +6136,7 @@ async def admin_qualification_evidence(qualification_id:UUID,request:Request,ctx
     if denied:return denied
     row=(await db.execute(text("SELECT q.profile_id,d.id,d.tenant_id,d.title,v.object_key,v.filename,v.content_type,v.size_bytes FROM external_consultant_qualifications q JOIN external_documents d ON d.id=q.credential_document_id AND d.tenant_id=q.tenant_id JOIN external_document_versions v ON v.document_id=d.id AND v.version=d.current_version AND v.tenant_id=d.tenant_id WHERE q.id=:id AND d.status='AVAILABLE' AND v.status='AVAILABLE'"),{"id":qualification_id})).mappings().first()
     if not row:return error(request,404,"CREDENTIAL_EVIDENCE_NOT_AVAILABLE","Certificate evidence is not available")
-    if row["content_type"]!="image/jpeg" or row["size_bytes"]>1024*1024:return error(request,409,"CREDENTIAL_EVIDENCE_INVALID","Certificate evidence does not satisfy the JPEG and 1 MB policy")
+    if row["content_type"] not in {"image/jpeg","image/png","image/webp","application/pdf"} or row["size_bytes"]>10*1024*1024:return error(request,409,"CREDENTIAL_EVIDENCE_INVALID","Certificate evidence does not satisfy the supported-format and 10 MB policy")
     try:url=signed_view(row["object_key"],row["content_type"])
     except StorageUnavailable:return error(request,503,"CREDENTIAL_EVIDENCE_STORAGE_UNAVAILABLE","Certificate storage is not configured")
     await db.execute(text("INSERT INTO external_document_access_events(id,document_id,tenant_id,event_type,actor_id,created_at) VALUES (:id,:document,:tenant,'OPENED',:actor,:now)"),{"id":uuid4(),"document":row["id"],"tenant":row["tenant_id"],"actor":ctx["user_id"],"now":datetime.now(timezone.utc)})

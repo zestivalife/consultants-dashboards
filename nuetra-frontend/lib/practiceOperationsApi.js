@@ -267,12 +267,13 @@ export function saveMarketplaceProfile(payload){return request('/marketplace/pro
 export function submitMarketplaceProfile(){return request('/marketplace/profile/submit',{method:'POST'});}
 export function addMarketplaceQualification(payload){return request('/marketplace/qualifications',{method:'POST',body:JSON.stringify(payload)});}
 export async function uploadMarketplaceQualificationEvidence(qualificationId,file){
-  if(file.type!=='image/jpeg'||!/\.jpe?g$/i.test(file.name))throw new Error('Choose a JPEG or JPG certificate image.');
-  if(!file.size)throw new Error('The certificate image is empty.');
-  if(file.size>1024*1024)throw new Error('The certificate image must be 1 MB or smaller.');
-  const prepared=await request(`/marketplace/qualifications/${encodeURIComponent(qualificationId)}/evidence-upload`,{method:'POST',body:JSON.stringify({filename:file.name,content_type:'image/jpeg',size_bytes:file.size})});
+  const allowed=new Map([['image/jpeg',/\.jpe?g$/i],['image/png',/\.png$/i],['image/webp',/\.webp$/i],['application/pdf',/\.pdf$/i]]);
+  if(!allowed.has(file.type)||!allowed.get(file.type).test(file.name))throw new Error('Choose a JPG, JPEG, PNG, WEBP, or PDF certificate file.');
+  if(!file.size)throw new Error('The certificate file is empty.');
+  if(file.size>10*1024*1024)throw new Error('The certificate file must be 10 MB or smaller.');
+  const prepared=await request(`/marketplace/qualifications/${encodeURIComponent(qualificationId)}/evidence-upload`,{method:'POST',body:JSON.stringify({filename:file.name,content_type:file.type,size_bytes:file.size})});
   const upload=prepared.upload;
-  const response=await fetch(upload.url,{method:'PUT',headers:{'Content-Type':'image/jpeg'},body:file});
+  const response=await fetch(upload.url,{method:'PUT',headers:{'Content-Type':file.type},body:file});
   if(!response.ok)throw new Error('The certificate could not be transferred to secure storage. Please try again.');
   return request(`/marketplace/qualifications/${encodeURIComponent(qualificationId)}/evidence-finalise`,{method:'POST',body:JSON.stringify({document_id:prepared.document_id,version_id:prepared.version_id})});
 }
