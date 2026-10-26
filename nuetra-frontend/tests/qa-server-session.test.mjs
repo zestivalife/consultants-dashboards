@@ -24,11 +24,20 @@ test('handoff is consumed server-side and never enters rendered props or client 
 
 test('QA bootstrap fails closed outside the exact preview branch and QA backend',()=>{
   const page=read('pages/qa-handoff.js');
-  assert.match(page,/VERCEL_ENV === 'preview'/);
-  assert.match(page,/VERCEL_GIT_COMMIT_REF === QA_BRANCH/);
-  assert.match(page,/qa-diet-builder-acceptance/);
+  const session=read('lib/qaServerSession.js');
+  assert.match(page,/qaServerSessionEnabled\(\)/);
+  assert.match(session,/VERCEL_ENV === 'preview'/);
+  assert.match(session,/VERCEL_GIT_COMMIT_REF === QA_BRANCH/);
+  assert.match(session,/qa-diet-builder-acceptance/);
   assert.match(page,/notFound: true/);
   assert.match(page,/body\?\.qaSession\?\.role/);
+});
+
+test('QA session endpoint is disabled in production and clears stale cookies',()=>{
+  const endpoint=read('pages/api/qa/session.js');
+  assert.match(endpoint,/if \(!qaServerSessionEnabled\(\)\)/);
+  assert.match(endpoint,/QA_SESSION_DISABLED/);
+  assert.match(endpoint,/clearSessionCookie\(\)/);
 });
 
 test('Fiteatsy proxy injects the QA credential only on the server',()=>{
@@ -42,4 +51,11 @@ test('QA shell identity is resolved without writing bearer credentials',()=>{
   assert.match(auth,/fetch\('\/api\/qa\/session'/);
   assert.match(auth,/mode: 'qa-server-session'/);
   assert.doesNotMatch(auth,/setToken\(payload/);
+});
+
+test('backend-authenticated shells never trust a stored identity without a token',()=>{
+  const auth=read('context/AuthContext.js');
+  assert.match(auth,/if \(!BACKEND_AUTH_ENABLED && storedSession\?\.session\?\.user\)/);
+  assert.match(auth,/if \(BACKEND_AUTH_ENABLED && hasStoredTokens\)/);
+  assert.match(auth,/clearStoredSession\(\);\s*setUser\(null\)/);
 });

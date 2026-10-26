@@ -118,7 +118,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const storedSession = readStoredSessionRecord();
-    if (storedSession?.session?.user) {
+    if (!BACKEND_AUTH_ENABLED && storedSession?.session?.user) {
       setUser(storedSession.session.user);
     }
 
@@ -135,14 +135,26 @@ export function AuthProvider({ children }) {
       return;
     }
 
+    if (!BACKEND_AUTH_ENABLED) {
+      setIsLoading(false);
+      return;
+    }
+
     fetch('/api/qa/session', { credentials: 'same-origin', cache: 'no-store' })
       .then(async response => response.ok ? response.json() : null)
       .then(payload => {
-        if (!payload?.user || payload.user.accountPurpose !== 'QA_TEST') return;
+        if (!payload?.user || payload.user.accountPurpose !== 'QA_TEST') {
+          clearStoredSession();
+          setUser(null);
+          return;
+        }
         const session = { user: payload.user, loggedInAt: new Date().toISOString(), mode: 'qa-server-session', rememberMe: false };
         setUser(payload.user); persistSession(session, false);
       })
-      .catch(() => null)
+      .catch(() => {
+        clearStoredSession();
+        setUser(null);
+      })
       .finally(() => setIsLoading(false));
   }, []);
 

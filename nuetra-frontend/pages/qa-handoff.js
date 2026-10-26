@@ -1,23 +1,14 @@
-import { QA_PURPOSE, sessionCookie } from '../lib/qaServerSession';
+import { QA_PURPOSE, qaServerSessionEnabled, sessionCookie } from '../lib/qaServerSession';
 
-const QA_BRANCH = 'codex/diet-builder-food-proposal-ux-v1';
 const ALLOWED_ROLES = new Set(['consultant', 'senior_consultant']);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const qaBackend = () => (process.env.NEXT_PUBLIC_FITEATSY_API_URL || '').replace(/\/$/, '');
-
-const qaServerBootstrapEnabled = () => {
-  const backend = qaBackend();
-  return process.env.VERCEL_ENV === 'preview'
-    && process.env.VERCEL_GIT_COMMIT_REF === QA_BRANCH
-    && Boolean(process.env.QA_BROWSER_BOOTSTRAP_SHARED_SECRET)
-    && /^https:\/\/[^/]*qa-diet-builder-acceptance[^/]*\.up\.railway\.app$/i.test(backend);
-};
 
 export async function getServerSideProps({ query, req, res }) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
-  if (!qaServerBootstrapEnabled()) return { notFound: true };
+  if (!qaServerSessionEnabled()) return { notFound: true };
 
   const code = typeof query.code === 'string' ? query.code : '';
   const fixtureSetId = typeof query.fixtureSetId === 'string' ? query.fixtureSetId : '';

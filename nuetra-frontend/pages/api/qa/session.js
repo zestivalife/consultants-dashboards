@@ -1,7 +1,12 @@
-import { clearSessionCookie, QA_PURPOSE, readQaSession } from '../../../lib/qaServerSession';
+import { clearSessionCookie, QA_PURPOSE, qaServerSessionEnabled, readQaSession } from '../../../lib/qaServerSession';
 const BACKEND = (process.env.NEXT_PUBLIC_FITEATSY_API_URL || 'https://fiteatsy-mobile-production.up.railway.app').replace(/\/$/, '');
 export default async function handler(req,res) {
-  res.setHeader('Cache-Control','no-store'); const token=readQaSession(req);
+  res.setHeader('Cache-Control','no-store');
+  if (!qaServerSessionEnabled()) {
+    res.setHeader('Set-Cookie',clearSessionCookie());
+    return res.status(404).json({error:'QA_SESSION_DISABLED'});
+  }
+  const token=readQaSession(req);
   if (!token) return res.status(401).json({error:'QA_SESSION_REQUIRED'});
   if (req.method === 'DELETE') {
     await fetch(`${BACKEND}/v1/auth/logout`,{method:'POST',headers:{authorization:`Bearer ${token}`}}).catch(()=>null);
