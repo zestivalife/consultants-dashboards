@@ -74,7 +74,7 @@ test("marketplace contact and photo forms use persistent APIs and reload after s
   assert.match(profileApi, /body:file/);
   assert.match(marketplace, /Certificate image/);
   assert.match(marketplace, /Upload certificate/);
-  assert.match(marketplace, /current or future date/);
+  assert.match(marketplace, /manual Super Admin review/);
 });
 
 test("profile save verifies the server projection before showing success", () => {

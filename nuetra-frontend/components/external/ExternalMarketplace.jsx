@@ -941,10 +941,6 @@ const qualificationInitial = () => ({
   title: "",
   institution: "",
   award_year: new Date().getFullYear(),
-  country: "",
-  registration_number: "",
-  issuing_body: "",
-  expiry_date: "",
 });
 function Qualifications({ items, onDone, onMessage }) {
   const [form, setForm] = useState(qualificationInitial);
@@ -966,22 +962,12 @@ function Qualifications({ items, onDone, onMessage }) {
       next.institution = "Enter the awarding institution.";
     if (!Number.isInteger(year) || year < 1900 || year > currentYear)
       next.award_year = `Enter a year between 1900 and ${currentYear}.`;
-    if (!form.country.trim())
-      next.country = "Enter the country where it was awarded.";
-    if (!form.issuing_body.trim())
-      next.issuing_body =
-        "Enter the university, board, council, or issuing organisation.";
+    if (!certificate)
+      next.certificate = "Upload a clear photo of the certificate.";
     if (certificate && (certificate.type !== "image/jpeg" || !/\.jpe?g$/i.test(certificate.name)))
       next.certificate = "Choose a JPEG or JPG certificate image.";
     if (certificate?.size > 1024 * 1024)
       next.certificate = "The certificate image must be 1 MB or smaller.";
-    if (
-      form.expiry_date &&
-      form.expiry_date < new Date().toISOString().slice(0, 10)
-    ) {
-      next.expiry_date =
-        "Use a current or future date, or leave this blank when it does not expire.";
-    }
     if (Object.keys(next).length) {
       setErrors(next);
       onMessage("Please correct the highlighted qualification fields.");
@@ -995,18 +981,16 @@ function Qualifications({ items, onDone, onMessage }) {
         title: form.title.trim(),
         institution: form.institution.trim(),
         award_year: year,
-        country: form.country.trim(),
-        registration_number: form.registration_number.trim() || null,
-        issuing_body: form.issuing_body.trim(),
-        expiry_date: form.expiry_date || null,
+        country: null,
+        registration_number: null,
+        issuing_body: null,
+        expiry_date: null,
         credential_document_id: null,
       });
-      if (certificate) {
-        await uploadMarketplaceQualificationEvidence(saved.id, certificate);
-      }
+      await uploadMarketplaceQualificationEvidence(saved.id, certificate);
       setForm(qualificationInitial());
       setCertificate(null);
-      onMessage(certificate ? "Qualification and certificate saved for Super Admin verification." : "Qualification saved. Upload its certificate before verification.");
+      onMessage("Qualification and certificate saved for manual Super Admin review.");
       await onDone();
     } catch (error) {
       setErrors({ form: error.message });
@@ -1026,8 +1010,8 @@ function Qualifications({ items, onDone, onMessage }) {
           </p>
           <h3 className="mt-1 text-2xl font-bold">Add a qualification</h3>
           <p className="mt-2 max-w-2xl text-sm text-slate-600">
-            Enter the details exactly as they appear on the certificate.
-            Add a clear certificate image so Super Admin can verify the qualification before publication.
+            Add the qualification and upload a clear photo of its certificate.
+            Zestiva will review it manually before the profile is published.
           </p>
         </div>
         {errors.form && (
@@ -1040,22 +1024,14 @@ function Qualifications({ items, onDone, onMessage }) {
         )}
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           {[
-            ["title", "Degree / title *"],
+            ["title", "Qualification name *"],
             ["institution", "Institution *"],
-            ["award_year", "Year awarded *"],
-            ["country", "Country *"],
-            ["registration_number", "Registration number (optional)"],
-            ["issuing_body", "Issuing body *"],
-            ["expiry_date", "Expiry date (optional)"],
+            ["award_year", "Year completed *"],
           ].map(([key, label]) => (
             <Field key={key} label={label}>
               <Input
                 type={
-                  key === "award_year"
-                    ? "number"
-                    : key === "expiry_date"
-                      ? "date"
-                      : "text"
+                  key === "award_year" ? "number" : "text"
                 }
                 min={key === "award_year" ? 1900 : undefined}
                 max={
@@ -1083,17 +1059,12 @@ function Qualifications({ items, onDone, onMessage }) {
                   {errors[key]}
                 </p>
               )}
-              {key === "expiry_date" && (
-                <p className="mt-1 text-xs text-slate-500">
-                  Optional. Leave blank when the qualification does not expire.
-                </p>
-              )}
             </Field>
           ))}
         </div>
         <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4">
           <label className="block text-sm font-bold" htmlFor="new-qualification-certificate">Certificate image</label>
-          <p className="mt-1 text-xs leading-5 text-slate-600">JPEG or JPG only · maximum 1 MB. The image stays private and is shown only to authorised reviewers.</p>
+          <p className="mt-1 text-xs leading-5 text-slate-600">Take or choose a clear certificate photo. JPG or JPEG only, maximum 1 MB. It stays private and is used only for Zestiva's manual review.</p>
           <input id="new-qualification-certificate" type="file" accept=".jpg,.jpeg,image/jpeg" className="mt-3 block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-slate-950 file:px-4 file:py-2 file:font-bold file:text-white" onChange={(event)=>{const file=event.target.files?.[0]||null;setCertificate(file);setErrors((current)=>({...current,certificate:""}));}} />
           {certificate ? <p className="mt-2 text-xs font-semibold text-slate-700">Selected: {certificate.name} · {(certificate.size/1024).toFixed(0)} KB</p> : null}
           {errors.certificate ? <p role="alert" className="mt-2 text-xs font-semibold text-red-700">{errors.certificate}</p> : null}
@@ -1103,7 +1074,7 @@ function Qualifications({ items, onDone, onMessage }) {
             {busy ? "Saving qualification…" : "Save qualification"}
           </Button>
           <p className="text-xs text-slate-500">
-            * Required. Saving does not publish this qualification.
+            All four items are required. Saving does not publish the profile.
           </p>
         </div>
       </Surface>
@@ -1147,7 +1118,7 @@ function Qualifications({ items, onDone, onMessage }) {
         ) : (
           <FeedbackState
             title="No qualifications saved"
-            copy="Complete the required fields on the left. Evidence can be linked later; it does not block saving."
+            copy="Add a qualification and its certificate photo for manual review."
           />
         )}
       </Surface>

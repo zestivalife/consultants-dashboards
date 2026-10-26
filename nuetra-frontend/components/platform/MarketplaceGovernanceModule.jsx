@@ -588,7 +588,7 @@ function ReviewDrawer({ item, qualifications, onClose, onAct, onQualificationAct
         </section>
         <section className="mt-5 rounded-2xl border bg-white p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div><p className="text-xs font-bold uppercase tracking-wider text-blue-700">Credential review</p><h3 className="mt-1 text-lg font-bold">Qualifications</h3><p className="mt-1 text-sm text-slate-600">Verify only genuine qualifications supported by attached evidence.</p></div>
+            <div><p className="text-xs font-bold uppercase tracking-wider text-blue-700">Manual certificate review</p><h3 className="mt-1 text-lg font-bold">Qualifications</h3><p className="mt-1 text-sm text-slate-600">Compare each qualification with the certificate photo, then approve or reject it.</p></div>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">{qualifications.length} submitted</span>
           </div>
           {!qualifications.length ? <p className="mt-4 rounded-xl border border-dashed p-4 text-sm text-slate-600">No qualifications have been submitted for this profile.</p> : <div className="mt-4 space-y-3">{qualifications.map((qualification) => <QualificationReviewCard key={qualification.id} qualification={qualification} busyAction={busyAction} onDecision={qualificationAct} />)}</div>}
@@ -645,12 +645,31 @@ function QualificationReviewCard({ qualification, busyAction, onDecision }) {
   const verificationStatus = qualification.verification_status || "PENDING";
   const pending = verificationStatus === "PENDING";
   const working = busyAction.endsWith(`:${qualification.id}`);
+  useEffect(() => {
+    let active = true;
+    if (!evidenceAttached) return undefined;
+    setEvidenceState("loading");
+    setEvidenceError("");
+    getAdminMarketplaceQualificationEvidence(qualification.id)
+      .then((result) => {
+        if (!active) return;
+        setEvidence(result);
+        setEvidenceState("ready");
+      })
+      .catch((error) => {
+        if (!active) return;
+        setEvidenceError(error.message || "Certificate photo could not be loaded.");
+        setEvidenceState("error");
+      });
+    return () => { active = false; };
+  }, [evidenceAttached, qualification.id]);
   return <section className="rounded-xl border bg-slate-50 p-4" aria-label={`${qualification.title} qualification`}>
     <div className="flex flex-wrap items-start justify-between gap-3"><div><strong className="text-base">{qualification.title}</strong><p className="text-sm text-slate-600">{qualification.institution || "Institution not provided"}{qualification.award_year ? ` · ${qualification.award_year}` : ""}</p><p className="mt-1 text-xs text-slate-500">{[qualification.country, qualification.issuing_body, qualification.registration_number].filter(Boolean).join(" · ") || "No additional credential metadata"}</p></div><span className={`rounded-full px-3 py-1 text-xs font-bold ${verificationStatus === "VERIFIED" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{verificationStatus.replaceAll("_", " ")}</span></div>
-    <div className={`mt-3 rounded-lg p-3 text-sm ${evidenceAttached ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"}`}><strong>{evidenceAttached ? "Certificate attached" : "Certificate not attached"}</strong><p className="mt-1 text-xs">{evidenceAttached ? qualification.credential_document_title || "Private certificate image" : "The consultant must upload a JPEG certificate before verification."}</p>{evidenceAttached ? <button type="button" disabled={evidenceState==="loading"} onClick={async()=>{setEvidenceState("loading");setEvidenceError("");try{const result=await getAdminMarketplaceQualificationEvidence(qualification.id);setEvidence(result);setEvidenceState("ready");}catch(error){setEvidenceError(error.message||"Certificate could not be loaded.");setEvidenceState("error");}}} className="mt-3 min-h-11 rounded-xl border border-emerald-700 bg-white px-4 text-sm font-bold text-emerald-800">{evidenceState==="loading"?"Loading certificate…":"View certificate"}</button> : null}</div>
+    <div className={`mt-3 rounded-lg p-3 text-sm ${evidenceAttached ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"}`}><strong>{evidenceAttached ? "Certificate photo submitted" : "Certificate photo missing"}</strong><p className="mt-1 text-xs">{evidenceAttached ? "Review the image below and make a manual decision." : "Ask the consultant to upload a JPG or JPEG certificate photo."}</p></div>
     {evidenceError ? <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">{evidenceError}</p> : null}
-    {evidence?.view_url ? <figure className="mt-3 overflow-hidden rounded-xl border bg-white p-3"><img src={evidence.view_url} alt={`${qualification.title} certificate submitted for verification`} loading="lazy" decoding="async" className="max-h-[32rem] w-full rounded-lg object-contain"/><figcaption className="mt-2 text-xs text-slate-500">Private reviewer preview · link expires in 5 minutes</figcaption></figure> : null}
-    {pending ? <><label className="mt-3 block text-sm font-bold">Rejection reason <span className="font-normal text-slate-500">(required only when rejecting)</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} className="mt-2 min-h-16 w-full rounded-lg border bg-white p-3" /></label><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={!evidenceAttached || evidenceState!=="ready" || working} onClick={() => void onDecision(qualification, "VERIFY_QUALIFICATION")} className="min-h-11 rounded-xl bg-emerald-700 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{working ? "Working…" : "Verify qualification"}</button><button type="button" disabled={!reason.trim() || working} onClick={() => void onDecision(qualification, "REJECT_QUALIFICATION", reason.trim())} className="min-h-11 rounded-xl border border-red-300 px-4 text-sm font-bold text-red-700 disabled:cursor-not-allowed disabled:opacity-50">Reject qualification</button></div>{evidenceAttached && evidenceState!=="ready" ? <p className="mt-2 text-xs text-slate-500">Open the certificate before verifying this qualification.</p> : null}</> : null}
+    {evidenceState === "loading" ? <p role="status" className="mt-3 rounded-xl border bg-white p-4 text-sm font-semibold text-slate-600">Loading certificate photo…</p> : null}
+    {evidence?.view_url ? <figure className="mt-3 overflow-hidden rounded-xl border bg-white p-3"><img src={evidence.view_url} alt={`${qualification.title} certificate submitted for manual review`} loading="lazy" decoding="async" className="max-h-[32rem] w-full rounded-lg object-contain"/><figcaption className="mt-2 text-xs text-slate-500">Private certificate photo for Zestiva manual review</figcaption></figure> : null}
+    {pending ? <><label className="mt-3 block text-sm font-bold">Reason <span className="font-normal text-slate-500">(required only when rejecting)</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} className="mt-2 min-h-16 w-full rounded-lg border bg-white p-3" /></label><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={!evidenceAttached || evidenceState!=="ready" || working} onClick={() => void onDecision(qualification, "VERIFY_QUALIFICATION")} className="min-h-11 rounded-xl bg-emerald-700 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{working ? "Working…" : "Approve certificate"}</button><button type="button" disabled={!reason.trim() || working} onClick={() => void onDecision(qualification, "REJECT_QUALIFICATION", reason.trim())} className="min-h-11 rounded-xl border border-red-300 px-4 text-sm font-bold text-red-700 disabled:cursor-not-allowed disabled:opacity-50">Reject certificate</button></div></> : null}
   </section>;
 }
 

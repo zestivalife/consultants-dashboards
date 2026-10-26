@@ -27,9 +27,9 @@ test("Super Admin review presents structured marketplace data without raw JSON",
   assert.match(governance, /role="alert"/);
   assert.match(governance, /disabled=\{Boolean\(busyAction\)/);
   assert.match(governance, /Working…/);
-  assert.match(governance, /Credential review/);
-  assert.match(governance, /Verify qualification/);
-  assert.match(governance, /Open the certificate before verifying this qualification/);
+  assert.match(governance, /Manual certificate review/);
+  assert.match(governance, /Approve certificate/);
+  assert.match(governance, /Reject certificate/);
   assert.match(governance, /credential_document_id/);
 });
 

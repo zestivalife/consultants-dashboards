@@ -14,9 +14,18 @@ test("consultant qualification evidence accepts only JPEG up to one megabyte", (
   assert.match(api, /evidence-finalise/);
 });
 
-test("Super Admin opens the private certificate before verification", () => {
-  assert.match(governance, /View certificate/);
-  assert.match(governance, /Private reviewer preview/);
+test("Super Admin receives the private certificate for a simple manual decision", () => {
+  assert.match(governance, /Loading certificate photo/);
+  assert.match(governance, /Private certificate photo for Zestiva manual review/);
   assert.match(governance, /evidenceState!=="ready"/);
   assert.match(governance, /getAdminMarketplaceQualificationEvidence/);
+  assert.match(governance, /Approve certificate/);
+  assert.match(governance, /Reject certificate/);
+});
+
+test("consultant form avoids vault identifiers and institutional workflow language", () => {
+  assert.doesNotMatch(external, /Document Vault UUID/);
+  assert.doesNotMatch(external, /Link existing evidence/);
+  assert.match(external, /upload a clear photo of its certificate/i);
+  assert.match(external, /manual Super Admin review/);
 });
