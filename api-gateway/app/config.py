@@ -225,6 +225,7 @@ class Settings(BaseSettings):
             {"prefix": "/api/v1/profession-intake", "upstream": practice_operations_service_url},
             {"prefix": "/api/v1/client-portal", "upstream": practice_operations_service_url},
             {"prefix": "/api/v1/client-information", "upstream": practice_operations_service_url},
+            {"prefix": "/api/v1/public/consultant-profile-photos", "upstream": practice_operations_service_url},
             {"prefix": "/api/v1/public/consultants", "upstream": practice_operations_service_url},
         ]
 

@@ -119,11 +119,14 @@ class ServiceRoutesTest(unittest.TestCase):
         routes = {route["prefix"]: route["upstream"] for route in settings.get_service_routes()}
 
         self.assertEqual(routes["/api/v1/public/consultants"], "http://practice-operations-service:8006")
+        self.assertEqual(routes["/api/v1/public/consultant-profile-photos"], "http://practice-operations-service:8006")
+        self.assertTrue(_is_public("/api/v1/public/consultant-profile-photos/00000000-0000-0000-0000-000000000000"))
         self.assertTrue(_is_public("/api/v1/public/consultants"))
         self.assertTrue(_is_public("/api/v1/public/consultants/safe-slug"))
         self.assertTrue(_is_public("/api/v1/public/consultants/safe-slug/availability"))
         self.assertTrue(_is_public("/api/v1/public/consultants/safe-slug/enrolments"))
         self.assertFalse(_is_public("/api/v1/public/consultant"))
+        self.assertFalse(_is_public("/api/v1/public/consultant-profile-photos-admin"))
         self.assertFalse(_is_public("/api/v1/public/consultants-admin"))
         self.assertFalse(_is_public("/api/v1/practice-operations/admin/marketplace"))
         self.assertFalse(_is_public("/api/v1/practice-operations/marketplace/profile"))
