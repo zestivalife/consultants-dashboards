@@ -89,6 +89,13 @@ def test_super_admin_can_publish_a_submitted_profile_in_one_governed_decision():
     assert_transition("SUBMITTED_FOR_REVIEW","PUBLISHED")
     assert ADMIN_ACTIONS["PUBLISH_SUBMISSION"]=="PUBLISHED"
 
+def test_marketplace_decision_casts_reused_status_bind_for_asyncpg():
+    main=(ROOT/"app/main.py").read_text()
+    section=main[main.index('async def admin_marketplace_decision'):main.index('@app.post("/api/v1/practice-operations/admin/marketplace/qualifications/')]
+    assert "status=CAST(:status AS VARCHAR)" in section
+    assert "CASE WHEN CAST(:status AS VARCHAR)='APPROVED'" in section
+    assert "CASE WHEN CAST(:status AS VARCHAR)='PUBLISHED'" in section
+
 def test_super_admin_cannot_approve_or_publish_without_verified_qualification():
     main=(ROOT/"app/main.py").read_text()
     section=main[main.index('async def admin_marketplace_decision'):main.index('@app.post("/api/v1/practice-operations/admin/marketplace/qualifications/')]
