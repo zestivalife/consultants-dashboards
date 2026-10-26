@@ -6053,19 +6053,22 @@ async def admin_marketplace_decision(profile_id:UUID,request:Request,body:AdminD
     if action in REASON_REQUIRED and not body.reason:return error(request,422,"REASON_REQUIRED","A reason is required")
     profile=(await db.execute(text("SELECT id,tenant_id,status,public_visibility,working_version,approved_version,approval_valid,current_published_version FROM external_consultant_public_profiles WHERE id=:id FOR UPDATE"),{"id":profile_id})).mappings().first()
     if not profile:return error(request,404,"PROFILE_NOT_FOUND","Profile was not found")
-    if action in {"APPROVE_PROFILE","PUBLISH_PROFILE"}:
+    if action in {"APPROVE_PROFILE","PUBLISH_PROFILE","PUBLISH_SUBMISSION"}:
         verified=(await db.execute(text("SELECT COUNT(*) FROM external_consultant_qualifications WHERE profile_id=:profile AND verification_status='VERIFIED' AND (expiry_date IS NULL OR expiry_date>=CURRENT_DATE)"),{"profile":profile_id})).scalar_one()
         if not verified:return error(request,409,"VERIFIED_QUALIFICATION_REQUIRED","Verify at least one qualification before approval or publication")
-    if action=="PUBLISH_PROFILE" and not can_publish(profile):return error(request,409,"PROFILE_NOT_APPROVED_FOR_PUBLICATION","Approval and publication are separate; approve this exact version first")
+    direct_publish=action=="PUBLISH_SUBMISSION" and profile["status"] in {"SUBMITTED_FOR_REVIEW","UNDER_REVIEW"}
+    if action=="PUBLISH_SUBMISSION" and not direct_publish:return error(request,409,"INVALID_PROFILE_TRANSITION","Only a submitted profile can be published directly")
+    if action=="PUBLISH_PROFILE" and not can_publish(profile):return error(request,409,"PROFILE_NOT_APPROVED_FOR_PUBLICATION","Approve this exact version before publication")
     try:assert_transition(profile["status"],target)
     except ValueError as exc:return error(request,409,"INVALID_PROFILE_TRANSITION",str(exc))
     now=datetime.now(timezone.utc);fields={"status":target,"visibility":profile["public_visibility"],"valid":profile["approval_valid"],"approved":profile["approved_version"],"published":profile["current_published_version"],"suspended":now if target=="SUSPENDED" else None}
     if target=="APPROVED":fields.update(valid=True,approved=profile["working_version"])
     if target=="PUBLISHED":fields.update(published=profile["working_version"],visibility=True,suspended=None)
+    if direct_publish:fields.update(valid=True,approved=profile["working_version"])
     if target in {"UNPUBLISHED","SUSPENDED"}:fields.update(visibility=False)
     if target in {"CHANGES_REQUIRED","REJECTED"}:fields.update(valid=bool(profile["current_published_version"]),approved=None)
     await db.execute(text("UPDATE external_consultant_public_profiles SET status=:status,public_visibility=:visibility,approval_valid=:valid,approved_version=:approved,current_published_version=:published,suspended_at=:suspended,updated_at=:now WHERE id=:id"),{**fields,"now":now,"id":profile_id})
-    await db.execute(text("UPDATE external_consultant_public_profile_versions SET status=:status,approved_at=CASE WHEN :status='APPROVED' THEN :now ELSE approved_at END,published_at=CASE WHEN :status='PUBLISHED' THEN :now ELSE published_at END WHERE profile_id=:id AND version=:version"),{"status":target,"now":now,"id":profile_id,"version":profile["working_version"]})
+    await db.execute(text("UPDATE external_consultant_public_profile_versions SET status=:status,approved_at=CASE WHEN :status='APPROVED' OR :direct_publish THEN :now ELSE approved_at END,published_at=CASE WHEN :status='PUBLISHED' THEN :now ELSE published_at END WHERE profile_id=:id AND version=:version"),{"status":target,"direct_publish":direct_publish,"now":now,"id":profile_id,"version":profile["working_version"]})
     await _marketplace_audit(db,profile_id,profile["tenant_id"],action.replace("_PROFILE","") if action.startswith("PROFILE_") else action,ctx["user_id"],ctx["role"],body.reason,{"version":profile["working_version"]});await db.commit()
     return {"success":True,"data":{"status":target,"published":target=="PUBLISHED"},"error":None,"request_id":request.state.correlation_id}
 

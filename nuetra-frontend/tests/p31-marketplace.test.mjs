@@ -88,7 +88,8 @@ test("consultant workspace preserves approval publication separation and review 
 test("super admin marketplace provides governed states decisions diff and analytics", () => {
   for (const value of [
     "Super Admin authority",
-    "Approval and publication are independent",
+    "Review and publish consultant submissions",
+    "PUBLISH_SUBMISSION",
     "SUBMITTED_FOR_REVIEW",
     "UNDER_REVIEW",
     "CHANGES_REQUIRED",

@@ -1,6 +1,6 @@
 from pathlib import Path
 import pytest
-from app.marketplace import (PRIVATE_FIELDS,ProfileSave,assert_transition,can_publish,
+from app.marketplace import (ADMIN_ACTIONS,PRIVATE_FIELDS,ProfileSave,assert_transition,can_publish,
                              completeness,dedupe_key,public_projection,public_rating,publicly_visible,slug_base)
 
 ROOT=Path(__file__).parents[1]
@@ -85,10 +85,14 @@ def test_complete_super_admin_lifecycle_keeps_approval_and_publication_separate(
     approved={"status":"APPROVED","public_visibility":False,"approval_valid":True,"approved_version":2,"working_version":2,"suspended_at":None}
     assert can_publish(approved) and not publicly_visible(approved)
 
+def test_super_admin_can_publish_a_submitted_profile_in_one_governed_decision():
+    assert_transition("SUBMITTED_FOR_REVIEW","PUBLISHED")
+    assert ADMIN_ACTIONS["PUBLISH_SUBMISSION"]=="PUBLISHED"
+
 def test_super_admin_cannot_approve_or_publish_without_verified_qualification():
     main=(ROOT/"app/main.py").read_text()
     section=main[main.index('async def admin_marketplace_decision'):main.index('@app.post("/api/v1/practice-operations/admin/marketplace/qualifications/')]
-    assert 'action in {"APPROVE_PROFILE","PUBLISH_PROFILE"}' in section
+    assert 'action in {"APPROVE_PROFILE","PUBLISH_PROFILE","PUBLISH_SUBMISSION"}' in section
     assert 'VERIFIED_QUALIFICATION_REQUIRED' in section
 
 def test_rating_includes_only_published_verified_engagements_and_never_zero_stars():

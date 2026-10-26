@@ -24,7 +24,7 @@ const VIEWS = [
   "REJECTED",
   "SUSPENDED",
 ];
-const GOVERNANCE_CONTRACT = "Approval and publication are independent";
+const GOVERNANCE_CONTRACT = "Super Admin publication makes the reviewed profile visible";
 export default function MarketplaceGovernanceModule() {
   const [state, setState] = useState("loading");
   const [items, setItems] = useState([]);
@@ -77,8 +77,9 @@ export default function MarketplaceGovernanceModule() {
         </p>
         <h1 className="mt-2 text-3xl font-bold">Marketplace governance</h1>
         <p className="mt-2 text-sm text-slate-300">
-          Approval, publication and Homepage Showcase are separate governed
-          actions. Practice owners cannot access these controls.
+          Review and publish consultant submissions to the public directory.
+          Homepage Showcase remains a separate governed action. Practice owners
+          cannot access these controls.
         </p>
       </header>
       {notice && (
@@ -466,7 +467,7 @@ function ReviewDrawer({ item, onClose, onAct }) {
   const p = item.projection;
   const actions =
     item.status === "SUBMITTED_FOR_REVIEW"
-      ? ["START_REVIEW"]
+      ? ["PUBLISH_SUBMISSION", "REQUEST_CHANGES"]
       : item.status === "UNDER_REVIEW"
         ? ["REQUEST_CHANGES", "APPROVE_PROFILE", "REJECT_PROFILE"]
         : item.status === "APPROVED"
@@ -569,7 +570,7 @@ function ReviewDrawer({ item, onClose, onAct }) {
         )}
         </div>
         <footer className="sticky bottom-0 border-t bg-white p-5 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] sm:p-6">
-        {requiresReason ? <label className="block font-bold">Decision reason <span className="font-normal text-slate-500">(required when requesting changes or rejecting)</span><textarea value={reason} onChange={(e) => setReason(e.target.value)} className="mt-2 min-h-20 w-full rounded-xl border p-3" /></label> : actions.length ? <p className="text-sm text-slate-600">Advance this profile to the next governed review state.</p> : <p className="text-sm text-slate-600">No governance action is available for the current state.</p>}
+        {requiresReason ? <label className="block font-bold">Decision reason <span className="font-normal text-slate-500">(required when requesting changes or rejecting)</span><textarea value={reason} onChange={(e) => setReason(e.target.value)} className="mt-2 min-h-20 w-full rounded-xl border p-3" /></label> : actions.length ? <p className="text-sm text-slate-600">Publishing makes this exact submitted version visible in the consultant directory. A verified qualification is required.</p> : <p className="text-sm text-slate-600">No governance action is available for the current state.</p>}
         <div className="mt-3 flex flex-wrap gap-2">
           {actions.map((action) => (
             <button
@@ -577,7 +578,7 @@ function ReviewDrawer({ item, onClose, onAct }) {
               onClick={() => onAct(action, reason || null)}
               className="min-h-11 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white"
             >
-              {action.replaceAll("_", " ")}
+              {action === "PUBLISH_SUBMISSION" ? "Publish" : action.replaceAll("_", " ")}
             </button>
           ))}
         </div>

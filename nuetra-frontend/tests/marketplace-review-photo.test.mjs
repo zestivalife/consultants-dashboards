@@ -22,13 +22,14 @@ test("Super Admin review presents structured marketplace data without raw JSON",
   assert.doesNotMatch(governance, /JSON\.stringify\(v\)/);
   assert.match(governance, /sticky bottom-0/);
   assert.match(governance, /const requiresReason = actions\.some/);
-  assert.match(governance, /Advance this profile to the next governed review state/);
+  assert.match(governance, /Publishing makes this exact submitted version visible/);
 });
 
 test("Super Admin review explains independent review and website visibility", () => {
   assert.match(governance, /Review in Credentials queue/);
   assert.match(governance, /item\.public_visibility\?'Visible':'Hidden'/);
-  assert.match(governance, /Approval and publication are independent/);
+  assert.match(governance, /Super Admin publication makes the reviewed profile visible/);
+  assert.match(governance, /PUBLISH_SUBMISSION/);
 });
 
 test("Super Admin inventory opens the governed review surface for draft profiles", () => {
