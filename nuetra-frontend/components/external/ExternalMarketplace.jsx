@@ -1,48 +1,1463 @@
-import {useEffect,useState} from 'react';
-import {BadgeCheck,BarChart3,ExternalLink,FileCheck2,Inbox,RefreshCw,Star,UsersRound} from 'lucide-react';
-import {actOnMarketplaceEnrolment,addMarketplaceQualification,createSchedulingAvailability,deleteSchedulingAvailability,getMarketplaceContact,getMarketplaceEarnings,getMarketplaceProfile,getMarketplaceReadiness,listMarketplaceEnrolments,listMarketplaceReviews,reportMarketplaceReview,saveMarketplaceContact,saveMarketplaceProfile,submitMarketplaceProfile,uploadMarketplaceProfilePhoto} from '../../lib/practiceOperationsApi';
-import {Button,FeedbackState,Input,LoadingSkeleton,ProgressBar,StatusChip,Surface,TextArea} from './ui/ExternalUI';
-import {useAuth} from '../../context/AuthContext';
+import { useEffect, useState } from "react";
+import {
+  BadgeCheck,
+  BarChart3,
+  ExternalLink,
+  FileCheck2,
+  Inbox,
+  RefreshCw,
+  Star,
+  UsersRound,
+} from "lucide-react";
+import {
+  actOnMarketplaceEnrolment,
+  addMarketplaceQualification,
+  createSchedulingAvailability,
+  deleteSchedulingAvailability,
+  getMarketplaceContact,
+  getMarketplaceEarnings,
+  getMarketplaceProfile,
+  getMarketplaceReadiness,
+  listMarketplaceEnrolments,
+  listMarketplaceReviews,
+  reportMarketplaceReview,
+  saveMarketplaceContact,
+  saveMarketplaceProfile,
+  submitMarketplaceProfile,
+  uploadMarketplaceProfilePhoto,
+} from "../../lib/practiceOperationsApi";
+import {
+  Button,
+  FeedbackState,
+  Input,
+  LoadingSkeleton,
+  ProgressBar,
+  StatusChip,
+  Surface,
+  TextArea,
+} from "./ui/ExternalUI";
+import { useAuth } from "../../context/AuthContext";
 
-const EMPTY={display_name:'',professional_title:'',profession_code:'',profile_photo_url:'',specialisations:[],experience_years:0,previous_workplaces:[],bio:'',languages:[],consultation_modes:['ONLINE'],areas_of_focus:[],public_locations:[],services:[],programmes:[],session_duration:60,public_fee_from:null,public_fee_currency:null,accepting_new_clients:false};
-const PROFILE_CHOICES={
-  specialisations:['Clinical nutrition','Weight management','Diabetes nutrition','Sports nutrition','Maternal nutrition','Paediatric nutrition','Gut health','Therapeutic diets','Lifestyle management','Metabolic wellness'],
-  languages:['English','Hindi','Marathi','Gujarati','Bengali','Tamil','Telugu','Kannada','Malayalam','Punjabi'],
-  consultation_modes:[['ONLINE','Online video'],['IN_PERSON','In person'],['PHONE','Phone']],
-  session_duration:[30,45,60,75,90],
-  areas_of_focus:['Nutrition assessment','Diet planning','Weight management','Diabetes support','Metabolic wellness','Gut health','Sports performance','Maternal nutrition','Paediatric nutrition','Healthy eating habits'],
-  previous_workplaces:['Independent practice','Hospital','Clinic','Wellness centre','Corporate wellness','Sports academy','Community health programme','Telehealth platform'],
+const EMPTY = {
+  display_name: "",
+  professional_title: "",
+  profession_code: "",
+  profile_photo_url: "",
+  specialisations: [],
+  experience_years: 0,
+  previous_workplaces: [],
+  bio: "",
+  languages: [],
+  consultation_modes: ["ONLINE"],
+  areas_of_focus: [],
+  public_locations: [],
+  services: [],
+  programmes: [],
+  session_duration: 60,
+  public_fee_from: null,
+  public_fee_currency: null,
+  accepting_new_clients: false,
 };
-export function ExternalMarketplace(){const{user}=useAuth();const[state,setState]=useState('loading');const[data,setData]=useState(null);const[readiness,setReadiness]=useState(null);const[contact,setContact]=useState(null);const[form,setForm]=useState(EMPTY);const[tab,setTab]=useState('profile');const[message,setMessage]=useState('');const[dependencyWarnings,setDependencyWarnings]=useState([]);const[enrolments,setEnrolments]=useState(null);const[reviews,setReviews]=useState(null);const[earnings,setEarnings]=useState(null);const[saving,setSaving]=useState(false);
-  const load=async()=>{setState('loading');setDependencyWarnings([]);try{let value;try{value=await getMarketplaceProfile()}catch{value=await getMarketplaceProfile(false)}const[readyResult,contactResult]=await Promise.allSettled([getMarketplaceReadiness(),getMarketplaceContact()]);const warnings=[];if(readyResult.status==='fulfilled')setReadiness(readyResult.value);else{setReadiness(null);warnings.push('Services, programmes, locations and availability could not be loaded. Your core profile remains editable.')}if(contactResult.status==='fulfilled')setContact(contactResult.value.contact||null);else{setContact(null);warnings.push('Private contact details could not be loaded. Your core profile remains editable.')}setData(value);setForm({...EMPTY,...(value.version?.projection||{})});setDependencyWarnings(warnings);setState('ready')}catch(error){setMessage(error.message);setState('error')}};useEffect(()=>{load()},[]);
-  const save=async()=>{if(saving)return;setSaving(true);setMessage('');try{const result=await saveMarketplaceProfile(form);const persisted=await getMarketplaceProfile();const saved=persisted.version?.projection||{};if(JSON.stringify({...EMPTY,...saved})!==JSON.stringify({...EMPTY,...form}))throw new Error('The server response did not match the submitted profile. Please retry.');setData(persisted);setForm({...EMPTY,...saved});setMessage(`Draft version ${result.version} saved and verified.`)}catch(error){setMessage(error.message)}finally{setSaving(false)}};
-  const submit=async()=>{setMessage('');try{await submitMarketplaceProfile();setMessage('Submitted for Super Admin review. Approval will not publish the profile.');await load()}catch(error){setMessage(error.message)}};
-  const showEnrolments=async()=>{setTab('enrolments');if(!enrolments)try{setEnrolments(await listMarketplaceEnrolments())}catch(error){setMessage(error.message)}};
-  const showReviews=async()=>{setTab('reviews');if(!reviews)try{setReviews(await listMarketplaceReviews())}catch(error){setMessage(error.message)}};
-  const showEarnings=async()=>{setTab('earnings');setEarnings(null);try{setEarnings(await getMarketplaceEarnings())}catch(error){setEarnings({state:'FAILED_TO_LOAD',message:error.message})}};
-  if(state==='loading')return <LoadingSkeleton height="32rem" label="Loading marketplace profile"/>;if(state==='error')return <FeedbackState kind="error" title="Marketplace profile unavailable" copy={`${message}. No zero metrics are inferred.`} action={<Button icon={RefreshCw} onClick={load}>Retry</Button>}/>;
-  const profile=data.profile;const version=data.version;const analytics=data.analytics;return <div className="space-y-5"><header className="flex flex-col justify-between gap-4 rounded-3xl bg-slate-950 p-6 text-white sm:flex-row sm:items-center"><div><p className="text-xs font-bold uppercase tracking-widest text-cyan-300">Consultant marketplace</p><h2 className="mt-2 text-3xl font-bold">Public profile</h2><p className="mt-2 text-sm text-slate-300">Complete your consultant profile, submit it for Super Admin approval, then publish the approved version to the Zestiva Consultants directory. Approved does not mean published.</p></div><div><p className="mb-1 text-xs text-slate-300">Publication status</p><StatusChip tone={profile?.status==='PUBLISHED'?'success':'info'}>{profile?.status?.replaceAll('_',' ')||'DRAFT'}</StatusChip></div></header>
-    {dependencyWarnings.map(item=><p key={item} role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{item}</p>)}
-    <nav aria-label="Marketplace workspace" className="flex gap-2 overflow-x-auto">{[['profile','Public Profile'],['qualifications','Qualifications'],['enrolments','Enrolments'],['reviews','Reviews & Analytics'],['earnings','Marketplace Earnings']].map(([id,label])=><button key={id} onClick={()=>id==='enrolments'?showEnrolments():id==='reviews'?showReviews():id==='earnings'?showEarnings():setTab(id)} className={`min-h-11 shrink-0 rounded-xl px-4 text-sm font-bold ${tab===id?'bg-blue-700 text-white':'border bg-white'}`}>{label}</button>)}</nav>{message&&<p role="status" className="rounded-xl bg-blue-50 p-3 text-sm text-blue-900">{message}</p>}{tab==='profile'&&<ContactAndPhoto profile={profile} contact={contact} canonicalPhone={user?.phone||user?.mobile_number||user?.mobileNumber||''} form={form} setForm={setForm} ensureDraft={()=>saveMarketplaceProfile(form)} onReload={load} onMessage={setMessage}/>}
-    {tab==='profile'&&<div className="grid gap-5 xl:grid-cols-[1fr_320px]"><Surface><h3 className="text-xl font-bold">My professional profile</h3><p className="mt-1 text-sm text-slate-500">Choose the information that should appear in your governed public profile.</p><div className="mt-5 grid gap-5 sm:grid-cols-2"><Field label="Full name"><Input value={form.display_name} onChange={e=>setForm({...form,display_name:e.target.value})}/></Field><Field label="Professional title"><Input value={form.professional_title} onChange={e=>setForm({...form,professional_title:e.target.value})}/></Field><Field label="Profession code"><Input value={form.profession_code} onChange={e=>setForm({...form,profession_code:e.target.value.toUpperCase()})}/></Field><Field label="Years of professional experience"><Input type="number" min="0" value={form.experience_years} onChange={e=>setForm({...form,experience_years:Number(e.target.value)})}/></Field><Field label="Qualifications"><Input value={(data.qualifications||[]).map(item=>item.title).join(', ')} disabled/></Field><ChoiceField label="Specialisations" options={PROFILE_CHOICES.specialisations} value={form.specialisations} onChange={value=>setForm({...form,specialisations:value})}/><ChoiceField wide label="Previous workplaces" options={PROFILE_CHOICES.previous_workplaces} value={form.previous_workplaces} onChange={value=>setForm({...form,previous_workplaces:value})}/><Field wide label="Professional biography"><TextArea rows="6" value={form.bio} onChange={e=>setForm({...form,bio:e.target.value})}/></Field><ChoiceField label="Languages" options={PROFILE_CHOICES.languages} value={form.languages} onChange={value=>setForm({...form,languages:value})}/><ChoiceField label="Consultation modes" options={PROFILE_CHOICES.consultation_modes} value={form.consultation_modes} onChange={value=>setForm({...form,consultation_modes:value})}/><ChoiceField label="Session duration" options={PROFILE_CHOICES.session_duration.map(value=>[value,`${value} minutes`])} value={form.session_duration?[form.session_duration]:[]} multiple={false} onChange={value=>setForm({...form,session_duration:value[0]||null})}/><ChoiceField label="Areas of focus" options={PROFILE_CHOICES.areas_of_focus} value={form.areas_of_focus} onChange={value=>setForm({...form,areas_of_focus:value})}/><Field label="Fee from (minor units)"><Input type="number" min="0" value={form.public_fee_from??''} onChange={e=>setForm({...form,public_fee_from:e.target.value===''?null:Number(e.target.value)})}/></Field><label className="flex min-h-12 items-center gap-3 rounded-xl border p-3 text-sm font-bold"><input type="checkbox" checked={form.accepting_new_clients} onChange={e=>setForm({...form,accepting_new_clients:e.target.checked})}/>Accepting new clients</label></div><CatalogBuilder readiness={readiness} form={form} setForm={setForm}/><AvailabilityEditor items={readiness?.availability||[]} onChanged={load} onMessage={setMessage}/><div className="mt-6 flex flex-wrap gap-3"><Button variant="primary" onClick={save}>{saving?'Saving…':'Save profile'}</Button><Button onClick={submit} disabled={saving||!version||version.completeness<100||['SUBMITTED_FOR_REVIEW','UNDER_REVIEW'].includes(profile?.status)}>Submit for review</Button>{profile?.slug&&<a className="inline-flex min-h-11 items-center gap-2 rounded-xl border px-4 text-sm font-bold" href={`/consultants/${profile.slug}?preview=draft`} target="_blank" rel="noreferrer">Preview draft <ExternalLink size={16}/></a>}</div></Surface><Surface><h3 className="font-bold">Ready for review</h3><div className="mt-4"><ProgressBar value={version?.completeness||0} label="Profile completeness"/></div><ul className="mt-4 space-y-2 text-sm">{(version?.missing_fields||[]).map(item=><li key={item} className="rounded-lg bg-amber-50 p-2 text-amber-900">Add: {item}</li>)}</ul>{version?.completeness===100?<p className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">Your profile is ready to submit for Super Admin review.</p>:<p className="mt-4 text-sm text-slate-600">Complete the items above, then save once to enable submission.</p>}<p className="mt-5 text-xs text-slate-500">Qualification evidence is verified during Super Admin review. Only an explicitly published, approved profile appears publicly.</p></Surface></div>}
-    {tab==='qualifications'&&<Qualifications items={data.qualifications||[]} onDone={load} onMessage={setMessage}/>}
-    {tab==='enrolments'&&<Surface><h3 className="text-xl font-bold">New enrolment requests</h3>{enrolments===null?<LoadingSkeleton/>:enrolments.state==='CONFIRMED_EMPTY'?<FeedbackState title="No confirmed enrolment requests" copy="A failed request is never shown as an empty inbox."/>:<div className="mt-4 divide-y">{enrolments.items.map(item=><article key={item.id} className="py-4"><div className="flex flex-wrap items-center justify-between gap-2"><strong>{item.full_name}</strong><StatusChip>{item.status}</StatusChip></div><p className="mt-1 text-sm text-slate-500">{item.consultation_mode||'Mode not selected'} · {item.preferred_at?new Date(item.preferred_at).toLocaleString():'No preferred slot'}</p><div className="mt-3 flex flex-wrap gap-2"><Button size="small" onClick={()=>location.hash='leads'}>Open lead</Button>{[['Contact','CONTACT'],['Accept','ACCEPT'],['Book','BOOK'],['Decline','DECLINE'],['Convert','CONVERT']].map(([label,action])=><Button key={action} size="small" onClick={async()=>{try{await actOnMarketplaceEnrolment(item.id,action);setMessage(`${label} completed.`);setEnrolments(await listMarketplaceEnrolments())}catch(error){setMessage(error.message)}}}>{label}</Button>)}</div></article>)}</div>}</Surface>}
-    {tab==='reviews'&&<><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[[BarChart3,'Profile views',analytics?.profile_views],[UsersRound,'Enrolments',analytics?.enrolments?.total],[Star,'Verified reviews',analytics?.review_count],[BadgeCheck,'Average rating',analytics?.average_rating||'New on Zestiva']].map(([Icon,label,value])=><Surface key={label}><Icon className="text-blue-700"/><p className="mt-4 text-sm text-slate-500">{label}</p><strong className="mt-1 block text-2xl">{value??'—'}</strong></Surface>)}</div><Surface><h3 className="text-xl font-bold">Review history</h3>{reviews?.state==='CONFIRMED_EMPTY'?<FeedbackState title="No verified reviews yet" copy="A failed review request is never rendered as zero."/>:<div className="mt-4 divide-y">{reviews?.items?.map(item=><article key={item.id} className="py-4"><div className="flex justify-between"><strong>{item.overall_rating}/5</strong><StatusChip>{item.status}</StatusChip></div><p className="mt-2 text-sm">{item.review_text||'No written review.'}</p><Button size="small" onClick={async()=>{const reason=window.prompt('Why should Super Admin review this item?');if(reason){await reportMarketplaceReview(item.id,reason);setMessage('Review reported for independent moderation.');setReviews(await listMarketplaceReviews())}}}>Report review</Button></article>)}</div>}</Surface></>}
-    {tab==='earnings'&&<MarketplaceEarnings data={earnings} retry={showEarnings}/>}
-  </div>}
-function MarketplaceEarnings({data,retry}){if(!data)return <LoadingSkeleton label="Loading marketplace earnings"/>;if(data.state==='FAILED_TO_LOAD')return <FeedbackState kind="error" title="Earnings unavailable" copy={`${data.message}. No zero earnings are inferred.`} action={<Button onClick={retry}>Retry</Button>}/>;const currency=data.currency||'—';return <div><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">{[['Gross',data.gross_minor],['Platform Fees',data.platform_fee_minor],['Net Earnings',data.net_earnings_minor],['Pending Payout',data.pending_payout_minor],['Paid Payout',data.paid_payout_minor]].map(([label,value])=><Surface key={label}><p className="text-sm text-slate-500">{label}</p><strong className="mt-2 block text-2xl">{data.state==='CONFIRMED_EMPTY'?'No recorded activity':`${currency} ${value}`}</strong></Surface>)}</div><p className="mt-4 text-sm text-slate-500">Amounts are deterministic minor-unit ledger projections. Paid means settlement evidence exists.</p></div>}
-function Field({label,wide,children}){return <label className={`text-sm font-bold ${wide?'sm:col-span-2':''}`}>{label}<span className="mt-2 block">{children}</span></label>}
-function ChoiceField({label,options,value=[],onChange,multiple=true,wide=false}){const normalized=options.map(option=>Array.isArray(option)?option:[option,option]);const selected=new Set(value);const toggle=option=>{if(!multiple){onChange([option]);return}onChange(selected.has(option)?value.filter(item=>item!==option):[...value,option])};return <fieldset className={wide?'sm:col-span-2':''}><legend className="text-sm font-bold">{label}</legend><div className="mt-2 flex flex-wrap gap-2">{normalized.map(([option,copy])=><button type="button" key={option} aria-pressed={selected.has(option)} onClick={()=>toggle(option)} className={`min-h-11 rounded-full border px-4 text-sm font-semibold transition ${selected.has(option)?'border-slate-950 bg-slate-950 text-white shadow-sm':'border-slate-200 bg-white text-slate-700 hover:border-blue-400 hover:bg-blue-50'}`}>{copy}</button>)}</div></fieldset>}
-const COUNTRIES=[['IN','India','+91'],['US','United States','+1'],['GB','United Kingdom','+44'],['AE','United Arab Emirates','+971'],['SG','Singapore','+65'],['AU','Australia','+61'],['CA','Canada','+1']];
-function ContactAndPhoto({profile,contact,canonicalPhone,form,setForm,ensureDraft,onReload,onMessage}){const[country,setCountry]=useState(contact?.country_iso2||'IN');const[number,setNumber]=useState(contact?.national_number||'');const[busy,setBusy]=useState('');const[preview,setPreview]=useState(form.profile_photo_url||'');useEffect(()=>{setPreview(form.profile_photo_url||'')},[form.profile_photo_url]);const saveContact=async()=>{setBusy('contact');try{const saved=await saveMarketplaceContact({country_iso2:country,national_number:number});onMessage(`Telephone ${saved.phone_e164} saved and verified.`);await onReload()}catch(error){onMessage(error.message)}finally{setBusy('')}};const choose=async event=>{const file=event.target.files?.[0];if(!file)return;if(!['image/jpeg','image/png'].includes(file.type)||file.size>5*1024*1024){onMessage('Use a JPEG or PNG image no larger than 5 MB.');event.target.value='';return}const local=URL.createObjectURL(file);setPreview(local);setBusy('photo');try{if(!profile){onMessage('Saving your profile draft before uploading the photo…');await ensureDraft()}const saved=await uploadMarketplaceProfilePhoto(file);setForm(current=>({...current,profile_photo_url:saved.profile_photo_url}));setPreview(saved.profile_photo_url);onMessage('Profile photo uploaded and verified after reload.');await onReload()}catch(error){setPreview(form.profile_photo_url||'');onMessage(error.message)}finally{URL.revokeObjectURL(local);setBusy('');event.target.value=''}};const existing=contact?.phone_e164||canonicalPhone;return <Surface><div className="grid gap-6 lg:grid-cols-2"><section><h3 className="font-bold">Contact telephone</h3><p className="mt-1 text-xs text-slate-500">Your existing account telephone is reused; it is never published unless the marketplace policy explicitly permits it.</p>{existing?<div className="mt-4 rounded-2xl border bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-wider text-slate-500">Account telephone</p><p className="mt-1 font-bold">{existing}</p></div>:<><div className="mt-4 grid gap-3 sm:grid-cols-[12rem_1fr]"><select aria-label="Telephone country" value={country} onChange={e=>setCountry(e.target.value)} className="min-h-11 rounded-xl border px-3">{COUNTRIES.map(([iso,name,code])=><option key={iso} value={iso}>{name} ({code})</option>)}</select><Input aria-label="National telephone number" inputMode="tel" value={number} onChange={e=>setNumber(e.target.value)} placeholder="National number"/></div><Button className="mt-3" disabled={busy||!number.trim()} onClick={saveContact}>{busy==='contact'?'Saving…':'Save telephone'}</Button></>}</section><section><h3 className="font-bold">Profile photo</h3><p className="mt-1 text-xs text-slate-500">JPEG or PNG, maximum 5 MB. The photo is stored securely and verified after upload.</p><div className="mt-4 flex items-center gap-4">{preview?<img src={preview} alt="Profile photo preview" className="h-24 w-24 rounded-2xl border object-cover"/>:<div className="grid h-24 w-24 place-items-center rounded-2xl border border-dashed text-xs text-slate-400">No photo</div>}<label className="inline-flex min-h-11 cursor-pointer items-center rounded-xl border px-4 text-sm font-bold">{busy==='photo'?'Uploading…':'Choose photo'}<input className="sr-only" type="file" accept="image/jpeg,image/png" disabled={Boolean(busy)} onChange={choose}/></label></div></section></div></Surface>}
-function Qualifications({items,onDone,onMessage}){const[form,setForm]=useState({qualification_type:'DEGREE',title:'',institution:'',award_year:new Date().getFullYear(),country:'',registration_number:'',issuing_body:'',expiry_date:'',credential_document_id:''});const add=async()=>{const documentId=form.credential_document_id.trim();if(documentId&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(documentId)){onMessage('Private vault document ID must be a valid document UUID. Leave it blank if evidence has not been uploaded yet.');return}if(form.expiry_date&&form.expiry_date<new Date().toISOString().slice(0,10)){onMessage('Expiry date must be current or future. Leave it blank when this qualification does not expire.');return}try{await addMarketplaceQualification({...form,expiry_date:form.expiry_date||null,credential_document_id:documentId||null});onMessage('Qualification added for independent verification.');onDone()}catch(error){onMessage(error.message)}};return <div className="grid gap-5 lg:grid-cols-2"><Surface><h3 className="text-xl font-bold">Add qualification</h3><div className="mt-4 space-y-3">{[['title','Degree / title'],['institution','Institution'],['award_year','Year'],['country','Country'],['registration_number','Registration number'],['issuing_body','Issuing body'],['expiry_date','Expiry date'],['credential_document_id','Private vault document ID']].map(([key,label])=><Field key={key} label={label}><Input type={key==='award_year'?'number':key==='expiry_date'?'date':'text'} placeholder={key==='credential_document_id'?'Optional UUID from Document Vault':''} value={form[key]} onChange={e=>setForm({...form,[key]:key==='award_year'?Number(e.target.value):e.target.value})}/>{key==='credential_document_id'&&<p className="mt-1 text-xs text-slate-500">Optional. Use the UUID of an existing private governed document; do not enter a filename or reference code.</p>}{key==='expiry_date'&&<p className="mt-1 text-xs text-slate-500">Optional. Leave blank when the qualification does not expire.</p>}</Field>)}<Button variant="primary" onClick={add}>Add credential</Button></div></Surface><Surface><h3 className="text-xl font-bold">Verification</h3>{items.length?<div className="mt-4 divide-y">{items.map(item=><article className="py-3" key={item.id}><div className="flex justify-between gap-3"><strong>{item.title}</strong><StatusChip tone={item.verification_status==='VERIFIED'?'success':'neutral'}>{item.verification_status}</StatusChip></div><p className="mt-1 text-sm text-slate-500">{item.institution} · {item.award_year}</p><p className="mt-1 text-xs text-slate-400">Evidence remains private in Document Vault.</p></article>)}</div>:<FeedbackState title="No qualifications added" copy="Add one genuine qualification to submit the profile. Super Admin verifies it before approval or publication."/>}</Surface></div>}
-function CatalogBuilder({readiness,form,setForm}){
-  const addService=id=>{const source=readiness?.appointment_types?.find(item=>String(item.id)===id);if(!source||form.services.some(item=>String(item.id)===id))return;setForm({...form,services:[...form.services,{id:String(source.id),name:source.name,description:source.description,duration:source.duration_minutes,mode:source.location_type,location_id:null,fee:null,currency:null,enrolment_mode:'REQUEST_ENROLMENT',active:true}]})};
-  const addProgramme=id=>{const source=readiness?.packages?.find(item=>String(item.id)===id);if(!source||form.programmes.some(item=>String(item.id)===id))return;setForm({...form,programmes:[...form.programmes,{id:String(source.id),name:source.name,description:source.description,fee:source.price_minor,currency:source.currency||null,active:true}]})};
-  const addLocation=id=>{const source=readiness?.locations?.find(item=>String(item.id)===id);if(!source||form.public_locations.some(item=>String(item.id)===id))return;setForm({...form,public_locations:[...form.public_locations,{id:String(source.id),name:source.name,mode:'IN_PERSON'}]})};
-  const remove=(collection,id)=>setForm({...form,[collection]:form[collection].filter(item=>String(item.id)!==String(id))});
-  const selected=[['services','Services',form.services],['programmes','Programmes',form.programmes],['public_locations','Locations',form.public_locations]];
-  return <section className="mt-6 rounded-2xl bg-slate-50 p-4"><h4 className="font-bold">Governed catalogue</h4><p className="mt-1 text-xs text-slate-500">Select existing P13 services, P12 programmes and P26 locations. This does not create duplicate catalogue records.</p><div className="mt-4 grid gap-3 sm:grid-cols-3"><select aria-label="Add governed service" defaultValue="" onChange={e=>{addService(e.target.value);e.target.value=''}} className="min-h-11 rounded-xl border bg-white px-3"><option value="">Add service…</option>{readiness?.appointment_types?.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select><select aria-label="Add governed programme" defaultValue="" onChange={e=>{addProgramme(e.target.value);e.target.value=''}} className="min-h-11 rounded-xl border bg-white px-3"><option value="">Add programme…</option>{readiness?.packages?.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select><select aria-label="Add governed location" defaultValue="" onChange={e=>{addLocation(e.target.value);e.target.value=''}} className="min-h-11 rounded-xl border bg-white px-3"><option value="">Add location…</option>{readiness?.locations?.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></div><div className="mt-4 grid gap-3 sm:grid-cols-3">{selected.map(([key,label,items])=><div key={key}><p className="text-xs font-bold text-slate-600">{label}</p><div className="mt-2 space-y-2">{items.length?items.map(item=><div key={item.id} className="flex items-center justify-between rounded-lg border bg-white px-3 py-2 text-xs"><span>{item.name}</span><button type="button" aria-label={`Remove ${item.name}`} onClick={()=>remove(key,item.id)} className="min-h-9 px-2 font-bold text-red-700">Remove</button></div>):<p className="text-xs text-slate-500">None selected</p>}</div></div>)}</div><p className="mt-3 text-xs">Availability windows: {readiness?.availability?.length??'unavailable'}</p></section>
+const PROFILE_CHOICES = {
+  specialisations: [
+    "Clinical nutrition",
+    "Weight management",
+    "Diabetes nutrition",
+    "Sports nutrition",
+    "Maternal nutrition",
+    "Paediatric nutrition",
+    "Gut health",
+    "Therapeutic diets",
+    "Lifestyle management",
+    "Metabolic wellness",
+  ],
+  languages: [
+    "English",
+    "Hindi",
+    "Marathi",
+    "Gujarati",
+    "Bengali",
+    "Tamil",
+    "Telugu",
+    "Kannada",
+    "Malayalam",
+    "Punjabi",
+  ],
+  consultation_modes: [
+    ["ONLINE", "Online video"],
+    ["IN_PERSON", "In person"],
+    ["PHONE", "Phone"],
+  ],
+  session_duration: [30, 45, 60, 75, 90],
+  areas_of_focus: [
+    "Nutrition assessment",
+    "Diet planning",
+    "Weight management",
+    "Diabetes support",
+    "Metabolic wellness",
+    "Gut health",
+    "Sports performance",
+    "Maternal nutrition",
+    "Paediatric nutrition",
+    "Healthy eating habits",
+  ],
+  previous_workplaces: [
+    "Independent practice",
+    "Hospital",
+    "Clinic",
+    "Wellness centre",
+    "Corporate wellness",
+    "Sports academy",
+    "Community health programme",
+    "Telehealth platform",
+  ],
+};
+export function ExternalMarketplace() {
+  const { user } = useAuth();
+  const [state, setState] = useState("loading");
+  const [data, setData] = useState(null);
+  const [readiness, setReadiness] = useState(null);
+  const [contact, setContact] = useState(null);
+  const [form, setForm] = useState(EMPTY);
+  const [tab, setTab] = useState("profile");
+  const [message, setMessage] = useState("");
+  const [dependencyWarnings, setDependencyWarnings] = useState([]);
+  const [enrolments, setEnrolments] = useState(null);
+  const [reviews, setReviews] = useState(null);
+  const [earnings, setEarnings] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const load = async () => {
+    setState("loading");
+    setDependencyWarnings([]);
+    try {
+      let value;
+      try {
+        value = await getMarketplaceProfile();
+      } catch {
+        value = await getMarketplaceProfile(false);
+      }
+      const [readyResult, contactResult] = await Promise.allSettled([
+        getMarketplaceReadiness(),
+        getMarketplaceContact(),
+      ]);
+      const warnings = [];
+      if (readyResult.status === "fulfilled") setReadiness(readyResult.value);
+      else {
+        setReadiness(null);
+        warnings.push(
+          "Services, programmes, locations and availability could not be loaded. Your core profile remains editable.",
+        );
+      }
+      if (contactResult.status === "fulfilled")
+        setContact(contactResult.value.contact || null);
+      else {
+        setContact(null);
+        warnings.push(
+          "Private contact details could not be loaded. Your core profile remains editable.",
+        );
+      }
+      setData(value);
+      setForm({ ...EMPTY, ...(value.version?.projection || {}) });
+      setDependencyWarnings(warnings);
+      setState("ready");
+    } catch (error) {
+      setMessage(error.message);
+      setState("error");
+    }
+  };
+  useEffect(() => {
+    load();
+  }, []);
+  const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      const result = await saveMarketplaceProfile(form);
+      const persisted = await getMarketplaceProfile();
+      const saved = persisted.version?.projection || {};
+      if (
+        JSON.stringify({ ...EMPTY, ...saved }) !==
+        JSON.stringify({ ...EMPTY, ...form })
+      )
+        throw new Error(
+          "The server response did not match the submitted profile. Please retry.",
+        );
+      setData(persisted);
+      setForm({ ...EMPTY, ...saved });
+      setMessage(`Draft version ${result.version} saved and verified.`);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const submit = async () => {
+    setMessage("");
+    try {
+      await submitMarketplaceProfile();
+      setMessage(
+        "Submitted for Super Admin review. Approval will not publish the profile.",
+      );
+      await load();
+    } catch (error) {
+      setMessage(error.message);
+    }
+  };
+  const showEnrolments = async () => {
+    setTab("enrolments");
+    if (!enrolments)
+      try {
+        setEnrolments(await listMarketplaceEnrolments());
+      } catch (error) {
+        setMessage(error.message);
+      }
+  };
+  const showReviews = async () => {
+    setTab("reviews");
+    if (!reviews)
+      try {
+        setReviews(await listMarketplaceReviews());
+      } catch (error) {
+        setMessage(error.message);
+      }
+  };
+  const showEarnings = async () => {
+    setTab("earnings");
+    setEarnings(null);
+    try {
+      setEarnings(await getMarketplaceEarnings());
+    } catch (error) {
+      setEarnings({ state: "FAILED_TO_LOAD", message: error.message });
+    }
+  };
+  if (state === "loading")
+    return (
+      <LoadingSkeleton height="32rem" label="Loading marketplace profile" />
+    );
+  if (state === "error")
+    return (
+      <FeedbackState
+        kind="error"
+        title="Marketplace profile unavailable"
+        copy={`${message}. No zero metrics are inferred.`}
+        action={
+          <Button icon={RefreshCw} onClick={load}>
+            Retry
+          </Button>
+        }
+      />
+    );
+  const profile = data.profile;
+  const version = data.version;
+  const analytics = data.analytics;
+  return (
+    <div className="space-y-5">
+      <header className="flex flex-col justify-between gap-4 rounded-3xl bg-slate-950 p-6 text-white sm:flex-row sm:items-center">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-widest text-cyan-300">
+            Consultant marketplace
+          </p>
+          <h2 className="mt-2 text-3xl font-bold">Public profile</h2>
+          <p className="mt-2 text-sm text-slate-300">
+            Complete your consultant profile, submit it for Super Admin
+            approval, then publish the approved version to the Zestiva
+            Consultants directory. Approved does not mean published.
+          </p>
+        </div>
+        <div>
+          <p className="mb-1 text-xs text-slate-300">Publication status</p>
+          <StatusChip
+            tone={profile?.status === "PUBLISHED" ? "success" : "info"}
+          >
+            {profile?.status?.replaceAll("_", " ") || "DRAFT"}
+          </StatusChip>
+        </div>
+      </header>
+      {dependencyWarnings.map((item) => (
+        <p
+          key={item}
+          role="alert"
+          className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+        >
+          {item}
+        </p>
+      ))}
+      <nav
+        aria-label="Marketplace workspace"
+        className="flex gap-2 overflow-x-auto"
+      >
+        {[
+          ["profile", "Public Profile"],
+          ["qualifications", "Qualifications"],
+          ["enrolments", "Enrolments"],
+          ["reviews", "Reviews & Analytics"],
+          ["earnings", "Marketplace Earnings"],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() =>
+              id === "enrolments"
+                ? showEnrolments()
+                : id === "reviews"
+                  ? showReviews()
+                  : id === "earnings"
+                    ? showEarnings()
+                    : setTab(id)
+            }
+            className={`min-h-11 shrink-0 rounded-xl px-4 text-sm font-bold ${tab === id ? "bg-blue-700 text-white" : "border bg-white"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+      {message && (
+        <p
+          role="status"
+          className="rounded-xl bg-blue-50 p-3 text-sm text-blue-900"
+        >
+          {message}
+        </p>
+      )}
+      {tab === "profile" && (
+        <ContactAndPhoto
+          profile={profile}
+          contact={contact}
+          canonicalPhone={
+            user?.phone || user?.mobile_number || user?.mobileNumber || ""
+          }
+          form={form}
+          setForm={setForm}
+          ensureDraft={() => saveMarketplaceProfile(form)}
+          onReload={load}
+          onMessage={setMessage}
+        />
+      )}
+      {tab === "profile" && (
+        <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
+          <Surface>
+            <h3 className="text-xl font-bold">My professional profile</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              Choose the information that should appear in your governed public
+              profile.
+            </p>
+            <div className="mt-5 grid gap-5 sm:grid-cols-2">
+              <Field label="Full name">
+                <Input
+                  value={form.display_name}
+                  onChange={(e) =>
+                    setForm({ ...form, display_name: e.target.value })
+                  }
+                />
+              </Field>
+              <Field label="Professional title">
+                <Input
+                  value={form.professional_title}
+                  onChange={(e) =>
+                    setForm({ ...form, professional_title: e.target.value })
+                  }
+                />
+              </Field>
+              <Field label="Profession code">
+                <Input
+                  value={form.profession_code}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      profession_code: e.target.value.toUpperCase(),
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Years of professional experience">
+                <Input
+                  type="number"
+                  min="0"
+                  value={form.experience_years}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      experience_years: Number(e.target.value),
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Qualifications">
+                <Input
+                  value={(data.qualifications || [])
+                    .map((item) => item.title)
+                    .join(", ")}
+                  disabled
+                />
+              </Field>
+              <ChoiceField
+                label="Specialisations"
+                options={PROFILE_CHOICES.specialisations}
+                value={form.specialisations}
+                onChange={(value) =>
+                  setForm({ ...form, specialisations: value })
+                }
+              />
+              <ChoiceField
+                wide
+                label="Previous workplaces"
+                options={PROFILE_CHOICES.previous_workplaces}
+                value={form.previous_workplaces}
+                onChange={(value) =>
+                  setForm({ ...form, previous_workplaces: value })
+                }
+              />
+              <Field wide label="Professional biography">
+                <TextArea
+                  rows="6"
+                  value={form.bio}
+                  onChange={(e) => setForm({ ...form, bio: e.target.value })}
+                />
+              </Field>
+              <ChoiceField
+                label="Languages"
+                options={PROFILE_CHOICES.languages}
+                value={form.languages}
+                onChange={(value) => setForm({ ...form, languages: value })}
+              />
+              <ChoiceField
+                label="Consultation modes"
+                options={PROFILE_CHOICES.consultation_modes}
+                value={form.consultation_modes}
+                onChange={(value) =>
+                  setForm({ ...form, consultation_modes: value })
+                }
+              />
+              <ChoiceField
+                label="Session duration"
+                options={PROFILE_CHOICES.session_duration.map((value) => [
+                  value,
+                  `${value} minutes`,
+                ])}
+                value={form.session_duration ? [form.session_duration] : []}
+                multiple={false}
+                onChange={(value) =>
+                  setForm({ ...form, session_duration: value[0] || null })
+                }
+              />
+              <ChoiceField
+                label="Areas of focus"
+                options={PROFILE_CHOICES.areas_of_focus}
+                value={form.areas_of_focus}
+                onChange={(value) =>
+                  setForm({ ...form, areas_of_focus: value })
+                }
+              />
+              <Field label="Fee from (minor units)">
+                <Input
+                  type="number"
+                  min="0"
+                  value={form.public_fee_from ?? ""}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      public_fee_from:
+                        e.target.value === "" ? null : Number(e.target.value),
+                    })
+                  }
+                />
+              </Field>
+              <label className="flex min-h-12 items-center gap-3 rounded-xl border p-3 text-sm font-bold">
+                <input
+                  type="checkbox"
+                  checked={form.accepting_new_clients}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      accepting_new_clients: e.target.checked,
+                    })
+                  }
+                />
+                Accepting new clients
+              </label>
+            </div>
+            <CatalogBuilder
+              readiness={readiness}
+              form={form}
+              setForm={setForm}
+            />
+            <AvailabilityEditor
+              items={readiness?.availability || []}
+              onChanged={load}
+              onMessage={setMessage}
+            />
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Button variant="primary" onClick={save}>
+                {saving ? "Saving…" : "Save profile"}
+              </Button>
+              <Button
+                onClick={submit}
+                disabled={
+                  saving ||
+                  !version ||
+                  version.completeness < 100 ||
+                  ["SUBMITTED_FOR_REVIEW", "UNDER_REVIEW"].includes(
+                    profile?.status,
+                  )
+                }
+              >
+                Submit for review
+              </Button>
+              {profile?.slug && (
+                <a
+                  className="inline-flex min-h-11 items-center gap-2 rounded-xl border px-4 text-sm font-bold"
+                  href={`/consultants/${profile.slug}?preview=draft`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Preview draft <ExternalLink size={16} />
+                </a>
+              )}
+            </div>
+          </Surface>
+          <Surface>
+            <h3 className="font-bold">Ready for review</h3>
+            <div className="mt-4">
+              <ProgressBar
+                value={version?.completeness || 0}
+                label="Profile completeness"
+              />
+            </div>
+            <ul className="mt-4 space-y-2 text-sm">
+              {(version?.missing_fields || []).map((item) => (
+                <li
+                  key={item}
+                  className="rounded-lg bg-amber-50 p-2 text-amber-900"
+                >
+                  Add: {item}
+                </li>
+              ))}
+            </ul>
+            {version?.completeness === 100 ? (
+              <p className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">
+                Your profile is ready to submit for Super Admin review.
+              </p>
+            ) : (
+              <p className="mt-4 text-sm text-slate-600">
+                Complete the items above, then save once to enable submission.
+              </p>
+            )}
+            <p className="mt-5 text-xs text-slate-500">
+              Qualification evidence is verified during Super Admin review. Only
+              an explicitly published, approved profile appears publicly.
+            </p>
+          </Surface>
+        </div>
+      )}
+      {tab === "qualifications" && (
+        <Qualifications
+          items={data.qualifications || []}
+          onDone={load}
+          onMessage={setMessage}
+        />
+      )}
+      {tab === "enrolments" && (
+        <Surface>
+          <h3 className="text-xl font-bold">New enrolment requests</h3>
+          {enrolments === null ? (
+            <LoadingSkeleton />
+          ) : enrolments.state === "CONFIRMED_EMPTY" ? (
+            <FeedbackState
+              title="No confirmed enrolment requests"
+              copy="A failed request is never shown as an empty inbox."
+            />
+          ) : (
+            <div className="mt-4 divide-y">
+              {enrolments.items.map((item) => (
+                <article key={item.id} className="py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <strong>{item.full_name}</strong>
+                    <StatusChip>{item.status}</StatusChip>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {item.consultation_mode || "Mode not selected"} ·{" "}
+                    {item.preferred_at
+                      ? new Date(item.preferred_at).toLocaleString()
+                      : "No preferred slot"}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      size="small"
+                      onClick={() => (location.hash = "leads")}
+                    >
+                      Open lead
+                    </Button>
+                    {[
+                      ["Contact", "CONTACT"],
+                      ["Accept", "ACCEPT"],
+                      ["Book", "BOOK"],
+                      ["Decline", "DECLINE"],
+                      ["Convert", "CONVERT"],
+                    ].map(([label, action]) => (
+                      <Button
+                        key={action}
+                        size="small"
+                        onClick={async () => {
+                          try {
+                            await actOnMarketplaceEnrolment(item.id, action);
+                            setMessage(`${label} completed.`);
+                            setEnrolments(await listMarketplaceEnrolments());
+                          } catch (error) {
+                            setMessage(error.message);
+                          }
+                        }}
+                      >
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </Surface>
+      )}
+      {tab === "reviews" && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              [BarChart3, "Profile views", analytics?.profile_views],
+              [UsersRound, "Enrolments", analytics?.enrolments?.total],
+              [Star, "Verified reviews", analytics?.review_count],
+              [
+                BadgeCheck,
+                "Average rating",
+                analytics?.average_rating || "New on Zestiva",
+              ],
+            ].map(([Icon, label, value]) => (
+              <Surface key={label}>
+                <Icon className="text-blue-700" />
+                <p className="mt-4 text-sm text-slate-500">{label}</p>
+                <strong className="mt-1 block text-2xl">{value ?? "—"}</strong>
+              </Surface>
+            ))}
+          </div>
+          <Surface>
+            <h3 className="text-xl font-bold">Review history</h3>
+            {reviews?.state === "CONFIRMED_EMPTY" ? (
+              <FeedbackState
+                title="No verified reviews yet"
+                copy="A failed review request is never rendered as zero."
+              />
+            ) : (
+              <div className="mt-4 divide-y">
+                {reviews?.items?.map((item) => (
+                  <article key={item.id} className="py-4">
+                    <div className="flex justify-between">
+                      <strong>{item.overall_rating}/5</strong>
+                      <StatusChip>{item.status}</StatusChip>
+                    </div>
+                    <p className="mt-2 text-sm">
+                      {item.review_text || "No written review."}
+                    </p>
+                    <Button
+                      size="small"
+                      onClick={async () => {
+                        const reason = window.prompt(
+                          "Why should Super Admin review this item?",
+                        );
+                        if (reason) {
+                          await reportMarketplaceReview(item.id, reason);
+                          setMessage(
+                            "Review reported for independent moderation.",
+                          );
+                          setReviews(await listMarketplaceReviews());
+                        }
+                      }}
+                    >
+                      Report review
+                    </Button>
+                  </article>
+                ))}
+              </div>
+            )}
+          </Surface>
+        </>
+      )}
+      {tab === "earnings" && (
+        <MarketplaceEarnings data={earnings} retry={showEarnings} />
+      )}
+    </div>
+  );
 }
-const WEEKDAYS=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-function AvailabilityEditor({items,onChanged,onMessage}){const[form,setForm]=useState({weekday:0,start_time:'09:00',end_time:'17:00',timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'});const[busy,setBusy]=useState(false);const add=async()=>{setBusy(true);try{await createSchedulingAvailability({...form,effective_from:null,effective_until:null});onMessage('Availability window saved.');await onChanged()}catch(error){onMessage(error.message)}finally{setBusy(false)}};const remove=async id=>{setBusy(true);try{await deleteSchedulingAvailability(id);onMessage('Availability window removed.');await onChanged()}catch(error){onMessage(error.message)}finally{setBusy(false)}};return <section className="mt-6 rounded-2xl border p-4"><h4 className="font-bold">Availability</h4><p className="mt-1 text-xs text-slate-500">Times are stored with an explicit IANA timezone. Overlapping windows are rejected.</p><div className="mt-4 grid gap-3 sm:grid-cols-4"><select aria-label="Availability day" value={form.weekday} onChange={e=>setForm({...form,weekday:Number(e.target.value)})} className="min-h-11 rounded-xl border px-3">{WEEKDAYS.map((day,index)=><option key={day} value={index}>{day}</option>)}</select><Input aria-label="Availability start" type="time" value={form.start_time} onChange={e=>setForm({...form,start_time:e.target.value})}/><Input aria-label="Availability end" type="time" value={form.end_time} onChange={e=>setForm({...form,end_time:e.target.value})}/><Button disabled={busy||form.end_time<=form.start_time} onClick={add}>Add window</Button></div><p className="mt-3 text-xs text-slate-500">Timezone: {form.timezone}</p><div className="mt-3 space-y-2">{items.length?items.map(item=><div key={item.id} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-sm"><span>{WEEKDAYS[item.weekday]} · {item.start_time}–{item.end_time} · {item.timezone}</span><button type="button" disabled={busy} onClick={()=>remove(item.id)} className="min-h-9 rounded-lg border px-3 font-semibold">Remove</button></div>):<p className="text-sm text-slate-500">No availability windows configured.</p>}</div></section>}
+function MarketplaceEarnings({ data, retry }) {
+  if (!data) return <LoadingSkeleton label="Loading marketplace earnings" />;
+  if (data.state === "FAILED_TO_LOAD")
+    return (
+      <FeedbackState
+        kind="error"
+        title="Earnings unavailable"
+        copy={`${data.message}. No zero earnings are inferred.`}
+        action={<Button onClick={retry}>Retry</Button>}
+      />
+    );
+  const currency = data.currency || "—";
+  return (
+    <div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {[
+          ["Gross", data.gross_minor],
+          ["Platform Fees", data.platform_fee_minor],
+          ["Net Earnings", data.net_earnings_minor],
+          ["Pending Payout", data.pending_payout_minor],
+          ["Paid Payout", data.paid_payout_minor],
+        ].map(([label, value]) => (
+          <Surface key={label}>
+            <p className="text-sm text-slate-500">{label}</p>
+            <strong className="mt-2 block text-2xl">
+              {data.state === "CONFIRMED_EMPTY"
+                ? "No recorded activity"
+                : `${currency} ${value}`}
+            </strong>
+          </Surface>
+        ))}
+      </div>
+      <p className="mt-4 text-sm text-slate-500">
+        Amounts are deterministic minor-unit ledger projections. Paid means
+        settlement evidence exists.
+      </p>
+    </div>
+  );
+}
+function Field({ label, wide, children }) {
+  return (
+    <label className={`text-sm font-bold ${wide ? "sm:col-span-2" : ""}`}>
+      {label}
+      <span className="mt-2 block">{children}</span>
+    </label>
+  );
+}
+function ChoiceField({
+  label,
+  options,
+  value = [],
+  onChange,
+  multiple = true,
+  wide = false,
+}) {
+  const normalized = options.map((option) =>
+    Array.isArray(option) ? option : [option, option],
+  );
+  const selected = new Set(value);
+  const toggle = (option) => {
+    if (!multiple) {
+      onChange([option]);
+      return;
+    }
+    onChange(
+      selected.has(option)
+        ? value.filter((item) => item !== option)
+        : [...value, option],
+    );
+  };
+  return (
+    <fieldset className={wide ? "sm:col-span-2" : ""}>
+      <legend className="text-sm font-bold">{label}</legend>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {normalized.map(([option, copy]) => (
+          <button
+            type="button"
+            key={option}
+            aria-pressed={selected.has(option)}
+            onClick={() => toggle(option)}
+            className={`min-h-11 rounded-full border px-4 text-sm font-semibold transition ${selected.has(option) ? "border-slate-950 bg-slate-950 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-blue-400 hover:bg-blue-50"}`}
+          >
+            {copy}
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+const COUNTRIES = [
+  ["IN", "India", "+91"],
+  ["US", "United States", "+1"],
+  ["GB", "United Kingdom", "+44"],
+  ["AE", "United Arab Emirates", "+971"],
+  ["SG", "Singapore", "+65"],
+  ["AU", "Australia", "+61"],
+  ["CA", "Canada", "+1"],
+];
+function ContactAndPhoto({
+  profile,
+  contact,
+  canonicalPhone,
+  form,
+  setForm,
+  ensureDraft,
+  onReload,
+  onMessage,
+}) {
+  const [country, setCountry] = useState(contact?.country_iso2 || "IN");
+  const [number, setNumber] = useState(contact?.national_number || "");
+  const [busy, setBusy] = useState("");
+  const [preview, setPreview] = useState(form.profile_photo_url || "");
+  useEffect(() => {
+    setPreview(form.profile_photo_url || "");
+  }, [form.profile_photo_url]);
+  const saveContact = async () => {
+    setBusy("contact");
+    try {
+      const saved = await saveMarketplaceContact({
+        country_iso2: country,
+        national_number: number,
+      });
+      onMessage(`Telephone ${saved.phone_e164} saved and verified.`);
+      await onReload();
+    } catch (error) {
+      onMessage(error.message);
+    } finally {
+      setBusy("");
+    }
+  };
+  const choose = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (
+      !["image/jpeg", "image/png"].includes(file.type) ||
+      file.size > 5 * 1024 * 1024
+    ) {
+      onMessage("Use a JPEG or PNG image no larger than 5 MB.");
+      event.target.value = "";
+      return;
+    }
+    const local = URL.createObjectURL(file);
+    setPreview(local);
+    setBusy("photo");
+    try {
+      if (!profile) {
+        onMessage("Saving your profile draft before uploading the photo…");
+        await ensureDraft();
+      }
+      const saved = await uploadMarketplaceProfilePhoto(file);
+      setForm((current) => ({
+        ...current,
+        profile_photo_url: saved.profile_photo_url,
+      }));
+      setPreview(saved.profile_photo_url);
+      onMessage("Profile photo uploaded and verified after reload.");
+      await onReload();
+    } catch (error) {
+      setPreview(form.profile_photo_url || "");
+      onMessage(error.message);
+    } finally {
+      URL.revokeObjectURL(local);
+      setBusy("");
+      event.target.value = "";
+    }
+  };
+  const existing = contact?.phone_e164 || canonicalPhone;
+  return (
+    <Surface>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section>
+          <h3 className="font-bold">Contact telephone</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Your existing account telephone is reused; it is never published
+            unless the marketplace policy explicitly permits it.
+          </p>
+          {existing ? (
+            <div className="mt-4 rounded-2xl border bg-slate-50 p-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Account telephone
+              </p>
+              <p className="mt-1 font-bold">{existing}</p>
+            </div>
+          ) : (
+            <>
+              <div className="mt-4 grid gap-3 sm:grid-cols-[12rem_1fr]">
+                <select
+                  aria-label="Telephone country"
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  className="min-h-11 rounded-xl border px-3"
+                >
+                  {COUNTRIES.map(([iso, name, code]) => (
+                    <option key={iso} value={iso}>
+                      {name} ({code})
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  aria-label="National telephone number"
+                  inputMode="tel"
+                  value={number}
+                  onChange={(e) => setNumber(e.target.value)}
+                  placeholder="National number"
+                />
+              </div>
+              <Button
+                className="mt-3"
+                disabled={busy || !number.trim()}
+                onClick={saveContact}
+              >
+                {busy === "contact" ? "Saving…" : "Save telephone"}
+              </Button>
+            </>
+          )}
+        </section>
+        <section>
+          <h3 className="font-bold">Profile photo</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            JPEG or PNG, maximum 5 MB. The photo is stored securely and verified
+            after upload.
+          </p>
+          <div className="mt-4 flex items-center gap-4">
+            {preview ? (
+              <img
+                src={preview}
+                alt="Profile photo preview"
+                className="h-24 w-24 rounded-2xl border object-cover"
+              />
+            ) : (
+              <div className="grid h-24 w-24 place-items-center rounded-2xl border border-dashed text-xs text-slate-400">
+                No photo
+              </div>
+            )}
+            <label className="inline-flex min-h-11 cursor-pointer items-center rounded-xl border px-4 text-sm font-bold">
+              {busy === "photo" ? "Uploading…" : "Choose photo"}
+              <input
+                className="sr-only"
+                type="file"
+                accept="image/jpeg,image/png"
+                disabled={Boolean(busy)}
+                onChange={choose}
+              />
+            </label>
+          </div>
+        </section>
+      </div>
+    </Surface>
+  );
+}
+const qualificationInitial = () => ({
+  qualification_type: "DEGREE",
+  title: "",
+  institution: "",
+  award_year: new Date().getFullYear(),
+  country: "",
+  registration_number: "",
+  issuing_body: "",
+  expiry_date: "",
+  credential_document_id: "",
+});
+function Qualifications({ items, onDone, onMessage }) {
+  const [form, setForm] = useState(qualificationInitial);
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  const update = (key, value) => {
+    setForm((current) => ({ ...current, [key]: value }));
+    setErrors((current) => ({ ...current, [key]: "" }));
+  };
+  const add = async () => {
+    if (busy) return;
+    const next = {};
+    const documentId = form.credential_document_id.trim();
+    const year = Number(form.award_year);
+    const currentYear = new Date().getFullYear();
+    if (!form.title.trim()) next.title = "Enter the qualification title.";
+    if (!form.institution.trim())
+      next.institution = "Enter the awarding institution.";
+    if (!Number.isInteger(year) || year < 1900 || year > currentYear)
+      next.award_year = `Enter a year between 1900 and ${currentYear}.`;
+    if (!form.country.trim())
+      next.country = "Enter the country where it was awarded.";
+    if (!form.issuing_body.trim())
+      next.issuing_body =
+        "Enter the university, board, council, or issuing organisation.";
+    if (
+      documentId &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        documentId,
+      )
+    ) {
+      next.credential_document_id =
+        "This must be a Document Vault UUID. Clear it if evidence has not been uploaded.";
+    }
+    if (
+      form.expiry_date &&
+      form.expiry_date < new Date().toISOString().slice(0, 10)
+    ) {
+      next.expiry_date =
+        "Use a current or future date, or leave this blank when it does not expire.";
+    }
+    if (Object.keys(next).length) {
+      setErrors(next);
+      onMessage("Please correct the highlighted qualification fields.");
+      return;
+    }
+    setBusy(true);
+    setErrors({});
+    try {
+      await addMarketplaceQualification({
+        ...form,
+        title: form.title.trim(),
+        institution: form.institution.trim(),
+        award_year: year,
+        country: form.country.trim(),
+        registration_number: form.registration_number.trim() || null,
+        issuing_body: form.issuing_body.trim(),
+        expiry_date: form.expiry_date || null,
+        credential_document_id: documentId || null,
+      });
+      setForm(qualificationInitial());
+      onMessage("Qualification saved. It is pending independent verification.");
+      await onDone();
+    } catch (error) {
+      setErrors({ form: error.message });
+      onMessage(
+        "Qualification was not saved. Review the form message and try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(22rem,.85fr)]">
+      <Surface>
+        <div className="border-b border-slate-200 pb-5">
+          <p className="text-xs font-bold uppercase tracking-widest text-blue-700">
+            Professional credentials
+          </p>
+          <h3 className="mt-1 text-2xl font-bold">Add a qualification</h3>
+          <p className="mt-2 max-w-2xl text-sm text-slate-600">
+            Enter the details exactly as they appear on the certificate.
+            Evidence is optional now and can be verified by Super Admin later.
+          </p>
+        </div>
+        {errors.form && (
+          <p
+            role="alert"
+            className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800"
+          >
+            {errors.form}
+          </p>
+        )}
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          {[
+            ["title", "Degree / title *"],
+            ["institution", "Institution *"],
+            ["award_year", "Year awarded *"],
+            ["country", "Country *"],
+            ["registration_number", "Registration number (optional)"],
+            ["issuing_body", "Issuing body *"],
+            ["expiry_date", "Expiry date (optional)"],
+          ].map(([key, label]) => (
+            <Field key={key} label={label}>
+              <Input
+                type={
+                  key === "award_year"
+                    ? "number"
+                    : key === "expiry_date"
+                      ? "date"
+                      : "text"
+                }
+                min={key === "award_year" ? 1900 : undefined}
+                max={
+                  key === "award_year" ? new Date().getFullYear() : undefined
+                }
+                placeholder={
+                  key === "credential_document_id"
+                    ? "Optional UUID from Document Vault"
+                    : ""
+                }
+                value={form[key]}
+                onChange={(e) =>
+                  update(
+                    key,
+                    key === "award_year"
+                      ? Number(e.target.value)
+                      : e.target.value,
+                  )
+                }
+                aria-invalid={Boolean(errors[key])}
+                aria-describedby={errors[key] ? `${key}-error` : undefined}
+              />
+              {errors[key] && (
+                <p
+                  id={`${key}-error`}
+                  role="alert"
+                  className="mt-1 text-xs font-semibold text-red-700"
+                >
+                  {errors[key]}
+                </p>
+              )}
+              {key === "expiry_date" && (
+                <p className="mt-1 text-xs text-slate-500">
+                  Optional. Leave blank when the qualification does not expire.
+                </p>
+              )}
+            </Field>
+          ))}
+        </div>
+        <details className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <summary className="cursor-pointer text-sm font-bold">
+            Link existing evidence (optional)
+          </summary>
+          <p className="mt-2 text-xs leading-5 text-slate-600">
+            Use this only when the certificate already exists in Document Vault.
+            Do not enter a filename, registration number, or reference code.
+          </p>
+          <div className="mt-3">
+            <Field label="Document Vault UUID">
+              <Input
+                value={form.credential_document_id}
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                aria-invalid={Boolean(errors.credential_document_id)}
+                aria-describedby={
+                  errors.credential_document_id
+                    ? "credential_document_id-error"
+                    : undefined
+                }
+                onChange={(event) =>
+                  update("credential_document_id", event.target.value)
+                }
+              />
+              {errors.credential_document_id && (
+                <p
+                  id="credential_document_id-error"
+                  role="alert"
+                  className="mt-1 text-xs font-semibold text-red-700"
+                >
+                  {errors.credential_document_id}
+                </p>
+              )}
+            </Field>
+          </div>
+        </details>
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <Button variant="primary" disabled={busy} onClick={add}>
+            {busy ? "Saving qualification…" : "Save qualification"}
+          </Button>
+          <p className="text-xs text-slate-500">
+            * Required. Saving does not publish this qualification.
+          </p>
+        </div>
+      </Surface>
+      <Surface>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-500">
+              Governed review
+            </p>
+            <h3 className="mt-1 text-xl font-bold">Saved qualifications</h3>
+          </div>
+          <StatusChip>{items.length}</StatusChip>
+        </div>
+        {items.length ? (
+          <div className="mt-4 divide-y">
+            {items.map((item) => (
+              <article className="py-3" key={item.id}>
+                <div className="flex justify-between gap-3">
+                  <strong>{item.title}</strong>
+                  <StatusChip
+                    tone={
+                      item.verification_status === "VERIFIED"
+                        ? "success"
+                        : "neutral"
+                    }
+                  >
+                    {item.verification_status}
+                  </StatusChip>
+                </div>
+                <p className="mt-1 text-sm text-slate-500">
+                  {item.institution} · {item.award_year}
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Evidence remains private in Document Vault.
+                </p>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <FeedbackState
+            title="No qualifications saved"
+            copy="Complete the required fields on the left. Evidence can be linked later; it does not block saving."
+          />
+        )}
+      </Surface>
+    </div>
+  );
+}
+function CatalogBuilder({ readiness, form, setForm }) {
+  const addService = (id) => {
+    const source = readiness?.appointment_types?.find(
+      (item) => String(item.id) === id,
+    );
+    if (!source || form.services.some((item) => String(item.id) === id)) return;
+    setForm({
+      ...form,
+      services: [
+        ...form.services,
+        {
+          id: String(source.id),
+          name: source.name,
+          description: source.description,
+          duration: source.duration_minutes,
+          mode: source.location_type,
+          location_id: null,
+          fee: null,
+          currency: null,
+          enrolment_mode: "REQUEST_ENROLMENT",
+          active: true,
+        },
+      ],
+    });
+  };
+  const addProgramme = (id) => {
+    const source = readiness?.packages?.find((item) => String(item.id) === id);
+    if (!source || form.programmes.some((item) => String(item.id) === id))
+      return;
+    setForm({
+      ...form,
+      programmes: [
+        ...form.programmes,
+        {
+          id: String(source.id),
+          name: source.name,
+          description: source.description,
+          fee: source.price_minor,
+          currency: source.currency || null,
+          active: true,
+        },
+      ],
+    });
+  };
+  const addLocation = (id) => {
+    const source = readiness?.locations?.find((item) => String(item.id) === id);
+    if (!source || form.public_locations.some((item) => String(item.id) === id))
+      return;
+    setForm({
+      ...form,
+      public_locations: [
+        ...form.public_locations,
+        { id: String(source.id), name: source.name, mode: "IN_PERSON" },
+      ],
+    });
+  };
+  const remove = (collection, id) =>
+    setForm({
+      ...form,
+      [collection]: form[collection].filter(
+        (item) => String(item.id) !== String(id),
+      ),
+    });
+  const selected = [
+    ["services", "Services", form.services],
+    ["programmes", "Programmes", form.programmes],
+    ["public_locations", "Locations", form.public_locations],
+  ];
+  return (
+    <section className="mt-6 rounded-2xl bg-slate-50 p-4">
+      <h4 className="font-bold">Governed catalogue</h4>
+      <p className="mt-1 text-xs text-slate-500">
+        Select existing P13 services, P12 programmes and P26 locations. This
+        does not create duplicate catalogue records.
+      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <select
+          aria-label="Add governed service"
+          defaultValue=""
+          onChange={(e) => {
+            addService(e.target.value);
+            e.target.value = "";
+          }}
+          className="min-h-11 rounded-xl border bg-white px-3"
+        >
+          <option value="">Add service…</option>
+          {readiness?.appointment_types?.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Add governed programme"
+          defaultValue=""
+          onChange={(e) => {
+            addProgramme(e.target.value);
+            e.target.value = "";
+          }}
+          className="min-h-11 rounded-xl border bg-white px-3"
+        >
+          <option value="">Add programme…</option>
+          {readiness?.packages?.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Add governed location"
+          defaultValue=""
+          onChange={(e) => {
+            addLocation(e.target.value);
+            e.target.value = "";
+          }}
+          className="min-h-11 rounded-xl border bg-white px-3"
+        >
+          <option value="">Add location…</option>
+          {readiness?.locations?.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        {selected.map(([key, label, items]) => (
+          <div key={key}>
+            <p className="text-xs font-bold text-slate-600">{label}</p>
+            <div className="mt-2 space-y-2">
+              {items.length ? (
+                items.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between rounded-lg border bg-white px-3 py-2 text-xs"
+                  >
+                    <span>{item.name}</span>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${item.name}`}
+                      onClick={() => remove(key, item.id)}
+                      className="min-h-9 px-2 font-bold text-red-700"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-slate-500">None selected</p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-xs">
+        Availability windows: {readiness?.availability?.length ?? "unavailable"}
+      </p>
+    </section>
+  );
+}
+const WEEKDAYS = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
+function AvailabilityEditor({ items, onChanged, onMessage }) {
+  const [form, setForm] = useState({
+    weekday: 0,
+    start_time: "09:00",
+    end_time: "17:00",
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+  });
+  const [busy, setBusy] = useState(false);
+  const add = async () => {
+    setBusy(true);
+    try {
+      await createSchedulingAvailability({
+        ...form,
+        effective_from: null,
+        effective_until: null,
+      });
+      onMessage("Availability window saved.");
+      await onChanged();
+    } catch (error) {
+      onMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async (id) => {
+    setBusy(true);
+    try {
+      await deleteSchedulingAvailability(id);
+      onMessage("Availability window removed.");
+      await onChanged();
+    } catch (error) {
+      onMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="mt-6 rounded-2xl border p-4">
+      <h4 className="font-bold">Availability</h4>
+      <p className="mt-1 text-xs text-slate-500">
+        Times are stored with an explicit IANA timezone. Overlapping windows are
+        rejected.
+      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-4">
+        <select
+          aria-label="Availability day"
+          value={form.weekday}
+          onChange={(e) =>
+            setForm({ ...form, weekday: Number(e.target.value) })
+          }
+          className="min-h-11 rounded-xl border px-3"
+        >
+          {WEEKDAYS.map((day, index) => (
+            <option key={day} value={index}>
+              {day}
+            </option>
+          ))}
+        </select>
+        <Input
+          aria-label="Availability start"
+          type="time"
+          value={form.start_time}
+          onChange={(e) => setForm({ ...form, start_time: e.target.value })}
+        />
+        <Input
+          aria-label="Availability end"
+          type="time"
+          value={form.end_time}
+          onChange={(e) => setForm({ ...form, end_time: e.target.value })}
+        />
+        <Button
+          disabled={busy || form.end_time <= form.start_time}
+          onClick={add}
+        >
+          Add window
+        </Button>
+      </div>
+      <p className="mt-3 text-xs text-slate-500">Timezone: {form.timezone}</p>
+      <div className="mt-3 space-y-2">
+        {items.length ? (
+          items.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-sm"
+            >
+              <span>
+                {WEEKDAYS[item.weekday]} · {item.start_time}–{item.end_time} ·{" "}
+                {item.timezone}
+              </span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => remove(item.id)}
+                className="min-h-9 rounded-lg border px-3 font-semibold"
+              >
+                Remove
+              </button>
+            </div>
+          ))
+        ) : (
+          <p className="text-sm text-slate-500">
+            No availability windows configured.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}

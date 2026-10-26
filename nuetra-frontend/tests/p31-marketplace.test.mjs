@@ -1,14 +1,188 @@
-import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
-const directory=fs.readFileSync(new URL('../pages/consultants/index.js',import.meta.url),'utf8');const detail=fs.readFileSync(new URL('../pages/consultants/[slug].js',import.meta.url),'utf8');const consultant=fs.readFileSync(new URL('../components/external/ExternalMarketplace.jsx',import.meta.url),'utf8');const admin=fs.readFileSync(new URL('../components/platform/MarketplaceGovernanceModule.jsx',import.meta.url),'utf8');const api=fs.readFileSync(new URL('../lib/publicMarketplaceApi.js',import.meta.url),'utf8');
-test('public directory has complete filters sorting and truthful states',()=>{for(const value of ['Search consultants','Profession','Specialisation','Consultation Mode','Location','Language','Experience','Availability','Rating','Fee Range','Accepting New Clients','Service / Programme','Recommended','Next available','Most reviewed','CONFIRMED_EMPTY','FAILED_TO_LOAD','DIRECTORY_UNAVAILABLE'])assert.match(directory,new RegExp(value));assert.match(directory,/lg:hidden/);});
-test('public cards and detail expose governed projection and careful verification language',()=>{for(const value of ['Profile and credentials reviewed','New on Zestiva','View profile','Enrol / Book'])assert.match(directory,new RegExp(value));for(const value of ['Verified qualifications','Verified reviews','not government endorsement','guarantee of outcomes','No reviews yet','canonical','index,follow'])assert.match(detail,new RegExp(value,'i'));});
-test('hidden profile state and enrolment failure do not become false zero',()=>{assert.match(detail,/This profile is not publicly available/);assert.match(detail,/No empty profile or review state is inferred/);assert.match(detail,/privacy notice/);assert.match(api,/api\/v1\/public\/consultants/);});
-test('consultant workspace preserves approval publication separation and review readiness',()=>{for(const value of ['Approved does not mean published','explicitly published','Submitted for Super Admin review','Profile completeness','Qualifications','Enrolments','Reviews & Analytics'])assert.match(consultant,new RegExp(value));});
-test('super admin marketplace provides governed states decisions diff and analytics',()=>{for(const value of ['Super Admin authority','Approval and publication are independent','SUBMITTED_FOR_REVIEW','UNDER_REVIEW','CHANGES_REQUIRED','APPROVED','PUBLISHED','REJECTED','SUSPENDED','Diff review','Current public version','Pending approvals'])assert.match(admin,new RegExp(value));});
-test('responsive and accessible marketplace controls are present',()=>{assert.match(directory,/role="dialog" aria-modal="true"/);assert.match(detail,/fixed inset-x-4 bottom-4/);assert.match(detail,/aria-label={`\$\{review\.overall_rating\} out of 5 stars`}/);assert.match(admin,/role="dialog"[\s\S]*aria-modal="true"/);});
-test('directory preserves URL state, active chips, bounded pagination and mobile apply',()=>{for(const value of ['router.replace','Active filters','Clear All','Apply Filters','Directory pagination','page_size','No consultants match these filters.'])assert.match(directory,new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));});
-test('public API serializes multi-select filters as repeated query parameters',()=>{assert.match(api,/query\.append/);assert.match(api,/Array\.isArray/);});
-test('real data readiness reuses governed P12 P13 P23 and P26 sources',()=>{for(const value of ['getMarketplaceReadiness','Governed catalogue','Add governed service','Add governed programme','Add governed location','Private vault document ID','Choose photo','stored securely'])assert.match(consultant,new RegExp(value));});
-test('consultant operational dashboard keeps review failures distinct and supports reporting',()=>{for(const value of ['listMarketplaceReviews','No verified reviews yet','never rendered as zero','Report review','publication status','Profile completeness'])assert.match(consultant,new RegExp(value,'i'));});
-test('super admin operations expose credential review moderation enrolments and expiry',()=>{for(const value of ['getAdminMarketplaceOperations','Credentials','Reviews','Enrolments','VERIFY_QUALIFICATION','REJECT_QUALIFICATION','EXPIRE_QUALIFICATION','PUBLISH_REVIEW','HIDE_REVIEW','RESTORE_REVIEW'])assert.match(admin,new RegExp(value));});
-test('super admin marketplace exposes complete consultant inventory without false zero',()=>{const practiceApi=fs.readFileSync(new URL('../lib/practiceOperationsApi.js',import.meta.url),'utf8');assert.match(practiceApi,/admin\/marketplace\/consultants/);for(const value of ['All Consultants','PARTIAL_DATA','NOT_STARTED','website_visibility','eligibility_blockers','Invite to complete profile'])assert.match(admin,new RegExp(value));assert.match(admin,/Promise\.allSettled/);});
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+const directory = fs.readFileSync(
+  new URL("../pages/consultants/index.js", import.meta.url),
+  "utf8",
+);
+const detail = fs.readFileSync(
+  new URL("../pages/consultants/[slug].js", import.meta.url),
+  "utf8",
+);
+const consultant = fs.readFileSync(
+  new URL("../components/external/ExternalMarketplace.jsx", import.meta.url),
+  "utf8",
+);
+const admin = fs.readFileSync(
+  new URL(
+    "../components/platform/MarketplaceGovernanceModule.jsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const api = fs.readFileSync(
+  new URL("../lib/publicMarketplaceApi.js", import.meta.url),
+  "utf8",
+);
+test("public directory has complete filters sorting and truthful states", () => {
+  for (const value of [
+    "Search consultants",
+    "Profession",
+    "Specialisation",
+    "Consultation Mode",
+    "Location",
+    "Language",
+    "Experience",
+    "Availability",
+    "Rating",
+    "Fee Range",
+    "Accepting New Clients",
+    "Service / Programme",
+    "Recommended",
+    "Next available",
+    "Most reviewed",
+    "CONFIRMED_EMPTY",
+    "FAILED_TO_LOAD",
+    "DIRECTORY_UNAVAILABLE",
+  ])
+    assert.match(directory, new RegExp(value));
+  assert.match(directory, /lg:hidden/);
+});
+test("public cards and detail expose governed projection and careful verification language", () => {
+  for (const value of [
+    "Profile and credentials reviewed",
+    "New on Zestiva",
+    "View profile",
+    "Enrol / Book",
+  ])
+    assert.match(directory, new RegExp(value));
+  for (const value of [
+    "Verified qualifications",
+    "Verified reviews",
+    "not government endorsement",
+    "guarantee of outcomes",
+    "No reviews yet",
+    "canonical",
+    "index,follow",
+  ])
+    assert.match(detail, new RegExp(value, "i"));
+});
+test("hidden profile state and enrolment failure do not become false zero", () => {
+  assert.match(detail, /This profile is not publicly available/);
+  assert.match(detail, /No empty profile or review state is inferred/);
+  assert.match(detail, /privacy notice/);
+  assert.match(api, /api\/v1\/public\/consultants/);
+});
+test("consultant workspace preserves approval publication separation and review readiness", () => {
+  for (const value of [
+    "Approved does not mean published",
+    "explicitly published",
+    "Submitted for Super Admin review",
+    "Profile completeness",
+    "Qualifications",
+    "Enrolments",
+    "Reviews & Analytics",
+  ])
+    assert.match(consultant, new RegExp(value));
+});
+test("super admin marketplace provides governed states decisions diff and analytics", () => {
+  for (const value of [
+    "Super Admin authority",
+    "Approval and publication are independent",
+    "SUBMITTED_FOR_REVIEW",
+    "UNDER_REVIEW",
+    "CHANGES_REQUIRED",
+    "APPROVED",
+    "PUBLISHED",
+    "REJECTED",
+    "SUSPENDED",
+    "Diff review",
+    "Current public version",
+    "Pending approvals",
+  ])
+    assert.match(admin, new RegExp(value));
+});
+test("responsive and accessible marketplace controls are present", () => {
+  assert.match(directory, /role="dialog" aria-modal="true"/);
+  assert.match(detail, /fixed inset-x-4 bottom-4/);
+  assert.match(
+    detail,
+    /aria-label={`\$\{review\.overall_rating\} out of 5 stars`}/,
+  );
+  assert.match(admin, /role="dialog"[\s\S]*aria-modal="true"/);
+});
+test("directory preserves URL state, active chips, bounded pagination and mobile apply", () => {
+  for (const value of [
+    "router.replace",
+    "Active filters",
+    "Clear All",
+    "Apply Filters",
+    "Directory pagination",
+    "page_size",
+    "No consultants match these filters.",
+  ])
+    assert.match(
+      directory,
+      new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
+});
+test("public API serializes multi-select filters as repeated query parameters", () => {
+  assert.match(api, /query\.append/);
+  assert.match(api, /Array\.isArray/);
+});
+test("real data readiness reuses governed P12 P13 P23 and P26 sources", () => {
+  for (const value of [
+    "getMarketplaceReadiness",
+    "Governed catalogue",
+    "Add governed service",
+    "Add governed programme",
+    "Add governed location",
+    "Document Vault UUID",
+    "Choose photo",
+    "stored securely",
+  ])
+    assert.match(consultant, new RegExp(value));
+});
+test("consultant operational dashboard keeps review failures distinct and supports reporting", () => {
+  for (const value of [
+    "listMarketplaceReviews",
+    "No verified reviews yet",
+    "never rendered as zero",
+    "Report review",
+    "publication status",
+    "Profile completeness",
+  ])
+    assert.match(consultant, new RegExp(value, "i"));
+});
+test("super admin operations expose credential review moderation enrolments and expiry", () => {
+  for (const value of [
+    "getAdminMarketplaceOperations",
+    "Credentials",
+    "Reviews",
+    "Enrolments",
+    "VERIFY_QUALIFICATION",
+    "REJECT_QUALIFICATION",
+    "EXPIRE_QUALIFICATION",
+    "PUBLISH_REVIEW",
+    "HIDE_REVIEW",
+    "RESTORE_REVIEW",
+  ])
+    assert.match(admin, new RegExp(value));
+});
+test("super admin marketplace exposes complete consultant inventory without false zero", () => {
+  const practiceApi = fs.readFileSync(
+    new URL("../lib/practiceOperationsApi.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(practiceApi, /admin\/marketplace\/consultants/);
+  for (const value of [
+    "All Consultants",
+    "PARTIAL_DATA",
+    "NOT_STARTED",
+    "website_visibility",
+    "eligibility_blockers",
+    "Invite to complete profile",
+  ])
+    assert.match(admin, new RegExp(value));
+  assert.match(admin, /Promise\.allSettled/);
+});
