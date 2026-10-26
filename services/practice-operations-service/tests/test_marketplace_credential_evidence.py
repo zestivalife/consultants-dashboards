@@ -23,13 +23,12 @@ def test_credential_objects_have_a_separate_private_prefix():
     assert key.endswith(".jpg")
 
 
-def test_marketplace_routes_require_private_evidence_before_verification():
+def test_marketplace_routes_keep_private_evidence_optional_for_manual_verification():
     main = (ROOT / "app/main.py").read_text()
     assert 'qualifications/{qualification_id}/evidence-upload' in main
     assert 'qualifications/{qualification_id}/evidence-finalise' in main
     assert 'admin/marketplace/qualifications/{qualification_id}/evidence' in main
-    assert 'QUALIFICATION_EVIDENCE_REQUIRED' in main
+    assert 'QUALIFICATION_EVIDENCE_REQUIRED' not in main
     assert "verify_jpeg_object" in main
     assert "PRACTITIONER_PRIVATE" in main
     assert "public\":False" in main
-

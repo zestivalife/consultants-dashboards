@@ -6124,9 +6124,6 @@ async def admin_qualification_decision(qualification_id:UUID,request:Request,bod
     action=body.action.upper();status={"VERIFY_QUALIFICATION":"VERIFIED","REJECT_QUALIFICATION":"REJECTED","EXPIRE_QUALIFICATION":"EXPIRED"}.get(action)
     if not status:return error(request,422,"UNKNOWN_QUALIFICATION_ACTION","Qualification action is not recognised")
     if action in REASON_REQUIRED and not body.reason:return error(request,422,"REASON_REQUIRED","A reason is required")
-    if action=="VERIFY_QUALIFICATION":
-        evidence=(await db.execute(text("SELECT 1 FROM external_consultant_qualifications q JOIN external_documents d ON d.id=q.credential_document_id AND d.tenant_id=q.tenant_id JOIN external_document_versions v ON v.document_id=d.id AND v.version=d.current_version AND v.tenant_id=d.tenant_id WHERE q.id=:id AND d.status='AVAILABLE' AND v.status='AVAILABLE' AND v.content_type='image/jpeg' AND v.size_bytes<=1048576"),{"id":qualification_id})).scalar_one_or_none()
-        if not evidence:return error(request,409,"QUALIFICATION_EVIDENCE_REQUIRED","Open and review an available JPEG certificate before verifying this qualification")
     row=(await db.execute(text("UPDATE external_consultant_qualifications SET verification_status=:status,verified_by=:actor,verified_at=:now,rejection_reason=:reason,updated_at=:now WHERE id=:id RETURNING profile_id,tenant_id"),{"status":status,"actor":ctx["user_id"],"now":datetime.now(timezone.utc),"reason":body.reason,"id":qualification_id})).mappings().first()
     if not row:return error(request,404,"QUALIFICATION_NOT_FOUND","Qualification was not found")
     current=(await db.execute(text("SELECT p.working_version,v.projection FROM external_consultant_public_profiles p JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.working_version WHERE p.id=:profile"),{"profile":row["profile_id"]})).mappings().first()

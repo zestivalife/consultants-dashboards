@@ -962,8 +962,6 @@ function Qualifications({ items, onDone, onMessage }) {
       next.institution = "Enter the awarding institution.";
     if (!Number.isInteger(year) || year < 1900 || year > currentYear)
       next.award_year = `Enter a year between 1900 and ${currentYear}.`;
-    if (!certificate)
-      next.certificate = "Upload a clear photo of the certificate.";
     if (certificate && (certificate.type !== "image/jpeg" || !/\.jpe?g$/i.test(certificate.name)))
       next.certificate = "Choose a JPEG or JPG certificate image.";
     if (certificate?.size > 1024 * 1024)
@@ -987,10 +985,18 @@ function Qualifications({ items, onDone, onMessage }) {
         expiry_date: null,
         credential_document_id: null,
       });
-      await uploadMarketplaceQualificationEvidence(saved.id, certificate);
+      let certificateMessage = "";
+      if (certificate) {
+        try {
+          await uploadMarketplaceQualificationEvidence(saved.id, certificate);
+          certificateMessage = " Certificate photo attached for manual review.";
+        } catch (uploadError) {
+          certificateMessage = " The qualification was saved, but the optional certificate could not be attached. You can add it later.";
+        }
+      }
       setForm(qualificationInitial());
       setCertificate(null);
-      onMessage("Qualification and certificate saved for manual Super Admin review.");
+      onMessage(`Qualification saved for manual Super Admin review.${certificateMessage}`);
       await onDone();
     } catch (error) {
       setErrors({ form: error.message });
@@ -1010,8 +1016,8 @@ function Qualifications({ items, onDone, onMessage }) {
           </p>
           <h3 className="mt-1 text-2xl font-bold">Add a qualification</h3>
           <p className="mt-2 max-w-2xl text-sm text-slate-600">
-            Add the qualification and upload a clear photo of its certificate.
-            Zestiva will review it manually before the profile is published.
+            Add the qualification for manual Super Admin review. A certificate
+            photo is optional and never prevents you from saving the qualification.
           </p>
         </div>
         {errors.form && (
@@ -1063,8 +1069,8 @@ function Qualifications({ items, onDone, onMessage }) {
           ))}
         </div>
         <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4">
-          <label className="block text-sm font-bold" htmlFor="new-qualification-certificate">Certificate image</label>
-          <p className="mt-1 text-xs leading-5 text-slate-600">Take or choose a clear certificate photo. JPG or JPEG only, maximum 1 MB. It stays private and is used only for Zestiva's manual review.</p>
+              <label className="block text-sm font-bold" htmlFor="new-qualification-certificate">Certificate image (optional)</label>
+              <p className="mt-1 text-xs leading-5 text-slate-600">If available, add a clear JPG or JPEG photo for Zestiva's private manual review. You can save and submit the qualification without it.</p>
           <input id="new-qualification-certificate" type="file" accept=".jpg,.jpeg,image/jpeg" className="mt-3 block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-slate-950 file:px-4 file:py-2 file:font-bold file:text-white" onChange={(event)=>{const file=event.target.files?.[0]||null;setCertificate(file);setErrors((current)=>({...current,certificate:""}));}} />
           {certificate ? <p className="mt-2 text-xs font-semibold text-slate-700">Selected: {certificate.name} · {(certificate.size/1024).toFixed(0)} KB</p> : null}
           {errors.certificate ? <p role="alert" className="mt-2 text-xs font-semibold text-red-700">{errors.certificate}</p> : null}
@@ -1074,7 +1080,7 @@ function Qualifications({ items, onDone, onMessage }) {
             {busy ? "Saving qualification…" : "Save qualification"}
           </Button>
           <p className="text-xs text-slate-500">
-            All four items are required. Saving does not publish the profile.
+                Only the three qualification fields are required. Saving does not publish the profile.
           </p>
         </div>
       </Surface>
@@ -1107,9 +1113,9 @@ function Qualifications({ items, onDone, onMessage }) {
                 <p className="mt-1 text-sm text-slate-500">
                   {item.institution} · {item.award_year}
                 </p>
-                <p className={`mt-2 text-xs font-semibold ${item.credential_document_id ? "text-emerald-700" : "text-amber-700"}`}>{item.credential_document_id ? "Certificate attached securely" : "Certificate required before verification"}</p>
+                <p className={`mt-2 text-xs font-semibold ${item.credential_document_id ? "text-emerald-700" : "text-slate-500"}`}>{item.credential_document_id ? "Optional certificate attached securely" : "No certificate attached — Super Admin can still review manually"}</p>
                 {!item.credential_document_id ? <label className="mt-3 inline-flex min-h-11 cursor-pointer items-center rounded-xl bg-slate-950 px-4 text-sm font-bold text-white">
-                  {uploadingId===item.id ? "Uploading…" : "Upload certificate"}
+                  {uploadingId===item.id ? "Uploading…" : "Add optional certificate"}
                   <input type="file" accept=".jpg,.jpeg,image/jpeg" className="sr-only" disabled={Boolean(uploadingId)} onChange={async(event)=>{const file=event.target.files?.[0];if(!file)return;setUploadingId(item.id);try{await uploadMarketplaceQualificationEvidence(item.id,file);onMessage("Certificate uploaded securely. Super Admin can now review it.");await onDone();}catch(error){onMessage(error.message||"Certificate upload failed. Please try again.");}finally{setUploadingId("");event.target.value="";}}}/>
                 </label> : null}
               </article>
@@ -1118,7 +1124,7 @@ function Qualifications({ items, onDone, onMessage }) {
         ) : (
           <FeedbackState
             title="No qualifications saved"
-            copy="Add a qualification and its certificate photo for manual review."
+            copy="Add a qualification for manual review. Certificate evidence is optional."
           />
         )}
       </Surface>
