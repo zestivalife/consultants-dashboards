@@ -65,6 +65,11 @@ export default function MarketplaceGovernanceModule() {
     setNotice(`${action.replaceAll("_", " ")} completed.`);
     load();
   };
+  const qualificationAction = async (id, action, reason) => {
+    await decideMarketplaceQualification(id, action, reason);
+    setNotice(`${action.replaceAll("_", " ")} completed.`);
+    load();
+  };
   return (
     <div className="space-y-5">
       <header className="rounded-3xl bg-slate-950 p-6 text-white">
@@ -132,8 +137,12 @@ export default function MarketplaceGovernanceModule() {
       {selected && (
         <ReviewDrawer
           item={selected}
+          qualifications={(operations?.qualifications || []).filter(
+            (qualification) => String(qualification.profile_id) === String(selected.id),
+          )}
           onClose={() => setSelected(null)}
           onAct={profileAction}
+          onQualificationAct={qualificationAction}
         />
       )}
     </div>
@@ -457,7 +466,7 @@ function Queue({ title, empty, children }) {
     </section>
   );
 }
-function ReviewDrawer({ item, onClose, onAct }) {
+function ReviewDrawer({ item, qualifications, onClose, onAct, onQualificationAct }) {
   const [reason, setReason] = useState("");
   const [photoFailed, setPhotoFailed] = useState(false);
   const [actionError, setActionError] = useState("");
@@ -488,6 +497,21 @@ function ReviewDrawer({ item, onClose, onAct }) {
       await onAct(action, reason.trim() || null);
     } catch (error) {
       setActionError(error?.message || "The marketplace action could not be completed.");
+    } finally {
+      setBusyAction("");
+    }
+  };
+  const qualificationAct = async (qualification, action, reason = null) => {
+    if (action === "VERIFY_QUALIFICATION" && !qualification.credential_document_id) {
+      setActionError("Attach qualification evidence before verification.");
+      return;
+    }
+    setActionError("");
+    setBusyAction(`${action}:${qualification.id}`);
+    try {
+      await onQualificationAct(qualification.id, action, reason);
+    } catch (error) {
+      setActionError(error?.message || "The qualification decision could not be completed.");
     } finally {
       setBusyAction("");
     }
@@ -561,6 +585,13 @@ function ReviewDrawer({ item, onClose, onAct }) {
           <ReviewCollection title="Public locations" items={p.public_locations} empty="No public locations configured" />
           <article className="rounded-2xl border bg-white p-5"><h3 className="font-bold">Marketplace settings</h3><dl className="mt-3 space-y-2 text-sm"><div className="flex justify-between gap-4"><dt className="text-slate-500">Accepting new clients</dt><dd className="font-semibold">{p.accepting_new_clients ? "Yes" : "No"}</dd></div><div className="flex justify-between gap-4"><dt className="text-slate-500">Public fee</dt><dd className="text-right font-semibold">{p.public_fee_currency ? `${p.public_fee_currency} ${p.public_fee_from ?? "—"}` : "Currency not configured"}</dd></div></dl></article>
         </section>
+        <section className="mt-5 rounded-2xl border bg-white p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><p className="text-xs font-bold uppercase tracking-wider text-blue-700">Credential review</p><h3 className="mt-1 text-lg font-bold">Qualifications</h3><p className="mt-1 text-sm text-slate-600">Verify only genuine qualifications supported by attached evidence.</p></div>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">{qualifications.length} submitted</span>
+          </div>
+          {!qualifications.length ? <p className="mt-4 rounded-xl border border-dashed p-4 text-sm text-slate-600">No qualifications have been submitted for this profile.</p> : <div className="mt-4 space-y-3">{qualifications.map((qualification) => <QualificationReviewCard key={qualification.id} qualification={qualification} busyAction={busyAction} onDecision={qualificationAct} />)}</div>}
+        </section>
         {item.current_published_version &&
           item.current_published_version !== item.working_version && (
             <section className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5">
@@ -602,6 +633,19 @@ function ReviewDrawer({ item, onClose, onAct }) {
       </aside>
     </div>
   );
+}
+
+function QualificationReviewCard({ qualification, busyAction, onDecision }) {
+  const [reason, setReason] = useState("");
+  const evidenceAttached = Boolean(qualification.credential_document_id);
+  const verificationStatus = qualification.verification_status || "PENDING";
+  const pending = verificationStatus === "PENDING";
+  const working = busyAction.endsWith(`:${qualification.id}`);
+  return <section className="rounded-xl border bg-slate-50 p-4" aria-label={`${qualification.title} qualification`}>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><strong className="text-base">{qualification.title}</strong><p className="text-sm text-slate-600">{qualification.institution || "Institution not provided"}{qualification.award_year ? ` · ${qualification.award_year}` : ""}</p><p className="mt-1 text-xs text-slate-500">{[qualification.country, qualification.issuing_body, qualification.registration_number].filter(Boolean).join(" · ") || "No additional credential metadata"}</p></div><span className={`rounded-full px-3 py-1 text-xs font-bold ${verificationStatus === "VERIFIED" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{verificationStatus.replaceAll("_", " ")}</span></div>
+    <div className={`mt-3 rounded-lg p-3 text-sm ${evidenceAttached ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"}`}><strong>{evidenceAttached ? "Evidence attached" : "Evidence not attached"}</strong><p className="mt-1 text-xs">{evidenceAttached ? qualification.credential_document_title || "Governed private document" : "The consultant must attach a governed credential document before verification."}</p></div>
+    {pending ? <><label className="mt-3 block text-sm font-bold">Rejection reason <span className="font-normal text-slate-500">(required only when rejecting)</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} className="mt-2 min-h-16 w-full rounded-lg border bg-white p-3" /></label><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={!evidenceAttached || working} onClick={() => void onDecision(qualification, "VERIFY_QUALIFICATION")} className="min-h-11 rounded-xl bg-emerald-700 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{working ? "Working…" : "Verify qualification"}</button><button type="button" disabled={!reason.trim() || working} onClick={() => void onDecision(qualification, "REJECT_QUALIFICATION", reason.trim())} className="min-h-11 rounded-xl border border-red-300 px-4 text-sm font-bold text-red-700 disabled:cursor-not-allowed disabled:opacity-50">Reject qualification</button></div></> : null}
+  </section>;
 }
 
 function ProfileReviewField({ label, children }) {

@@ -27,6 +27,10 @@ test("Super Admin review presents structured marketplace data without raw JSON",
   assert.match(governance, /role="alert"/);
   assert.match(governance, /disabled=\{Boolean\(busyAction\)/);
   assert.match(governance, /Working…/);
+  assert.match(governance, /Credential review/);
+  assert.match(governance, /Verify qualification/);
+  assert.match(governance, /Attach qualification evidence before verification/);
+  assert.match(governance, /credential_document_id/);
 });
 
 test("Super Admin review explains independent review and website visibility", () => {
