@@ -10,6 +10,10 @@ const preview = readFileSync(
   new URL("../pages/consultants/[slug].js", import.meta.url),
   "utf8",
 );
+const governance = readFileSync(
+  new URL("../components/platform/MarketplaceGovernanceModule.jsx", import.meta.url),
+  "utf8",
+);
 
 test("professional profile uses accessible governed choices instead of comma-separated text", () => {
   for (const label of [
@@ -56,6 +60,14 @@ test("draft preview is private, themed and separate from public publication", ()
     assert.match(preview, new RegExp(value));
   assert.match(preview, /getMarketplaceProfile\(false\)/);
   assert.match(preview, /getPublicConsultant\(slug\)/);
+});
+
+test("Super Admin inspects unpublished profiles through the governed review drawer", () => {
+  assert.match(governance, /profiles=\{items\}/);
+  assert.match(governance, /onReview=\{setSelected\}/);
+  assert.match(governance, /Review profile/);
+  assert.match(governance, /Draft available for inspection/);
+  assert.doesNotMatch(governance, /\?preview=draft/);
 });
 
 test("profile explains actionable submission blockers and review lifecycle", () => {

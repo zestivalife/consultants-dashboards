@@ -17,3 +17,10 @@ test("Super Admin review explains independent review and website visibility", ()
   assert.match(governance, /item\.public_visibility\?'Visible':'Hidden'/);
   assert.match(governance, /Approval and publication are independent/);
 });
+
+test("Super Admin inventory opens the governed review surface for draft profiles", () => {
+  assert.match(governance, /item\.profile_id/);
+  assert.match(governance, /openReview\(item\)/);
+  assert.match(governance, /Review profile/);
+  assert.match(governance, /consultant must submit this draft/i);
+});
