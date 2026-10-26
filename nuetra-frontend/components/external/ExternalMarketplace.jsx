@@ -7,12 +7,14 @@ import {
   Inbox,
   RefreshCw,
   Star,
+  Trash2,
   UsersRound,
 } from "lucide-react";
 import {
   actOnMarketplaceEnrolment,
   addMarketplaceQualification,
   createSchedulingAvailability,
+  deleteMarketplaceQualification,
   deleteSchedulingAvailability,
   getMarketplaceContact,
   getMarketplaceEarnings,
@@ -553,6 +555,7 @@ export function ExternalMarketplace() {
       {tab === "qualifications" && (
         <Qualifications
           items={data.qualifications || []}
+          profileStatus={profile?.status}
           onDone={load}
           onMessage={setMessage}
         />
@@ -942,10 +945,11 @@ const qualificationInitial = () => ({
   institution: "",
   award_year: new Date().getFullYear(),
 });
-function Qualifications({ items, onDone, onMessage }) {
+function Qualifications({ items, profileStatus, onDone, onMessage }) {
   const [form, setForm] = useState(qualificationInitial);
   const [certificate, setCertificate] = useState(null);
   const [uploadingId, setUploadingId] = useState("");
+  const [deletingId, setDeletingId] = useState("");
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const update = (key, value) => {
@@ -1006,6 +1010,20 @@ function Qualifications({ items, onDone, onMessage }) {
       );
     } finally {
       setBusy(false);
+    }
+  };
+  const remove = async (item) => {
+    if (deletingId || uploadingId) return;
+    if (!window.confirm(`Delete “${item.title}” from your saved qualifications? This cannot be undone.`)) return;
+    setDeletingId(item.id);
+    try {
+      await deleteMarketplaceQualification(item.id);
+      onMessage("Qualification deleted. Profile completeness has been updated.");
+      await onDone();
+    } catch (error) {
+      onMessage(error.message || "Qualification could not be deleted. Please try again.");
+    } finally {
+      setDeletingId("");
     }
   };
   return (
@@ -1115,10 +1133,22 @@ function Qualifications({ items, onDone, onMessage }) {
                   {item.institution} · {item.award_year}
                 </p>
                 <p className={`mt-2 text-xs font-semibold ${item.credential_document_id ? "text-emerald-700" : "text-slate-500"}`}>{item.credential_document_id ? "Optional certificate attached securely" : "No certificate attached — Super Admin can still review manually"}</p>
-                {!item.credential_document_id ? <label className="mt-3 inline-flex min-h-11 cursor-pointer items-center rounded-xl bg-slate-950 px-4 text-sm font-bold text-white">
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                {!item.credential_document_id ? <label className="inline-flex min-h-11 cursor-pointer items-center rounded-xl bg-slate-950 px-4 text-sm font-bold text-white">
                   {uploadingId===item.id ? "Uploading…" : "Add optional certificate"}
-                  <input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf" className="sr-only" disabled={Boolean(uploadingId)} onChange={async(event)=>{const file=event.target.files?.[0];if(!file)return;setUploadingId(item.id);try{await uploadMarketplaceQualificationEvidence(item.id,file);onMessage("Certificate uploaded securely. Super Admin can now review it.");await onDone();}catch(error){onMessage(error.message||"Certificate upload failed. Please try again.");}finally{setUploadingId("");event.target.value="";}}}/>
+                  <input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf" className="sr-only" disabled={Boolean(uploadingId || deletingId)} onChange={async(event)=>{const file=event.target.files?.[0];if(!file)return;setUploadingId(item.id);try{await uploadMarketplaceQualificationEvidence(item.id,file);onMessage("Certificate uploaded securely. Super Admin can now review it.");await onDone();}catch(error){onMessage(error.message||"Certificate upload failed. Please try again.");}finally{setUploadingId("");event.target.value="";}}}/>
                 </label> : null}
+                <button
+                  type="button"
+                  className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-red-200 px-4 text-sm font-bold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={Boolean(deletingId || uploadingId) || ["SUBMITTED_FOR_REVIEW", "UNDER_REVIEW"].includes(profileStatus)}
+                  title={["SUBMITTED_FOR_REVIEW", "UNDER_REVIEW"].includes(profileStatus) ? "Qualifications cannot be changed while the profile is under review." : undefined}
+                  onClick={() => remove(item)}
+                >
+                  <Trash2 size={16} aria-hidden="true" />
+                  {deletingId === item.id ? "Deleting…" : "Delete qualification"}
+                </button>
+                </div>
               </article>
             ))}
           </div>

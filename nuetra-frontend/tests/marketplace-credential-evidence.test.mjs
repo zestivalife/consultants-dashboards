@@ -36,3 +36,11 @@ test("qualification saving is not blocked by missing or failed optional evidence
   assert.match(external, /The qualification was saved, but the optional certificate could not be attached/);
   assert.match(external, /No certificate attached — Super Admin can still review manually/);
 });
+
+test("consultants can confirm and delete a saved qualification", () => {
+  assert.match(api, /deleteMarketplaceQualification/);
+  assert.match(api, /method:'DELETE'/);
+  assert.match(external, /Delete qualification/);
+  assert.match(external, /window\.confirm\(`Delete/);
+  assert.match(external, /Qualification deleted\. Profile completeness has been updated\./);
+});

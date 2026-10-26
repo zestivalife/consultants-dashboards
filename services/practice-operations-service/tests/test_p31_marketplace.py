@@ -102,6 +102,16 @@ def test_super_admin_cannot_approve_or_publish_without_verified_qualification():
     assert 'action in {"APPROVE_PROFILE","PUBLISH_PROFILE","PUBLISH_SUBMISSION"}' in section
     assert 'VERIFIED_QUALIFICATION_REQUIRED' in section
 
+def test_consultant_can_delete_only_own_tenant_scoped_qualification_with_audit_and_recalculation():
+    main=(ROOT/"app/main.py").read_text()
+    section=main[main.index('@app.delete("/api/v1/practice-operations/marketplace/qualifications/{qualification_id}")'):main.index('@app.post("/api/v1/practice-operations/marketplace/qualifications/{qualification_id}/evidence-upload")')]
+    assert "denied=external_only(request,ctx)" in section
+    assert "profile_id=:profile AND tenant_id=:tenant" in section
+    assert '"QUALIFICATION_DELETED"' in section
+    assert "DELETE FROM external_consultant_qualifications" in section
+    assert "completeness(dict(current[\"projection\"]),count)" in section
+    assert 'profile["status"] in {"SUBMITTED_FOR_REVIEW","UNDER_REVIEW"}' in section
+
 def test_rating_includes_only_published_verified_engagements_and_never_zero_stars():
     reviews=[{"overall_rating":5,"verified_engagement":True,"status":"PUBLISHED"},{"overall_rating":1,"verified_engagement":False,"status":"PUBLISHED"},{"overall_rating":2,"verified_engagement":True,"status":"HIDDEN"}]
     assert public_rating(reviews)=={"review_count":1,"average_rating":5.0,"label":"5.0"}

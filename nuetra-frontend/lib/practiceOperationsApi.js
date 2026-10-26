@@ -266,6 +266,7 @@ export function listMarketplaceReviews(){return request('/marketplace/reviews');
 export function saveMarketplaceProfile(payload){return request('/marketplace/profile',{method:'PUT',body:JSON.stringify(payload)});}
 export function submitMarketplaceProfile(){return request('/marketplace/profile/submit',{method:'POST'});}
 export function addMarketplaceQualification(payload){return request('/marketplace/qualifications',{method:'POST',body:JSON.stringify(payload)});}
+export function deleteMarketplaceQualification(qualificationId){return request(`/marketplace/qualifications/${encodeURIComponent(qualificationId)}`,{method:'DELETE'});}
 export async function uploadMarketplaceQualificationEvidence(qualificationId,file){
   const allowed=new Map([['image/jpeg',/\.jpe?g$/i],['image/png',/\.png$/i],['image/webp',/\.webp$/i],['application/pdf',/\.pdf$/i]]);
   if(!allowed.has(file.type)||!allowed.get(file.type).test(file.name))throw new Error('Choose a JPG, JPEG, PNG, WEBP, or PDF certificate file.');

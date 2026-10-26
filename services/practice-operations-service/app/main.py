@@ -5949,6 +5949,26 @@ async def add_marketplace_qualification(request:Request,body:QualificationCreate
         score,missing=completeness(dict(current["projection"]),count);await db.execute(text("UPDATE external_consultant_public_profile_versions SET completeness=:score,missing_fields=CAST(:missing AS jsonb) WHERE profile_id=:profile AND version=:version"),{"score":score,"missing":json.dumps(missing),"profile":profile["id"],"version":current["working_version"]})
     await _marketplace_audit(db,profile["id"],ctx["tenant_id"],"QUALIFICATION_ADDED",ctx["user_id"],ctx["role"],metadata={"qualification_id":str(item)});await db.commit();return {"success":True,"data":{"id":str(item),"verification_status":"PENDING"},"error":None,"request_id":request.state.correlation_id}
 
+@app.delete("/api/v1/practice-operations/marketplace/qualifications/{qualification_id}")
+async def delete_marketplace_qualification(qualification_id:UUID,request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    profile=await _marketplace_profile(db,ctx,True)
+    if not profile:return error(request,404,"PROFILE_NOT_FOUND","Create the public profile draft first")
+    if profile["status"] in {"SUBMITTED_FOR_REVIEW","UNDER_REVIEW"}:return error(request,409,"PROFILE_LOCKED_FOR_REVIEW","Qualifications cannot be changed while the profile is under review")
+    qualification=(await db.execute(text("SELECT id,title,verification_status,credential_document_id FROM external_consultant_qualifications WHERE id=:id AND profile_id=:profile AND tenant_id=:tenant FOR UPDATE"),{"id":qualification_id,"profile":profile["id"],"tenant":ctx["tenant_id"]})).mappings().first()
+    if not qualification:return error(request,404,"QUALIFICATION_NOT_FOUND","Qualification was not found")
+    await _marketplace_audit(db,profile["id"],ctx["tenant_id"],"QUALIFICATION_DELETED",ctx["user_id"],ctx["role"],metadata={"qualification_id":str(qualification_id),"title":qualification["title"],"verification_status":qualification["verification_status"],"credential_document_id":str(qualification["credential_document_id"]) if qualification["credential_document_id"] else None})
+    await db.execute(text("DELETE FROM external_consultant_qualifications WHERE id=:id AND profile_id=:profile AND tenant_id=:tenant"),{"id":qualification_id,"profile":profile["id"],"tenant":ctx["tenant_id"]})
+    current=(await db.execute(text("SELECT p.working_version,v.projection FROM external_consultant_public_profiles p JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.working_version WHERE p.id=:profile"),{"profile":profile["id"]})).mappings().first()
+    score=None;missing=[]
+    if current:
+        count=(await db.execute(text("SELECT COUNT(*) FROM external_consultant_qualifications WHERE profile_id=:profile AND verification_status IN ('PENDING','VERIFIED') AND (expiry_date IS NULL OR expiry_date>=CURRENT_DATE)"),{"profile":profile["id"]})).scalar_one()
+        score,missing=completeness(dict(current["projection"]),count)
+        await db.execute(text("UPDATE external_consultant_public_profile_versions SET completeness=:score,missing_fields=CAST(:missing AS jsonb) WHERE profile_id=:profile AND version=:version"),{"score":score,"missing":json.dumps(missing),"profile":profile["id"],"version":current["working_version"]})
+    await db.commit()
+    return {"success":True,"data":{"id":str(qualification_id),"deleted":True,"completeness":score,"missing_fields":missing},"error":None,"request_id":request.state.correlation_id}
+
 @app.post("/api/v1/practice-operations/marketplace/qualifications/{qualification_id}/evidence-upload")
 async def prepare_qualification_evidence(qualification_id:UUID,request:Request,body:QualificationEvidencePrepare,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=external_only(request,ctx)
