@@ -476,6 +476,7 @@ function ReviewDrawer({ item, onClose, onAct }) {
             : item.status === "SUSPENDED"
               ? ["RESTORE_PROFILE"]
               : [];
+  const requiresReason = actions.some((action) => ["REQUEST_CHANGES", "REJECT"].includes(action));
   const list = (value) => (Array.isArray(value) ? value : []).filter(Boolean);
   const initials = String(p.display_name || "Consultant")
     .split(/\s+/)
@@ -568,7 +569,7 @@ function ReviewDrawer({ item, onClose, onAct }) {
         )}
         </div>
         <footer className="sticky bottom-0 border-t bg-white p-5 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] sm:p-6">
-        {actions.length ? <label className="block font-bold">Decision reason <span className="font-normal text-slate-500">(required when requesting changes or rejecting)</span><textarea value={reason} onChange={(e) => setReason(e.target.value)} className="mt-2 min-h-20 w-full rounded-xl border p-3" /></label> : <p className="text-sm text-slate-600">No governance action is available for the current state.</p>}
+        {requiresReason ? <label className="block font-bold">Decision reason <span className="font-normal text-slate-500">(required when requesting changes or rejecting)</span><textarea value={reason} onChange={(e) => setReason(e.target.value)} className="mt-2 min-h-20 w-full rounded-xl border p-3" /></label> : actions.length ? <p className="text-sm text-slate-600">Advance this profile to the next governed review state.</p> : <p className="text-sm text-slate-600">No governance action is available for the current state.</p>}
         <div className="mt-3 flex flex-wrap gap-2">
           {actions.map((action) => (
             <button

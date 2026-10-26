@@ -21,6 +21,8 @@ test("Super Admin review presents structured marketplace data without raw JSON",
   assert.match(governance, /ReviewCollection title="Public locations"/);
   assert.doesNotMatch(governance, /JSON\.stringify\(v\)/);
   assert.match(governance, /sticky bottom-0/);
+  assert.match(governance, /const requiresReason = actions\.some/);
+  assert.match(governance, /Advance this profile to the next governed review state/);
 });
 
 test("Super Admin review explains independent review and website visibility", () => {
