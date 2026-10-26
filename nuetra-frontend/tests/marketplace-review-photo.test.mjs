@@ -8,8 +8,19 @@ const governance = await readFile(
 );
 
 test("Super Admin review shows the submitted marketplace photo", () => {
-  assert.match(governance, /p\.profile_photo_url&&<img/);
+  assert.match(governance, /p\.profile_photo_url && !photoFailed/);
   assert.match(governance, /profile submission/);
+  assert.match(governance, /onError=\{\(\) => setPhotoFailed\(true\)\}/);
+  assert.match(governance, /place-items-center text-xl font-bold/);
+});
+
+test("Super Admin review presents structured marketplace data without raw JSON", () => {
+  assert.match(governance, /Proposed public profile/);
+  assert.match(governance, /ReviewCollection title="Services"/);
+  assert.match(governance, /ReviewCollection title="Programmes"/);
+  assert.match(governance, /ReviewCollection title="Public locations"/);
+  assert.doesNotMatch(governance, /JSON\.stringify\(v\)/);
+  assert.match(governance, /sticky bottom-0/);
 });
 
 test("Super Admin review explains independent review and website visibility", () => {

@@ -462,6 +462,7 @@ function Queue({ title, empty, children }) {
 }
 function ReviewDrawer({ item, onClose, onAct }) {
   const [reason, setReason] = useState("");
+  const [photoFailed, setPhotoFailed] = useState(false);
   const p = item.projection;
   const actions =
     item.status === "SUBMITTED_FOR_REVIEW"
@@ -475,6 +476,25 @@ function ReviewDrawer({ item, onClose, onAct }) {
             : item.status === "SUSPENDED"
               ? ["RESTORE_PROFILE"]
               : [];
+  const list = (value) => (Array.isArray(value) ? value : []).filter(Boolean);
+  const initials = String(p.display_name || "Consultant")
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+  const chips = (values) =>
+    list(values).length ? (
+      <div className="flex flex-wrap gap-2">
+        {list(values).map((value) => (
+          <span key={String(value)} className="rounded-full bg-white px-3 py-1 text-sm font-semibold shadow-sm">
+            {String(value).replaceAll("_", " ")}
+          </span>
+        ))}
+      </div>
+    ) : (
+      <span className="text-sm text-slate-500">Not provided</span>
+    );
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950/50" onClick={onClose}>
       <aside
@@ -482,48 +502,48 @@ function ReviewDrawer({ item, onClose, onAct }) {
         aria-modal="true"
         aria-label="Marketplace profile review"
         onClick={(e) => e.stopPropagation()}
-        className="ml-auto h-full w-[min(96vw,720px)] overflow-y-auto bg-white p-6"
+        className="ml-auto flex h-full w-[min(100vw,840px)] flex-col bg-slate-50"
       >
-        <button onClick={onClose} className="min-h-11 rounded-xl border px-4">
-          Close
-        </button>
-        <div className="mt-5 flex items-center gap-3">
-          <ShieldCheck className="text-blue-700" />
-          <div>
-            <h2 className="text-2xl font-bold">{p.display_name}</h2>
-            <p>
-              {p.professional_title} · {p.profession_code}
-            </p>
+        <header className="border-b bg-white p-5 sm:p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-4">
+              <div className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl border bg-slate-100">
+                {p.profile_photo_url && !photoFailed ? (
+                  <img src={p.profile_photo_url} alt={`${p.display_name} profile submission`} onError={() => setPhotoFailed(true)} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="grid h-full place-items-center text-xl font-bold text-slate-500">{initials}</div>
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-blue-700"><ShieldCheck size={16}/> Marketplace review</p>
+                <h2 className="mt-1 truncate text-2xl font-bold">{p.display_name}</h2>
+                <p className="text-sm text-slate-600">{p.professional_title} · {String(p.profession_code || "Not configured").replaceAll("_", " ")}</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="min-h-11 shrink-0 rounded-xl border bg-white px-4 font-semibold">Close</button>
           </div>
-        </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-4">
+        </header>
+        <div className="flex-1 overflow-y-auto p-5 sm:p-6">
+        <div className="grid gap-3 sm:grid-cols-4">
           {[['Profile',`${item.completeness}% complete`],['Credential','Review in Credentials queue'],['Review',item.status.replaceAll('_',' ')],['Website',item.public_visibility?'Visible':'Hidden']].map(([label,value])=><div key={label} className="rounded-xl border p-3"><p className="text-xs font-bold uppercase text-slate-500">{label}</p><p className="mt-1 text-sm font-semibold">{value}</p></div>)}
         </div>
-        {p.profile_photo_url&&<img src={p.profile_photo_url} alt={`${p.display_name} profile submission`} className="mt-5 aspect-[4/3] w-full rounded-2xl border bg-slate-100 object-cover sm:aspect-[3/1]"/>}
-        <section className="mt-6 rounded-2xl bg-slate-50 p-5">
-          <h3 className="font-bold">
-            Proposed public version {item.working_version}
-          </h3>
-          <dl className="mt-4 grid gap-3 sm:grid-cols-2">
-            {Object.entries(p)
-              .filter(([key]) => key !== "profile_photo_url")
-              .map(([key, value]) => (
-                <div key={key}>
-                  <dt className="text-xs font-bold uppercase text-slate-500">
-                    {key.replaceAll("_", " ")}
-                  </dt>
-                  <dd className="mt-1 text-sm">
-                    {Array.isArray(value)
-                      ? value
-                          .map((v) =>
-                            typeof v === "object" ? JSON.stringify(v) : v,
-                          )
-                          .join(", ")
-                      : String(value ?? "—")}
-                  </dd>
-                </div>
-              ))}
-          </dl>
+        <section className="mt-5 rounded-2xl border bg-white p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-lg font-bold">Proposed public profile</h3><span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">Version {item.working_version}</span></div>
+          <p className="mt-3 leading-7 text-slate-700">{p.bio || "Biography not provided."}</p>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <ProfileReviewField label="Specialisations">{chips(p.specialisations)}</ProfileReviewField>
+            <ProfileReviewField label="Areas of focus">{chips(p.areas_of_focus)}</ProfileReviewField>
+            <ProfileReviewField label="Languages">{chips(p.languages)}</ProfileReviewField>
+            <ProfileReviewField label="Consultation modes">{chips(p.consultation_modes)}</ProfileReviewField>
+            <ProfileReviewField label="Previous workplaces">{chips(p.previous_workplaces)}</ProfileReviewField>
+            <ProfileReviewField label="Session and experience"><p className="text-sm font-semibold">{p.session_duration ? `${p.session_duration} minutes` : "Duration not provided"} · {p.experience_years ?? "—"} years’ experience</p></ProfileReviewField>
+          </div>
+        </section>
+        <section className="mt-5 grid gap-4 sm:grid-cols-2">
+          <ReviewCollection title="Services" items={p.services} empty="No services configured" />
+          <ReviewCollection title="Programmes" items={p.programmes} empty="No programmes configured" />
+          <ReviewCollection title="Public locations" items={p.public_locations} empty="No public locations configured" />
+          <article className="rounded-2xl border bg-white p-5"><h3 className="font-bold">Marketplace settings</h3><dl className="mt-3 space-y-2 text-sm"><div className="flex justify-between gap-4"><dt className="text-slate-500">Accepting new clients</dt><dd className="font-semibold">{p.accepting_new_clients ? "Yes" : "No"}</dd></div><div className="flex justify-between gap-4"><dt className="text-slate-500">Public fee</dt><dd className="text-right font-semibold">{p.public_fee_currency ? `${p.public_fee_currency} ${p.public_fee_from ?? "—"}` : "Currency not configured"}</dd></div></dl></article>
         </section>
         {item.current_published_version &&
           item.current_published_version !== item.working_version && (
@@ -546,15 +566,10 @@ function ReviewDrawer({ item, onClose, onAct }) {
             </p>
           </section>
         )}
-        <label className="mt-5 block font-bold">
-          Decision reason
-          <textarea
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            className="mt-2 min-h-24 w-full rounded-xl border p-3"
-          />
-        </label>
-        <div className="mt-5 flex flex-wrap gap-2">
+        </div>
+        <footer className="sticky bottom-0 border-t bg-white p-5 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] sm:p-6">
+        {actions.length ? <label className="block font-bold">Decision reason <span className="font-normal text-slate-500">(required when requesting changes or rejecting)</span><textarea value={reason} onChange={(e) => setReason(e.target.value)} className="mt-2 min-h-20 w-full rounded-xl border p-3" /></label> : <p className="text-sm text-slate-600">No governance action is available for the current state.</p>}
+        <div className="mt-3 flex flex-wrap gap-2">
           {actions.map((action) => (
             <button
               key={action}
@@ -565,7 +580,17 @@ function ReviewDrawer({ item, onClose, onAct }) {
             </button>
           ))}
         </div>
+        </footer>
       </aside>
     </div>
   );
+}
+
+function ProfileReviewField({ label, children }) {
+  return <div><p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p>{children}</div>;
+}
+
+function ReviewCollection({ title, items, empty }) {
+  const values = Array.isArray(items) ? items : [];
+  return <article className="rounded-2xl border bg-white p-5"><h3 className="font-bold">{title}</h3>{values.length ? <div className="mt-3 space-y-3">{values.map((value,index)=><div key={value.id||`${title}-${index}`} className="rounded-xl bg-slate-50 p-3"><p className="font-semibold">{value.name||value.title||`Item ${index+1}`}</p><p className="mt-1 text-xs text-slate-600">{[value.mode?.replaceAll?.('_',' '),value.duration?`${value.duration} minutes`:null,value.description].filter(Boolean).join(' · ')||'Configured'}</p></div>)}</div>:<p className="mt-3 text-sm text-slate-500">{empty}</p>}</article>;
 }
