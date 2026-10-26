@@ -23,6 +23,10 @@ test("Super Admin review presents structured marketplace data without raw JSON",
   assert.match(governance, /sticky bottom-0/);
   assert.match(governance, /const requiresReason = actions\.some/);
   assert.match(governance, /Publishing makes this exact submitted version visible/);
+  assert.match(governance, /Enter a clear decision reason before requesting changes/);
+  assert.match(governance, /role="alert"/);
+  assert.match(governance, /disabled=\{Boolean\(busyAction\)/);
+  assert.match(governance, /Working…/);
 });
 
 test("Super Admin review explains independent review and website visibility", () => {

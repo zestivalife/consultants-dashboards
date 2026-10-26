@@ -60,14 +60,10 @@ export default function MarketplaceGovernanceModule() {
   };
   useEffect(load, [status]);
   const profileAction = async (action, reason) => {
-    try {
-      await decideMarketplaceProfile(selected.id, action, reason);
-      setSelected(null);
-      setNotice(`${action.replaceAll("_", " ")} completed.`);
-      load();
-    } catch (error) {
-      setNotice(error.message);
-    }
+    await decideMarketplaceProfile(selected.id, action, reason);
+    setSelected(null);
+    setNotice(`${action.replaceAll("_", " ")} completed.`);
+    load();
   };
   return (
     <div className="space-y-5">
@@ -464,6 +460,8 @@ function Queue({ title, empty, children }) {
 function ReviewDrawer({ item, onClose, onAct }) {
   const [reason, setReason] = useState("");
   const [photoFailed, setPhotoFailed] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const [busyAction, setBusyAction] = useState("");
   const p = item.projection;
   const actions =
     item.status === "SUBMITTED_FOR_REVIEW"
@@ -477,7 +475,23 @@ function ReviewDrawer({ item, onClose, onAct }) {
             : item.status === "SUSPENDED"
               ? ["RESTORE_PROFILE"]
               : [];
-  const requiresReason = actions.some((action) => ["REQUEST_CHANGES", "REJECT"].includes(action));
+  const reasonActions = new Set(["REQUEST_CHANGES", "REJECT_PROFILE", "UNPUBLISH_PROFILE", "SUSPEND_PROFILE"]);
+  const requiresReason = actions.some((action) => reasonActions.has(action));
+  const act = async (action) => {
+    if (reasonActions.has(action) && !reason.trim()) {
+      setActionError("Enter a clear decision reason before requesting changes.");
+      return;
+    }
+    setActionError("");
+    setBusyAction(action);
+    try {
+      await onAct(action, reason.trim() || null);
+    } catch (error) {
+      setActionError(error?.message || "The marketplace action could not be completed.");
+    } finally {
+      setBusyAction("");
+    }
+  };
   const list = (value) => (Array.isArray(value) ? value : []).filter(Boolean);
   const initials = String(p.display_name || "Consultant")
     .split(/\s+/)
@@ -570,15 +584,17 @@ function ReviewDrawer({ item, onClose, onAct }) {
         )}
         </div>
         <footer className="sticky bottom-0 border-t bg-white p-5 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] sm:p-6">
+        {actionError ? <p role="alert" className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{actionError}</p> : null}
         {requiresReason ? <label className="block font-bold">Decision reason <span className="font-normal text-slate-500">(required when requesting changes or rejecting)</span><textarea value={reason} onChange={(e) => setReason(e.target.value)} className="mt-2 min-h-20 w-full rounded-xl border p-3" /></label> : actions.length ? <p className="text-sm text-slate-600">Publishing makes this exact submitted version visible in the consultant directory. A verified qualification is required.</p> : <p className="text-sm text-slate-600">No governance action is available for the current state.</p>}
         <div className="mt-3 flex flex-wrap gap-2">
           {actions.map((action) => (
             <button
               key={action}
-              onClick={() => onAct(action, reason || null)}
-              className="min-h-11 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white"
+              onClick={() => void act(action)}
+              disabled={Boolean(busyAction) || (reasonActions.has(action) && !reason.trim())}
+              className="min-h-11 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {action === "PUBLISH_SUBMISSION" ? "Publish" : action.replaceAll("_", " ")}
+              {busyAction === action ? "Working…" : action === "PUBLISH_SUBMISSION" ? "Publish" : action.replaceAll("_", " ")}
             </button>
           ))}
         </div>
