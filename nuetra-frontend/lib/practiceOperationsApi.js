@@ -266,6 +266,16 @@ export function listMarketplaceReviews(){return request('/marketplace/reviews');
 export function saveMarketplaceProfile(payload){return request('/marketplace/profile',{method:'PUT',body:JSON.stringify(payload)});}
 export function submitMarketplaceProfile(){return request('/marketplace/profile/submit',{method:'POST'});}
 export function addMarketplaceQualification(payload){return request('/marketplace/qualifications',{method:'POST',body:JSON.stringify(payload)});}
+export async function uploadMarketplaceQualificationEvidence(qualificationId,file){
+  if(file.type!=='image/jpeg'||!/\.jpe?g$/i.test(file.name))throw new Error('Choose a JPEG or JPG certificate image.');
+  if(!file.size)throw new Error('The certificate image is empty.');
+  if(file.size>1024*1024)throw new Error('The certificate image must be 1 MB or smaller.');
+  const prepared=await request(`/marketplace/qualifications/${encodeURIComponent(qualificationId)}/evidence-upload`,{method:'POST',body:JSON.stringify({filename:file.name,content_type:'image/jpeg',size_bytes:file.size})});
+  const upload=prepared.upload;
+  const response=await fetch(upload.url,{method:'PUT',headers:{'Content-Type':'image/jpeg'},body:file});
+  if(!response.ok)throw new Error('The certificate could not be transferred to secure storage. Please try again.');
+  return request(`/marketplace/qualifications/${encodeURIComponent(qualificationId)}/evidence-finalise`,{method:'POST',body:JSON.stringify({document_id:prepared.document_id,version_id:prepared.version_id})});
+}
 export function listMarketplaceEnrolments(){return request('/marketplace/enrolments');}
 export function actOnMarketplaceEnrolment(id,action,reason){return request(`/marketplace/enrolments/${encodeURIComponent(id)}/action`,{method:'POST',body:JSON.stringify({action,reason})});}
 export function reportMarketplaceReview(id,reason){return request(`/marketplace/reviews/${encodeURIComponent(id)}/report`,{method:'POST',body:JSON.stringify({reason})});}
@@ -274,6 +284,7 @@ export function listAdminMarketplaceConsultants(){return request('/admin/marketp
 export function decideMarketplaceProfile(id,action,reason){return request(`/admin/marketplace/profiles/${encodeURIComponent(id)}/decision`,{method:'POST',body:JSON.stringify({action,reason})});}
 export function setMarketplaceHomepageFeature(id,payload){return request(`/admin/marketplace/profiles/${encodeURIComponent(id)}/homepage-feature`,{method:'PUT',body:JSON.stringify(payload)});}
 export function decideMarketplaceQualification(id,action,reason){return request(`/admin/marketplace/qualifications/${encodeURIComponent(id)}/decision`,{method:'POST',body:JSON.stringify({action,reason})});}
+export function getAdminMarketplaceQualificationEvidence(id){return request(`/admin/marketplace/qualifications/${encodeURIComponent(id)}/evidence`);}
 export function decideMarketplaceReview(id,action,reason){return request(`/admin/marketplace/reviews/${encodeURIComponent(id)}/decision`,{method:'POST',body:JSON.stringify({action,reason})});}
 export function getAdminMarketplaceAnalytics(){return request('/admin/marketplace/analytics');}
 export function getAdminMarketplaceOperations(){return request('/admin/marketplace/operations');}

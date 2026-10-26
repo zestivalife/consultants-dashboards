@@ -64,6 +64,10 @@ def validate_document(filename: str, content_type: str, size_bytes: int) -> str:
 def new_object_key(tenant_id, document_id, version_id, filename):
     return f"external-vault/{tenant_id}/{document_id}/{version_id}/{uuid4().hex}{Path(filename).suffix.lower()}"
 
+def new_credential_evidence_key(tenant_id, profile_id, qualification_id, filename):
+    """Keep private marketplace evidence in its own governed object prefix."""
+    return f"external-marketplace-credentials/{tenant_id}/{profile_id}/{qualification_id}/{uuid4().hex}{Path(filename).suffix.lower()}"
+
 def signed_upload(key, content_type, size_bytes):
     client, settings = _client()
     return client.generate_presigned_url("put_object", Params={"Bucket": settings.document_storage_bucket,
@@ -98,3 +102,14 @@ def verify_uploaded_object(key, expected_type, expected_size, expected_checksum=
     if expected_checksum and checksum and checksum != expected_checksum:
         raise InvalidDocument("Uploaded object checksum does not match")
     return {"size_bytes": actual_size, "content_type": actual_type}
+
+def verify_jpeg_object(key, expected_size):
+    verify_uploaded_object(key, "image/jpeg", expected_size)
+    client, settings = _client()
+    try:
+        signature = client.get_object(Bucket=settings.document_storage_bucket, Key=key, Range="bytes=0-2")["Body"].read()
+    except Exception as exc:
+        raise InvalidDocument("Certificate image content could not be verified") from exc
+    if signature != b"\xff\xd8\xff":
+        raise InvalidDocument("Certificate evidence is not a valid JPEG image")
+    return True

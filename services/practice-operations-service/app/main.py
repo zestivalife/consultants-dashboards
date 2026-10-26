@@ -75,9 +75,9 @@ from app.nutrition_foundation import (AssessmentReview, AssessmentSource, Assess
 from app.smart_intake import (FIELD_REGISTRY, FIELD_SCHEMA_VERSION, InformationRequestCreate,
                               InformationRequestPatch, InformationRequestReview,
                               resolve_assessment, resolve_completeness, scoped_patch)
-from app.document_storage import (StorageUnavailable, InvalidDocument, new_object_key,
+from app.document_storage import (StorageUnavailable, InvalidDocument, new_object_key, new_credential_evidence_key,
                                   signed_upload, signed_download, signed_view, validate_document,
-                                  upload_object, verify_uploaded_object)
+                                  upload_object, verify_uploaded_object, verify_jpeg_object)
 from app.billing import calculate_line
 from app.p15 import adherence_summary, homework_transition
 from app.p16 import (ACTION_TYPES, CONFIRMATION_ACTIONS, SAFE_ACTIONS,
@@ -105,7 +105,7 @@ from app.p46 import refund_transition
 from app.p47 import safe_context
 from app.p48 import category as notification_category, digest_mode
 from app.p49 import resolve_command
-from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,ConsultantContactSave,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,ProfilePhotoFinalise,ProfilePhotoPrepare,PromotionQuote,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
+from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,BookingManagementAction,ConsultantContactSave,EnrolmentAction,EnrolmentCreate,PublicBookingCreate,PublicWaitlistCreate,ProfilePhotoFinalise,ProfilePhotoPrepare,QualificationEvidencePrepare,QualificationEvidenceFinalise,PromotionQuote,HomepageFeatureDecision,MarketplaceComparisonEvent,MarketplaceEventCreate,ProfileSave,
                              QualificationCreate,QualificationDecision,ReviewCreate,ReviewReport,assert_transition,
                              can_publish,completeness,dedupe_key,privacy_safe_name,public_projection,
                              publicly_visible,slug_base)
@@ -5949,6 +5949,51 @@ async def add_marketplace_qualification(request:Request,body:QualificationCreate
         score,missing=completeness(dict(current["projection"]),count);await db.execute(text("UPDATE external_consultant_public_profile_versions SET completeness=:score,missing_fields=CAST(:missing AS jsonb) WHERE profile_id=:profile AND version=:version"),{"score":score,"missing":json.dumps(missing),"profile":profile["id"],"version":current["working_version"]})
     await _marketplace_audit(db,profile["id"],ctx["tenant_id"],"QUALIFICATION_ADDED",ctx["user_id"],ctx["role"],metadata={"qualification_id":str(item)});await db.commit();return {"success":True,"data":{"id":str(item),"verification_status":"PENDING"},"error":None,"request_id":request.state.correlation_id}
 
+@app.post("/api/v1/practice-operations/marketplace/qualifications/{qualification_id}/evidence-upload")
+async def prepare_qualification_evidence(qualification_id:UUID,request:Request,body:QualificationEvidencePrepare,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    profile=await _marketplace_profile(db,ctx,True)
+    if not profile:return error(request,404,"PROFILE_NOT_FOUND","Create the public profile draft first")
+    qualification=(await db.execute(text("SELECT id,title FROM external_consultant_qualifications WHERE id=:id AND profile_id=:profile AND tenant_id=:tenant"),{"id":qualification_id,"profile":profile["id"],"tenant":ctx["tenant_id"]})).mappings().first()
+    if not qualification:return error(request,404,"QUALIFICATION_NOT_FOUND","Qualification was not found")
+    filename=body.filename.strip()
+    if not filename.lower().endswith((".jpg",".jpeg")):
+        return error(request,422,"INVALID_CREDENTIAL_EVIDENCE","Certificate evidence must be a JPEG or JPG image")
+    try:filename=validate_document(filename,"image/jpeg",body.size_bytes)
+    except InvalidDocument as exc:return error(request,422,"INVALID_CREDENTIAL_EVIDENCE",str(exc))
+    if body.size_bytes>1024*1024:return error(request,422,"INVALID_CREDENTIAL_EVIDENCE","Certificate evidence exceeds the 1 MB limit")
+    document_id=uuid4();version_id=uuid4();key=new_credential_evidence_key(ctx["tenant_id"],profile["id"],qualification_id,filename)
+    try:url=signed_upload(key,"image/jpeg",body.size_bytes)
+    except StorageUnavailable:return error(request,503,"CREDENTIAL_EVIDENCE_STORAGE_UNAVAILABLE","Certificate storage is not configured")
+    now=datetime.now(timezone.utc)
+    await db.execute(text("INSERT INTO external_documents(id,tenant_id,client_id,title,category,visibility,status,tags,current_version,created_by,created_at,updated_at) VALUES (:id,:tenant,NULL,:title,'MARKETPLACE_CREDENTIAL','PRACTITIONER_PRIVATE','PENDING_UPLOAD',CAST(:tags AS jsonb),1,:actor,:now,:now)"),{"id":document_id,"tenant":ctx["tenant_id"],"title":f"{qualification['title']} certificate","tags":json.dumps(["marketplace-credential",str(qualification_id)]),"actor":ctx["user_id"],"now":now})
+    await db.execute(text("INSERT INTO external_document_versions(id,document_id,tenant_id,version,status,object_key,filename,content_type,size_bytes,checksum_sha256,uploaded_by,uploaded_at) VALUES (:id,:document,:tenant,1,'PENDING_UPLOAD',:key,:filename,'image/jpeg',:size,NULL,:actor,NULL)"),{"id":version_id,"document":document_id,"tenant":ctx["tenant_id"],"key":key,"filename":filename,"size":body.size_bytes,"actor":ctx["user_id"]})
+    await db.execute(text("INSERT INTO external_document_links(id,document_id,tenant_id,link_type,linked_id,created_at) VALUES (:id,:document,:tenant,'MARKETPLACE_QUALIFICATION',:linked,:now)"),{"id":uuid4(),"document":document_id,"tenant":ctx["tenant_id"],"linked":str(qualification_id),"now":now})
+    await db.execute(text("INSERT INTO external_document_audit_events(id,document_id,tenant_id,event_type,actor_id,metadata,created_at) VALUES (:id,:document,:tenant,'UPLOAD_REQUESTED',:actor,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"document":document_id,"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"metadata":json.dumps({"qualification_id":str(qualification_id),"version_id":str(version_id)}),"now":now})
+    await db.commit()
+    return {"success":True,"data":{"document_id":str(document_id),"version_id":str(version_id),"upload":{"url":url,"method":"PUT","expires_in":600,"required_headers":{"Content-Type":"image/jpeg"}}},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/marketplace/qualifications/{qualification_id}/evidence-finalise")
+async def finalise_qualification_evidence(qualification_id:UUID,request:Request,body:QualificationEvidenceFinalise,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    profile=await _marketplace_profile(db,ctx,True)
+    if not profile:return error(request,404,"PROFILE_NOT_FOUND","Profile was not found")
+    row=(await db.execute(text("SELECT q.credential_document_id,d.id document_id,v.id version_id,v.object_key,v.content_type,v.size_bytes FROM external_consultant_qualifications q JOIN external_document_links l ON l.link_type='MARKETPLACE_QUALIFICATION' AND l.linked_id=CAST(q.id AS text) JOIN external_documents d ON d.id=l.document_id AND d.tenant_id=q.tenant_id JOIN external_document_versions v ON v.document_id=d.id AND v.id=:version WHERE q.id=:qualification AND q.profile_id=:profile AND q.tenant_id=:tenant AND d.id=:document AND d.status='PENDING_UPLOAD' AND v.status='PENDING_UPLOAD' FOR UPDATE"),{"qualification":qualification_id,"profile":profile["id"],"tenant":ctx["tenant_id"],"document":body.document_id,"version":body.version_id})).mappings().first()
+    if not row:return error(request,404,"CREDENTIAL_EVIDENCE_UPLOAD_NOT_FOUND","Pending certificate upload was not found")
+    try:verify_jpeg_object(row["object_key"],row["size_bytes"])
+    except StorageUnavailable:return error(request,503,"CREDENTIAL_EVIDENCE_STORAGE_UNAVAILABLE","Certificate storage is not configured")
+    except InvalidDocument as exc:return error(request,422,"CREDENTIAL_EVIDENCE_UPLOAD_INVALID",str(exc))
+    now=datetime.now(timezone.utc)
+    await db.execute(text("UPDATE external_documents SET status='AVAILABLE',updated_at=:now WHERE id=:id AND tenant_id=:tenant"),{"now":now,"id":body.document_id,"tenant":ctx["tenant_id"]})
+    await db.execute(text("UPDATE external_document_versions SET status='AVAILABLE',uploaded_at=:now WHERE id=:id AND tenant_id=:tenant"),{"now":now,"id":body.version_id,"tenant":ctx["tenant_id"]})
+    await db.execute(text("UPDATE external_consultant_qualifications SET credential_document_id=:document,verification_status='PENDING',verified_by=NULL,verified_at=NULL,rejection_reason=NULL,updated_at=:now WHERE id=:id AND profile_id=:profile AND tenant_id=:tenant"),{"document":body.document_id,"now":now,"id":qualification_id,"profile":profile["id"],"tenant":ctx["tenant_id"]})
+    await db.execute(text("INSERT INTO external_document_audit_events(id,document_id,tenant_id,event_type,actor_id,metadata,created_at) VALUES (:id,:document,:tenant,'UPLOAD_VERIFIED',:actor,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"document":body.document_id,"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"metadata":json.dumps({"qualification_id":str(qualification_id),"version_id":str(body.version_id)}),"now":now})
+    await _marketplace_audit(db,profile["id"],ctx["tenant_id"],"QUALIFICATION_EVIDENCE_ATTACHED",ctx["user_id"],ctx["role"],metadata={"qualification_id":str(qualification_id),"document_id":str(body.document_id)})
+    await db.commit()
+    return {"success":True,"data":{"qualification_id":str(qualification_id),"evidence_status":"AVAILABLE","verification_status":"PENDING"},"error":None,"request_id":request.state.correlation_id}
+
 @app.get("/api/v1/practice-operations/marketplace/enrolments")
 async def marketplace_enrolments(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=external_only(request,ctx)
@@ -6079,6 +6124,9 @@ async def admin_qualification_decision(qualification_id:UUID,request:Request,bod
     action=body.action.upper();status={"VERIFY_QUALIFICATION":"VERIFIED","REJECT_QUALIFICATION":"REJECTED","EXPIRE_QUALIFICATION":"EXPIRED"}.get(action)
     if not status:return error(request,422,"UNKNOWN_QUALIFICATION_ACTION","Qualification action is not recognised")
     if action in REASON_REQUIRED and not body.reason:return error(request,422,"REASON_REQUIRED","A reason is required")
+    if action=="VERIFY_QUALIFICATION":
+        evidence=(await db.execute(text("SELECT 1 FROM external_consultant_qualifications q JOIN external_documents d ON d.id=q.credential_document_id AND d.tenant_id=q.tenant_id JOIN external_document_versions v ON v.document_id=d.id AND v.version=d.current_version AND v.tenant_id=d.tenant_id WHERE q.id=:id AND d.status='AVAILABLE' AND v.status='AVAILABLE' AND v.content_type='image/jpeg' AND v.size_bytes<=1048576"),{"id":qualification_id})).scalar_one_or_none()
+        if not evidence:return error(request,409,"QUALIFICATION_EVIDENCE_REQUIRED","Open and review an available JPEG certificate before verifying this qualification")
     row=(await db.execute(text("UPDATE external_consultant_qualifications SET verification_status=:status,verified_by=:actor,verified_at=:now,rejection_reason=:reason,updated_at=:now WHERE id=:id RETURNING profile_id,tenant_id"),{"status":status,"actor":ctx["user_id"],"now":datetime.now(timezone.utc),"reason":body.reason,"id":qualification_id})).mappings().first()
     if not row:return error(request,404,"QUALIFICATION_NOT_FOUND","Qualification was not found")
     current=(await db.execute(text("SELECT p.working_version,v.projection FROM external_consultant_public_profiles p JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.working_version WHERE p.id=:profile"),{"profile":row["profile_id"]})).mappings().first()
@@ -6086,6 +6134,20 @@ async def admin_qualification_decision(qualification_id:UUID,request:Request,bod
     if current:
         score,missing=completeness(dict(current["projection"]),verified);await db.execute(text("UPDATE external_consultant_public_profile_versions SET completeness=:score,missing_fields=CAST(:missing AS jsonb) WHERE profile_id=:profile AND version=:version"),{"score":score,"missing":json.dumps(missing),"profile":row["profile_id"],"version":current["working_version"]})
     await _marketplace_audit(db,row["profile_id"],row["tenant_id"],f"QUALIFICATION_{status}",ctx["user_id"],ctx["role"],body.reason,{"qualification_id":str(qualification_id)});await db.commit();return {"success":True,"data":{"verification_status":status},"error":None,"request_id":request.state.correlation_id}
+
+@app.get("/api/v1/practice-operations/admin/marketplace/qualifications/{qualification_id}/evidence")
+async def admin_qualification_evidence(qualification_id:UUID,request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=_platform_admin(request,ctx)
+    if denied:return denied
+    row=(await db.execute(text("SELECT q.profile_id,d.id,d.tenant_id,d.title,v.object_key,v.filename,v.content_type,v.size_bytes FROM external_consultant_qualifications q JOIN external_documents d ON d.id=q.credential_document_id AND d.tenant_id=q.tenant_id JOIN external_document_versions v ON v.document_id=d.id AND v.version=d.current_version AND v.tenant_id=d.tenant_id WHERE q.id=:id AND d.status='AVAILABLE' AND v.status='AVAILABLE'"),{"id":qualification_id})).mappings().first()
+    if not row:return error(request,404,"CREDENTIAL_EVIDENCE_NOT_AVAILABLE","Certificate evidence is not available")
+    if row["content_type"]!="image/jpeg" or row["size_bytes"]>1024*1024:return error(request,409,"CREDENTIAL_EVIDENCE_INVALID","Certificate evidence does not satisfy the JPEG and 1 MB policy")
+    try:url=signed_view(row["object_key"],row["content_type"])
+    except StorageUnavailable:return error(request,503,"CREDENTIAL_EVIDENCE_STORAGE_UNAVAILABLE","Certificate storage is not configured")
+    await db.execute(text("INSERT INTO external_document_access_events(id,document_id,tenant_id,event_type,actor_id,created_at) VALUES (:id,:document,:tenant,'OPENED',:actor,:now)"),{"id":uuid4(),"document":row["id"],"tenant":row["tenant_id"],"actor":ctx["user_id"],"now":datetime.now(timezone.utc)})
+    await _marketplace_audit(db,row["profile_id"],row["tenant_id"],"QUALIFICATION_EVIDENCE_VIEWED",ctx["user_id"],ctx["role"],metadata={"qualification_id":str(qualification_id),"document_id":str(row["id"])})
+    await db.commit()
+    return {"success":True,"data":{"document_id":str(row["id"]),"title":row["title"],"filename":row["filename"],"content_type":row["content_type"],"size_bytes":row["size_bytes"],"view_url":url,"expires_in":300,"public":False},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/practice-operations/admin/marketplace/operations")
 async def admin_marketplace_operations(request:Request,ctx=Depends(context),db:AsyncSession=Depends(get_db)):

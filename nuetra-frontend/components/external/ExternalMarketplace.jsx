@@ -24,6 +24,7 @@ import {
   saveMarketplaceContact,
   saveMarketplaceProfile,
   submitMarketplaceProfile,
+  uploadMarketplaceQualificationEvidence,
   uploadMarketplaceProfilePhoto,
 } from "../../lib/practiceOperationsApi";
 import {
@@ -944,10 +945,11 @@ const qualificationInitial = () => ({
   registration_number: "",
   issuing_body: "",
   expiry_date: "",
-  credential_document_id: "",
 });
 function Qualifications({ items, onDone, onMessage }) {
   const [form, setForm] = useState(qualificationInitial);
+  const [certificate, setCertificate] = useState(null);
+  const [uploadingId, setUploadingId] = useState("");
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const update = (key, value) => {
@@ -957,7 +959,6 @@ function Qualifications({ items, onDone, onMessage }) {
   const add = async () => {
     if (busy) return;
     const next = {};
-    const documentId = form.credential_document_id.trim();
     const year = Number(form.award_year);
     const currentYear = new Date().getFullYear();
     if (!form.title.trim()) next.title = "Enter the qualification title.";
@@ -970,15 +971,10 @@ function Qualifications({ items, onDone, onMessage }) {
     if (!form.issuing_body.trim())
       next.issuing_body =
         "Enter the university, board, council, or issuing organisation.";
-    if (
-      documentId &&
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-        documentId,
-      )
-    ) {
-      next.credential_document_id =
-        "This must be a Document Vault UUID. Clear it if evidence has not been uploaded.";
-    }
+    if (certificate && (certificate.type !== "image/jpeg" || !/\.jpe?g$/i.test(certificate.name)))
+      next.certificate = "Choose a JPEG or JPG certificate image.";
+    if (certificate?.size > 1024 * 1024)
+      next.certificate = "The certificate image must be 1 MB or smaller.";
     if (
       form.expiry_date &&
       form.expiry_date < new Date().toISOString().slice(0, 10)
@@ -994,7 +990,7 @@ function Qualifications({ items, onDone, onMessage }) {
     setBusy(true);
     setErrors({});
     try {
-      await addMarketplaceQualification({
+      const saved = await addMarketplaceQualification({
         ...form,
         title: form.title.trim(),
         institution: form.institution.trim(),
@@ -1003,10 +999,14 @@ function Qualifications({ items, onDone, onMessage }) {
         registration_number: form.registration_number.trim() || null,
         issuing_body: form.issuing_body.trim(),
         expiry_date: form.expiry_date || null,
-        credential_document_id: documentId || null,
+        credential_document_id: null,
       });
+      if (certificate) {
+        await uploadMarketplaceQualificationEvidence(saved.id, certificate);
+      }
       setForm(qualificationInitial());
-      onMessage("Qualification saved. It is pending independent verification.");
+      setCertificate(null);
+      onMessage(certificate ? "Qualification and certificate saved for Super Admin verification." : "Qualification saved. Upload its certificate before verification.");
       await onDone();
     } catch (error) {
       setErrors({ form: error.message });
@@ -1027,7 +1027,7 @@ function Qualifications({ items, onDone, onMessage }) {
           <h3 className="mt-1 text-2xl font-bold">Add a qualification</h3>
           <p className="mt-2 max-w-2xl text-sm text-slate-600">
             Enter the details exactly as they appear on the certificate.
-            Evidence is optional now and can be verified by Super Admin later.
+            Add a clear certificate image so Super Admin can verify the qualification before publication.
           </p>
         </div>
         {errors.form && (
@@ -1061,11 +1061,7 @@ function Qualifications({ items, onDone, onMessage }) {
                 max={
                   key === "award_year" ? new Date().getFullYear() : undefined
                 }
-                placeholder={
-                  key === "credential_document_id"
-                    ? "Optional UUID from Document Vault"
-                    : ""
-                }
+                placeholder=""
                 value={form[key]}
                 onChange={(e) =>
                   update(
@@ -1095,41 +1091,13 @@ function Qualifications({ items, onDone, onMessage }) {
             </Field>
           ))}
         </div>
-        <details className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <summary className="cursor-pointer text-sm font-bold">
-            Link existing evidence (optional)
-          </summary>
-          <p className="mt-2 text-xs leading-5 text-slate-600">
-            Use this only when the certificate already exists in Document Vault.
-            Do not enter a filename, registration number, or reference code.
-          </p>
-          <div className="mt-3">
-            <Field label="Document Vault UUID">
-              <Input
-                value={form.credential_document_id}
-                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                aria-invalid={Boolean(errors.credential_document_id)}
-                aria-describedby={
-                  errors.credential_document_id
-                    ? "credential_document_id-error"
-                    : undefined
-                }
-                onChange={(event) =>
-                  update("credential_document_id", event.target.value)
-                }
-              />
-              {errors.credential_document_id && (
-                <p
-                  id="credential_document_id-error"
-                  role="alert"
-                  className="mt-1 text-xs font-semibold text-red-700"
-                >
-                  {errors.credential_document_id}
-                </p>
-              )}
-            </Field>
-          </div>
-        </details>
+        <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4">
+          <label className="block text-sm font-bold" htmlFor="new-qualification-certificate">Certificate image</label>
+          <p className="mt-1 text-xs leading-5 text-slate-600">JPEG or JPG only · maximum 1 MB. The image stays private and is shown only to authorised reviewers.</p>
+          <input id="new-qualification-certificate" type="file" accept=".jpg,.jpeg,image/jpeg" className="mt-3 block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-slate-950 file:px-4 file:py-2 file:font-bold file:text-white" onChange={(event)=>{const file=event.target.files?.[0]||null;setCertificate(file);setErrors((current)=>({...current,certificate:""}));}} />
+          {certificate ? <p className="mt-2 text-xs font-semibold text-slate-700">Selected: {certificate.name} · {(certificate.size/1024).toFixed(0)} KB</p> : null}
+          {errors.certificate ? <p role="alert" className="mt-2 text-xs font-semibold text-red-700">{errors.certificate}</p> : null}
+        </div>
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <Button variant="primary" disabled={busy} onClick={add}>
             {busy ? "Saving qualification…" : "Save qualification"}
@@ -1168,9 +1136,11 @@ function Qualifications({ items, onDone, onMessage }) {
                 <p className="mt-1 text-sm text-slate-500">
                   {item.institution} · {item.award_year}
                 </p>
-                <p className="mt-1 text-xs text-slate-400">
-                  Evidence remains private in Document Vault.
-                </p>
+                <p className={`mt-2 text-xs font-semibold ${item.credential_document_id ? "text-emerald-700" : "text-amber-700"}`}>{item.credential_document_id ? "Certificate attached securely" : "Certificate required before verification"}</p>
+                {!item.credential_document_id ? <label className="mt-3 inline-flex min-h-11 cursor-pointer items-center rounded-xl bg-slate-950 px-4 text-sm font-bold text-white">
+                  {uploadingId===item.id ? "Uploading…" : "Upload certificate"}
+                  <input type="file" accept=".jpg,.jpeg,image/jpeg" className="sr-only" disabled={Boolean(uploadingId)} onChange={async(event)=>{const file=event.target.files?.[0];if(!file)return;setUploadingId(item.id);try{await uploadMarketplaceQualificationEvidence(item.id,file);onMessage("Certificate uploaded securely. Super Admin can now review it.");await onDone();}catch(error){onMessage(error.message||"Certificate upload failed. Please try again.");}finally{setUploadingId("");event.target.value="";}}}/>
+                </label> : null}
               </article>
             ))}
           </div>

@@ -50,6 +50,15 @@ class ProfilePhotoPrepare(BaseModel):
 class ProfilePhotoFinalise(BaseModel):
     photo_id:UUID
 
+class QualificationEvidencePrepare(BaseModel):
+    filename:str=Field(min_length=1,max_length=255)
+    content_type:str=Field(pattern="^image/jpeg$")
+    size_bytes:int=Field(gt=0,le=1024*1024)
+
+class QualificationEvidenceFinalise(BaseModel):
+    document_id:UUID
+    version_id:UUID
+
 class QualificationCreate(BaseModel):
     qualification_type:str=Field(min_length=2,max_length=80);title:str=Field(min_length=2,max_length=240);institution:str=Field(min_length=2,max_length=240)
     award_year:int=Field(ge=1900,le=date.today().year);country:str|None=Field(default=None,max_length=100);registration_number:str|None=Field(default=None,max_length=160)

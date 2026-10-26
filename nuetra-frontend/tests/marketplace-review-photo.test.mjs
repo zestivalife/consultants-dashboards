@@ -29,7 +29,7 @@ test("Super Admin review presents structured marketplace data without raw JSON",
   assert.match(governance, /Working…/);
   assert.match(governance, /Credential review/);
   assert.match(governance, /Verify qualification/);
-  assert.match(governance, /Attach qualification evidence before verification/);
+  assert.match(governance, /Open the certificate before verifying this qualification/);
   assert.match(governance, /credential_document_id/);
 });
 
