@@ -36,6 +36,17 @@ export function listFiteatsyConnections(){return request('/fiteatsy-connections'
 export function createFiteatsyConnectionInvitation(payload){return request('/fiteatsy-connections/invitations',{method:'POST',body:JSON.stringify(payload)});}
 export function revokeFiteatsyConnectionInvitation(id,reason='Replaced by consultant'){return request(`/fiteatsy-connections/invitations/${encodeURIComponent(id)}/revoke`,{method:'POST',body:JSON.stringify({reason})});}
 export function revokeFiteatsyConnection(id,reason='Revoked by consultant'){return request(`/fiteatsy-connections/${encodeURIComponent(id)}/revoke`,{method:'POST',body:JSON.stringify({reason})});}
+export function getFiteatsyConnectionHealthContext(id){return request(`/fiteatsy-connections/${encodeURIComponent(id)}/health-context`);}
+export async function downloadFiteatsyConnectionReport(id,reportId){
+  const path=`/fiteatsy-connections/${encodeURIComponent(id)}/reports/${encodeURIComponent(reportId)}/file`;
+  const send=token=>fetch(`${BASE}${path}`,{credentials:'include',headers:{...(token?{'X-Nuetra-Authorization':`Bearer ${token}`}:{})}});
+  let response=await send(getToken());
+  if(response.status===401){const refreshedToken=await refreshAccessToken().catch(()=>null);if(refreshedToken)response=await send(refreshedToken);}
+  if(!response.ok)throw new Error(fallbackMessage(response.status));
+  const disposition=response.headers.get('content-disposition')||'';
+  const filename=/filename="?([^";]+)"?/i.exec(disposition)?.[1]||'fiteatsy-health-report';
+  return{blob:await response.blob(),filename};
+}
 export function updatePracticeConfiguration(payload){return request('/configuration',{method:'PUT',body:JSON.stringify(payload)});}
 export function listCommunicationTemplates(){return request('/communication/templates');}
 export function saveCommunicationTemplate(payload){return request('/communication/templates',{method:'POST',body:JSON.stringify(payload)});}

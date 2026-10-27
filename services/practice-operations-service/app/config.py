@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     external_fiteatsy_inbound_public_key: str | None = Field(default=None, validation_alias=AliasChoices("EXTERNAL_FITEATSY_INBOUND_PUBLIC_KEY", "external_fiteatsy_inbound_public_key"))
     external_fiteatsy_inbound_issuer: str = Field(default="fiteatsy-auth-service", validation_alias=AliasChoices("EXTERNAL_FITEATSY_INBOUND_ISSUER", "external_fiteatsy_inbound_issuer"))
     external_fiteatsy_inbound_audience: str = Field(default="practice-operations-service", validation_alias=AliasChoices("EXTERNAL_FITEATSY_INBOUND_AUDIENCE", "external_fiteatsy_inbound_audience"))
+    external_fiteatsy_backend_url: str | None = Field(default=None, validation_alias=AliasChoices("EXTERNAL_FITEATSY_BACKEND_URL", "external_fiteatsy_backend_url"))
+    external_fiteatsy_outbound_private_key: str | None = Field(default=None, validation_alias=AliasChoices("EXTERNAL_FITEATSY_OUTBOUND_PRIVATE_KEY", "external_fiteatsy_outbound_private_key"))
+    external_fiteatsy_outbound_key_id: str | None = Field(default=None, validation_alias=AliasChoices("EXTERNAL_FITEATSY_OUTBOUND_KEY_ID", "external_fiteatsy_outbound_key_id"))
+    external_fiteatsy_outbound_issuer: str = Field(default="zestiva-platform", validation_alias=AliasChoices("EXTERNAL_FITEATSY_OUTBOUND_ISSUER", "external_fiteatsy_outbound_issuer"))
+    external_fiteatsy_outbound_audience: str = Field(default="fiteatsy-backend", validation_alias=AliasChoices("EXTERNAL_FITEATSY_OUTBOUND_AUDIENCE", "external_fiteatsy_outbound_audience"))
 
     model_config = {"env_file": ".env", "case_sensitive": False}
 
@@ -65,6 +70,8 @@ class Settings(BaseSettings):
             raise ValueError("EXTERNAL_FITEATSY_PIN_PEPPER must be set when Fiteatsy connections are enabled")
         if self.external_fiteatsy_connection_enabled and not self.external_fiteatsy_inbound_public_key:
             raise ValueError("EXTERNAL_FITEATSY_INBOUND_PUBLIC_KEY must be set when Fiteatsy connections are enabled")
+        if self.external_fiteatsy_health_access_enabled and not all((self.external_fiteatsy_backend_url, self.external_fiteatsy_outbound_private_key, self.external_fiteatsy_outbound_key_id)):
+            raise ValueError("Fiteatsy outbound URL and signing credentials must be set when health access is enabled")
         return self
 
 

@@ -8,10 +8,12 @@ from hashlib import sha256
 import hmac
 import json
 import secrets
+import httpx
 from uuid import uuid4
 
 import jwt
 from fastapi import APIRouter, Depends, Header, Request
+from fastapi.responses import Response
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -20,11 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.db import get_db
 
-PIN_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+PIN_ALPHABET = "0123456789"
 ALLOWED_SCOPES = {"PROFILE", "HEALTH_SUMMARY", "MEASUREMENTS", "BIOMARKERS", "DIET_PLANS", "APPOINTMENTS"}
 
 
-def generate_connection_pin(length: int = 8) -> str:
+def generate_connection_pin(length: int = 6) -> str:
     return "".join(secrets.choice(PIN_ALPHABET) for _ in range(length))
 
 
@@ -44,6 +46,22 @@ def decode_fiteatsy_identity(token: str, public_key: str, issuer: str, audience:
     return claims
 
 
+def create_fiteatsy_delegation(connection, permission: str, purpose: str) -> str:
+    settings = get_settings(); now = datetime.now(timezone.utc)
+    claims = {
+        "iss": settings.external_fiteatsy_outbound_issuer,
+        "sub": str(connection["consultant_id"]),
+        "aud": settings.external_fiteatsy_outbound_audience,
+        "iat": int(now.timestamp()), "exp": int((now + timedelta(seconds=60)).timestamp()), "jti": str(uuid4()),
+        "product": "fiteatsy", "permissions": [permission], "purpose": purpose,
+        "actor_type": "EXTERNAL_CONSULTANT", "tenant_id": str(connection["tenant_id"]),
+        "connection_id": str(connection["id"]), "fiteatsy_user_id": str(connection["fiteatsy_user_id"]),
+        "scopes": list(connection["consented_scopes"] or []),
+    }
+    key = (settings.external_fiteatsy_outbound_private_key or "").replace("\\n", "\n")
+    return jwt.encode(claims, key, algorithm="RS256", headers={"typ": "Zestiva-Delegated-Authority", "kid": settings.external_fiteatsy_outbound_key_id})
+
+
 class InvitationCreate(BaseModel):
     client_id: str | None = Field(default=None, max_length=120)
     expires_in_hours: int = Field(default=72, ge=1, le=168)
@@ -51,13 +69,62 @@ class InvitationCreate(BaseModel):
 
 
 class PinRedeem(BaseModel):
-    pin: str = Field(min_length=8, max_length=32)
+    pin: str = Field(min_length=6, max_length=32)
     consent_version: str = Field(min_length=1, max_length=40)
     accepted_scopes: list[str]
 
 
+def public_consultant_projection(row):
+    if not row:
+        return None
+    source = dict(row.get("projection") or {})
+    return {
+        "id": str(row["profile_id"]),
+        "slug": row.get("slug"),
+        "display_name": source.get("display_name"),
+        "headline": source.get("headline"),
+        "profession_code": source.get("profession_code"),
+        "specialisations": source.get("specialisations") or [],
+        "languages": source.get("languages") or [],
+        "profile_photo_url": source.get("profile_photo_url"),
+        "verified_qualifications": int(row.get("verified_qualifications") or 0),
+    }
+
+
+async def consultant_projection(db, tenant_id, consultant_id, include_contact=False):
+    row = (await db.execute(text("""SELECT p.id::text profile_id,p.slug,v.projection,
+      COALESCE(q.verified_qualifications,0)::int verified_qualifications,
+      CASE WHEN :include_contact THEN cp.phone_e164 ELSE NULL END phone_e164
+      FROM external_consultant_public_profiles p
+      JOIN external_consultant_public_profile_versions v ON v.profile_id=p.id AND v.version=p.current_published_version
+      LEFT JOIN (SELECT profile_id,COUNT(*) FILTER(WHERE verification_status='VERIFIED' AND (expiry_date IS NULL OR expiry_date>=CURRENT_DATE)) verified_qualifications FROM external_consultant_qualifications GROUP BY profile_id) q ON q.profile_id=p.id
+      LEFT JOIN external_consultant_contact_profiles cp ON cp.tenant_id=p.tenant_id AND cp.consultant_user_id=p.consultant_user_id
+      WHERE p.tenant_id=:tenant AND p.consultant_user_id=:consultant AND p.status='PUBLISHED'
+        AND p.approval_valid=TRUE AND p.suspended_at IS NULL"""), {
+          "tenant": tenant_id, "consultant": consultant_id, "include_contact": include_contact
+      })).mappings().first()
+    result = public_consultant_projection(row)
+    if result is not None and include_contact:
+        result["phone_e164"] = row.get("phone_e164")
+    return result
+
+
+def pin_status_error(request, error, invitation, now):
+    if not invitation:
+        return error(request, 404, "CONNECTION_PIN_INVALID", "The Connection PIN is invalid")
+    if invitation["status"] == "REDEEMED":
+        return error(request, 409, "CONNECTION_PIN_ALREADY_USED", "This Connection PIN has already been used")
+    if invitation["status"] == "REVOKED":
+        return error(request, 410, "CONNECTION_PIN_REVOKED", "This Connection PIN was revoked by the consultant")
+    if invitation["status"] == "EXPIRED" or invitation["expires_at"] <= now:
+        return error(request, 410, "CONNECTION_PIN_EXPIRED", "This Connection PIN has expired")
+    if invitation["attempt_count"] >= invitation["max_attempts"]:
+        return error(request, 429, "CONNECTION_PIN_LOCKED", "This Connection PIN is temporarily unavailable")
+    return None
+
+
 class PinPreview(BaseModel):
-    pin: str = Field(min_length=8, max_length=32)
+    pin: str = Field(min_length=6, max_length=32)
 
 
 class ConnectionAction(BaseModel):
@@ -80,6 +147,10 @@ class PlanPublication(BaseModel):
     title: str = Field(min_length=1, max_length=240)
     content: dict
     idempotency_key: str = Field(min_length=8, max_length=120)
+
+
+class ActivePlanSelection(BaseModel):
+    publication_id: str = Field(min_length=1, max_length=120)
 
 
 class AppointmentPublication(BaseModel):
@@ -122,9 +193,22 @@ def build_router(context_dependency, external_only, error):
         if denied: return denied
         try: scopes = clean_scopes(body.scopes)
         except ValueError as exc: return error(request, 422, "INVALID_CONNECTION_SCOPE", str(exc))
-        settings = get_settings(); pin = generate_connection_pin(); now = datetime.now(timezone.utc); invitation_id = uuid4()
-        await db.execute(text("""INSERT INTO external_fiteatsy_connection_invitations(id,tenant_id,consultant_id,intended_client_id,pin_verifier,pin_hint,status,attempt_count,max_attempts,expires_at,requested_scopes,created_at,updated_at)
-            VALUES(:id,:tenant,:consultant,:client,:verifier,:hint,'PENDING',0,8,:expires,CAST(:scopes AS JSONB),:now,:now)"""), {"id": invitation_id, "tenant": ctx["tenant_id"], "consultant": ctx["user_id"], "client": body.client_id, "verifier": pin_verifier(pin, settings.external_fiteatsy_pin_pepper or ""), "hint": pin[-2:], "expires": now + timedelta(hours=body.expires_in_hours), "scopes": json.dumps(scopes), "now": now})
+        settings = get_settings(); now = datetime.now(timezone.utc)
+        pin = None; invitation_id = None
+        # Six numeric digits intentionally have a small keyspace. Let the
+        # database's unique verifier constraint arbitrate concurrent issuers
+        # and retry without ever exposing a colliding PIN.
+        for _ in range(12):
+            candidate = generate_connection_pin(); candidate_id = uuid4()
+            inserted = (await db.execute(text("""INSERT INTO external_fiteatsy_connection_invitations(id,tenant_id,consultant_id,intended_client_id,pin_verifier,pin_hint,status,attempt_count,max_attempts,expires_at,requested_scopes,created_at,updated_at)
+                VALUES(:id,:tenant,:consultant,:client,:verifier,:hint,'PENDING',0,8,:expires,CAST(:scopes AS JSONB),:now,:now)
+                ON CONFLICT(pin_verifier) DO NOTHING RETURNING id"""), {"id": candidate_id, "tenant": ctx["tenant_id"], "consultant": ctx["user_id"], "client": body.client_id, "verifier": pin_verifier(candidate, settings.external_fiteatsy_pin_pepper or ""), "hint": candidate[-2:], "expires": now + timedelta(hours=body.expires_in_hours), "scopes": json.dumps(scopes), "now": now})).scalar_one_or_none()
+            if inserted:
+                pin = candidate; invitation_id = candidate_id
+                break
+        if pin is None or invitation_id is None:
+            await db.rollback()
+            return error(request, 503, "CONNECTION_PIN_UNAVAILABLE", "A unique Connection PIN could not be issued. Please retry.")
         await db.execute(text("INSERT INTO external_fiteatsy_connection_events(id,tenant_id,invitation_id,event_type,actor_type,actor_id,event_data,created_at) VALUES(:id,:tenant,:invitation,'INVITATION_CREATED','CONSULTANT',:actor,CAST(:data AS JSONB),:now)"), {"id": uuid4(), "tenant": ctx["tenant_id"], "invitation": invitation_id, "actor": ctx["user_id"], "data": json.dumps({"scopes": scopes}), "now": now})
         await db.commit()
         return response(request, {"invitation_id": str(invitation_id), "connection_pin": pin, "expires_at": (now + timedelta(hours=body.expires_in_hours)).isoformat(), "scopes": scopes, "display_once": True}, 201)
@@ -186,8 +270,51 @@ def build_router(context_dependency, external_only, error):
         await db.execute(text("INSERT INTO external_fiteatsy_connection_events(id,tenant_id,connection_id,event_type,actor_type,actor_id,event_data,created_at) VALUES(:id,:tenant,:connection,'CONNECTION_REVOKED','CONSULTANT',:actor,CAST(:data AS JSONB),:now)"), {"id": uuid4(), "tenant": ctx["tenant_id"], "connection": connection_id, "actor": ctx["user_id"], "data": json.dumps({"reason": body.reason}), "now": datetime.now(timezone.utc)})
         await db.commit(); return response(request, {"connection_id": connection_id, "state": "REVOKED"})
 
+    async def active_health_connection(connection_id, ctx, db):
+        return (await db.execute(text("SELECT id::text,tenant_id,consultant_id,fiteatsy_user_id,consented_scopes FROM external_fiteatsy_connections WHERE id=:id AND tenant_id=:tenant AND consultant_id=:consultant AND state='ACTIVE'"), {"id": connection_id, "tenant": ctx["tenant_id"], "consultant": ctx["user_id"]})).mappings().first()
+
+    @router.get("/api/v1/practice-operations/fiteatsy-connections/{connection_id}/health-context")
+    async def health_context(connection_id: str, request: Request, ctx=Depends(context_dependency), db: AsyncSession=Depends(get_db)):
+        denied = external_only(request, ctx) or enabled(request)
+        if denied: return denied
+        settings = get_settings()
+        if not settings.external_fiteatsy_health_access_enabled: return error(request, 404, "FEATURE_DISABLED", "Fiteatsy health access is not enabled")
+        connection = await active_health_connection(connection_id, ctx, db)
+        if not connection: return error(request, 404, "CONNECTION_NOT_FOUND", "An active Fiteatsy connection could not be found")
+        if not set(connection["consented_scopes"] or []) & {"PROFILE", "HEALTH_SUMMARY", "MEASUREMENTS", "BIOMARKERS"}: return error(request, 403, "HEALTH_CONSENT_REQUIRED", "The client has not consented to health access")
+        token = create_fiteatsy_delegation(connection, "fiteatsy.external.health.read", "external_consultant_health")
+        url = f"{settings.external_fiteatsy_backend_url.rstrip('/')}/v1/internal/external-consultant-access/{connection['fiteatsy_user_id']}/health-context"
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client: upstream = await client.get(url, headers={"x-zestiva-delegation": token})
+        except httpx.RequestError: return error(request, 503, "FITEATSY_UNAVAILABLE", "Fiteatsy health data is temporarily unavailable")
+        if upstream.status_code != 200:
+            safe = upstream.json() if upstream.headers.get("content-type", "").startswith("application/json") else {}
+            return error(request, upstream.status_code, safe.get("error", "FITEATSY_REQUEST_FAILED"), safe.get("message", "Fiteatsy health data could not be retrieved"))
+        data = upstream.json()
+        for report in data.get("reports", []):
+            report["file_path"] = f"/api/v1/practice-operations/fiteatsy-connections/{connection_id}/reports/{report['id']}/file"
+        return response(request, data)
+
+    @router.get("/api/v1/practice-operations/fiteatsy-connections/{connection_id}/reports/{report_id}/file")
+    async def health_report_file(connection_id: str, report_id: str, request: Request, ctx=Depends(context_dependency), db: AsyncSession=Depends(get_db)):
+        denied = external_only(request, ctx) or enabled(request)
+        if denied: return denied
+        settings = get_settings()
+        if not settings.external_fiteatsy_health_access_enabled: return error(request, 404, "FEATURE_DISABLED", "Fiteatsy health access is not enabled")
+        connection = await active_health_connection(connection_id, ctx, db)
+        if not connection or "HEALTH_SUMMARY" not in (connection["consented_scopes"] or []): return error(request, 403, "REPORT_ACCESS_DENIED", "An active consented report connection is required")
+        token = create_fiteatsy_delegation(connection, "fiteatsy.external.report.read", "external_consultant_report")
+        url = f"{settings.external_fiteatsy_backend_url.rstrip('/')}/v1/internal/external-consultant-access/{connection['fiteatsy_user_id']}/reports/{report_id}/file"
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client: upstream = await client.get(url, headers={"x-zestiva-delegation": token})
+        except httpx.RequestError: return error(request, 503, "FITEATSY_UNAVAILABLE", "The report file is temporarily unavailable")
+        if upstream.status_code != 200: return error(request, upstream.status_code, "REPORT_FILE_UNAVAILABLE", "The report file could not be retrieved")
+        headers = {key: value for key, value in upstream.headers.items() if key.lower() in {"content-type", "content-length", "content-disposition"}}
+        headers["Cache-Control"] = "no-store, private"
+        return Response(content=upstream.content, status_code=200, headers=headers)
+
     @router.post("/api/v1/fiteatsy-connections/redeem")
-    async def redeem_invitation(request: Request, body: PinRedeem, authorization: str | None = Header(None), db: AsyncSession=Depends(get_db)):
+    async def redeem_invitation(request: Request, body: PinRedeem, authorization: str | None = Header(None), idempotency_key: str | None = Header(None), db: AsyncSession=Depends(get_db)):
         denied = enabled(request)
         if denied: return denied
         identity, denied = fiteatsy_identity(request, authorization)
@@ -196,15 +323,18 @@ def build_router(context_dependency, external_only, error):
         except ValueError as exc: return error(request, 422, "INVALID_CONNECTION_SCOPE", str(exc))
         verifier = pin_verifier(body.pin, get_settings().external_fiteatsy_pin_pepper or ""); now = datetime.now(timezone.utc)
         invitation = (await db.execute(text("SELECT * FROM external_fiteatsy_connection_invitations WHERE pin_verifier=:verifier FOR UPDATE"), {"verifier": verifier})).mappings().first()
-        if not invitation or invitation["status"] != "PENDING" or invitation["expires_at"] <= now or invitation["attempt_count"] >= invitation["max_attempts"]:
-            return error(request, 404, "CONNECTION_PIN_INVALID", "The Connection PIN is invalid or no longer available")
+        if invitation and invitation["status"] == "REDEEMED" and idempotency_key and str(invitation.get("redemption_idempotency_key")) == idempotency_key and invitation["redeemed_by_fiteatsy_user_id"] == identity["sub"]:
+            existing = (await db.execute(text("SELECT id::text,state,consented_scopes FROM external_fiteatsy_connections WHERE tenant_id=:tenant AND consultant_id=:consultant AND fiteatsy_user_id=:user"), {"tenant": invitation["tenant_id"], "consultant": invitation["consultant_id"], "user": identity["sub"]})).mappings().first()
+            if existing: return response(request, dict(existing), 200)
+        denied = pin_status_error(request, error, invitation, now)
+        if denied: return denied
         if not set(accepted) <= set(invitation["requested_scopes"] or []):
             return error(request, 422, "CONSENT_SCOPE_EXCEEDS_INVITATION", "Accepted consent exceeds the invited access")
         connection_id = uuid4()
         await db.execute(text("""INSERT INTO external_fiteatsy_connections(id,tenant_id,consultant_id,fiteatsy_user_id,consultant_client_id,state,consent_version,consented_scopes,programme_status,connected_at,updated_at)
             VALUES(:id,:tenant,:consultant,:user,:client,'ACTIVE',:version,CAST(:scopes AS JSONB),'NOT_ENROLLED',:now,:now)
             ON CONFLICT(tenant_id,consultant_id,fiteatsy_user_id) DO UPDATE SET state='ACTIVE',consent_version=EXCLUDED.consent_version,consented_scopes=EXCLUDED.consented_scopes,connected_at=EXCLUDED.connected_at,disconnected_at=NULL,updated_at=EXCLUDED.updated_at RETURNING id"""), {"id": connection_id, "tenant": invitation["tenant_id"], "consultant": invitation["consultant_id"], "user": identity["sub"], "client": invitation["intended_client_id"], "version": body.consent_version, "scopes": json.dumps(accepted), "now": now})
-        await db.execute(text("UPDATE external_fiteatsy_connection_invitations SET status='REDEEMED',redeemed_by_fiteatsy_user_id=:user,redeemed_at=:now,updated_at=:now WHERE id=:id"), {"user": identity["sub"], "now": now, "id": invitation["id"]})
+        await db.execute(text("UPDATE external_fiteatsy_connection_invitations SET status='REDEEMED',redeemed_by_fiteatsy_user_id=:user,redemption_idempotency_key=CAST(:key AS UUID),redeemed_at=:now,updated_at=:now WHERE id=:id"), {"user": identity["sub"], "key": idempotency_key, "now": now, "id": invitation["id"]})
         actual = (await db.execute(text("SELECT id FROM external_fiteatsy_connections WHERE tenant_id=:tenant AND consultant_id=:consultant AND fiteatsy_user_id=:user"), {"tenant": invitation["tenant_id"], "consultant": invitation["consultant_id"], "user": identity["sub"]})).scalar_one()
         await db.execute(text("INSERT INTO external_fiteatsy_consents(id,connection_id,consent_version,scopes,decision,actor_fiteatsy_user_id,created_at) VALUES(:id,:connection,:version,CAST(:scopes AS JSONB),'GRANTED',:user,:now)"), {"id": uuid4(), "connection": actual, "version": body.consent_version, "scopes": json.dumps(accepted), "user": identity["sub"], "now": now})
         await db.commit(); return response(request, {"connection_id": str(actual), "state": "ACTIVE", "consented_scopes": accepted}, 201)
@@ -216,9 +346,11 @@ def build_router(context_dependency, external_only, error):
         _, denied = fiteatsy_identity(request, authorization)
         if denied: return denied
         verifier = pin_verifier(body.pin, get_settings().external_fiteatsy_pin_pepper or "")
-        row = (await db.execute(text("SELECT pin_hint,requested_scopes,expires_at,status FROM external_fiteatsy_connection_invitations WHERE pin_verifier=:verifier"), {"verifier": verifier})).mappings().first()
-        if not row or row["status"] != "PENDING" or row["expires_at"] <= datetime.now(timezone.utc): return error(request, 404, "CONNECTION_PIN_INVALID", "The Connection PIN is invalid or no longer available")
-        return response(request, {"pin_hint": row["pin_hint"], "requested_scopes": row["requested_scopes"], "expires_at": row["expires_at"], "consent_required": True})
+        row = (await db.execute(text("SELECT pin_hint,requested_scopes,expires_at,status,attempt_count,max_attempts,tenant_id,consultant_id FROM external_fiteatsy_connection_invitations WHERE pin_verifier=:verifier"), {"verifier": verifier})).mappings().first()
+        denied = pin_status_error(request, error, row, datetime.now(timezone.utc))
+        if denied: return denied
+        consultant = await consultant_projection(db, row["tenant_id"], row["consultant_id"])
+        return response(request, {"pin_hint": row["pin_hint"], "requested_scopes": row["requested_scopes"], "expires_at": row["expires_at"], "consent_required": True, "consultant": consultant})
 
     @router.get("/api/v1/fiteatsy-connections")
     async def mobile_connections(request: Request, authorization: str | None = Header(None), db: AsyncSession=Depends(get_db)):
@@ -226,7 +358,9 @@ def build_router(context_dependency, external_only, error):
         if denied: return denied
         identity, denied = fiteatsy_identity(request, authorization)
         if denied: return denied
-        rows = [dict(row) for row in (await db.execute(text("SELECT id::text,state,consented_scopes,programme_status,connected_at,disconnected_at FROM external_fiteatsy_connections WHERE fiteatsy_user_id=:user ORDER BY connected_at DESC"), {"user": identity["sub"]})).mappings().all()]
+        rows = []
+        for row in (await db.execute(text("SELECT id::text,tenant_id,consultant_id,state,consented_scopes,programme_status,connected_at,disconnected_at FROM external_fiteatsy_connections WHERE fiteatsy_user_id=:user ORDER BY connected_at DESC"), {"user": identity["sub"]})).mappings().all():
+            item = dict(row); item["consultant"] = await consultant_projection(db, row["tenant_id"], row["consultant_id"], True); item.pop("tenant_id", None); item.pop("consultant_id", None); rows.append(item)
         return response(request, {"connections": rows})
 
     @router.get("/api/v1/fiteatsy-connections/{connection_id}")
@@ -235,9 +369,10 @@ def build_router(context_dependency, external_only, error):
         if denied: return denied
         identity, denied = fiteatsy_identity(request, authorization)
         if denied: return denied
-        row = (await db.execute(text("SELECT id::text,state,consented_scopes,programme_status,connected_at,disconnected_at FROM external_fiteatsy_connections WHERE id=:id AND fiteatsy_user_id=:user"), {"id": connection_id, "user": identity["sub"]})).mappings().first()
+        row = (await db.execute(text("SELECT id::text,tenant_id,consultant_id,state,consented_scopes,programme_status,connected_at,disconnected_at FROM external_fiteatsy_connections WHERE id=:id AND fiteatsy_user_id=:user"), {"id": connection_id, "user": identity["sub"]})).mappings().first()
         if not row: return error(request, 404, "CONNECTION_NOT_FOUND", "The consultant connection could not be found")
-        return response(request, {"connection": dict(row)})
+        item = dict(row); item["consultant"] = await consultant_projection(db, row["tenant_id"], row["consultant_id"], True); item.pop("tenant_id", None); item.pop("consultant_id", None)
+        return response(request, {"connection": item})
 
     @router.get("/api/v1/fiteatsy-connections/{connection_id}/diet-plans")
     async def mobile_plans(connection_id: str, request: Request, authorization: str | None = Header(None), db: AsyncSession=Depends(get_db)):
@@ -245,8 +380,36 @@ def build_router(context_dependency, external_only, error):
         if denied: return denied
         identity, denied = fiteatsy_identity(request, authorization)
         if denied: return denied
-        rows = [dict(item) for item in (await db.execute(text("SELECT p.id::text,p.plan_id,p.plan_version,p.title,p.content,p.status,p.published_at FROM external_fiteatsy_plan_publications p JOIN external_fiteatsy_connections c ON c.id=p.connection_id WHERE c.id=:id AND c.fiteatsy_user_id=:user AND c.state='ACTIVE' AND c.consented_scopes ? 'DIET_PLANS' ORDER BY p.published_at DESC"), {"id": connection_id, "user": identity["sub"]})).mappings().all()]
+        rows = [dict(item) for item in (await db.execute(text("""SELECT p.id::text,p.plan_id,p.plan_version,p.title,p.content,p.status,p.published_at,
+          (selection.publication_id=p.id) AS is_active
+          FROM external_fiteatsy_plan_publications p
+          JOIN external_fiteatsy_connections c ON c.id=p.connection_id
+          LEFT JOIN external_fiteatsy_active_plan_selections selection ON selection.fiteatsy_user_id=c.fiteatsy_user_id
+          WHERE c.id=:id AND c.fiteatsy_user_id=:user AND c.state='ACTIVE' AND c.consented_scopes ? 'DIET_PLANS'
+          ORDER BY p.published_at DESC"""), {"id": connection_id, "user": identity["sub"]})).mappings().all()]
         return response(request, {"plans": rows})
+
+    @router.put("/api/v1/fiteatsy-connections/{connection_id}/diet-plans/active")
+    async def select_mobile_plan(connection_id: str, request: Request, body: ActivePlanSelection, authorization: str | None = Header(None), db: AsyncSession=Depends(get_db)):
+        denied = enabled(request)
+        if denied: return denied
+        identity, denied = fiteatsy_identity(request, authorization)
+        if denied: return denied
+        publication = (await db.execute(text("""SELECT p.id FROM external_fiteatsy_plan_publications p
+          JOIN external_fiteatsy_connections c ON c.id=p.connection_id
+          WHERE p.id=:publication AND c.id=:connection AND c.fiteatsy_user_id=:user
+            AND c.state='ACTIVE' AND c.consented_scopes ? 'DIET_PLANS' AND p.status='PUBLISHED'"""), {
+          "publication": body.publication_id, "connection": connection_id, "user": identity["sub"]
+        })).scalar_one_or_none()
+        if not publication: return error(request, 404, "DIET_PLAN_NOT_AVAILABLE", "The published diet plan is not available through this active connection")
+        now = datetime.now(timezone.utc)
+        await db.execute(text("""INSERT INTO external_fiteatsy_active_plan_selections(fiteatsy_user_id,publication_id,selected_at,updated_at)
+          VALUES(:user,:publication,:now,:now)
+          ON CONFLICT(fiteatsy_user_id) DO UPDATE SET publication_id=EXCLUDED.publication_id,selected_at=EXCLUDED.selected_at,updated_at=EXCLUDED.updated_at"""), {
+          "user": identity["sub"], "publication": publication, "now": now
+        })
+        await db.commit()
+        return response(request, {"publication_id": str(publication), "active": True, "selected_at": now})
 
     @router.get("/api/v1/fiteatsy-connections/{connection_id}/appointments")
     async def mobile_appointments(connection_id: str, request: Request, authorization: str | None = Header(None), db: AsyncSession=Depends(get_db)):
