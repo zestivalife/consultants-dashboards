@@ -99,7 +99,7 @@ jobs:
         working-directory: services/practice-operations-service
         run: |
           alembic upgrade head
-          test "$(alembic current | awk '{print $1}')" = "0059_fit_appointment_links"
+          test "$(alembic current | awk '{print $1}')" = "0060_fit_pin_rate_limit"
 
       - name: Run practice operations regression
         working-directory: services/practice-operations-service
