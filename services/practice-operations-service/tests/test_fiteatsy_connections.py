@@ -7,7 +7,7 @@ from cryptography.hazmat.primitives import serialization
 
 from app.config import get_settings
 from app.contracts import AppointmentStatusUpdate
-from app.fiteatsy_connections import ALLOWED_SCOPES, create_fiteatsy_delegation, decode_fiteatsy_identity, fiteatsy_iso_datetime, generate_connection_pin, pin_status_error, pin_verifier, validate_canonical_plan_content, verify_pin
+from app.fiteatsy_connections import ALLOWED_SCOPES, CONNECTION_PIN_PURPOSE, CONSENT_VERSION, PinPreview, PinRedeem, create_fiteatsy_delegation, decode_fiteatsy_identity, fiteatsy_iso_datetime, generate_connection_pin, pin_status_error, pin_verifier, validate_canonical_plan_content, verify_pin
 
 
 def test_pin_is_six_digit_numeric_and_unique_across_sample():
@@ -27,12 +27,33 @@ def test_pin_verifier_normalizes_and_does_not_reveal_pin():
 def test_identity_assertion_requires_fiteatsy_actor():
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     now = datetime.now(timezone.utc)
-    claims = {"sub":"user-1","actor_type":"FITEATSY_USER","iss":"fiteatsy","aud":"zestiva","iat":now,"exp":now+timedelta(minutes=5)}
+    claims = {"sub":"user-1","actor_type":"FITEATSY_USER","purpose":"consultant_connection","jti":"assertion-1","iss":"fiteatsy","aud":"zestiva","iat":now,"exp":now+timedelta(minutes=5)}
     token = jwt.encode(claims, key, algorithm="RS256")
     assert decode_fiteatsy_identity(token, key.public_key(), "fiteatsy", "zestiva")["sub"] == "user-1"
     claims["actor_type"] = "CONSULTANT"
     with pytest.raises(jwt.InvalidTokenError):
         decode_fiteatsy_identity(jwt.encode(claims, key, algorithm="RS256"), key.public_key(), "fiteatsy", "zestiva")
+
+
+def test_identity_assertion_rejects_login_or_unspecified_purpose():
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = datetime.now(timezone.utc)
+    base = {"sub":"user-1","actor_type":"FITEATSY_USER","jti":"assertion-2","iss":"fiteatsy","aud":"zestiva","iat":now,"exp":now+timedelta(minutes=5)}
+    for purpose in (None, "login"):
+        claims = {**base, **({} if purpose is None else {"purpose": purpose})}
+        with pytest.raises(jwt.InvalidTokenError):
+            decode_fiteatsy_identity(jwt.encode(claims, key, algorithm="RS256"), key.public_key(), "fiteatsy", "zestiva")
+
+
+def test_connection_payload_requires_explicit_pin_purpose_and_consent():
+    preview = PinPreview(pin="654321", purpose=CONNECTION_PIN_PURPOSE)
+    redeem = PinRedeem(pin="654321", purpose=CONNECTION_PIN_PURPOSE, consent_version=CONSENT_VERSION, accepted_scopes=["PROFILE"])
+    assert preview.purpose == CONNECTION_PIN_PURPOSE
+    assert redeem.accepted_scopes == ["PROFILE"]
+    with pytest.raises(ValueError):
+        PinPreview(pin="654321", purpose="LOGIN_PIN")
+    with pytest.raises(ValueError):
+        PinRedeem(pin="654321", purpose=CONNECTION_PIN_PURPOSE, consent_version=CONSENT_VERSION, accepted_scopes=[])
 
 
 def test_scopes_are_explicit_and_minimal():

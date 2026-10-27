@@ -9,13 +9,14 @@ import hmac
 import json
 import secrets
 import httpx
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import jwt
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import Response
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
+from typing import Literal
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +25,9 @@ from app.db import get_db
 
 PIN_ALPHABET = "0123456789"
 ALLOWED_SCOPES = {"PROFILE", "HEALTH_SUMMARY", "MEASUREMENTS", "BIOMARKERS", "DIET_PLANS", "APPOINTMENTS"}
+FITEATSY_CONNECTION_ASSERTION_PURPOSE = "consultant_connection"
+CONNECTION_PIN_PURPOSE = "CONSULTANT_CONNECTION_PIN"
+CONSENT_VERSION = "external-consultant-v1"
 
 
 def generate_connection_pin(length: int = 6) -> str:
@@ -40,9 +44,11 @@ def verify_pin(pin: str, verifier: str, pepper: str) -> bool:
 
 
 def decode_fiteatsy_identity(token: str, public_key: str, issuer: str, audience: str) -> dict:
-    claims = jwt.decode(token, public_key, algorithms=["RS256"], issuer=issuer, audience=audience, options={"require": ["exp", "iat", "iss", "aud", "sub"]})
+    claims = jwt.decode(token, public_key, algorithms=["RS256"], issuer=issuer, audience=audience, options={"require": ["exp", "iat", "iss", "aud", "sub", "jti", "actor_type", "purpose"]})
     if claims.get("actor_type") != "FITEATSY_USER":
         raise jwt.InvalidTokenError("unexpected actor type")
+    if claims.get("purpose") != FITEATSY_CONNECTION_ASSERTION_PURPOSE:
+        raise jwt.InvalidTokenError("unexpected assertion purpose")
     return claims
 
 
@@ -70,8 +76,9 @@ class InvitationCreate(BaseModel):
 
 class PinRedeem(BaseModel):
     pin: str = Field(min_length=6, max_length=32)
-    consent_version: str = Field(min_length=1, max_length=40)
-    accepted_scopes: list[str]
+    purpose: Literal["CONSULTANT_CONNECTION_PIN"]
+    consent_version: Literal["external-consultant-v1"]
+    accepted_scopes: list[str] = Field(min_length=1)
 
 
 def public_consultant_projection(row):
@@ -123,8 +130,32 @@ def pin_status_error(request, error, invitation, now):
     return None
 
 
+async def consume_connection_pin_attempt(db: AsyncSession, fiteatsy_user_id: str, now: datetime) -> int:
+    """Consume one persisted attempt and return retry seconds, or zero when allowed."""
+    window_start = now - timedelta(minutes=15)
+    row = (await db.execute(text("""INSERT INTO external_fiteatsy_pin_attempt_limits(
+        fiteatsy_user_id,window_started_at,attempt_count,locked_until,updated_at)
+      VALUES(:user,:now,1,NULL,:now)
+      ON CONFLICT(fiteatsy_user_id) DO UPDATE SET
+        window_started_at=CASE WHEN external_fiteatsy_pin_attempt_limits.window_started_at < :window_start THEN :now ELSE external_fiteatsy_pin_attempt_limits.window_started_at END,
+        attempt_count=CASE WHEN external_fiteatsy_pin_attempt_limits.window_started_at < :window_start THEN 1 ELSE external_fiteatsy_pin_attempt_limits.attempt_count + 1 END,
+        locked_until=CASE
+          WHEN external_fiteatsy_pin_attempt_limits.locked_until > :now THEN external_fiteatsy_pin_attempt_limits.locked_until
+          WHEN external_fiteatsy_pin_attempt_limits.window_started_at >= :window_start AND external_fiteatsy_pin_attempt_limits.attempt_count + 1 > 8 THEN :lock_until
+          ELSE NULL END,
+        updated_at=:now
+      RETURNING locked_until"""), {
+        "user": fiteatsy_user_id, "now": now, "window_start": window_start,
+        "lock_until": now + timedelta(minutes=15),
+    })).mappings().one()
+    await db.commit()
+    locked_until = row["locked_until"]
+    return max(1, int((locked_until - now).total_seconds())) if locked_until and locked_until > now else 0
+
+
 class PinPreview(BaseModel):
     pin: str = Field(min_length=6, max_length=32)
+    purpose: Literal["CONSULTANT_CONNECTION_PIN"]
 
 
 class ConnectionAction(BaseModel):
@@ -365,9 +396,19 @@ def build_router(context_dependency, external_only, error):
         if denied: return denied
         identity, denied = fiteatsy_identity(request, authorization)
         if denied: return denied
+        if not idempotency_key:
+            return error(request, 400, "IDEMPOTENCY_KEY_REQUIRED", "A replay-safe idempotency key is required")
+        try:
+            idempotency_key = str(UUID(idempotency_key))
+        except (ValueError, AttributeError):
+            return error(request, 400, "IDEMPOTENCY_KEY_INVALID", "The idempotency key must be a UUID")
+        now = datetime.now(timezone.utc)
+        retry_after = await consume_connection_pin_attempt(db, identity["sub"], now)
+        if retry_after:
+            return error(request, 429, "CONNECTION_PIN_RATE_LIMITED", "Too many Connection PIN attempts. Please try again later.")
         try: accepted = clean_scopes(body.accepted_scopes)
         except ValueError as exc: return error(request, 422, "INVALID_CONNECTION_SCOPE", str(exc))
-        verifier = pin_verifier(body.pin, get_settings().external_fiteatsy_pin_pepper or ""); now = datetime.now(timezone.utc)
+        verifier = pin_verifier(body.pin, get_settings().external_fiteatsy_pin_pepper or "")
         invitation = (await db.execute(text("SELECT * FROM external_fiteatsy_connection_invitations WHERE pin_verifier=:verifier FOR UPDATE"), {"verifier": verifier})).mappings().first()
         if invitation and invitation["status"] == "REDEEMED" and idempotency_key and str(invitation.get("redemption_idempotency_key")) == idempotency_key and invitation["redeemed_by_fiteatsy_user_id"] == identity["sub"]:
             existing = (await db.execute(text("SELECT id::text,state,consented_scopes FROM external_fiteatsy_connections WHERE tenant_id=:tenant AND consultant_id=:consultant AND fiteatsy_user_id=:user"), {"tenant": invitation["tenant_id"], "consultant": invitation["consultant_id"], "user": identity["sub"]})).mappings().first()
@@ -389,11 +430,15 @@ def build_router(context_dependency, external_only, error):
     async def preview_invitation(request: Request, body: PinPreview, authorization: str | None = Header(None), db: AsyncSession=Depends(get_db)):
         denied = enabled(request)
         if denied: return denied
-        _, denied = fiteatsy_identity(request, authorization)
+        identity, denied = fiteatsy_identity(request, authorization)
         if denied: return denied
+        now = datetime.now(timezone.utc)
+        retry_after = await consume_connection_pin_attempt(db, identity["sub"], now)
+        if retry_after:
+            return error(request, 429, "CONNECTION_PIN_RATE_LIMITED", "Too many Connection PIN attempts. Please try again later.")
         verifier = pin_verifier(body.pin, get_settings().external_fiteatsy_pin_pepper or "")
         row = (await db.execute(text("SELECT pin_hint,requested_scopes,expires_at,status,attempt_count,max_attempts,tenant_id,consultant_id FROM external_fiteatsy_connection_invitations WHERE pin_verifier=:verifier"), {"verifier": verifier})).mappings().first()
-        denied = pin_status_error(request, error, row, datetime.now(timezone.utc))
+        denied = pin_status_error(request, error, row, now)
         if denied: return denied
         consultant = await consultant_projection(db, row["tenant_id"], row["consultant_id"])
         return response(request, {"pin_hint": row["pin_hint"], "requested_scopes": row["requested_scopes"], "expires_at": row["expires_at"], "consent_required": True, "consultant": consultant})
