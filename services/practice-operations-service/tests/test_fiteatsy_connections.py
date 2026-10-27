@@ -6,6 +6,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 
 from app.config import get_settings
+from app.contracts import AppointmentStatusUpdate
 from app.fiteatsy_connections import ALLOWED_SCOPES, create_fiteatsy_delegation, decode_fiteatsy_identity, generate_connection_pin, pin_status_error, pin_verifier, validate_canonical_plan_content, verify_pin
 
 
@@ -80,3 +81,11 @@ def test_external_plan_requires_all_canonical_meal_sections():
     del content["mealPlan"]["dinner"]
     with pytest.raises(ValueError, match="canonical Fiteatsy nutrition contract"):
         validate_canonical_plan_content(content)
+
+
+def test_canonical_appointment_update_accepts_reschedule_version_and_follow_up():
+    now = datetime.now(timezone.utc)
+    update = AppointmentStatusUpdate(status="CONFIRMED", starts_at=now + timedelta(days=1), expected_updated_at=now, follow_up_notes="Review adherence next session")
+    assert update.starts_at is not None
+    assert update.expected_updated_at == now
+    assert update.follow_up_notes == "Review adherence next session"

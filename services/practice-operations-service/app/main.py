@@ -3048,15 +3048,16 @@ async def update_scheduled_appointment(request: Request, appointment_id: UUID, b
         if conflict: return error(request,409,"APPOINTMENT_SLOT_UNAVAILABLE","This time is no longer available")
     now=datetime.now(timezone.utc); attendance="NO_SHOW" if body.status=="NO_SHOW" else "ATTENDED" if body.status=="COMPLETED" else None
     row=(await db.execute(text("""UPDATE external_scheduled_appointments SET status=:status,
-      starts_at=:starts,ends_at=:ends,attendance_status=:attendance,cancellation_reason=:reason,updated_at=:now
+      starts_at=:starts,ends_at=:ends,attendance_status=:attendance,cancellation_reason=:reason,
+      follow_up_notes=COALESCE(:follow_up_notes,follow_up_notes),updated_at=:now
       WHERE id=:id AND tenant_id=:tenant RETURNING id"""),{"status":body.status,"starts":starts_at,"ends":ends_at,"attendance":attendance,
-      "reason":body.cancellation_reason,"now":now,"id":appointment_id,"tenant":ctx["tenant_id"]})).first()
+      "reason":body.cancellation_reason,"follow_up_notes":body.follow_up_notes,"now":now,"id":appointment_id,"tenant":ctx["tenant_id"]})).first()
     if not row: return error(request,404,"APPOINTMENT_NOT_FOUND","Appointment not found")
     await db.execute(text("""INSERT INTO external_scheduling_audit_events
       (id,tenant_id,appointment_id,event_type,actor_id,actor_type,details,created_at)
       VALUES (:id,:tenant,:appointment,:event,:actor,'CONSULTANT',CAST(:details AS jsonb),:now)"""),{
       "id":uuid4(),"tenant":ctx["tenant_id"],"appointment":appointment_id,"event":body.status,
-      "actor":ctx["user_id"],"details":json.dumps({"reason":body.cancellation_reason,"starts_at":starts_at.isoformat(),"ends_at":ends_at.isoformat()}),"now":now})
+      "actor":ctx["user_id"],"details":json.dumps({"reason":body.cancellation_reason,"starts_at":starts_at.isoformat(),"ends_at":ends_at.isoformat(),"follow_up_updated":body.follow_up_notes is not None}),"now":now})
     return {"success":True,"data":{"id":str(appointment_id),"status":body.status,"starts_at":starts_at,"ends_at":ends_at,"updated_at":now},"error":None,"request_id":request.state.correlation_id}
 
 

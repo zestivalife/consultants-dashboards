@@ -463,7 +463,7 @@ def build_router(context_dependency, external_only, error):
         if denied: return denied
         identity, denied = fiteatsy_identity(request, authorization)
         if denied: return denied
-        rows = [dict(item) for item in (await db.execute(text("""SELECT link.id::text,a.id::text appointment_id,t.name title,a.starts_at,a.ends_at,a.status,a.attendance_status,a.cancellation_reason,a.updated_at
+        rows = [dict(item) for item in (await db.execute(text("""SELECT link.id::text,a.id::text appointment_id,t.name title,a.starts_at,a.ends_at,a.status,a.attendance_status,a.cancellation_reason,a.follow_up_notes,a.updated_at
           FROM external_fiteatsy_appointment_links link
           JOIN external_fiteatsy_connections c ON c.id=link.connection_id
           JOIN external_scheduled_appointments a ON a.id=link.appointment_id AND a.tenant_id=link.tenant_id

@@ -8,6 +8,7 @@ depends_on = None
 
 
 def upgrade():
+    op.execute("ALTER TABLE external_scheduled_appointments ADD COLUMN IF NOT EXISTS follow_up_notes VARCHAR(2000)")
     op.execute("""
       CREATE TABLE external_fiteatsy_appointment_links (
         id UUID PRIMARY KEY,
