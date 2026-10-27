@@ -12,7 +12,9 @@ The private key remains in practice-operations only. Fiteatsy stores its public 
 
 ## Migration
 
-Apply `0057_fit_redeem_idempotency` after `0056_fiteatsy_connections`, then `0058_fit_active_plan`. The migrations add replay-safe redemption evidence and an explicit single active external diet-plan selection per Fiteatsy user without rewriting Phase 1 history. Downgrade is intentionally prohibited because connection, plan-selection, and consent audit evidence is retained.
+Apply `0057_fit_redeem_idempotency` after `0056_fiteatsy_connections`, then `0058_fit_active_plan` and `0059_fit_appointment_links`. The migrations add replay-safe redemption evidence, an explicit single active external diet-plan selection per Fiteatsy user, and canonical scheduler links without rewriting Phase 1 history. Downgrade is intentionally prohibited because connection, plan-selection, appointment-link, and consent audit evidence is retained.
+
+Diet publication succeeds locally only after Fiteatsy accepts the canonical plan and governed food references. Appointment publication stores a link to `external_scheduled_appointments`; mobile retrieval joins that live record, so reschedule, cancellation, attendance, and status cannot diverge into a second projection state. Diet publication fails closed at startup unless the Fiteatsy URL and outbound signing credentials are configured.
 
 ## Verification
 

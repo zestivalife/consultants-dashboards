@@ -6,7 +6,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 
 from app.config import get_settings
-from app.fiteatsy_connections import ALLOWED_SCOPES, create_fiteatsy_delegation, decode_fiteatsy_identity, generate_connection_pin, pin_status_error, pin_verifier, verify_pin
+from app.fiteatsy_connections import ALLOWED_SCOPES, create_fiteatsy_delegation, decode_fiteatsy_identity, generate_connection_pin, pin_status_error, pin_verifier, validate_canonical_plan_content, verify_pin
 
 
 def test_pin_is_six_digit_numeric_and_unique_across_sample():
@@ -66,3 +66,17 @@ def test_outbound_delegation_is_short_lived_and_connection_bound(monkeypatch):
     assert claims["scopes"] == ["PROFILE"]
     assert claims["exp"] - claims["iat"] == 60
     get_settings.cache_clear()
+
+
+def test_external_plan_requires_all_canonical_meal_sections():
+    content = {
+        "nutritionSnapshot": {}, "dailyTargets": {}, "hydrationRhythm": [],
+        "weeklySuccessGuide": [], "smartSubstitutions": [], "supplementsAndClinicalNotes": [],
+        "mealPlan": {key: {"options": [{"id": f"{key}-1", "meal": "Verified meal", "components": [{"foodId": "verified-food-id"}]}]} for key in (
+            "earlyMorning", "breakfast", "midMorningSnack", "lunch", "eveningSnack", "dinner", "bedtimeNutrition"
+        )},
+    }
+    validate_canonical_plan_content(content)
+    del content["mealPlan"]["dinner"]
+    with pytest.raises(ValueError, match="canonical Fiteatsy nutrition contract"):
+        validate_canonical_plan_content(content)

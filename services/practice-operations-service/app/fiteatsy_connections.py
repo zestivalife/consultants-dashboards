@@ -155,10 +155,51 @@ class ActivePlanSelection(BaseModel):
 
 class AppointmentPublication(BaseModel):
     appointment_id: str = Field(min_length=1, max_length=120)
-    starts_at: datetime
-    ends_at: datetime
-    title: str = Field(min_length=1, max_length=240)
     idempotency_key: str = Field(min_length=8, max_length=120)
+
+
+def validate_canonical_plan_content(content: dict) -> None:
+    required = {"nutritionSnapshot", "dailyTargets", "mealPlan", "hydrationRhythm", "weeklySuccessGuide", "smartSubstitutions", "supplementsAndClinicalNotes"}
+    meal_keys = {"earlyMorning", "breakfast", "midMorningSnack", "lunch", "eveningSnack", "dinner", "bedtimeNutrition"}
+    if not required <= set(content) or not isinstance(content.get("mealPlan"), dict) or set(content["mealPlan"]) != meal_keys:
+        raise ValueError("Plan content does not satisfy the canonical Fiteatsy nutrition contract")
+    for key in meal_keys:
+        section = content["mealPlan"][key]
+        if not isinstance(section, dict) or not isinstance(section.get("options"), list):
+            raise ValueError(f"Canonical meal section {key} is invalid")
+        for option in section["options"]:
+            if not isinstance(option, dict) or not option.get("id") or not option.get("meal"):
+                raise ValueError(f"Canonical meal option in {key} is invalid")
+            components = option.get("components")
+            if not isinstance(components, list) or not components or any(not isinstance(item, dict) or not item.get("foodId") for item in components):
+                raise ValueError(f"Canonical meal option in {key} must reference verified Fiteatsy catalogue foods")
+
+
+async def send_plan_to_fiteatsy(connection, body: PlanPublication, consultant: dict | None):
+    settings = get_settings()
+    token = create_fiteatsy_delegation(connection, "fiteatsy.external.diet.write", "external_consultant_diet_plan")
+    url = f"{settings.external_fiteatsy_backend_url.rstrip('/')}/v1/internal/external-consultant-access/{connection['fiteatsy_user_id']}/diet-plans"
+    payload = {
+        "externalPlanId": body.plan_id, "externalVersion": str(body.plan_version),
+        "consultantId": str(connection["consultant_id"]),
+        "consultantName": (consultant or {}).get("display_name") or "External consultant",
+        "practiceName": (consultant or {}).get("headline") or "Zestiva 360",
+        "publishedAtISO": datetime.now(timezone.utc).isoformat(), "content": body.content,
+    }
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        result = await client.post(url, json=payload, headers={"x-zestiva-delegation": token})
+    result.raise_for_status()
+    return result.json()
+
+
+async def select_plan_in_fiteatsy(connection, external_plan_id: str):
+    settings = get_settings()
+    token = create_fiteatsy_delegation(connection, "fiteatsy.external.diet.select", "external_consultant_diet_plan_selection")
+    url = f"{settings.external_fiteatsy_backend_url.rstrip('/')}/v1/internal/external-consultant-access/{connection['fiteatsy_user_id']}/diet-plans/active"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        result = await client.put(url, json={"externalPlanId": external_plan_id}, headers={"x-zestiva-delegation": token})
+    result.raise_for_status()
+    return result.json()
 
 
 def build_router(context_dependency, external_only, error):
@@ -395,21 +436,26 @@ def build_router(context_dependency, external_only, error):
         if denied: return denied
         identity, denied = fiteatsy_identity(request, authorization)
         if denied: return denied
-        publication = (await db.execute(text("""SELECT p.id FROM external_fiteatsy_plan_publications p
+        publication = (await db.execute(text("""SELECT p.id publication_id,p.plan_id,c.* FROM external_fiteatsy_plan_publications p
           JOIN external_fiteatsy_connections c ON c.id=p.connection_id
           WHERE p.id=:publication AND c.id=:connection AND c.fiteatsy_user_id=:user
             AND c.state='ACTIVE' AND c.consented_scopes ? 'DIET_PLANS' AND p.status='PUBLISHED'"""), {
           "publication": body.publication_id, "connection": connection_id, "user": identity["sub"]
-        })).scalar_one_or_none()
+        })).mappings().first()
         if not publication: return error(request, 404, "DIET_PLAN_NOT_AVAILABLE", "The published diet plan is not available through this active connection")
+        try:
+            await select_plan_in_fiteatsy(publication, publication["plan_id"])
+        except httpx.HTTPError:
+            await db.rollback()
+            return error(request, 502, "FITEATSY_CANONICAL_SELECTION_FAILED", "Fiteatsy did not accept the active diet plan selection")
         now = datetime.now(timezone.utc)
         await db.execute(text("""INSERT INTO external_fiteatsy_active_plan_selections(fiteatsy_user_id,publication_id,selected_at,updated_at)
           VALUES(:user,:publication,:now,:now)
           ON CONFLICT(fiteatsy_user_id) DO UPDATE SET publication_id=EXCLUDED.publication_id,selected_at=EXCLUDED.selected_at,updated_at=EXCLUDED.updated_at"""), {
-          "user": identity["sub"], "publication": publication, "now": now
+          "user": identity["sub"], "publication": publication["publication_id"], "now": now
         })
         await db.commit()
-        return response(request, {"publication_id": str(publication), "active": True, "selected_at": now})
+        return response(request, {"publication_id": str(publication["publication_id"]), "active": True, "selected_at": now})
 
     @router.get("/api/v1/fiteatsy-connections/{connection_id}/appointments")
     async def mobile_appointments(connection_id: str, request: Request, authorization: str | None = Header(None), db: AsyncSession=Depends(get_db)):
@@ -417,7 +463,13 @@ def build_router(context_dependency, external_only, error):
         if denied: return denied
         identity, denied = fiteatsy_identity(request, authorization)
         if denied: return denied
-        rows = [dict(item) for item in (await db.execute(text("SELECT a.id::text,a.appointment_id,a.title,a.starts_at,a.ends_at,a.status,a.created_at FROM external_fiteatsy_appointments a JOIN external_fiteatsy_connections c ON c.id=a.connection_id WHERE c.id=:id AND c.fiteatsy_user_id=:user AND c.state='ACTIVE' AND c.consented_scopes ? 'APPOINTMENTS' ORDER BY a.starts_at"), {"id": connection_id, "user": identity["sub"]})).mappings().all()]
+        rows = [dict(item) for item in (await db.execute(text("""SELECT link.id::text,a.id::text appointment_id,t.name title,a.starts_at,a.ends_at,a.status,a.attendance_status,a.cancellation_reason,a.updated_at
+          FROM external_fiteatsy_appointment_links link
+          JOIN external_fiteatsy_connections c ON c.id=link.connection_id
+          JOIN external_scheduled_appointments a ON a.id=link.appointment_id AND a.tenant_id=link.tenant_id
+          JOIN external_appointment_types t ON t.id=a.appointment_type_id AND t.tenant_id=a.tenant_id
+          WHERE c.id=:id AND c.fiteatsy_user_id=:user AND c.state='ACTIVE' AND c.consented_scopes ? 'APPOINTMENTS'
+          ORDER BY a.starts_at"""), {"id": connection_id, "user": identity["sub"]})).mappings().all()]
         return response(request, {"appointments": rows})
 
     @router.delete("/api/v1/fiteatsy-connections/{connection_id}")
@@ -435,8 +487,17 @@ def build_router(context_dependency, external_only, error):
         denied = external_only(request, ctx) or enabled(request)
         if denied: return denied
         if not get_settings().external_fiteatsy_diet_publish_enabled: return error(request, 404, "FEATURE_DISABLED", "Fiteatsy Diet Plan delivery is not enabled")
-        connection = (await db.execute(text("SELECT id FROM external_fiteatsy_connections WHERE id=:id AND tenant_id=:tenant AND consultant_id=:consultant AND state='ACTIVE' AND consented_scopes ? 'DIET_PLANS'"), {"id": connection_id, "tenant": ctx["tenant_id"], "consultant": ctx["user_id"]})).first()
+        connection = (await db.execute(text("SELECT * FROM external_fiteatsy_connections WHERE id=:id AND tenant_id=:tenant AND consultant_id=:consultant AND state='ACTIVE' AND consented_scopes ? 'DIET_PLANS'"), {"id": connection_id, "tenant": ctx["tenant_id"], "consultant": ctx["user_id"]})).mappings().first()
         if not connection: return error(request, 404, "CONNECTION_NOT_FOUND", "An active, consented connection could not be found")
+        try:
+            validate_canonical_plan_content(body.content)
+            consultant = await consultant_projection(db, connection["tenant_id"], connection["consultant_id"])
+            await send_plan_to_fiteatsy(connection, body, consultant)
+        except ValueError as exc:
+            return error(request, 422, "INVALID_CANONICAL_DIET_PLAN", str(exc))
+        except httpx.HTTPError:
+            await db.rollback()
+            return error(request, 502, "FITEATSY_CANONICAL_INGESTION_FAILED", "Fiteatsy did not accept the canonical diet plan")
         publication_id = uuid4(); now = datetime.now(timezone.utc)
         row = (await db.execute(text("""INSERT INTO external_fiteatsy_plan_publications(id,connection_id,tenant_id,consultant_id,plan_id,plan_version,title,content,idempotency_key,status,published_at)
             VALUES(:id,:connection,:tenant,:consultant,:plan,:version,:title,CAST(:content AS JSONB),:key,'PUBLISHED',:now) ON CONFLICT(connection_id,idempotency_key) DO UPDATE SET id=external_fiteatsy_plan_publications.id RETURNING id,status,published_at"""), {"id": publication_id, "connection": connection_id, "tenant": ctx["tenant_id"], "consultant": ctx["user_id"], "plan": body.plan_id, "version": body.plan_version, "title": body.title, "content": json.dumps(body.content), "key": body.idempotency_key, "now": now})).mappings().one()
@@ -447,11 +508,17 @@ def build_router(context_dependency, external_only, error):
         denied = external_only(request, ctx) or enabled(request)
         if denied: return denied
         if not get_settings().external_fiteatsy_scheduling_enabled: return error(request, 404, "FEATURE_DISABLED", "Fiteatsy scheduling is not enabled")
-        if body.ends_at <= body.starts_at: return error(request, 422, "INVALID_APPOINTMENT_WINDOW", "Appointment end must be after its start")
-        connection = (await db.execute(text("SELECT id FROM external_fiteatsy_connections WHERE id=:id AND tenant_id=:tenant AND consultant_id=:consultant AND state='ACTIVE' AND consented_scopes ? 'APPOINTMENTS'"), {"id": connection_id, "tenant": ctx["tenant_id"], "consultant": ctx["user_id"]})).first()
+        connection = (await db.execute(text("SELECT * FROM external_fiteatsy_connections WHERE id=:id AND tenant_id=:tenant AND consultant_id=:consultant AND state='ACTIVE' AND consented_scopes ? 'APPOINTMENTS'"), {"id": connection_id, "tenant": ctx["tenant_id"], "consultant": ctx["user_id"]})).mappings().first()
         if not connection: return error(request, 404, "CONNECTION_NOT_FOUND", "An active, consented connection could not be found")
-        row = (await db.execute(text("""INSERT INTO external_fiteatsy_appointments(id,connection_id,tenant_id,consultant_id,appointment_id,title,starts_at,ends_at,idempotency_key,status,created_at)
-            VALUES(:id,:connection,:tenant,:consultant,:appointment,:title,:starts,:ends,:key,'SCHEDULED',:now) ON CONFLICT(connection_id,idempotency_key) DO UPDATE SET id=external_fiteatsy_appointments.id RETURNING id,status,created_at"""), {"id": uuid4(), "connection": connection_id, "tenant": ctx["tenant_id"], "consultant": ctx["user_id"], "appointment": body.appointment_id, "title": body.title, "starts": body.starts_at, "ends": body.ends_at, "key": body.idempotency_key, "now": datetime.now(timezone.utc)})).mappings().one()
+        if not connection["consultant_client_id"]:
+            return error(request, 409, "CONNECTION_CLIENT_NOT_LINKED", "The connection must be linked to the consultant client before scheduling")
+        appointment = (await db.execute(text("""SELECT a.id,a.status,a.starts_at,a.ends_at FROM external_scheduled_appointments a
+          WHERE a.id=CAST(:appointment AS uuid) AND a.tenant_id=:tenant AND a.client_id=:client AND a.created_by=:consultant"""), {
+          "appointment": body.appointment_id, "tenant": ctx["tenant_id"], "client": connection["consultant_client_id"], "consultant": ctx["user_id"]
+        })).mappings().first()
+        if not appointment: return error(request, 404, "CANONICAL_APPOINTMENT_NOT_FOUND", "The canonical appointment was not found for this connected client")
+        row = (await db.execute(text("""INSERT INTO external_fiteatsy_appointment_links(id,connection_id,tenant_id,appointment_id,idempotency_key,created_at)
+            VALUES(:id,:connection,:tenant,:appointment,:key,:now) ON CONFLICT(connection_id,idempotency_key) DO UPDATE SET id=external_fiteatsy_appointment_links.id RETURNING id,created_at"""), {"id": uuid4(), "connection": connection_id, "tenant": ctx["tenant_id"], "appointment": body.appointment_id, "key": body.idempotency_key, "now": datetime.now(timezone.utc)})).mappings().one()
         await db.commit(); return response(request, dict(row), 201)
 
     return router

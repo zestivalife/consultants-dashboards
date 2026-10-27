@@ -70,8 +70,8 @@ class Settings(BaseSettings):
             raise ValueError("EXTERNAL_FITEATSY_PIN_PEPPER must be set when Fiteatsy connections are enabled")
         if self.external_fiteatsy_connection_enabled and not self.external_fiteatsy_inbound_public_key:
             raise ValueError("EXTERNAL_FITEATSY_INBOUND_PUBLIC_KEY must be set when Fiteatsy connections are enabled")
-        if self.external_fiteatsy_health_access_enabled and not all((self.external_fiteatsy_backend_url, self.external_fiteatsy_outbound_private_key, self.external_fiteatsy_outbound_key_id)):
-            raise ValueError("Fiteatsy outbound URL and signing credentials must be set when health access is enabled")
+        if (self.external_fiteatsy_health_access_enabled or self.external_fiteatsy_diet_publish_enabled) and not all((self.external_fiteatsy_backend_url, self.external_fiteatsy_outbound_private_key, self.external_fiteatsy_outbound_key_id)):
+            raise ValueError("Fiteatsy outbound URL and signing credentials must be set when delegated access is enabled")
         return self
 
 

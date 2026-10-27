@@ -3030,18 +3030,34 @@ async def update_scheduled_appointment(request: Request, appointment_id: UUID, b
                                        ctx=Depends(context), db: AsyncSession=Depends(get_db)):
     denied=await _calendar_access(request,db,ctx,"APPOINTMENT_RESCHEDULE")
     if denied: return denied
+    current=(await db.execute(text("""SELECT a.id,a.starts_at,a.ends_at,a.updated_at,t.duration_minutes,t.buffer_before_minutes,t.buffer_after_minutes
+      FROM external_scheduled_appointments a JOIN external_appointment_types t ON t.id=a.appointment_type_id AND t.tenant_id=a.tenant_id
+      WHERE a.id=:id AND a.tenant_id=:tenant FOR UPDATE"""),{"id":appointment_id,"tenant":ctx["tenant_id"]})).mappings().first()
+    if not current: return error(request,404,"APPOINTMENT_NOT_FOUND","Appointment not found")
+    if body.expected_updated_at and current["updated_at"] != body.expected_updated_at:
+        return error(request,409,"APPOINTMENT_VERSION_CONFLICT","The appointment changed since it was loaded")
+    starts_at=body.starts_at or current["starts_at"]
+    ends_at=starts_at+timedelta(minutes=current["duration_minutes"])
+    if body.starts_at:
+        conflict=(await db.execute(text("""SELECT 1 FROM external_scheduled_appointments
+          WHERE tenant_id=:tenant AND id<>:id AND status IN ('BOOKED','CONFIRMED')
+          AND starts_at<:blocked_end AND ends_at>:blocked_start LIMIT 1"""),{
+          "tenant":ctx["tenant_id"],"id":appointment_id,
+          "blocked_start":starts_at-timedelta(minutes=current["buffer_before_minutes"]),
+          "blocked_end":ends_at+timedelta(minutes=current["buffer_after_minutes"])})).first()
+        if conflict: return error(request,409,"APPOINTMENT_SLOT_UNAVAILABLE","This time is no longer available")
     now=datetime.now(timezone.utc); attendance="NO_SHOW" if body.status=="NO_SHOW" else "ATTENDED" if body.status=="COMPLETED" else None
     row=(await db.execute(text("""UPDATE external_scheduled_appointments SET status=:status,
-      attendance_status=:attendance,cancellation_reason=:reason,updated_at=:now
-      WHERE id=:id AND tenant_id=:tenant RETURNING id"""),{"status":body.status,"attendance":attendance,
+      starts_at=:starts,ends_at=:ends,attendance_status=:attendance,cancellation_reason=:reason,updated_at=:now
+      WHERE id=:id AND tenant_id=:tenant RETURNING id"""),{"status":body.status,"starts":starts_at,"ends":ends_at,"attendance":attendance,
       "reason":body.cancellation_reason,"now":now,"id":appointment_id,"tenant":ctx["tenant_id"]})).first()
     if not row: return error(request,404,"APPOINTMENT_NOT_FOUND","Appointment not found")
     await db.execute(text("""INSERT INTO external_scheduling_audit_events
       (id,tenant_id,appointment_id,event_type,actor_id,actor_type,details,created_at)
       VALUES (:id,:tenant,:appointment,:event,:actor,'CONSULTANT',CAST(:details AS jsonb),:now)"""),{
       "id":uuid4(),"tenant":ctx["tenant_id"],"appointment":appointment_id,"event":body.status,
-      "actor":ctx["user_id"],"details":json.dumps({"reason":body.cancellation_reason}),"now":now})
-    return {"success":True,"data":{"id":str(appointment_id),"status":body.status},"error":None,"request_id":request.state.correlation_id}
+      "actor":ctx["user_id"],"details":json.dumps({"reason":body.cancellation_reason,"starts_at":starts_at.isoformat(),"ends_at":ends_at.isoformat()}),"now":now})
+    return {"success":True,"data":{"id":str(appointment_id),"status":body.status,"starts_at":starts_at,"ends_at":ends_at,"updated_at":now},"error":None,"request_id":request.state.correlation_id}
 
 
 @app.post("/api/v1/practice-operations/scheduling/waitlist",status_code=201)

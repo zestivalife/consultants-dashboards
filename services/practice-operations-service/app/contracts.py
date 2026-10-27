@@ -466,6 +466,8 @@ class AppointmentCreate(BaseModel):
 class AppointmentStatusUpdate(BaseModel):
     status: Literal["CONFIRMED","COMPLETED","CANCELLED","NO_SHOW"]
     cancellation_reason: str | None = Field(default=None, max_length=500)
+    starts_at: datetime | None = None
+    expected_updated_at: datetime | None = None
 
 
 class WaitlistCreate(BaseModel):
