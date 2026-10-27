@@ -8,6 +8,7 @@ const operations=readFileSync(new URL('components/external/ExternalCareOperation
 const communication=readFileSync(new URL('components/external/ExternalCommunicationWorkspace.jsx',root),'utf8');
 const calendar=readFileSync(new URL('components/external/ExternalCalendarWorkspace.jsx',root),'utf8');
 const api=readFileSync(new URL('lib/practiceOperationsApi.js',root),'utf8');
+const whatsappLaunch=readFileSync(new URL('lib/whatsappLaunch.mjs',root),'utf8');
 
 test('Phase 1 remains behind the External workspace boundary',()=>{
   assert.match(workspace,/external-only workspace boundary/);
@@ -25,7 +26,8 @@ test('profession terminology drives consultation and goal labels',()=>{
 test('WhatsApp is explicit, editable and never claims message delivery',()=>{
   assert.match(communication,/You will review the message in WhatsApp and press Send yourself/);
   assert.match(communication,/Activity records that WhatsApp was opened—not sent, delivered, or read/);
-  assert.match(api,/https:\/\/wa\.me\//);
+  assert.match(whatsappLaunch,/https:\/\/wa\.me/);
+  assert.match(api,/reserveWhatsAppWindow/);
   assert.match(api,/whatsapp-opened/);
   assert.doesNotMatch(communication,/message sent/i);
 });

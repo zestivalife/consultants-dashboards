@@ -1,4 +1,5 @@
 import {getToken,refreshAccessToken} from './api';
+import {closeReservedWhatsAppWindow,navigateReservedWhatsAppWindow,reserveWhatsAppWindow} from './whatsappLaunch.mjs';
 
 const BASE='/api/gateway/api/v1/practice-operations';
 
@@ -321,8 +322,10 @@ export async function downloadProgressReport(id,format){
 export async function getPublicBooking(token){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}`);const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Booking link is unavailable.');return body?.data;}
 export async function submitPublicBooking(token,startsAt){const response=await fetch(`${BASE}/public-booking/${encodeURIComponent(token)}?starts_at=${encodeURIComponent(startsAt)}`,{method:'POST',headers:{'Content-Type':'application/json'}});const body=await response.json().catch(()=>null);if(!response.ok)throw new Error(body?.error?.safe_message||'Appointment could not be booked.');return body?.data;}
 export async function openWhatsApp(payload){
-  const result=await request('/communication/whatsapp-opened',{method:'POST',body:JSON.stringify(payload)});
-  const url=`https://wa.me/${result.phone}?text=${encodeURIComponent(result.message)}`;
-  window.open(url,'_blank','noopener,noreferrer');
-  return result;
+  const popup=reserveWhatsAppWindow();
+  try{
+    const result=await request('/communication/whatsapp-opened',{method:'POST',body:JSON.stringify(payload)});
+    navigateReservedWhatsAppWindow(popup,{phone:result.phone,message:result.message});
+    return result;
+  }catch(error){closeReservedWhatsAppWindow(popup);throw error;}
 }

@@ -1,9 +1,14 @@
+import { buildWhatsAppUrl } from "./whatsappLaunch.mjs";
+
 export function buildInvitationMessage({ clientName, practiceName, shareUrl }) {
   return `Hi ${clientName},\n\nI've invited you to complete your health profile before our consultation.\n\nPlease use the secure link below:\n\n${shareUrl}\n\nRegards,\n${practiceName}`;
 }
 
 export function buildWhatsAppInvitationUrl(input) {
-  return `https://wa.me/?text=${encodeURIComponent(buildInvitationMessage(input))}`;
+  return buildWhatsAppUrl({
+    phone: input.phone,
+    message: buildInvitationMessage(input),
+  });
 }
 
 export function buildEmailInvitationUrl(input) {
