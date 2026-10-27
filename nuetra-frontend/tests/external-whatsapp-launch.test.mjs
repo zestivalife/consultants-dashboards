@@ -9,17 +9,23 @@ import {
   navigateReservedWhatsAppWindow,
   normaliseWhatsAppPhone,
   reserveWhatsAppWindow,
+  shouldUseWhatsAppApp,
 } from "../lib/whatsappLaunch.mjs";
+
+const desktopWindow = {
+  navigator: { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", platform: "MacIntel", maxTouchPoints: 0 },
+  matchMedia: () => ({ matches: false }),
+};
 
 test("WhatsApp URLs use the client's digits and an encoded draft", () => {
   assert.equal(normaliseWhatsAppPhone("+91 (97620) 06688"), "919762006688");
   assert.equal(
-    buildWhatsAppUrl({ phone: "+91 97620 06688", message: "Hello & welcome" }),
-    "https://wa.me/919762006688?text=Hello%20%26%20welcome",
+    buildWhatsAppUrl({ phone: "+91 97620 06688", message: "Hello & welcome" }, desktopWindow),
+    "https://web.whatsapp.com/send?phone=919762006688&text=Hello+%26+welcome",
   );
   assert.equal(
-    buildWhatsAppUrl({ message: "Choose a WhatsApp contact" }),
-    "https://wa.me?text=Choose%20a%20WhatsApp%20contact",
+    buildWhatsAppUrl({ message: "Choose a WhatsApp contact" }, desktopWindow),
+    "https://web.whatsapp.com/send?text=Choose+a+WhatsApp+contact",
   );
 });
 
@@ -28,12 +34,31 @@ test("WhatsApp recipients use the client's selected country and remove local tru
   assert.equal(canonicaliseWhatsAppPhone("+91 97620 06688", "US"), "+919762006688");
   assert.equal(canonicaliseWhatsAppPhone("020 7946 0018", "GB"), "+442079460018");
   assert.equal(
-    buildWhatsAppUrl({ phone: "09762006688", countryIso2: "IN", message: "Hello" }),
-    "https://wa.me/919762006688?text=Hello",
+    buildWhatsAppUrl({ phone: "09762006688", countryIso2: "IN", message: "Hello" }, desktopWindow),
+    "https://web.whatsapp.com/send?phone=919762006688&text=Hello",
   );
   assert.equal(
-    buildWhatsAppUrl({ phone: "020 7946 0018", country_iso2: "GB" }),
-    "https://wa.me/442079460018",
+    buildWhatsAppUrl({ phone: "020 7946 0018", country_iso2: "GB" }, desktopWindow),
+    "https://web.whatsapp.com/send?phone=442079460018",
+  );
+});
+
+test("desktop opens WhatsApp Web while phones and tablets use the app handoff", () => {
+  const mobileWindow = {
+    navigator: { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" },
+    matchMedia: () => ({ matches: true }),
+  };
+  const iPadWindow = {
+    navigator: { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15)", platform: "MacIntel", maxTouchPoints: 5 },
+    matchMedia: () => ({ matches: false }),
+  };
+
+  assert.equal(shouldUseWhatsAppApp(desktopWindow), false);
+  assert.equal(shouldUseWhatsAppApp(mobileWindow), true);
+  assert.equal(shouldUseWhatsAppApp(iPadWindow), true);
+  assert.equal(
+    buildWhatsAppUrl({ phone: "+91 97620 06688", message: "Hello" }, mobileWindow),
+    "https://api.whatsapp.com/send?phone=919762006688&text=Hello",
   );
 });
 
@@ -46,6 +71,7 @@ test("a blank WhatsApp window is reserved synchronously and then navigated", () 
     close: () => calls.push(["close"]),
   };
   const browserWindow = {
+    ...desktopWindow,
     open: (...args) => {
       calls.push(["open", ...args]);
       return popup;
@@ -61,7 +87,7 @@ test("a blank WhatsApp window is reserved synchronously and then navigated", () 
     { phone: "+91 90000 00000", message: "Your secure link" },
     browserWindow,
   );
-  assert.equal(url, "https://wa.me/919000000000?text=Your%20secure%20link");
+  assert.equal(url, "https://web.whatsapp.com/send?phone=919000000000&text=Your+secure+link");
   assert.deepEqual(calls[1], ["replace", url]);
 
   closeReservedWhatsAppWindow(popup);

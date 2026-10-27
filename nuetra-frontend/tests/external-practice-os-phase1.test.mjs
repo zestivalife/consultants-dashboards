@@ -26,7 +26,8 @@ test('profession terminology drives consultation and goal labels',()=>{
 test('WhatsApp is explicit, editable and never claims message delivery',()=>{
   assert.match(communication,/You will review the message in WhatsApp and press Send yourself/);
   assert.match(communication,/Activity records that WhatsApp was opened—not sent, delivered, or read/);
-  assert.match(whatsappLaunch,/https:\/\/wa\.me/);
+  assert.match(whatsappLaunch,/https:\/\/web\.whatsapp\.com\/send/);
+  assert.match(whatsappLaunch,/https:\/\/api\.whatsapp\.com\/send/);
   assert.match(api,/reserveWhatsAppWindow/);
   assert.match(api,/whatsapp-opened/);
   assert.doesNotMatch(communication,/message sent/i);

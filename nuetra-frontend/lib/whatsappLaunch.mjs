@@ -22,12 +22,36 @@ export function normaliseWhatsAppPhone(value = "", countryIso2 = "") {
   return canonicaliseWhatsAppPhone(value, countryIso2).replace(/\D/g, "");
 }
 
-export function buildWhatsAppUrl(input = {}) {
+export function shouldUseWhatsAppApp(browserWindow = globalThis.window) {
+  const navigator = browserWindow?.navigator;
+  if (navigator?.userAgentData?.mobile === true) return true;
+
+  const userAgent = String(navigator?.userAgent || "");
+  if (/Android|iPhone|iPad|iPod|IEMobile|Opera Mini/i.test(userAgent)) {
+    return true;
+  }
+
+  // iPadOS can identify itself as macOS. Touch capability distinguishes it
+  // from a desktop Mac without relying on viewport width alone.
+  if (navigator?.platform === "MacIntel" && Number(navigator?.maxTouchPoints) > 1) {
+    return true;
+  }
+
+  // Last-resort responsive signal for browsers that suppress device metadata.
+  return browserWindow?.matchMedia?.("(max-width: 767px)")?.matches === true;
+}
+
+export function buildWhatsAppUrl(input = {}, browserWindow = globalThis.window) {
   const { phone = "", message = "" } = input;
   const digits = normaliseWhatsAppPhone(phone, resolveCountryIso2(input));
-  const recipient = digits ? `/${digits}` : "";
-  const query = message ? `?text=${encodeURIComponent(message)}` : "";
-  return `https://wa.me${recipient}${query}`;
+  const parameters = new URLSearchParams();
+  if (digits) parameters.set("phone", digits);
+  if (message) parameters.set("text", message);
+  const query = parameters.toString();
+  const base = shouldUseWhatsAppApp(browserWindow)
+    ? "https://api.whatsapp.com/send"
+    : "https://web.whatsapp.com/send";
+  return query ? `${base}?${query}` : base;
 }
 
 export function reserveWhatsAppWindow(browserWindow = globalThis.window) {
@@ -41,7 +65,7 @@ export function navigateReservedWhatsAppWindow(
   input,
   browserWindow = globalThis.window,
 ) {
-  const url = buildWhatsAppUrl(input);
+  const url = buildWhatsAppUrl(input, browserWindow);
   if (popup && !popup.closed) {
     popup.location.replace(url);
     return url;
