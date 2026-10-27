@@ -175,6 +175,11 @@ def validate_canonical_plan_content(content: dict) -> None:
                 raise ValueError(f"Canonical meal option in {key} must reference verified Fiteatsy catalogue foods")
 
 
+def fiteatsy_iso_datetime(value: datetime) -> str:
+    """Serialize UTC timestamps in the strict RFC 3339 form accepted by Fiteatsy."""
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 async def send_plan_to_fiteatsy(connection, body: PlanPublication, consultant: dict | None):
     settings = get_settings()
     token = create_fiteatsy_delegation(connection, "fiteatsy.external.diet.write", "external_consultant_diet_plan")
@@ -184,7 +189,7 @@ async def send_plan_to_fiteatsy(connection, body: PlanPublication, consultant: d
         "consultantId": str(connection["consultant_id"]),
         "consultantName": (consultant or {}).get("display_name") or "External consultant",
         "practiceName": (consultant or {}).get("headline") or "Zestiva 360",
-        "publishedAtISO": datetime.now(timezone.utc).isoformat(), "content": body.content,
+        "publishedAtISO": fiteatsy_iso_datetime(datetime.now(timezone.utc)), "content": body.content,
     }
     async with httpx.AsyncClient(timeout=15.0) as client:
         result = await client.post(url, json=payload, headers={"x-zestiva-delegation": token})

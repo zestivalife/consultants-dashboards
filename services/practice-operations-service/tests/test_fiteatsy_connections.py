@@ -7,7 +7,7 @@ from cryptography.hazmat.primitives import serialization
 
 from app.config import get_settings
 from app.contracts import AppointmentStatusUpdate
-from app.fiteatsy_connections import ALLOWED_SCOPES, create_fiteatsy_delegation, decode_fiteatsy_identity, generate_connection_pin, pin_status_error, pin_verifier, validate_canonical_plan_content, verify_pin
+from app.fiteatsy_connections import ALLOWED_SCOPES, create_fiteatsy_delegation, decode_fiteatsy_identity, fiteatsy_iso_datetime, generate_connection_pin, pin_status_error, pin_verifier, validate_canonical_plan_content, verify_pin
 
 
 def test_pin_is_six_digit_numeric_and_unique_across_sample():
@@ -81,6 +81,11 @@ def test_external_plan_requires_all_canonical_meal_sections():
     del content["mealPlan"]["dinner"]
     with pytest.raises(ValueError, match="canonical Fiteatsy nutrition contract"):
         validate_canonical_plan_content(content)
+
+
+def test_external_plan_timestamp_uses_strict_utc_rfc3339():
+    value = datetime(2026, 10, 27, 16, 37, 41, 88421, tzinfo=timezone.utc)
+    assert fiteatsy_iso_datetime(value) == "2026-10-27T16:37:41.088421Z"
 
 
 def test_canonical_appointment_update_accepts_reschedule_version_and_follow_up():
