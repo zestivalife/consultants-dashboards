@@ -72,6 +72,7 @@ import {
   buildUserProvisioningWorkflowSteps,
   getUserProvisioningWorkflowState,
 } from '../../lib/workflows/userProvisioningWorkflow';
+import { getAdminMarketplaceOperations } from '../../lib/practiceOperationsApi';
 
 const PEOPLE_STATUS_LABELS = {
   INVITED: 'Temporary Credentials Issued',
@@ -448,6 +449,15 @@ function RowActionMenu({ person, isArchiveView, open, onToggle, onView, onArchiv
 export function CommandCenterModule({ data }) {
   const activeOrgs = data.organizations.filter((item) => item.status === 'Active').length;
   const livePeople = data.people.filter((item) => item.status === 'Active').length;
+  const [marketplaceLeadCount, setMarketplaceLeadCount] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    getAdminMarketplaceOperations()
+      .then((value) => { if (active) setMarketplaceLeadCount(value.enrolment_count ?? (value.enrolments || []).length); })
+      .catch(() => { if (active) setMarketplaceLeadCount(null); });
+    return () => { active = false; };
+  }, []);
 
   return (
     <ModuleFrame
@@ -461,11 +471,12 @@ export function CommandCenterModule({ data }) {
         </>
       }
     >
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatPill icon={Building2} label="Active organizations" value={activeOrgs} />
         <StatPill icon={Users} label="Live identities" value={livePeople} tone="from-emerald-500 to-teal-500" />
         <StatPill icon={FolderKanban} label="Published packages" value={data.packages.filter((item) => item.status === 'Published').length} tone="from-violet-500 to-fuchsia-500" />
         <StatPill icon={Activity} label="Audit events today" value={data.auditLogs.length} tone="from-amber-500 to-orange-500" />
+        <StatPill icon={UserCog} label="Marketplace leads" value={marketplaceLeadCount ?? '—'} tone="from-cyan-500 to-blue-600" />
       </div>
 
       <div className="mt-8 grid gap-6 xl:grid-cols-[1.4fr_1fr]">

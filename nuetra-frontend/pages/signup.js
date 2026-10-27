@@ -127,7 +127,10 @@ export default function ExternalConsultantSignupPage() {
     <div className="order-2 min-w-0 self-start lg:order-1 lg:sticky lg:top-28"><AuthStoryPanel mode="signup" /></div>
     <section className="fluent-card order-1 min-w-0 rounded-[36px] p-6 sm:p-8 lg:order-2">
       <div className="mx-auto max-w-[820px]">
-      <Link href="/login" className="inline-flex items-center gap-2 text-sm text-[#0f6cbd]"><ArrowLeft className="h-4 w-4" />Back to sign in</Link>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Link href="/login" className="inline-flex items-center gap-2 text-sm text-[#0f6cbd]"><ArrowLeft className="h-4 w-4" />Back to sign in</Link>
+        <Link href="/consultants" className="inline-flex min-h-10 items-center gap-2 rounded-full border border-[#0f6cbd]/25 bg-white px-4 text-sm font-medium text-[#0f6cbd]">Find a consultant<ArrowRight className="h-4 w-4" /></Link>
+      </div>
       <p className="mt-6 text-xs uppercase tracking-[0.24em] text-[#0f6cbd]">Zestiva Consultant</p>
       <h1 className="mt-2 text-3xl font-semibold text-[#242424] sm:text-4xl">Create your consultant workspace</h1>
       <p className="mt-2 text-base leading-7 text-[#616161]">Tell us about your practice. You can complete the remaining setup after your workspace is created.</p>

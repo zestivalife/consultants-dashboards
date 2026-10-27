@@ -171,6 +171,10 @@ export default function LoginPage() {
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <p className="mt-2 text-xs text-[#616161]">New consultants create a password; returning consultants sign in with email or mobile and password.</p>
+              <Link href="/consultants" className="mt-4 inline-flex min-h-11 items-center justify-center gap-2 rounded-[18px] border border-[#0f6cbd]/25 bg-white px-5 font-medium text-[#0f6cbd] transition hover:border-[#0f6cbd]">
+                Find a consultant
+                <ArrowRight className="h-4 w-4" />
+              </Link>
             </div>
           ) : null}
 

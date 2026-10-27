@@ -1,0 +1,12 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
+const read=path=>fs.readFileSync(new URL(path,import.meta.url),'utf8');
+const landing=read('../components/public-consultant/ConsultantLanding.jsx');
+const header=read('../components/public-consultant/PublicHeader.jsx');
+const login=read('../pages/login.js');const signup=read('../pages/signup.js');
+const directory=read('../pages/consultants/index.js');const modal=read('../components/public-consultant/ConsultantLeadModal.jsx');
+const admin=read('../components/platform/MarketplaceGovernanceModule.jsx');const owner=read('../components/platform/OwnerConsoleModules.jsx');
+const backend=read('../../services/practice-operations-service/app/main.py');
+test('public acquisition routes use the dedicated consultant directory',()=>{assert.doesNotMatch(landing,/HomepageConsultantShowcase/);for(const source of [landing,header,login,signup])assert.match(source,/\/consultants/);});
+test('directory presents consultant results left and responsive filters right',()=>{assert.match(directory,/lg:grid-cols-\[minmax\(0,1fr\)_320px\]/);assert.match(directory,/sticky top-28/);assert.match(directory,/radial-gradient/);assert.match(directory,/ConsultantLeadModal/);});
+test('enrolment modal captures governed contact and preferred-time fields',()=>{for(const value of ['full_name','email','country_code','national_number','preferred_at','createPublicEnrolment'])assert.match(modal,new RegExp(value));});
+test('owner operations expose complete marketplace lead context',()=>{for(const value of ['Marketplace leads & Enrolments','Package / service','Preferred contact time','consultant_projection'])assert.match(admin,new RegExp(value));for(const value of ['e.email','e.phone','consultant_projection','enrolment_count'])assert.match(backend,new RegExp(value.replace('.','\\.')));assert.match(owner,/enrolment_count/);assert.match(owner,/Marketplace leads/);});

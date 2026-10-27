@@ -441,16 +441,25 @@ function Operations({ data, onNotice, onDone }) {
           </article>
         ))}
       </Queue>
-      <Queue title="Enrolments" empty="No enrolments">
-        {data.enrolments.map((item) => (
-          <article className="border-t py-3" key={item.id}>
-            <strong>{item.full_name}</strong>
-            <p className="text-xs text-slate-500">
-              {item.status} · {item.consultation_mode || "mode not selected"} ·
-              lead {item.lead_id}
-            </p>
-          </article>
-        ))}
+      <Queue title="Marketplace leads & Enrolments" empty="No marketplace leads or enrolments">
+        {data.enrolments.map((item) => {
+          const profile = item.consultant_projection || {};
+          const programme = (profile.programmes || []).find((entry) => entry.id === item.programme_id);
+          const service = (profile.services || []).find((entry) => entry.id === item.service_id);
+          const selection = programme?.name || service?.name || "General enquiry";
+          return <article className="border-t py-4" key={item.id}>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div><strong>{item.full_name}</strong><p className="text-xs text-slate-500">Consultant: {profile.display_name || item.consultant_slug || "Unavailable"}</p></div>
+              <span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-800">{item.status}</span>
+            </div>
+            <dl className="mt-3 grid gap-2 text-xs text-slate-600">
+              <div><dt className="font-bold text-slate-900">Package / service</dt><dd>{selection}</dd></div>
+              <div><dt className="font-bold text-slate-900">Contact</dt><dd>{item.email || "Email not provided"} · {item.phone || "Phone not provided"}</dd></div>
+              <div><dt className="font-bold text-slate-900">Preferred contact time</dt><dd>{item.preferred_at ? new Date(item.preferred_at).toLocaleString() : "Not selected"}</dd></div>
+              {item.message && <div><dt className="font-bold text-slate-900">Message</dt><dd>{item.message}</dd></div>}
+            </dl>
+          </article>;
+        })}
       </Queue>
     </div>
   );
