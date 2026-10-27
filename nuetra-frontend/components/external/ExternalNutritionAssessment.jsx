@@ -198,7 +198,7 @@ function Readiness({ value }) {
   );
 }
 
-function InformationCompleteness({ clientId, clientPhone, resolved, onError, onChanged }) {
+function InformationCompleteness({ clientId, clientPhone, clientCountryIso2, resolved, onError, onChanged }) {
   const [value, setValue] = useState(null);
   const [selected, setSelected] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -372,7 +372,7 @@ function InformationCompleteness({ clientId, clientPhone, resolved, onError, onC
         )}
       </div>
       {link && (
-        <div role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800"><p>Your selective assessment link is ready. This is separate from the original 14-step Health Profile invitation.</p><a href={buildWhatsAppUrl({phone:clientPhone,message:`Please complete only the missing health information requested by your consultant: ${link}`})} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-10 items-center rounded-lg bg-emerald-700 px-3 font-bold text-white">Open WhatsApp to share</a></div>
+        <div role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800"><p>Your selective assessment link is ready. This is separate from the original 14-step Health Profile invitation.</p><a href={buildWhatsAppUrl({phone:clientPhone,countryIso2:clientCountryIso2,message:`Please complete only the missing health information requested by your consultant: ${link}`})} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-10 items-center rounded-lg bg-emerald-700 px-3 font-bold text-white">Open WhatsApp to share</a></div>
       )}
       {requests.some((item)=>["CREATED","SENT","OPENED","PARTIALLY_COMPLETED"].includes(item.status))&&<div className="mt-5 border-t border-slate-200 pt-4"><h4 className="font-semibold">Pending selective requests</h4>{requests.filter((item)=>["CREATED","SENT","OPENED","PARTIALLY_COMPLETED"].includes(item.status)).map((item)=><article key={item.id} className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-3 text-sm"><span><strong>{item.field_ids.length} requested field{item.field_ids.length===1?'':'s'}</strong><span className="block text-xs text-slate-500">{label(item.status)} · expires {new Date(item.expires_at).toLocaleString()}</span></span><button type="button" disabled={Boolean(busy)} onClick={()=>revoke(item)} className="min-h-10 rounded-lg border border-red-200 px-3 text-xs font-semibold text-red-700">Revoke request</button></article>)}</div>}
       {requests.some((item) => item.status === "SUBMITTED") && (
@@ -399,6 +399,7 @@ function ReviewRequest({item,busy,onSubmit}){
 export default function ExternalNutritionAssessment({
   clientId,
   clientPhone,
+  clientCountryIso2,
   data,
   measurements,
   biomarkers,
@@ -484,6 +485,7 @@ export default function ExternalNutritionAssessment({
         <InformationCompleteness
           clientId={clientId}
           clientPhone={clientPhone}
+          clientCountryIso2={clientCountryIso2}
           resolved={completenessResolution}
           onError={onError}
           onChanged={load}

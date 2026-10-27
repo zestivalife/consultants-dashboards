@@ -325,7 +325,9 @@ export async function openWhatsApp(payload){
   const popup=reserveWhatsAppWindow();
   try{
     const result=await request('/communication/whatsapp-opened',{method:'POST',body:JSON.stringify(payload)});
-    navigateReservedWhatsAppWindow(popup,{phone:result.phone,message:result.message});
-    return result;
+    const countryIso2=result.country_iso2||result.countryIso2||payload.country_iso2||payload.countryIso2||'';
+    const phone=result.phone||payload.phone||'';
+    navigateReservedWhatsAppWindow(popup,{phone,message:result.message||payload.message||'',countryIso2});
+    return {...result,phone,countryIso2};
   }catch(error){closeReservedWhatsAppWindow(popup);throw error;}
 }

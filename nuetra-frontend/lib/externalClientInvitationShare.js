@@ -7,6 +7,7 @@ export function buildInvitationMessage({ clientName, practiceName, shareUrl }) {
 export function buildWhatsAppInvitationUrl(input) {
   return buildWhatsAppUrl({
     phone: input.phone,
+    countryIso2: input.countryIso2 || input.country_iso2,
     message: buildInvitationMessage(input),
   });
 }

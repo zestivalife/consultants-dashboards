@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   buildWhatsAppUrl,
+  canonicaliseWhatsAppPhone,
   closeReservedWhatsAppWindow,
   navigateReservedWhatsAppWindow,
   normaliseWhatsAppPhone,
@@ -19,6 +20,20 @@ test("WhatsApp URLs use the client's digits and an encoded draft", () => {
   assert.equal(
     buildWhatsAppUrl({ message: "Choose a WhatsApp contact" }),
     "https://wa.me?text=Choose%20a%20WhatsApp%20contact",
+  );
+});
+
+test("WhatsApp recipients use the client's selected country and remove local trunk prefixes", () => {
+  assert.equal(canonicaliseWhatsAppPhone("09762006688", "IN"), "+919762006688");
+  assert.equal(canonicaliseWhatsAppPhone("+91 97620 06688", "US"), "+919762006688");
+  assert.equal(canonicaliseWhatsAppPhone("020 7946 0018", "GB"), "+442079460018");
+  assert.equal(
+    buildWhatsAppUrl({ phone: "09762006688", countryIso2: "IN", message: "Hello" }),
+    "https://wa.me/919762006688?text=Hello",
+  );
+  assert.equal(
+    buildWhatsAppUrl({ phone: "020 7946 0018", country_iso2: "GB" }),
+    "https://wa.me/442079460018",
   );
 });
 
@@ -64,8 +79,9 @@ test("external share surfaces route through the shared WhatsApp launcher", async
   ]);
 
   assert.ok(api.indexOf("reserveWhatsAppWindow()") < api.indexOf("await request('/communication/whatsapp-opened'"));
-  assert.match(assessment, /buildWhatsAppUrl\(\{phone:clientPhone/);
-  assert.match(assessment, /<InformationCompleteness\s+clientId=\{clientId\}\s+clientPhone=\{clientPhone\}/);
+  assert.match(api, /payload\.country_iso2\|\|payload\.countryIso2/);
+  assert.match(assessment, /buildWhatsAppUrl\(\{phone:clientPhone,countryIso2:clientCountryIso2/);
+  assert.match(assessment, /clientCountryIso2=\{clientCountryIso2\}/);
   assert.match(calendar, /Share via WhatsApp/);
   assert.match(invitation, /phone:client\.mobile/);
   assert.match(client360, /clientPhone=\{client\.mobile\|\|overview\?\.primaryContact/);

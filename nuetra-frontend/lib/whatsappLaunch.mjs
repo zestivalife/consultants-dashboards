@@ -1,9 +1,30 @@
-export function normaliseWhatsAppPhone(value = "") {
-  return String(value).replace(/\D/g, "");
+import { parsePhoneNumberFromString } from "libphonenumber-js";
+
+function resolveCountryIso2(input = {}) {
+  const value = input.countryIso2 || input.country_iso2 || "";
+  return String(value).trim().toUpperCase() || undefined;
 }
 
-export function buildWhatsAppUrl({ phone = "", message = "" } = {}) {
-  const digits = normaliseWhatsAppPhone(phone);
+export function canonicaliseWhatsAppPhone(value = "", countryIso2 = "") {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const region = String(countryIso2 || "").trim().toUpperCase() || undefined;
+  const parsed = parsePhoneNumberFromString(raw, region);
+  if (parsed?.isPossible()) return parsed.number;
+  if (raw.startsWith("+")) {
+    const digits = raw.replace(/\D/g, "");
+    return digits ? `+${digits}` : "";
+  }
+  return "";
+}
+
+export function normaliseWhatsAppPhone(value = "", countryIso2 = "") {
+  return canonicaliseWhatsAppPhone(value, countryIso2).replace(/\D/g, "");
+}
+
+export function buildWhatsAppUrl(input = {}) {
+  const { phone = "", message = "" } = input;
+  const digits = normaliseWhatsAppPhone(phone, resolveCountryIso2(input));
   const recipient = digits ? `/${digits}` : "";
   const query = message ? `?text=${encodeURIComponent(message)}` : "";
   return `https://wa.me${recipient}${query}`;
