@@ -6,8 +6,8 @@ const workspace = await readFile(new URL('../components/external/ExternalSaaSWor
 const client360 = await readFile(new URL('../components/external/ExternalClient360.jsx', import.meta.url), 'utf8');
 
 test('UI-2 client list keeps authoritative onboarding truth and existing actions', () => {
-  assert.match(workspace, /client\.intakeState/);
-  assert.match(workspace, /client\.intakeCompletionPercent/);
+  assert.match(workspace, /deriveOnboardingState\(client\)/);
+  assert.match(workspace, /onboarding\.completionPercent/);
   assert.match(workspace, /onOpen\(client\)/);
   assert.match(workspace, /onAdd/);
   assert.match(workspace, /ProgressBar/);

@@ -16,8 +16,8 @@ test('UI-2.5 uses asymmetric bento composition instead of eight equal KPI cards'
 
 test('UI-2.5 keeps intelligence and onboarding source truth unchanged',()=>{
   assert.match(dashboard,/buildDashboardIntelligence\(\{clients,resources:data\.resources,notifications:data\.notifications\}\)/);
-  assert.match(workspace,/client\.intakeState/);
-  assert.match(workspace,/client\.intakeCompletionPercent/);
+  assert.match(workspace,/deriveOnboardingState\(client\)/);
+  assert.match(workspace,/onboarding\.completionPercent/);
   assert.match(dashboard,/No completion rate is inferred/);
 });
 

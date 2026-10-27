@@ -24,13 +24,12 @@ export function deriveOnboardingState(client={}){
   const intakeState=typeof client.intakeState==='string'?client.intakeState.toUpperCase():null;
   const hasPercent=client.intakeCompletionPercent!==null&&client.intakeCompletionPercent!==undefined&&client.intakeCompletionPercent!=='';
   const completionPercent=hasPercent&&Number.isFinite(Number(client.intakeCompletionPercent))?Math.max(0,Math.min(100,Number(client.intakeCompletionPercent))):null;
-  if(intakeState==='COMPLETED')return{state:'COMPLETED',completionPercent};
-  if(intakeState==='NOT_STARTED')return{state:'NOT_STARTED',completionPercent};
-  if(intakeState==='IN_PROGRESS')return{state:'IN_PROGRESS',completionPercent};
   if(completionPercent===100)return{state:'COMPLETED',completionPercent};
-  if(completionPercent===0)return{state:'NOT_STARTED',completionPercent};
-  if(completionPercent!==null)return{state:'IN_PROGRESS',completionPercent};
-  return{state:'UNKNOWN',completionPercent:null};
+  if(completionPercent===0&&intakeState==='NOT_STARTED')return{state:'NOT_STARTED',completionPercent};
+  if(completionPercent!==null)return{state:completionPercent===0&&intakeState!=='COMPLETED'?'NOT_STARTED':'IN_PROGRESS',completionPercent,submitted:intakeState==='COMPLETED'};
+  if(intakeState==='NOT_STARTED')return{state:'NOT_STARTED',completionPercent:null};
+  if(intakeState==='IN_PROGRESS')return{state:'IN_PROGRESS',completionPercent:null};
+  return{state:'UNKNOWN',completionPercent:null,submitted:intakeState==='COMPLETED'};
 }
 
 export function buildDashboardIntelligence({clients=[],resources={},notifications=[],professionSignals=[],now=new Date()}={}){

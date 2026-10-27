@@ -6,7 +6,7 @@ import { canonicalPhoneDisplay, normaliseWaterIntake, validatePdfFile, WATER_INT
 
 const blankMedication={name:'',dose:'',frequency:'',reason:'',startDate:''};
 const message={lifestyle:"Great — next, let's understand your daily routine.",nutrition:'Almost there. A few questions about nutrition.',reportsDocuments:'Reports are optional. You can always share them later.'};
-const safeExternalMessage=(error,fallback)=>error?.data?.safe_message||(error?.status&&error.status<500?error.message:fallback);
+const safeExternalMessage=(error,fallback)=>error?.data?.safe_message||error?.data?.error?.safe_message||error?.data?.data?.safe_message||(error?.status&&error.status<500?error.message:fallback);
 export const formatCanonicalDob=(value)=>{const match=typeof value==='string'&&value.match(/^(\d{4})-(\d{2})-(\d{2})$/);if(!match)return value?'Date needs review':'Not provided';const date=new Date(Date.UTC(Number(match[1]),Number(match[2])-1,Number(match[3])));if(Number.isNaN(date.getTime())||date.getUTCFullYear()!==Number(match[1])||date.getUTCMonth()!==Number(match[2])-1||date.getUTCDate()!==Number(match[3]))return'Date needs review';return date.toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric',timeZone:'UTC'});};
 export default function ExternalClientHealthIntake({token,initial,missingOnly=false,practiceName='Your consultant',onComplete}){
   if(!missingOnly)initial={...initial,missingRequiredFields:[]};

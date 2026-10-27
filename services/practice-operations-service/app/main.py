@@ -63,6 +63,7 @@ from app.internal_client_profile import merge_enrichment, projection as internal
 from app.external_client_profile import merge_external_enrichment, projection as external_profile_projection, validate_external_enrichment
 from app.external_measurements import calculated_health_parameters, validated_measurement
 from app.measurement_context import assessment_measurement_sources, resolve_latest_measurements
+from app.intake_truth import calculate_intake_truth
 from app.nutrition_foundation import (AssessmentReview, AssessmentSource, AssessmentStale,
                                       ClinicalDocumentLink, DietPlanAssessmentBind,
                                       NutritionAssessmentCreate, NutritionAssessmentSave,
@@ -2408,9 +2409,8 @@ async def save_profession_answers(request: Request, token: str, body: Profession
           VALUES (:id,:instance,:tenant,:client,:question,CAST(:answer AS jsonb),1,:now)
           ON CONFLICT (intake_instance_id,question_id) DO UPDATE SET answer=EXCLUDED.answer,version=external_client_intake_answers.version+1,answered_at=EXCLUDED.answered_at
           WHERE external_client_intake_answers.tenant_id=EXCLUDED.tenant_id AND external_client_intake_answers.client_id=EXCLUDED.client_id"""), {"id":uuid4(),"instance":scope["id"],"tenant":scope["tenant_id"],"client":scope["client_id"],"question":question_ids[key],"answer":json.dumps(value),"now":now})
-    answered=(await db.execute(text("SELECT COUNT(*) FROM external_client_intake_answers WHERE tenant_id=:tenant AND client_id=:client AND intake_instance_id=:instance"), {"tenant":scope["tenant_id"],"client":scope["client_id"],"instance":scope["id"]})).scalar_one()
-    custom_answered=(await db.execute(text("SELECT COUNT(*) FROM external_client_intake_custom_questions WHERE tenant_id=:tenant AND client_id=:client AND intake_instance_id=:instance AND answer IS NOT NULL"), {"tenant":scope["tenant_id"],"client":scope["client_id"],"instance":scope["id"]})).scalar_one()
-    completion=round(((answered+custom_answered)/max(len(available)+len(custom_ids),1))*100)
+    truth=await _profession_intake_truth(db,scope)
+    completion=truth["completion_percent"]
     await db.execute(text("UPDATE external_client_intake_instances SET status='IN_PROGRESS',completion_percent=:completion,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND client_id=:client"), {"completion":completion,"now":now,"id":scope["id"],"tenant":scope["tenant_id"],"client":scope["client_id"]})
     return {"success":True,"data":{"completionPercent":completion,"status":"IN_PROGRESS"},"error":None,"request_id":request.state.correlation_id}
 
@@ -2419,22 +2419,29 @@ async def save_profession_answers(request: Request, token: str, body: Profession
 async def submit_profession_intake(request: Request, token: str, body: ProfessionIntakeSubmit, db: AsyncSession=Depends(get_db)):
     scope, denied = await _profession_token_scope(request, token, "SUBMIT", db)
     if denied: return denied
-    missing=(await db.execute(text("""SELECT q.question_key FROM external_intake_template_questions q
-      JOIN external_intake_template_sections s ON s.id=q.section_id
-      LEFT JOIN external_client_intake_answers a ON a.question_id=q.id AND a.intake_instance_id=:instance AND a.tenant_id=:tenant AND a.client_id=:client
-      WHERE q.tenant_id=:tenant AND s.template_version_id=:template AND q.required=TRUE AND a.id IS NULL"""), {"instance":scope["id"],"tenant":scope["tenant_id"],"client":scope["client_id"],"template":scope["template_version_id"]})).scalars().all()
-    if missing: return error(request,409,"REQUIRED_ANSWERS_MISSING","Complete all required questions before submitting")
-    missing_custom=(await db.execute(text("""SELECT question_key FROM external_client_intake_custom_questions
-      WHERE tenant_id=:tenant AND client_id=:client AND intake_instance_id=:instance AND required=TRUE AND answer IS NULL"""), {"tenant":scope["tenant_id"],"client":scope["client_id"],"instance":scope["id"]})).scalars().all()
-    if missing_custom: return error(request,409,"REQUIRED_ANSWERS_MISSING","Complete all required questions before submitting")
+    truth=await _profession_intake_truth(db,scope)
+    if truth["missing_required"]: return error(request,409,"REQUIRED_ANSWERS_MISSING","Complete all required questions before submitting")
     now=datetime.now(timezone.utc)
-    await db.execute(text("UPDATE external_client_intake_instances SET status='COMPLETED',completion_percent=100,submitted_at=:now,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND client_id=:client"), {"now":now,"id":scope["id"],"tenant":scope["tenant_id"],"client":scope["client_id"]})
+    completion=truth["completion_percent"]
+    await db.execute(text("UPDATE external_client_intake_instances SET status='COMPLETED',completion_percent=:completion,submitted_at=:now,updated_at=:now WHERE id=:id AND tenant_id=:tenant AND client_id=:client"), {"completion":completion,"now":now,"id":scope["id"],"tenant":scope["tenant_id"],"client":scope["client_id"]})
     await db.execute(text("""INSERT INTO external_client_intake_audit_events
       (id,intake_instance_id,tenant_id,client_id,event_type,actor_id,metadata,created_at)
       VALUES (:id,:instance,:tenant,:client,'INTAKE_SUBMITTED',NULL,CAST(:metadata AS jsonb),:now)"""), {"id":uuid4(),"instance":scope["id"],"tenant":scope["tenant_id"],"client":scope["client_id"],"metadata":json.dumps({"consent_version":body.consent_version}),"now":now})
     await _preconsultation_event_once(db,scope["tenant_id"],scope["client_id"],"INTAKE_COMPLETED",actor_type="CLIENT",metadata={"intake_instance_id":str(scope["id"])})
     await _record_preconsultation_readiness(db,scope["tenant_id"],scope["client_id"])
-    return {"success":True,"data":{"status":"COMPLETED","completionPercent":100,"submittedAt":now},"error":None,"request_id":request.state.correlation_id}
+    return {"success":True,"data":{"status":"COMPLETED","completionPercent":completion,"submittedAt":now},"error":None,"request_id":request.state.correlation_id}
+
+
+async def _profession_intake_truth(db, scope):
+    rows=(await db.execute(text("""SELECT q.question_key,q.required,a.answer
+      FROM external_intake_template_questions q JOIN external_intake_template_sections s ON s.id=q.section_id
+      LEFT JOIN external_client_intake_answers a ON a.question_id=q.id AND a.intake_instance_id=:instance AND a.tenant_id=:tenant AND a.client_id=:client
+      WHERE q.tenant_id=:tenant AND s.template_version_id=:template
+      UNION ALL
+      SELECT c.question_key,c.required,c.answer FROM external_client_intake_custom_questions c
+      WHERE c.tenant_id=:tenant AND c.client_id=:client AND c.intake_instance_id=:instance"""),
+      {"instance":scope["id"],"tenant":scope["tenant_id"],"client":scope["client_id"],"template":scope["template_version_id"]})).mappings().all()
+    return calculate_intake_truth(rows)
 
 
 async def _preconsultation_event_once(db, tenant_id, client_id, event_type, actor_id=None, actor_type="SYSTEM", metadata=None):
@@ -5326,7 +5333,7 @@ async def dashboard_command_centre(request:Request,ctx=Depends(context),db:Async
       UNION ALL SELECT q.id::text,q.client_id,'REPORT_PENDING','Progress report remains incomplete',q.period_end::timestamptz FROM external_progress_reports q WHERE q.tenant_id=:tenant AND q.status IN ('DRAFT','GENERATED') AND {scope}
       UNION ALL SELECT q.id::text,q.client_id,'REFERRAL_PENDING','Referral needs an operational decision',q.updated_at FROM external_referrals q WHERE q.tenant_id=:tenant AND q.status IN ('DRAFT','CONSENT_PENDING','READY_TO_SEND','SENT') AND {scope}
       UNION ALL SELECT q.id::text,q.client_id,'MISSED_APPOINTMENT','Appointment was missed',q.starts_at FROM external_scheduled_appointments q WHERE q.tenant_id=:tenant AND (q.status='NO_SHOW' OR q.attendance_status='NO_SHOW') AND q.starts_at>=NOW()-INTERVAL '30 days' AND {scope}
-      UNION ALL SELECT q.id::text,q.client_id,'ONBOARDING_INCOMPLETE','Configured onboarding remains incomplete',q.updated_at FROM external_client_intake_instances q WHERE q.tenant_id=:tenant AND q.status NOT IN ('COMPLETED','REVOKED') AND q.completion_percent<100 AND {scope}
+      UNION ALL SELECT q.id::text,q.client_id,'ONBOARDING_INCOMPLETE','Configured onboarding remains incomplete',q.updated_at FROM external_client_intake_instances q WHERE q.tenant_id=:tenant AND q.status<>'REVOKED' AND q.completion_percent<100 AND {scope}
       UNION ALL SELECT q.id::text,q.client_id,'DOCUMENT_PENDING','Document upload or review remains incomplete',q.updated_at FROM external_documents q WHERE q.tenant_id=:tenant AND q.status IN ('PENDING_UPLOAD','UPLOAD_FAILED','QUARANTINED') AND q.visibility<>'PRACTITIONER_PRIVATE' AND {scope}
       UNION ALL SELECT q.id::text,q.client_id,'NO_FUTURE_APPOINTMENT','No future appointment is booked',q.updated_at FROM external_client_packages q WHERE q.tenant_id=:tenant AND q.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM external_scheduled_appointments a WHERE a.tenant_id=q.tenant_id AND a.client_id=q.client_id AND a.starts_at>NOW() AND a.status IN ('BOOKED','CONFIRMED')) AND {scope}
       UNION ALL SELECT q.id::text,q.client_id,'FEEDBACK_NEEDS_ATTENTION','Private client feedback needs a response',q.updated_at FROM external_client_feedback_requests q WHERE q.tenant_id=:tenant AND q.status='ACTION_REQUIRED' AND {scope}

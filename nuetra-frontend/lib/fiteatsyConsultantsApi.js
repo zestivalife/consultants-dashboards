@@ -345,7 +345,14 @@ export async function uploadExternalClientIntakeDocument(token, category, file, 
   const response = await fetch(`${getFiteatsyApiBaseUrl()}/v1/external/intake/${encodeURIComponent(token)}/documents`, { method: 'POST', body: data, headers: { Accept: 'application/json', 'Idempotency-Key': idempotencyKey } });
   const body = await readJsonResponse(response);
   if (!response.ok) { const error = new Error(body?.safe_message || (response.status < 500 ? body?.message : null) || 'The blood report could not be uploaded.'); error.status = response.status; error.data = body; throw error; }
-  return body;
+  return normalizeExternalIntakeDocumentUpload(body);
+}
+
+export function normalizeExternalIntakeDocumentUpload(body) {
+  const payload = body?.data ?? body;
+  const document = payload?.document ?? payload?.data?.document ?? (payload?.id ? payload : null);
+  if (!document?.id) throw new Error('The report was uploaded, but its document reference was missing. Please retry.');
+  return { ...payload, document };
 }
 
 export function getFiteatsyConsultantOnboarding() {
