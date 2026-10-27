@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     razorpay_key_secret: str | None = Field(default=None, validation_alias=AliasChoices("RAZORPAY_KEY_SECRET","razorpay_key_secret"))
     razorpay_webhook_secret: str | None = Field(default=None, validation_alias=AliasChoices("RAZORPAY_WEBHOOK_SECRET","razorpay_webhook_secret"))
     ai_runtime_provider: str | None = Field(default=None, validation_alias=AliasChoices("AI_RUNTIME_PROVIDER","ai_runtime_provider"))
+    external_fiteatsy_connection_enabled: bool = Field(default=False, validation_alias=AliasChoices("EXTERNAL_FITEATSY_CONNECTION_ENABLED", "external_fiteatsy_connection_enabled"))
+    external_fiteatsy_health_access_enabled: bool = Field(default=False, validation_alias=AliasChoices("EXTERNAL_FITEATSY_HEALTH_ACCESS_ENABLED", "external_fiteatsy_health_access_enabled"))
+    external_fiteatsy_diet_publish_enabled: bool = Field(default=False, validation_alias=AliasChoices("EXTERNAL_FITEATSY_DIET_PUBLISH_ENABLED", "external_fiteatsy_diet_publish_enabled"))
+    external_fiteatsy_scheduling_enabled: bool = Field(default=False, validation_alias=AliasChoices("EXTERNAL_FITEATSY_SCHEDULING_ENABLED", "external_fiteatsy_scheduling_enabled"))
+    external_fiteatsy_pin_pepper: str | None = Field(default=None, validation_alias=AliasChoices("EXTERNAL_FITEATSY_PIN_PEPPER", "external_fiteatsy_pin_pepper"))
+    external_fiteatsy_inbound_public_key: str | None = Field(default=None, validation_alias=AliasChoices("EXTERNAL_FITEATSY_INBOUND_PUBLIC_KEY", "external_fiteatsy_inbound_public_key"))
+    external_fiteatsy_inbound_issuer: str = Field(default="fiteatsy-auth-service", validation_alias=AliasChoices("EXTERNAL_FITEATSY_INBOUND_ISSUER", "external_fiteatsy_inbound_issuer"))
+    external_fiteatsy_inbound_audience: str = Field(default="practice-operations-service", validation_alias=AliasChoices("EXTERNAL_FITEATSY_INBOUND_AUDIENCE", "external_fiteatsy_inbound_audience"))
 
     model_config = {"env_file": ".env", "case_sensitive": False}
 
@@ -53,6 +61,10 @@ class Settings(BaseSettings):
             raise ValueError("PRIVATE_NOTES_ENCRYPTION_KEY must be set in production")
         if self.app_env.lower() == "production" and not self.qa_delegation_public_key:
             raise ValueError("QA_DELEGATION_PUBLIC_KEY must be set in production")
+        if self.external_fiteatsy_connection_enabled and not self.external_fiteatsy_pin_pepper:
+            raise ValueError("EXTERNAL_FITEATSY_PIN_PEPPER must be set when Fiteatsy connections are enabled")
+        if self.external_fiteatsy_connection_enabled and not self.external_fiteatsy_inbound_public_key:
+            raise ValueError("EXTERNAL_FITEATSY_INBOUND_PUBLIC_KEY must be set when Fiteatsy connections are enabled")
         return self
 
 

@@ -119,6 +119,7 @@ from app.profession_intake import (FROZEN_PROFESSIONS, SUPPORTED_PROFESSIONS,
                                    IntakeTokenError, issue_token, token_hash,
                                    validate_token)
 from app.qa_delegation import QaDelegation, QaDelegationError, require_qa_delegation
+from app.fiteatsy_connections import build_router as build_fiteatsy_connection_router
 
 logger = structlog.get_logger(__name__)
 RESOURCE_TABLES = {
@@ -285,6 +286,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Practice Operations Service", version=get_settings().app_version, lifespan=lifespan)
+app.include_router(build_fiteatsy_connection_router(context, external_only, error))
 
 
 @app.get("/api/v1/practice-operations/clients/{client_id}/profile-enrichment")

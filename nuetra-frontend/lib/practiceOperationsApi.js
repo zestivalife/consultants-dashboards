@@ -32,6 +32,10 @@ export function saveInternalClientProfileEnrichment(clientId,payload){return req
 export function createPracticeResource(resource,payload){return request(`/${resource}`,{method:'POST',headers:{'Idempotency-Key':crypto.randomUUID()},body:JSON.stringify(payload)});}
 export function updatePracticeResource(resource,id,payload){return request(`/${resource}/${id}`,{method:'PATCH',body:JSON.stringify(payload)});}
 export function getPracticeConfiguration(){return request('/configuration');}
+export function listFiteatsyConnections(){return request('/fiteatsy-connections');}
+export function createFiteatsyConnectionInvitation(payload){return request('/fiteatsy-connections/invitations',{method:'POST',body:JSON.stringify(payload)});}
+export function revokeFiteatsyConnectionInvitation(id,reason='Replaced by consultant'){return request(`/fiteatsy-connections/invitations/${encodeURIComponent(id)}/revoke`,{method:'POST',body:JSON.stringify({reason})});}
+export function revokeFiteatsyConnection(id,reason='Revoked by consultant'){return request(`/fiteatsy-connections/${encodeURIComponent(id)}/revoke`,{method:'POST',body:JSON.stringify({reason})});}
 export function updatePracticeConfiguration(payload){return request('/configuration',{method:'PUT',body:JSON.stringify(payload)});}
 export function listCommunicationTemplates(){return request('/communication/templates');}
 export function saveCommunicationTemplate(payload){return request('/communication/templates',{method:'POST',body:JSON.stringify(payload)});}
