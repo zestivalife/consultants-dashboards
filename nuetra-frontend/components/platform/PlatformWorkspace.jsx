@@ -59,6 +59,8 @@ import {
   listFiteatsyConsultantClients,
   listFiteatsyConsultantOperations,
   listAllFiteatsyClientAllocationPool,
+  listFiteatsyIntakeLeads,
+  issueFiteatsyTemporaryLoginPin,
   searchFiteatsyAssignmentClients,
   listFiteatsyAssignmentProfessionals,
   listFiteatsyProfessionalAssignments,
@@ -128,6 +130,7 @@ const mentorNav = [
 
 const adminNav = [
   { id: 'command-center', label: 'Command Center', icon: LayoutGrid },
+  { id: 'leads', label: 'Fiteatsy Leads', icon: ClipboardCheck },
   { id: 'clients', label: 'Clients', icon: Users },
   { id: 'assignments', label: 'Client Assignments', icon: Users },
   { id: 'intelligence', label: 'Intelligence', icon: TrendingUp },
@@ -5703,6 +5706,56 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
   );
 }
 
+export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
+  const [leads, setLeads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [shownPin, setShownPin] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
+    try { setLeads(await listFiteatsyIntakeLeads()); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'Fiteatsy leads could not be loaded.'); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const issuePin = async (lead) => {
+    const reason = window.prompt(`Reason for issuing a temporary Login PIN to ${lead.name}:`);
+    if (!reason || reason.trim().length < 3) return;
+    try {
+      const result = await issueFiteatsyTemporaryLoginPin(lead.userId, reason.trim());
+      setShownPin({ userId: lead.userId, name: lead.name, pin: result.temporaryPin });
+      await load();
+    } catch (reasonError) {
+      setError(reasonError instanceof Error ? reasonError.message : 'Temporary Login PIN could not be issued.');
+    }
+  };
+
+  return <div className="space-y-4">
+    <CompactPageHeader title="Fiteatsy Leads" subtitle="See recent Fiteatsy account registrations, route care, and securely issue a one-time temporary Login PIN." />
+    {shownPin ? <Surface className="border border-amber-300 bg-amber-50 p-5 text-slate-950">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em]">Shown once · {shownPin.name}</p>
+      <p className="mt-2 font-mono text-3xl font-bold tracking-[0.3em]">{shownPin.pin}</p>
+      <p className="mt-2 text-sm">The user must change this temporary Login PIN after signing in. It cannot be retrieved again.</p>
+      <button type="button" className="mt-3 min-h-11 rounded-xl border border-amber-400 px-4 font-semibold" onClick={() => setShownPin(null)}>I have copied it</button>
+    </Surface> : null}
+    {error ? <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-4 text-red-800">{error}</div> : null}
+    <Surface className="overflow-hidden border border-[var(--fluent-color-neutral-stroke-1)]">
+      <div className="flex items-center justify-between border-b p-4"><strong>{loading ? 'Loading registrations…' : `${leads.length} recent registrations`}</strong><button type="button" onClick={() => void load()} className="min-h-11 rounded-xl border px-4">Refresh</button></div>
+      <div className="divide-y">
+        {leads.map((lead) => <article key={lead.userId} className="grid gap-4 p-4 lg:grid-cols-[1.4fr_0.8fr_0.8fr_auto] lg:items-center">
+          <div><p className="font-semibold">{lead.name}</p><p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{lead.email || lead.mobileNumber || 'Contact unavailable'}</p><p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Registered {new Date(lead.registeredAtISO).toLocaleString()}</p></div>
+          <div><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Lead status</p><p className="mt-1 font-semibold">{lead.leadStatus}</p></div>
+          <div><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Login PIN</p><p className="mt-1 font-semibold">{lead.loginPinStatus === 'CONFIGURED' ? 'Configured' : 'Setup required'}</p></div>
+          <div className="flex flex-wrap gap-2"><button type="button" onClick={onOpenAssignments} className="min-h-11 rounded-xl bg-slate-950 px-4 font-semibold text-white">{lead.assignment ? 'Reassign' : 'Assign'}</button><button type="button" onClick={() => void issuePin(lead)} className="min-h-11 rounded-xl border px-4 font-semibold">Issue temporary Login PIN</button></div>
+        </article>)}
+        {!loading && leads.length === 0 ? <p className="p-8 text-center text-sm text-[var(--fluent-color-neutral-foreground-2)]">No recent Fiteatsy registrations were found.</p> : null}
+      </div>
+    </Surface>
+  </div>;
+}
+
 function ProfessionalAssignmentPage() {
   const [query, setQuery] = useState('');
   const [clients, setClients] = useState([]);
@@ -8170,6 +8223,8 @@ function PlatformWorkspace({ forcedRole }) {
             <>
               {nav === 'food-authorisation' ? (
                 isSuperAdmin ? <FoodAuthorisationPage /> : <CompactPageHeader title="Restricted" subtitle="Only super admins can authorise Food Master items." />
+              ) : nav === 'leads' ? (
+                isSuperAdmin ? <SuperAdminFiteatsyLeadsPage onOpenAssignments={() => setNav('assignments')} /> : <CompactPageHeader title="Restricted" subtitle="Only super admins can manage Fiteatsy leads." />
               ) : nav === 'assignments' ? (
                 <ProfessionalAssignmentPage />
               ) : nav === 'organizations' ? (

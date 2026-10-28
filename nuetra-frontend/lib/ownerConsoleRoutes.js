@@ -2,6 +2,7 @@ export const OWNER_ROUTE_DEFINITIONS = [
   { slug: 'command-center', moduleKey: 'dashboard', label: 'Command Center', section: 'Owner Console' },
   { slug: 'organizations', moduleKey: 'companies', label: 'Organizations', section: 'Owner Console' },
   { slug: 'people-access', moduleKey: 'users', label: 'People & Access', section: 'Owner Console' },
+  { slug: 'fiteatsy-leads', moduleKey: 'fiteatsy-leads', label: 'Fiteatsy Leads', section: 'Owner Console' },
   { slug: 'permissions', moduleKey: 'roles', label: 'Permissions', section: 'Owner Console' },
   {
     slug: 'master-data',
@@ -28,6 +29,7 @@ export const OWNER_LEGACY_TAB_TO_ROUTE = {
   dashboard: 'command-center',
   companies: 'organizations',
   users: 'people-access',
+  fiteatsy_leads: 'fiteatsy-leads',
   roles: 'permissions',
   master_data: 'master-data',
   packages: 'packages',
@@ -47,7 +49,7 @@ export const OWNER_ROUTE_TO_LEGACY_TAB = Object.fromEntries(
   Object.entries(OWNER_LEGACY_TAB_TO_ROUTE).map(([legacyKey, routeKey]) => [routeKey, legacyKey])
 );
 
-export const INTERNAL_OWNER_ROUTE_SLUGS = new Set(['command-center', 'people-access', 'permissions', 'practitioners', 'mentors', 'consultants', 'reports', 'audit', 'settings']);
+export const INTERNAL_OWNER_ROUTE_SLUGS = new Set(['command-center', 'people-access', 'fiteatsy-leads', 'permissions', 'practitioners', 'mentors', 'consultants', 'reports', 'audit', 'settings']);
 
 export function getOwnerRouteBySlug(slug) {
   return OWNER_ROUTE_DEFINITIONS.find((item) => item.slug === slug) || OWNER_ROUTE_DEFINITIONS[0];

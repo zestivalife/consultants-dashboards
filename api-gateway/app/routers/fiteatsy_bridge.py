@@ -131,6 +131,27 @@ async def list_food_authorisation(request: Request):
     )
 
 
+@router.get("/leads")
+async def list_fiteatsy_leads(request: Request):
+    return await _bridge(
+        request, "fiteatsy_leads_list", "/v1/internal/delegated/intake-leads",
+        "fiteatsy.leads.read", "lead_management", method="GET",
+        require_operation_permission=False,
+    )
+
+
+@router.post("/users/{user_id}/temporary-login-pin")
+async def issue_fiteatsy_temporary_login_pin(request: Request, user_id: str, body: dict[str, Any]):
+    response = await _bridge(
+        request, "temporary_login_pin_issue", "/v1/internal/delegated/users/{id}/temporary-login-pin",
+        "fiteatsy.login_pin.issue", "login_pin_recovery", body, {"id": user_id},
+        require_operation_permission=False,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
 @router.post("/food-authorisation/bulk")
 async def update_food_authorisation(request: Request, body: dict[str, Any]):
     return await _bridge(

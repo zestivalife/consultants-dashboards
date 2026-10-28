@@ -29,6 +29,7 @@ const OWNER_NAV_ICONS = {
   'command-center': Sparkles,
   organizations: Building2,
   'people-access': Users,
+  'fiteatsy-leads': ClipboardCheck,
   permissions: Shield,
   'master-data': Database,
   packages: FolderKanban,

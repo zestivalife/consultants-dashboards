@@ -554,6 +554,19 @@ export async function searchFiteatsyAssignmentClients(query = '', offset = 0) {
   return Array.isArray(body?.clients) ? body.clients : [];
 }
 
+export async function listFiteatsyIntakeLeads() {
+  const body = await apiRequest('/platform/fiteatsy/leads', { method: 'GET' });
+  return Array.isArray(body?.leads) ? body.leads : [];
+}
+
+export async function issueFiteatsyTemporaryLoginPin(userId, reason) {
+  return apiRequest(`/platform/fiteatsy/users/${encodeURIComponent(userId)}/temporary-login-pin`, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` },
+    body: { reason },
+  });
+}
+
 export async function listFiteatsyClientAllocationPool({ query = '', assignment = 'all', limit = 50, offset = 0 } = {}) {
   const body = await requestFiteatsyJson(`/v1/professional-assignments/clients/pool?q=${encodeURIComponent(query)}&assignment=${encodeURIComponent(assignment)}&limit=${limit}&offset=${offset}`);
   return Array.isArray(body?.clients) ? body.clients : [];
