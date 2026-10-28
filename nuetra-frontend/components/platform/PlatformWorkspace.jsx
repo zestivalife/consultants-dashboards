@@ -5721,11 +5721,15 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
   useEffect(() => { void load(); }, [load]);
 
   const issuePin = async (lead) => {
-    const reason = window.prompt(`Reason for issuing a temporary Login PIN to ${lead.name}:`);
+    if (!lead.mobileNumber) {
+      setError('A verified mobile number is required before a temporary Login PIN can be issued.');
+      return;
+    }
+    const reason = window.prompt(`Reason for issuing a temporary Login PIN to ${lead.name} (${lead.mobileNumber}):`);
     if (!reason || reason.trim().length < 3) return;
     try {
       const result = await issueFiteatsyTemporaryLoginPin(lead.userId, reason.trim());
-      setShownPin({ userId: lead.userId, name: lead.name, pin: result.temporaryPin });
+      setShownPin({ userId: lead.userId, name: lead.name, mobileNumber: lead.mobileNumber, pin: result.temporaryPin });
       await load();
     } catch (reasonError) {
       setError(reasonError instanceof Error ? reasonError.message : 'Temporary Login PIN could not be issued.');
@@ -5735,7 +5739,7 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
   return <div className="space-y-4">
     <CompactPageHeader title="Fiteatsy Leads" subtitle="See recent Fiteatsy account registrations, route care, and securely issue a one-time temporary Login PIN." />
     {shownPin ? <Surface className="border border-amber-300 bg-amber-50 p-5 text-slate-950">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em]">Shown once · {shownPin.name}</p>
+      <p className="text-xs font-semibold uppercase tracking-[0.14em]">Shown once · {shownPin.name} · {shownPin.mobileNumber}</p>
       <p className="mt-2 font-mono text-3xl font-bold tracking-[0.3em]">{shownPin.pin}</p>
       <p className="mt-2 text-sm">The user must change this temporary Login PIN after signing in. It cannot be retrieved again.</p>
       <button type="button" className="mt-3 min-h-11 rounded-xl border border-amber-400 px-4 font-semibold" onClick={() => setShownPin(null)}>I have copied it</button>
@@ -5745,10 +5749,10 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
       <div className="flex items-center justify-between border-b p-4"><strong>{loading ? 'Loading registrations…' : `${leads.length} recent registrations`}</strong><button type="button" onClick={() => void load()} className="min-h-11 rounded-xl border px-4">Refresh</button></div>
       <div className="divide-y">
         {leads.map((lead) => <article key={lead.userId} className="grid gap-4 p-4 lg:grid-cols-[1.4fr_0.8fr_0.8fr_auto] lg:items-center">
-          <div><p className="font-semibold">{lead.name}</p><p className="mt-1 text-sm text-[var(--fluent-color-neutral-foreground-2)]">{lead.email || lead.mobileNumber || 'Contact unavailable'}</p><p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Registered {new Date(lead.registeredAtISO).toLocaleString()}</p></div>
+          <div><p className="font-semibold">{lead.name}</p><p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{lead.mobileNumber || 'Verified mobile unavailable'}</p>{lead.email ? <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{lead.email}</p> : null}<p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Registered {new Date(lead.registeredAtISO).toLocaleString()}</p></div>
           <div><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Lead status</p><p className="mt-1 font-semibold">{lead.leadStatus}</p></div>
           <div><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Login PIN</p><p className="mt-1 font-semibold">{lead.loginPinStatus === 'CONFIGURED' ? 'Configured' : 'Setup required'}</p></div>
-          <div className="flex flex-wrap gap-2"><button type="button" onClick={onOpenAssignments} className="min-h-11 rounded-xl bg-slate-950 px-4 font-semibold text-white">{lead.assignment ? 'Reassign' : 'Assign'}</button><button type="button" onClick={() => void issuePin(lead)} className="min-h-11 rounded-xl border px-4 font-semibold">Issue temporary Login PIN</button></div>
+          <div className="flex flex-wrap gap-2"><button type="button" onClick={onOpenAssignments} className="min-h-11 rounded-xl bg-slate-950 px-4 font-semibold text-white">{lead.assignment ? 'Reassign' : 'Assign'}</button><button type="button" disabled={!lead.mobileNumber} onClick={() => void issuePin(lead)} className="min-h-11 rounded-xl border px-4 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Issue temporary Login PIN</button></div>
         </article>)}
         {!loading && leads.length === 0 ? <p className="p-8 text-center text-sm text-[var(--fluent-color-neutral-foreground-2)]">No recent Fiteatsy registrations were found.</p> : null}
       </div>
