@@ -27,9 +27,8 @@ test('auth layouts preserve task-first mobile order and approved desktop ratios'
 
 test('auth header preserves exact public navigation and reciprocal actions',()=>{
   for(const hash of ['#product','#intelligence','#health','#solutions','#security'])assert.ok(header.includes(hash));
-  assert.match(header,/https:\/\/consultant\.nuetra\.in\/login/);
-  assert.match(header,/https:\/\/consultant\.nuetra\.in\/signup/);
-  assert.match(header,/const ROOT='https:\/\/consultant\.nuetra\.in\/'/);
+  assert.match(header,/action==='login'\?'\/login':'\/signup'/);
+  assert.match(header,/const ROOT='\/'/);
 });
 
 test('login has the new practice story and old wellness story is removed',()=>{

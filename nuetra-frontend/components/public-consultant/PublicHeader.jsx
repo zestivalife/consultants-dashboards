@@ -2,14 +2,14 @@ import { useState } from 'react';
 import ZestivaLogo from './ZestivaLogo';
 import s from '../../styles/PublicHeader.module.css';
 
-const ROOT='https://consultant.nuetra.in/';
+const ROOT='/';
 const links=[['Product','#product'],['Consultants','/consultants'],['Intelligence','#intelligence'],['Health Records','#health'],['Solutions','#solutions'],['Security','#security']];
-const hrefFor=value=>value.startsWith('/')?value:`${ROOT}${value}`;
+const hrefFor=value=>value.startsWith('/')?value:`/${value}`;
 
 export default function PublicHeader({ action='signup' }){
   const[open,setOpen]=useState(false);
   const actionLabel=action==='login'?'Sign in':action==='signup'?'Create account':null;
-  const actionUrl=action==='login'?'https://consultant.nuetra.in/login':'https://consultant.nuetra.in/signup';
+  const actionUrl=action==='login'?'/login':'/signup';
   return <>
     <header className={s.header}>
       <a href={ROOT} aria-label="Zestiva Consultant home" className={s.logoLink}><ZestivaLogo className={s.logo}/><span>Consultant</span></a>

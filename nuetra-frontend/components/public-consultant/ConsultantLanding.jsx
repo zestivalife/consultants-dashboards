@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import s from "../../styles/ConsultantLanding.module.css";
 import ZestivaLogo from "./ZestivaLogo";
 
-const ROOT="https://consultant.nuetra.in/", LOGIN="https://consultant.nuetra.in/login", SIGNUP="https://consultant.nuetra.in/signup";
+const ROOT="/", LOGIN="/login", SIGNUP="/signup";
 const VIDEO="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260601_110537_3a579fa0-7bbc-4d94-9d25-0e816c7840f5.mp4";
 const features=[["01","Client360","Profile, onboarding, consultations, plans, goals, health records and timeline in one client workspace."],["02","Consultations","Capture session context, recommendations and next steps without losing the client story."],["03","Follow-ups","Know what is due, overdue and upcoming. Turn every conversation into a clear next action."],["04","Goals & progress","Track baseline, current state, targets and progress using meaningful visual indicators."],["05","Calendar & tasks","Bring appointments, reviews and practice tasks into one operational view."],["06","Communication","Prepare WhatsApp messages for reminders, onboarding, plans and progress updates."]];
 const professions=[["Nutrition","Dietitians & nutritionists","Nutrition plans, biomarkers, measurements, follow-ups and progress."],["Mental wellness","Psychologists & counsellors","Sessions, assessments, goals, notes and follow-up continuity."],["Recovery","Physiotherapists & rehab professionals","Assessments, mobility goals, rehab plans and functional progress."],["Coaching","Health & wellness coaches","Habits, goals, check-ins, accountability and client engagement."]];
