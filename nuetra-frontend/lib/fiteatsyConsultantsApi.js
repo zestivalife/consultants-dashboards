@@ -601,6 +601,14 @@ export async function createFiteatsyProfessionalAssignment(payload) {
   });
 }
 
+export async function createFiteatsyProfessionalAssignmentsBatch(payload) {
+  return apiRequest('/platform/fiteatsy/professional-assignments/batch', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': globalThis.crypto.randomUUID() },
+    body: payload,
+  });
+}
+
 export async function revokeFiteatsyProfessionalAssignment(assignmentId, reason) {
   return apiRequest(`/platform/fiteatsy/professional-assignments/${encodeURIComponent(assignmentId)}`, {
     method: 'DELETE',
