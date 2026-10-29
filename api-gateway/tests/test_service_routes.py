@@ -27,6 +27,18 @@ class ServiceRoutesTest(unittest.TestCase):
 
         self.assertIn('"/api/v1/owner/master-data"', jwt_source)
 
+    def test_fiteatsy_connection_assertion_is_delegated_to_practice_operations(self):
+        from app.middleware.jwt import _is_delegated_auth, _is_public
+
+        settings = Settings(practice_operations_service_url="http://practice-operations-service:8006")
+        routes = {route["prefix"]: route["upstream"] for route in settings.get_service_routes()}
+
+        self.assertEqual(routes["/api/v1/fiteatsy-connections"], "http://practice-operations-service:8006")
+        self.assertTrue(_is_delegated_auth("/api/v1/fiteatsy-connections/preview"))
+        self.assertTrue(_is_delegated_auth("/api/v1/fiteatsy-connections/redeem"))
+        self.assertFalse(_is_public("/api/v1/fiteatsy-connections/preview"))
+        self.assertFalse(_is_delegated_auth("/api/v1/fiteatsy-connections-admin"))
+
     def test_production_railway_public_urls_route_to_private_dns(self):
         settings = Settings(
             app_env="production",

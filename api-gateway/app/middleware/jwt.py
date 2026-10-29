@@ -47,6 +47,10 @@ DELEGATED_AUTH_PREFIXES: list[str] = [
     "/api/v1/team-lead",
     "/api/v1/team-member",
     "/api/v1/notifications",
+    # Practice Operations validates this short-lived RS256 Fiteatsy identity
+    # assertion. It is not a Nuetra login token and must reach that service
+    # unchanged so the two authentication purposes remain isolated.
+    "/api/v1/fiteatsy-connections",
 ]
 
 

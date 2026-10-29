@@ -19,8 +19,24 @@ jobs:
     name: Validate exact frontend SHA
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: zestiva_ci
+          POSTGRES_PASSWORD: zestiva_ci
+          POSTGRES_DB: practice_operations_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U zestiva_ci -d practice_operations_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     env:
       REQUESTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.commit_sha || github.sha }}
+      DATABASE_URL: postgresql+asyncpg://zestiva_ci:zestiva_ci@127.0.0.1:5432/practice_operations_ci
+      TEST_DATABASE_URL: postgresql+asyncpg://zestiva_ci:zestiva_ci@127.0.0.1:5432/practice_operations_ci
 
     steps:
       - name: Validate requested SHA
@@ -88,6 +104,10 @@ jobs:
       - name: Install locked backend dependencies
         run: python -m pip install -r services/practice-operations-service/requirements.txt
 
+      - name: Apply practice operations migrations to isolated PostgreSQL
+        working-directory: services/practice-operations-service
+        run: alembic upgrade head
+
       - name: Run practice operations regression
         working-directory: services/practice-operations-service
         run: python -m pytest -q
@@ -133,6 +153,7 @@ jobs:
           echo "- Full frontend regression: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Authentication and tenant regression: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Practice operations regression: **PASS**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Isolated PostgreSQL migrations and Connection PIN lifecycle: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Gateway regression: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Production build: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- git diff --check: **PASS**" >> "$GITHUB_STEP_SUMMARY"

@@ -222,6 +222,7 @@ class Settings(BaseSettings):
             {"prefix": "/api/v1/scoring", "upstream": scoring_service_url},
             {"prefix": "/api/v1/nutrition", "upstream": nutrition_service_url},
             {"prefix": "/api/v1/practice-operations", "upstream": practice_operations_service_url},
+            {"prefix": "/api/v1/fiteatsy-connections", "upstream": practice_operations_service_url},
             {"prefix": "/api/v1/profession-intake", "upstream": practice_operations_service_url},
             {"prefix": "/api/v1/client-portal", "upstream": practice_operations_service_url},
             {"prefix": "/api/v1/client-information", "upstream": practice_operations_service_url},

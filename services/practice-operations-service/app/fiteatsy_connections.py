@@ -9,7 +9,8 @@ import hmac
 import json
 import secrets
 import httpx
-from uuid import uuid4
+from typing import Literal
+from uuid import UUID, uuid4
 
 import jwt
 from fastapi import APIRouter, Depends, Header, Request
@@ -43,6 +44,8 @@ def decode_fiteatsy_identity(token: str, public_key: str, issuer: str, audience:
     claims = jwt.decode(token, public_key, algorithms=["RS256"], issuer=issuer, audience=audience, options={"require": ["exp", "iat", "iss", "aud", "sub"]})
     if claims.get("actor_type") != "FITEATSY_USER":
         raise jwt.InvalidTokenError("unexpected actor type")
+    if claims.get("purpose") != "consultant_connection":
+        raise jwt.InvalidTokenError("unexpected assertion purpose")
     return claims
 
 
@@ -70,6 +73,7 @@ class InvitationCreate(BaseModel):
 
 class PinRedeem(BaseModel):
     pin: str = Field(min_length=6, max_length=32)
+    purpose: Literal["CONSULTANT_CONNECTION_PIN"]
     consent_version: str = Field(min_length=1, max_length=40)
     accepted_scopes: list[str]
 
@@ -125,6 +129,7 @@ def pin_status_error(request, error, invitation, now):
 
 class PinPreview(BaseModel):
     pin: str = Field(min_length=6, max_length=32)
+    purpose: Literal["CONSULTANT_CONNECTION_PIN"]
 
 
 class ConnectionAction(BaseModel):
@@ -314,18 +319,21 @@ def build_router(context_dependency, external_only, error):
         return Response(content=upstream.content, status_code=200, headers=headers)
 
     @router.post("/api/v1/fiteatsy-connections/redeem")
-    async def redeem_invitation(request: Request, body: PinRedeem, authorization: str | None = Header(None), idempotency_key: str | None = Header(None), db: AsyncSession=Depends(get_db)):
+    async def redeem_invitation(request: Request, body: PinRedeem, authorization: str | None = Header(None), idempotency_key: UUID | None = Header(None), db: AsyncSession=Depends(get_db)):
         denied = enabled(request)
         if denied: return denied
         identity, denied = fiteatsy_identity(request, authorization)
         if denied: return denied
+        if idempotency_key is None:
+            return error(request, 400, "IDEMPOTENCY_KEY_REQUIRED", "An idempotency key is required")
         try: accepted = clean_scopes(body.accepted_scopes)
         except ValueError as exc: return error(request, 422, "INVALID_CONNECTION_SCOPE", str(exc))
         verifier = pin_verifier(body.pin, get_settings().external_fiteatsy_pin_pepper or ""); now = datetime.now(timezone.utc)
         invitation = (await db.execute(text("SELECT * FROM external_fiteatsy_connection_invitations WHERE pin_verifier=:verifier FOR UPDATE"), {"verifier": verifier})).mappings().first()
-        if invitation and invitation["status"] == "REDEEMED" and idempotency_key and str(invitation.get("redemption_idempotency_key")) == idempotency_key and invitation["redeemed_by_fiteatsy_user_id"] == identity["sub"]:
+        if invitation and invitation["status"] == "REDEEMED" and str(invitation.get("redemption_idempotency_key")) == str(idempotency_key) and invitation["redeemed_by_fiteatsy_user_id"] == identity["sub"]:
             existing = (await db.execute(text("SELECT id::text,state,consented_scopes FROM external_fiteatsy_connections WHERE tenant_id=:tenant AND consultant_id=:consultant AND fiteatsy_user_id=:user"), {"tenant": invitation["tenant_id"], "consultant": invitation["consultant_id"], "user": identity["sub"]})).mappings().first()
-            if existing: return response(request, dict(existing), 200)
+            if existing:
+                return response(request, {"connection_id": existing["id"], "state": existing["state"], "consented_scopes": existing["consented_scopes"]}, 200)
         denied = pin_status_error(request, error, invitation, now)
         if denied: return denied
         if not set(accepted) <= set(invitation["requested_scopes"] or []):
@@ -334,7 +342,7 @@ def build_router(context_dependency, external_only, error):
         await db.execute(text("""INSERT INTO external_fiteatsy_connections(id,tenant_id,consultant_id,fiteatsy_user_id,consultant_client_id,state,consent_version,consented_scopes,programme_status,connected_at,updated_at)
             VALUES(:id,:tenant,:consultant,:user,:client,'ACTIVE',:version,CAST(:scopes AS JSONB),'NOT_ENROLLED',:now,:now)
             ON CONFLICT(tenant_id,consultant_id,fiteatsy_user_id) DO UPDATE SET state='ACTIVE',consent_version=EXCLUDED.consent_version,consented_scopes=EXCLUDED.consented_scopes,connected_at=EXCLUDED.connected_at,disconnected_at=NULL,updated_at=EXCLUDED.updated_at RETURNING id"""), {"id": connection_id, "tenant": invitation["tenant_id"], "consultant": invitation["consultant_id"], "user": identity["sub"], "client": invitation["intended_client_id"], "version": body.consent_version, "scopes": json.dumps(accepted), "now": now})
-        await db.execute(text("UPDATE external_fiteatsy_connection_invitations SET status='REDEEMED',redeemed_by_fiteatsy_user_id=:user,redemption_idempotency_key=CAST(:key AS UUID),redeemed_at=:now,updated_at=:now WHERE id=:id"), {"user": identity["sub"], "key": idempotency_key, "now": now, "id": invitation["id"]})
+        await db.execute(text("UPDATE external_fiteatsy_connection_invitations SET status='REDEEMED',redeemed_by_fiteatsy_user_id=:user,redemption_idempotency_key=CAST(:key AS UUID),redeemed_at=:now,updated_at=:now WHERE id=:id"), {"user": identity["sub"], "key": str(idempotency_key), "now": now, "id": invitation["id"]})
         actual = (await db.execute(text("SELECT id FROM external_fiteatsy_connections WHERE tenant_id=:tenant AND consultant_id=:consultant AND fiteatsy_user_id=:user"), {"tenant": invitation["tenant_id"], "consultant": invitation["consultant_id"], "user": identity["sub"]})).scalar_one()
         await db.execute(text("INSERT INTO external_fiteatsy_consents(id,connection_id,consent_version,scopes,decision,actor_fiteatsy_user_id,created_at) VALUES(:id,:connection,:version,CAST(:scopes AS JSONB),'GRANTED',:user,:now)"), {"id": uuid4(), "connection": actual, "version": body.consent_version, "scopes": json.dumps(accepted), "user": identity["sub"], "now": now})
         await db.commit(); return response(request, {"connection_id": str(actual), "state": "ACTIVE", "consented_scopes": accepted}, 201)
@@ -350,6 +358,8 @@ def build_router(context_dependency, external_only, error):
         denied = pin_status_error(request, error, row, datetime.now(timezone.utc))
         if denied: return denied
         consultant = await consultant_projection(db, row["tenant_id"], row["consultant_id"])
+        if consultant is None:
+            return error(request, 409, "CONSULTANT_PROFILE_UNAVAILABLE", "The consultant profile is not available for connection")
         return response(request, {"pin_hint": row["pin_hint"], "requested_scopes": row["requested_scopes"], "expires_at": row["expires_at"], "consent_required": True, "consultant": consultant})
 
     @router.get("/api/v1/fiteatsy-connections")
