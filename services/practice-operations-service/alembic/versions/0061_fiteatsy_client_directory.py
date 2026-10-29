@@ -1,8 +1,8 @@
 """Canonical Fiteatsy client-directory projection and delivery ledger."""
 from alembic import op
 
-revision = "0059_fiteatsy_directory"
-down_revision = "0058_fit_active_plan"
+revision = "0061_fiteatsy_directory"
+down_revision = "0060_fit_pin_rate_limit"
 branch_labels = None
 depends_on = None
 
