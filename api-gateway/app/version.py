@@ -22,8 +22,14 @@ def get_runtime_version(service: str, app_version: str, environment: str) -> dic
         "version": app_version,
         "app_version": app_version,
         "environment": environment,
-        "commit_sha": _first_env("COMMIT_SHA", "GIT_COMMIT_SHA", "RAILWAY_GIT_COMMIT_SHA", "VERCEL_GIT_COMMIT_SHA"),
-        "branch": _first_env("RAILWAY_GIT_BRANCH", "VERCEL_GIT_COMMIT_REF", "GIT_BRANCH", "BRANCH"),
+        "commit_sha": _first_env(
+            "RELEASE_GIT_COMMIT_SHA", "COMMIT_SHA", "GIT_COMMIT_SHA",
+            "RAILWAY_GIT_COMMIT_SHA", "VERCEL_GIT_COMMIT_SHA",
+        ),
+        "branch": _first_env(
+            "RELEASE_GIT_BRANCH", "RAILWAY_GIT_BRANCH", "VERCEL_GIT_COMMIT_REF",
+            "GIT_BRANCH", "BRANCH",
+        ),
         "build_time": build_time,
         "build_timestamp": build_time,
         "migration_version": _first_env("MIGRATION_VERSION", "ALEMBIC_VERSION"),
