@@ -51,6 +51,8 @@ DELEGATED_AUTH_PREFIXES: list[str] = [
     # assertion. It is not a Nuetra login token and must reach that service
     # unchanged so the two authentication purposes remain isolated.
     "/api/v1/fiteatsy-connections",
+    # Directory ingestion uses a separate purpose-bound RS256 service assertion.
+    "/api/v1/internal/fiteatsy-client-directory",
 ]
 
 

@@ -5734,10 +5734,17 @@ export function ClientAssignmentDrawer({ consultant: initialConsultant = null, i
         listFiteatsyClientAllocationPool({ query, assignment: 'all', limit: pageSize, offset: page * pageSize }),
         listFiteatsyAssignmentProfessionals('CONSULTANT'),
       ]);
-      const merged = initialClient?.userId && page === 0 && !nextClients.some((item) => item.userId === initialClient.userId)
-        ? [initialClient, ...nextClients]
-        : nextClients;
-      setClients(merged);
+      setClients(nextClients);
+      if (initialClient?.userId && page === 0) {
+        const authoritativeClient = nextClients.find((item) => item.userId === initialClient.userId);
+        if (!authoritativeClient) {
+          setSelectedIds(new Set());
+          setSelectedClientMap(new Map());
+          throw new Error('This directory record is not currently eligible for assignment in Fiteatsy. Refresh the directory or review the account status.');
+        }
+        setSelectedIds(new Set([authoritativeClient.userId]));
+        setSelectedClientMap(new Map([[authoritativeClient.userId, authoritativeClient]]));
+      }
       const activeConsultants = nextConsultants.filter((item) => item.status === 'ACTIVE');
       setConsultants(activeConsultants);
       if (initialConsultant) {
@@ -5882,10 +5889,10 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
       </div>
       <div className="divide-y">
         {leads.map((lead) => <article key={lead.userId} className="grid gap-4 p-4 lg:grid-cols-[1.4fr_0.8fr_0.8fr_auto] lg:items-center">
-          <div><p className="font-semibold">{lead.name}</p><p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{lead.mobileNumber || 'Verified mobile unavailable'}</p>{lead.email ? <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{lead.email}</p> : null}<p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Registered {new Date(lead.registeredAtISO).toLocaleString()}</p></div>
+          <div><p className="font-semibold">{lead.name}</p><p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{lead.mobileNumber || 'Verified mobile unavailable'}</p>{lead.email ? <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{lead.email}</p> : null}<p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Registered {new Date(lead.registeredAtISO).toLocaleString()}</p>{lead.lastSyncedAtISO ? <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Directory {lead.syncStatus === 'CURRENT' ? 'current' : lead.syncStatus.toLowerCase()} · synced {new Date(lead.lastSyncedAtISO).toLocaleString()}</p> : null}</div>
           <div><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Lead status</p><p className="mt-1 font-semibold">{lead.leadStatus}</p></div>
-          <div><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Login PIN</p><p className="mt-1 font-semibold">{lead.loginPinStatus === 'CONFIGURED' ? 'Configured' : 'Setup required'}</p></div>
-          <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setAssignmentClient({ userId: lead.userId, clientId: lead.clientId || lead.userId, name: lead.name, maskedMobileNumber: lead.mobileNumber ? `******${lead.mobileNumber.slice(-4)}` : null, maskedEmail: lead.email ? `${lead.email.slice(0, 1)}***@${lead.email.split('@')[1] || ''}` : null, assignmentStatus: lead.assignment ? 'ASSIGNED' : 'UNASSIGNED', assignedProfessional: lead.assignment?.professional || null })} className="min-h-11 rounded-xl bg-slate-950 px-4 font-semibold text-white">{lead.assignment ? 'Reassign' : 'Assign'}</button><button type="button" disabled={!lead.mobileNumber} onClick={() => void issuePin(lead)} className="min-h-11 rounded-xl border px-4 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Issue temporary Login PIN</button></div>
+          <div><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Login PIN</p><p className="mt-1 font-semibold">{lead.loginPinStatus === 'CONFIGURED' ? 'Configured' : lead.loginPinStatus === 'UNKNOWN' ? 'Authoritative check required' : 'Setup required'}</p></div>
+          <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setAssignmentClient({ userId: lead.userId, clientId: lead.clientId || lead.userId, name: lead.name, maskedMobileNumber: lead.mobileNumber ? `******${lead.mobileNumber.slice(-4)}` : null, maskedEmail: lead.email ? `${lead.email.slice(0, 1)}***@${lead.email.split('@')[1] || ''}` : null, assignmentStatus: 'UNKNOWN', assignedProfessional: null })} className="min-h-11 rounded-xl bg-slate-950 px-4 font-semibold text-white">Review assignment</button><button type="button" disabled={!lead.mobileNumber} onClick={() => void issuePin(lead)} className="min-h-11 rounded-xl border px-4 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Issue temporary Login PIN</button></div>
         </article>)}
         {loading ? <p role="status" className="p-8 text-center text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading registrations…</p> : null}
         {!loading && leads.length === 0 ? <p className="p-8 text-center text-sm text-[var(--fluent-color-neutral-foreground-2)]">No eligible completed registrations match these filters.</p> : null}
