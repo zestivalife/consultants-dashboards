@@ -11,6 +11,8 @@ from app.routers.practice_tenant_resolver import (
     client_belongs_to_authenticated_tenant,
     is_practice_operations_path,
     is_platform_marketplace_admin_path,
+    is_platform_owner_directory_path,
+    is_platform_owner_role,
     practice_client_resource_id,
     resolve_practice_tenant_authority,
 )
@@ -171,6 +173,19 @@ async def proxy(request: Request, path: str):
 
     client = await get_http_client()
     is_internal_profile_path = full_path == INTERNAL_PROFILE_PREFIX or full_path.startswith(INTERNAL_PROFILE_PREFIX + "/")
+    is_platform_directory_path = is_platform_owner_directory_path(full_path)
+
+    if is_platform_directory_path and not is_platform_owner_role(user_role):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "success": False,
+                "message": "Platform Owner access is required",
+                "data": None,
+                "error": "Forbidden",
+                "request_id": request_id,
+            },
+        )
 
     if is_internal_profile_path:
         internal_client_id = full_path[len(INTERNAL_PROFILE_PREFIX):].strip("/").split("/", 1)[0]
@@ -183,7 +198,12 @@ async def proxy(request: Request, path: str):
         if not visible:
             return JSONResponse(status_code=404, content={"success":False,"message":"Resource not found","data":None,"error":"Not found","request_id":request_id})
 
-    if is_practice_operations_path(full_path) and not is_platform_marketplace_admin_path(full_path) and not is_internal_profile_path:
+    if (
+        is_practice_operations_path(full_path)
+        and not is_platform_marketplace_admin_path(full_path)
+        and not is_internal_profile_path
+        and not is_platform_directory_path
+    ):
         try:
             authority = await resolve_practice_tenant_authority(
                 client,

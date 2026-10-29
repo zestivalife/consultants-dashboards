@@ -7,6 +7,8 @@ from app.routers.practice_tenant_resolver import (
     client_belongs_to_authenticated_tenant,
     is_practice_operations_path,
     is_platform_marketplace_admin_path,
+    is_platform_owner_directory_path,
+    is_platform_owner_role,
     parse_practice_tenant_authority,
     practice_client_resource_id,
     resolve_practice_tenant_authority,
@@ -143,6 +145,20 @@ def test_only_platform_marketplace_admin_namespace_bypasses_tenant_resolution():
     assert is_platform_marketplace_admin_path("/api/v1/practice-operations/admin/marketplace/finance")
     assert not is_platform_marketplace_admin_path("/api/v1/practice-operations/marketplace/profile")
     assert not is_platform_marketplace_admin_path("/api/v1/practice-operations/admin/other")
+
+
+def test_only_exact_platform_owner_directory_path_bypasses_external_tenant_resolution():
+    path = "/api/v1/practice-operations/fiteatsy-client-directory"
+    assert is_platform_owner_directory_path(path)
+    assert not is_platform_owner_directory_path(path + "/client-a")
+    assert not is_platform_owner_directory_path("/api/v1/practice-operations/clients")
+
+
+def test_platform_owner_directory_roles_are_explicit_and_fail_closed():
+    for role in ("platform_owner", "SUPERUSER", "super_admin"):
+        assert is_platform_owner_role(role)
+    for role in (None, "", "consultant", "senior_consultant", "admin", "member"):
+        assert not is_platform_owner_role(role)
 
 
 def test_only_direct_client_resource_paths_are_class_b():

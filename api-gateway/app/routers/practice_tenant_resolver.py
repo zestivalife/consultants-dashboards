@@ -7,6 +7,8 @@ import httpx
 
 PRACTICE_OPERATIONS_PREFIX = "/api/v1/practice-operations"
 PLATFORM_MARKETPLACE_ADMIN_PREFIX = f"{PRACTICE_OPERATIONS_PREFIX}/admin/marketplace"
+PLATFORM_OWNER_DIRECTORY_PATH = f"{PRACTICE_OPERATIONS_PREFIX}/fiteatsy-client-directory"
+PLATFORM_OWNER_ROLES = frozenset({"PLATFORM_OWNER", "SUPERUSER", "SUPER_ADMIN"})
 EXTERNAL_TENANT_TYPES = frozenset({"INDEPENDENT_CONSULTANT", "PRACTICE", "CLINIC"})
 ACTIVE_VALUES = frozenset({"ACTIVE", "READY", "ONBOARDING_IN_PROGRESS"})
 CLIENT_RESOURCE_PATH = re.compile(
@@ -37,6 +39,15 @@ def is_platform_marketplace_admin_path(path: str) -> bool:
     return path == PLATFORM_MARKETPLACE_ADMIN_PREFIX or path.startswith(
         PLATFORM_MARKETPLACE_ADMIN_PREFIX + "/"
     )
+
+
+def is_platform_owner_directory_path(path: str) -> bool:
+    """The canonical Fiteatsy directory is a global Platform Owner resource."""
+    return path == PLATFORM_OWNER_DIRECTORY_PATH
+
+
+def is_platform_owner_role(role: str | None) -> bool:
+    return str(role or "").strip().upper() in PLATFORM_OWNER_ROLES
 
 
 def practice_client_resource_id(path: str) -> str | None:
