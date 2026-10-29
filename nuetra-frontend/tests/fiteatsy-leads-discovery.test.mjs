@@ -14,6 +14,12 @@ test('Leads client sends authoritative search, filters, ordering and pagination'
   assert.match(apiSource, /diagnostic: body\?\.diagnostic/);
 });
 
+test('directory mirror rollout fails safely to the current authoritative Leads API', () => {
+  assert.match(apiSource, /NEXT_PUBLIC_FITEATSY_DIRECTORY_MIRROR_ENABLED !== 'true'/);
+  assert.match(apiSource, /apiRequest\(`\/platform\/fiteatsy\/leads\?\$\{params\.toString\(\)\}`/);
+  assert.match(apiSource, /apiRequest\(`\/practice-operations\/fiteatsy-client-directory\?\$\{params\.toString\(\)\}`/);
+});
+
 test('Platform Owner Leads UI exposes all discovery and state controls', () => {
   for (const label of [
     'Search name, email or mobile',

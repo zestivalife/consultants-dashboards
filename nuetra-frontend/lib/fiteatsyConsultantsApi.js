@@ -563,6 +563,14 @@ export async function listFiteatsyIntakeLeads({ query = '', status = 'all', orde
     page: String(page),
     pageSize: String(pageSize),
   });
+  if (process.env.NEXT_PUBLIC_FITEATSY_DIRECTORY_MIRROR_ENABLED !== 'true') {
+    const body = await apiRequest(`/platform/fiteatsy/leads?${params.toString()}`, { method: 'GET' });
+    return {
+      leads: Array.isArray(body?.leads) ? body.leads : [],
+      pagination: body?.pagination || { total: 0, page, pageSize },
+      diagnostic: body?.diagnostic || null,
+    };
+  }
   params.set('page_size', params.get('pageSize'));
   params.delete('pageSize');
   const body = await apiRequest(`/practice-operations/fiteatsy-client-directory?${params.toString()}`, { method: 'GET' });
