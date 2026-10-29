@@ -86,9 +86,13 @@ test('drawer preserves selected clients across downstream errors and does not co
 
 test('assignment requests validate canonical client and professional identities before submission', () => {
   assert.match(validation, /POSTGRES_UUID_PATTERN/);
+  assert.match(validation, /PROFESSIONAL_ID_PATTERN/);
   assert.match(api, /validateProfessionalAssignmentPayload\(payload, true\)/);
   const payload = { clientUserIds: ['11111111-1111-f111-1111-111111111111'], professionalUserId: '22222222-2222-f222-1222-222222222222', professionalType: 'CONSULTANT', relationshipType: 'CLIENT_CARE', reason: 'Assignment', allowReassignment: false };
   assert.equal(validateProfessionalAssignmentPayload(payload, true), payload);
+  const externalPayload = { ...payload, professionalUserId: 'ext_330a4fa0-731b-4162-bcb9-bf4e21e6a014' };
+  assert.equal(validateProfessionalAssignmentPayload(externalPayload, true), externalPayload);
+  assert.throws(() => validateProfessionalAssignmentPayload({ ...payload, professionalUserId: 'external_330a4fa0-731b-4162-bcb9-bf4e21e6a014' }, true), /canonical professional identity/);
   assert.throws(() => validateProfessionalAssignmentPayload({ ...payload, professionalUserId: 'invalid' }, true), /canonical professional identity/);
   assert.throws(() => validateProfessionalAssignmentPayload({ ...payload, clientUserIds: ['invalid'] }, true), /canonical assignable identity/);
 });

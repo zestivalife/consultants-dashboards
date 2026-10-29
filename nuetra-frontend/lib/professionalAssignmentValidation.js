@@ -1,4 +1,5 @@
 const POSTGRES_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PROFESSIONAL_ID_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|ext_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
 export function validateProfessionalAssignmentPayload(payload, batch = false) {
   const fieldErrors = {};
@@ -10,7 +11,7 @@ export function validateProfessionalAssignmentPayload(payload, batch = false) {
   } else if (clientIds.some((value) => !validUuid(value))) {
     fieldErrors[batch ? 'clientUserIds' : 'clientUserId'] = 'A selected client does not have a canonical assignable identity.';
   }
-  if (!validUuid(payload?.professionalUserId)) {
+  if (typeof payload?.professionalUserId !== 'string' || !PROFESSIONAL_ID_PATTERN.test(payload.professionalUserId.trim())) {
     fieldErrors.professionalUserId = 'The selected consultant does not have a canonical professional identity.';
   }
   if (!['CONSULTANT', 'PRACTITIONER', 'MENTOR'].includes(payload?.professionalType)) {
