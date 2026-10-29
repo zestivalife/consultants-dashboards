@@ -7,17 +7,19 @@ const nextConfig = {
   outputFileTracingRoot: path.join(__dirname),
   env: {
     NEXT_PUBLIC_BUILD_COMMIT_SHA:
+      process.env.RELEASE_COMMIT_SHA ||
+      process.env.NEXT_PUBLIC_BUILD_COMMIT_SHA ||
       process.env.VERCEL_GIT_COMMIT_SHA ||
       process.env.GIT_COMMIT_SHA ||
       process.env.COMMIT_SHA ||
-      process.env.NEXT_PUBLIC_BUILD_COMMIT_SHA ||
       process.env.NEXT_PUBLIC_GIT_COMMIT_SHA ||
       'unknown',
     NEXT_PUBLIC_BUILD_BRANCH:
+      process.env.RELEASE_BRANCH ||
+      process.env.NEXT_PUBLIC_BUILD_BRANCH ||
       process.env.VERCEL_GIT_COMMIT_REF ||
       process.env.GIT_BRANCH ||
       process.env.BRANCH ||
-      process.env.NEXT_PUBLIC_BUILD_BRANCH ||
       process.env.NEXT_PUBLIC_GIT_BRANCH ||
       'unknown',
     NEXT_PUBLIC_BUILD_TIMESTAMP:

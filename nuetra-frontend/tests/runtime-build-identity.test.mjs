@@ -11,14 +11,15 @@ test('runtime version endpoint exposes the deployed Vercel commit identity', asy
     readSource('../next.config.js'),
   ]);
 
-  assert.match(versionSource, /const BUILD_COMMIT_SHA =\s*[\s\S]*process\.env\.VERCEL_GIT_COMMIT_SHA[\s\S]*process\.env\.NEXT_PUBLIC_BUILD_COMMIT_SHA/);
+  assert.match(versionSource, /const BUILD_COMMIT_SHA =\s*[\s\S]*process\.env\.RELEASE_COMMIT_SHA[\s\S]*process\.env\.NEXT_PUBLIC_BUILD_COMMIT_SHA[\s\S]*process\.env\.VERCEL_GIT_COMMIT_SHA/);
   assert.match(versionSource, /commit_sha:\s*BUILD_COMMIT_SHA/);
   assert.match(versionSource, /branch:\s*BUILD_BRANCH/);
   assert.doesNotMatch(versionSource, /commit_sha:\s*firstEnv\(/);
   assert.match(endpointSource, /getFrontendVersion\(\)/);
   assert.match(endpointSource, /res\.status\(200\)\.json/);
-  assert.match(configSource, /process\.env\.COMMIT_SHA \|\|\s*process\.env\.NEXT_PUBLIC_BUILD_COMMIT_SHA/);
-  assert.match(configSource, /process\.env\.BRANCH \|\|\s*process\.env\.NEXT_PUBLIC_BUILD_BRANCH/);
+  assert.match(endpointSource, /no-store, no-cache, must-revalidate, proxy-revalidate/);
+  assert.match(configSource, /process\.env\.RELEASE_COMMIT_SHA \|\|\s*process\.env\.NEXT_PUBLIC_BUILD_COMMIT_SHA/);
+  assert.match(configSource, /process\.env\.RELEASE_BRANCH \|\|\s*process\.env\.NEXT_PUBLIC_BUILD_BRANCH/);
 });
 
 test('production UI visibly reports the exact browser bundle commit', async () => {
@@ -43,6 +44,7 @@ test('CLI production deployment injects exact clean-worktree Git identity into b
   assert.match(deploySource, /git\('branch', '--show-current'\)/);
   assert.match(deploySource, /git\('status', '--short'\)/);
   assert.equal(deploySource.match(/NEXT_PUBLIC_BUILD_COMMIT_SHA=\$\{commitSha\}/g)?.length, 2);
+  assert.equal(deploySource.match(/RELEASE_COMMIT_SHA=\$\{commitSha\}/g)?.length, 2);
   assert.equal(deploySource.match(/NEXT_PUBLIC_BUILD_BRANCH=\$\{branch\}/g)?.length, 2);
   assert.match(deploySource, /'--build-env',[\s\S]*'--env'/);
   assert.match(deploySource, /Production deployment requires a clean Git worktree/);
