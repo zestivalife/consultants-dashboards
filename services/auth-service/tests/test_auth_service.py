@@ -161,9 +161,45 @@ async def test_fully_provisioned_direct_registration_can_use_me_and_mobile_passw
 
     assert current.id == user.id
     assert result.user.id == user.id
+    assert current.currentTenant is not None
+    assert current.currentTenant.tenantId
+    assert current.currentTenant.tenantType == "INDEPENDENT_CONSULTANT"
+    assert current.currentTenant.currentMembershipRole == "OWNER"
+    assert result.user.currentTenant == current.currentTenant
     assert user.is_verified is False
     assert user.email_verified is False
     assert user.mobile_verified is False
+
+
+@pytest.mark.asyncio
+async def test_platform_owner_never_receives_consultant_tenant_authority(session: AsyncSession):
+    user = await _create_role_user(session, "platform_owner", email="owner-no-tenant@nuetra.test")
+    user.role = await session.get(Role, user.role_id)
+
+    current = await auth_service.get_current_user(session, user.id)
+
+    assert current.currentTenant is None
+
+
+@pytest.mark.asyncio
+async def test_internal_consultant_receives_only_active_internal_membership(session: AsyncSession):
+    user = await _create_role_user(session, "consultant", email="internal-tenant@nuetra.test")
+    organization = Organization(id=uuid.uuid4(), name="Zestiva Internal Practice", status="ACTIVE")
+    session.add(organization)
+    await session.flush()
+    session.add(OrganizationMembership(
+        id=uuid.uuid4(), user_id=user.id, organization_id=organization.id,
+        status="ACTIVE", employee_id="INT-001",
+    ))
+    await session.flush()
+    user.role = await session.get(Role, user.role_id)
+
+    current = await auth_service.get_current_user(session, user.id)
+
+    assert current.currentTenant is not None
+    assert current.currentTenant.tenantId == str(organization.id)
+    assert current.currentTenant.tenantType == "ZESTIVA_INTERNAL"
+    assert current.currentTenant.currentMembershipRole == "CONSULTANT"
 
 
 @pytest.mark.asyncio

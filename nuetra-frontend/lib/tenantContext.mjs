@@ -13,7 +13,8 @@ const EXTERNAL_TENANT_TYPES = new Set([
 ]);
 
 export function normalizeCanonicalTenant(payload) {
-  const tenant = payload?.currentTenant ?? payload?.data?.currentTenant ?? null;
+  const tenant = payload?.currentTenant ?? payload?.current_tenant
+    ?? payload?.data?.currentTenant ?? payload?.data?.current_tenant ?? null;
   if (!tenant || typeof tenant !== 'object') return null;
 
   const tenantId = String(tenant.tenantId || '').trim();
@@ -26,7 +27,7 @@ export function normalizeCanonicalTenant(payload) {
     tenantName: String(tenant.tenantName || '').trim() || null,
     tenantType,
     currentMembershipRole,
-    membershipStatus: 'active',
+    membershipStatus: String(tenant.membershipStatus || tenant.membership_status || 'ACTIVE').toLowerCase(),
     resolutionPath: tenant.resolutionPath || 'MEMBERSHIP',
   };
 }

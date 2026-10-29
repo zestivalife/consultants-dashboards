@@ -265,9 +265,10 @@ async def verify_and_provision(
         identity_email = _identity_email(mobile, email)
         if email and (await session.execute(select(User).where(User.email == identity_email))).scalar_one_or_none():
             raise ConflictException("An account already exists for this contact email.")
+        bootstrap_secret = f"Aa1!{secrets.token_urlsafe(48)}"
         user = User(
             email=identity_email, mobile=mobile, phone=mobile,
-            password_hash=password_service.hash_password(secrets.token_urlsafe(48)),
+            password_hash=password_service.hash_password(bootstrap_secret),
             role_id=role.id, first_name=name.strip(), is_active=True, is_verified=True,
             email_verified=False, mobile_verified=True, status="ACTIVE",
         )

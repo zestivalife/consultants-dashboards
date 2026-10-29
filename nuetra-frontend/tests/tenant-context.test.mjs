@@ -26,6 +26,13 @@ test('canonical backend tenant response is normalized with active membership sem
   assert.deepEqual(currentTenant,{tenantId:'tenant-a',tenantName:'QA Practice',tenantType:'INDEPENDENT_CONSULTANT',currentMembershipRole:'OWNER',membershipStatus:'active',resolutionPath:'MEMBERSHIP'});
 });
 
+test('auth-service snake case envelope is accepted without weakening membership checks',()=>{
+  const currentTenant=normalizeCanonicalTenant({data:{current_tenant:{tenantId:'tenant-b',tenantType:'PRACTICE',currentMembershipRole:'OWNER',membershipStatus:'ACTIVE',resolutionPath:'MEMBERSHIP'}}});
+  assert.equal(currentTenant.tenantId,'tenant-b');
+  assert.equal(currentTenant.membershipStatus,'active');
+  assert.equal(resolveConsultantWorkspace({status:TENANT_CONTEXT_STATUS.READY,...currentTenant}),'EXTERNAL');
+});
+
 test('workspace routing is explicit and fails closed',()=>{
   assert.equal(resolveConsultantWorkspace({status:TENANT_CONTEXT_STATUS.READY,tenantType:'INDEPENDENT_CONSULTANT',membershipStatus:'active'}),'EXTERNAL');
   assert.equal(resolveConsultantWorkspace({status:TENANT_CONTEXT_STATUS.READY,tenantType:'ZESTIVA_INTERNAL',membershipStatus:'active'}),'IN_HOUSE');

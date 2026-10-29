@@ -562,7 +562,7 @@ export async function listFiteatsyIntakeLeads() {
 export async function issueFiteatsyTemporaryLoginPin(userId, reason) {
   return apiRequest(`/platform/fiteatsy/users/${encodeURIComponent(userId)}/temporary-login-pin`, {
     method: 'POST',
-    headers: { 'Idempotency-Key': globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` },
+    headers: { 'Idempotency-Key': globalThis.crypto.randomUUID() },
     body: { reason },
   });
 }

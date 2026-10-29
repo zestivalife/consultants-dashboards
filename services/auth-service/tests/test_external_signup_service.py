@@ -166,6 +166,7 @@ async def test_successful_verify_is_single_use_and_does_not_duplicate_identity(s
         }
 
     monkeypatch.setattr(external_signup_service, "_provision_fiteatsy", provision)
+    monkeypatch.setattr(external_signup_service.secrets, "token_urlsafe", lambda _size: "A" * 48)
     kwargs = dict(
         challenge_id=challenge.id,
         code="123456",

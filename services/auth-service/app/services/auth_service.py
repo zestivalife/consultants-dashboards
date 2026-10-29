@@ -35,6 +35,7 @@ from app.schemas.auth import (
     AccessProduct,
     AccessProfile,
     AccessWorkspace,
+    CurrentTenant,
     LoginResponse,
     RoleResponse,
     TokenResponse,
@@ -250,6 +251,8 @@ async def _user_response(
 ) -> UserResponse:
     permission_list = permissions if permissions is not None else (user.permissions or [])
     next_action = next_action_for_user(user)
+    access_profile = await _access_profile(session, user, permission_list)
+    current_tenant = await _current_tenant(session, user, access_profile)
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -264,7 +267,8 @@ async def _user_response(
         last_name=user.last_name,
         phone=user.phone,
         permissions=permission_list,
-        access_profile=await _access_profile(session, user, permission_list),
+        access_profile=access_profile,
+        currentTenant=current_tenant,
         must_change_password=user.must_change_password,
         temporary_password_expires_at=getattr(user, "temporary_password_expires_at", None),
         next_action={
@@ -273,6 +277,43 @@ async def _user_response(
             "reason": next_action.reason,
         },
         created_at=user.created_at,
+    )
+
+
+async def _current_tenant(
+    session: AsyncSession,
+    user: User,
+    access_profile: AccessProfile,
+) -> CurrentTenant | None:
+    """Resolve only persisted, active membership authority for this identity."""
+    role_key = _normalize_key(user.role.name if user.role else None)
+    if role_key not in PROFESSIONAL_ROLE_KEYS:
+        return None
+
+    provisioning = await session.scalar(
+        select(ExternalSignupProvisioning).where(
+            ExternalSignupProvisioning.auth_user_id == user.id,
+            ExternalSignupProvisioning.status.in_({"ONBOARDING_IN_PROGRESS", "READY"}),
+            ExternalSignupProvisioning.tenant_id.is_not(None),
+            ExternalSignupProvisioning.owner_membership_id.is_not(None),
+        )
+    )
+    if provisioning is not None:
+        return CurrentTenant(
+            tenantId=str(provisioning.tenant_id),
+            tenantName=user.company_name or user.first_name or "Consultant practice",
+            tenantType="PRACTICE" if provisioning.account_type == "PRACTICE_OWNER" else "INDEPENDENT_CONSULTANT",
+            currentMembershipRole="OWNER",
+        )
+
+    organization = access_profile.active_organization
+    if organization is None or _normalize_key(organization.status) != "active":
+        return None
+    return CurrentTenant(
+        tenantId=str(organization.id),
+        tenantName=organization.name,
+        tenantType="ZESTIVA_INTERNAL",
+        currentMembershipRole="SENIOR_CONSULTANT" if role_key == "senior_consultant" else "CONSULTANT",
     )
 
 

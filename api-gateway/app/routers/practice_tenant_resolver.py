@@ -104,18 +104,19 @@ def parse_practice_tenant_authority(payload: Any) -> PracticeTenantAuthority:
 async def resolve_practice_tenant_authority(
     client: httpx.AsyncClient,
     *,
+    auth_service_url: str,
     fiteatsy_service_url: str,
     authorization: str | None,
     authenticated_user_id: str | None,
 ) -> PracticeTenantAuthority:
     if not authenticated_user_id or not authorization or not authorization.startswith("Bearer "):
         raise PracticeTenantResolutionError("Authenticated External identity is required")
-    if not fiteatsy_service_url:
+    if not auth_service_url or not fiteatsy_service_url:
         raise PracticeTenantResolutionError("External tenant authority is unavailable")
 
     try:
         response = await client.get(
-            f"{fiteatsy_service_url.rstrip('/')}/v1/auth/me",
+            f"{auth_service_url.rstrip('/')}/api/v1/auth/me",
             headers={"Authorization": authorization, "Accept": "application/json"},
         )
     except (httpx.HTTPError, ValueError) as exc:

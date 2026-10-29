@@ -27,7 +27,7 @@ export function TenantProvider({children}){
     }
 
     const embedded=normalizeCanonicalTenant({currentTenant:user.currentTenant});
-    if(embedded&&!isBackendAuthEnabled){
+    if(embedded){
       setState({currentTenant:embedded,status:TENANT_CONTEXT_STATUS.READY,error:null});
       return ()=>controller.abort();
     }
