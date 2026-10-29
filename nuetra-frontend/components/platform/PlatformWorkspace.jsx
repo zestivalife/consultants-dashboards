@@ -58,6 +58,7 @@ import {
   getFiteatsyConsultantAvailability,
   listFiteatsyConsultantClients,
   listFiteatsyConsultantOperations,
+  listFiteatsyClientAllocationPool,
   listAllFiteatsyClientAllocationPool,
   listFiteatsyIntakeLeads,
   issueFiteatsyTemporaryLoginPin,
@@ -65,6 +66,7 @@ import {
   listFiteatsyAssignmentProfessionals,
   listFiteatsyProfessionalAssignments,
   createFiteatsyProfessionalAssignment,
+  createFiteatsyProfessionalAssignmentsBatch,
   revokeFiteatsyProfessionalAssignment,
   publishFiteatsyConsultantDietPlan,
   requestFiteatsyConsultantDietPlanChanges,
@@ -4522,6 +4524,7 @@ function SuperAdminPeoplePage() {
     authorities: [],
   });
   const [editAuthorities, setEditAuthorities] = useState([]);
+  const [assignmentConsultant, setAssignmentConsultant] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -4722,12 +4725,15 @@ function SuperAdminPeoplePage() {
                       </span>
                     ) : null}
                   </div>
+                  {section.id === 'consultants' ? <button type="button" onClick={() => setAssignmentConsultant({ userId: person.id, name: [person.firstName, person.lastName].filter(Boolean).join(' ') || person.email, identifier: person.email })} className="mt-3 min-h-11 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white">Assign Clients</button> : null}
                 </div>
               ))}
             </div>
           </Surface>
         ))}
       </div>
+
+      {assignmentConsultant ? <ClientAssignmentDrawer consultant={assignmentConsultant} onClose={() => setAssignmentConsultant(null)} onSuccess={() => setAssignmentConsultant(null)} /> : null}
 
       {createOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(15,23,42,0.42)] p-4">
@@ -5706,11 +5712,116 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
   );
 }
 
+export function ClientAssignmentDrawer({ consultant: initialConsultant = null, initialClient = null, onClose, onSuccess }) {
+  const pageSize = 20;
+  const [consultants, setConsultants] = useState([]);
+  const [consultantId, setConsultantId] = useState('');
+  const [clients, setClients] = useState([]);
+  const [selectedIds, setSelectedIds] = useState(() => new Set(initialClient?.userId ? [initialClient.userId] : []));
+  const [selectedClientMap, setSelectedClientMap] = useState(() => new Map(initialClient?.userId ? [[initialClient.userId, initialClient]] : []));
+  const [searchDraft, setSearchDraft] = useState('');
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const [nextClients, nextConsultants] = await Promise.all([
+        listFiteatsyClientAllocationPool({ query, assignment: 'all', limit: pageSize, offset: page * pageSize }),
+        listFiteatsyAssignmentProfessionals('CONSULTANT'),
+      ]);
+      const merged = initialClient?.userId && page === 0 && !nextClients.some((item) => item.userId === initialClient.userId)
+        ? [initialClient, ...nextClients]
+        : nextClients;
+      setClients(merged);
+      const activeConsultants = nextConsultants.filter((item) => item.status === 'ACTIVE');
+      setConsultants(activeConsultants);
+      if (initialConsultant) {
+        const expectedIdentifier = String(initialConsultant.identifier || initialConsultant.email || '').trim().toLowerCase();
+        const resolved = activeConsultants.find((item) => item.userId === initialConsultant.userId)
+          || activeConsultants.find((item) => expectedIdentifier && String(item.email || '').trim().toLowerCase() === expectedIdentifier);
+        if (!resolved) throw new Error('This consultant does not have an active Fiteatsy professional identity. Create or activate that identity before assigning clients.');
+        setConsultantId(resolved.userId);
+      }
+    } catch (reason) {
+      setError(reason?.message || 'Eligible clients could not be loaded.');
+    } finally { setLoading(false); }
+  }, [initialClient, initialConsultant, page, query]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const resolvedConsultant = consultants.find((item) => item.userId === consultantId);
+  const selectedConsultant = resolvedConsultant ? { ...initialConsultant, ...resolvedConsultant, identifier: resolvedConsultant.email || initialConsultant?.identifier } : initialConsultant;
+  const toggleClient = (client) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(client.userId)) next.delete(client.userId); else next.add(client.userId);
+      return next;
+    });
+    setSelectedClientMap((current) => {
+      const next = new Map(current);
+      if (next.has(client.userId)) next.delete(client.userId); else next.set(client.userId, client);
+      return next;
+    });
+  };
+
+  const submit = async () => {
+    if (!consultantId || !selectedIds.size) return;
+    const selected = Array.from(selectedClientMap.values());
+    const transfers = selected.filter((client) => client.assignmentStatus === 'ASSIGNED' && client.assignedProfessional?.userId !== consultantId);
+    if (transfers.length && !window.confirm(`${transfers.length} selected client${transfers.length === 1 ? '' : 's'} already have an active consultant. Reassign them to ${selectedConsultant?.name || 'the selected consultant'} and preserve prior assignments in history?`)) return;
+    setSubmitting(true); setError(''); setNotice('');
+    try {
+      const response = await createFiteatsyProfessionalAssignmentsBatch({
+        clientUserIds: selected.map((client) => client.userId),
+        professionalUserId: consultantId,
+        professionalType: 'CONSULTANT',
+        relationshipType: 'CLIENT_CARE',
+        reason: transfers.length ? 'Platform Owner confirmed consultant reassignment' : 'Platform Owner assigned clients',
+        allowReassignment: transfers.length > 0,
+      });
+      const results = Array.isArray(response?.assignments) ? response.assignments : [];
+      if (results.length !== selected.length) throw new Error('The server did not atomically confirm every assignment.');
+      setNotice(`${results.length} client${results.length === 1 ? '' : 's'} assigned successfully.`);
+      await load();
+      onSuccess?.({ count: results.length, consultant: selectedConsultant });
+    } catch (reason) {
+      setError(reason?.message || 'Client assignment failed. No success was recorded.');
+    } finally { setSubmitting(false); }
+  };
+
+  return <div className="fixed inset-0 z-[80] bg-slate-950/45" role="dialog" aria-modal="true" aria-labelledby="assign-clients-title">
+    <div className="ml-auto flex h-full w-full max-w-[500px] flex-col bg-white shadow-2xl">
+      <header className="flex items-start justify-between border-b px-5 py-5"><div><h2 id="assign-clients-title" className="text-xl font-bold">Assign Clients</h2><p className="mt-1 text-sm text-slate-500">{selectedConsultant ? `${selectedConsultant.name} · ${selectedConsultant.identifier || selectedConsultant.email || selectedConsultant.userId}` : 'Choose a consultant and eligible clients.'}</p></div><button type="button" onClick={onClose} aria-label="Close assignment drawer" className="rounded-full p-2 hover:bg-slate-100"><X className="h-5 w-5" /></button></header>
+      <div className="flex-1 overflow-y-auto p-5">
+        {!initialConsultant ? <label className="block text-sm font-semibold">Consultant<select value={consultantId} onChange={(event) => setConsultantId(event.target.value)} className="mt-2 min-h-12 w-full rounded-xl border px-3"><option value="">Select consultant</option>{consultants.map((item) => <option key={item.userId} value={item.userId}>{item.name} · {item.email || item.userId}</option>)}</select></label> : null}
+        <form onSubmit={(event) => { event.preventDefault(); setPage(0); setQuery(searchDraft.trim()); }} className="mt-4 flex gap-2"><label className="relative flex-1"><span className="sr-only">Search clients</span><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400"/><input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Search name, mobile or email" className="min-h-11 w-full rounded-xl border pl-10 pr-3" /></label><button className="rounded-xl border px-4 font-semibold" type="submit">Search</button></form>
+        {error ? <div role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p>{error}</p><button type="button" onClick={() => void load()} className="mt-2 font-bold underline">Retry</button></div> : null}
+        {notice ? <div role="status" className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{notice}</div> : null}
+        {loading ? <div role="status" className="mt-4 rounded-xl border p-8 text-center text-sm text-slate-500">Loading eligible clients…</div> : null}
+        {!loading && !error && !clients.length ? <div className="mt-4 rounded-xl border border-dashed p-8 text-center text-sm text-slate-500">No eligible clients match this search.</div> : null}
+        {!loading && !error ? <div className="mt-4 divide-y rounded-xl border">{clients.map((client) => {
+          const assignedHere = client.assignmentStatus === 'ASSIGNED' && client.assignedProfessional?.userId === consultantId;
+          return <label key={client.userId} className={`flex gap-3 p-4 ${assignedHere ? 'bg-emerald-50' : ''}`}><input type="checkbox" disabled={assignedHere} checked={assignedHere || selectedIds.has(client.userId)} onChange={() => toggleClient(client)} className="mt-1 h-4 w-4"/><span className="min-w-0 flex-1"><span className="block font-semibold">{client.name}</span><span className="mt-1 block text-xs text-slate-500">{[client.maskedMobileNumber, client.maskedEmail].filter(Boolean).join(' · ') || client.clientId}</span><span className={`mt-2 inline-flex rounded-full px-2 py-1 text-[11px] font-bold ${client.assignmentStatus === 'ASSIGNED' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>{assignedHere ? 'Already assigned to this consultant' : client.assignmentStatus === 'ASSIGNED' ? `Assigned to ${client.assignedProfessional?.name || 'another consultant'}` : 'Unassigned'}</span></span></label>;
+        })}</div> : null}
+        <div className="mt-4 flex items-center justify-between"><button type="button" disabled={page === 0 || loading} onClick={() => setPage((value) => Math.max(0, value - 1))} className="min-h-11 rounded-xl border px-4 disabled:opacity-40">Previous</button><span className="text-sm text-slate-500">Page {page + 1}</span><button type="button" disabled={loading || clients.length < pageSize} onClick={() => setPage((value) => value + 1)} className="min-h-11 rounded-xl border px-4 disabled:opacity-40">Next</button></div>
+      </div>
+      <footer className="border-t p-5"><p className="mb-3 text-sm font-semibold">{selectedIds.size} client{selectedIds.size === 1 ? '' : 's'} selected</p><div className="flex gap-3"><button type="button" onClick={onClose} className="min-h-12 flex-1 rounded-xl border font-semibold">Cancel</button><button type="button" disabled={!consultantId || !selectedIds.size || submitting} onClick={() => void submit()} className="min-h-12 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-40">{submitting ? 'Assigning…' : 'Assign clients'}</button></div></footer>
+    </div>
+  </div>;
+}
+
 export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [shownPin, setShownPin] = useState(null);
+  const [assignmentClient, setAssignmentClient] = useState(null);
+  const [assignmentNotice, setAssignmentNotice] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -5745,6 +5856,7 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
       <button type="button" className="mt-3 min-h-11 rounded-xl border border-amber-400 px-4 font-semibold" onClick={() => setShownPin(null)}>I have copied it</button>
     </Surface> : null}
     {error ? <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-4 text-red-800">{error}</div> : null}
+    {assignmentNotice ? <div role="status" className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-emerald-800">{assignmentNotice}</div> : null}
     <Surface className="overflow-hidden border border-[var(--fluent-color-neutral-stroke-1)]">
       <div className="flex items-center justify-between border-b p-4"><strong>{loading ? 'Loading registrations…' : `${leads.length} recent registrations`}</strong><button type="button" onClick={() => void load()} className="min-h-11 rounded-xl border px-4">Refresh</button></div>
       <div className="divide-y">
@@ -5752,11 +5864,12 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
           <div><p className="font-semibold">{lead.name}</p><p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{lead.mobileNumber || 'Verified mobile unavailable'}</p>{lead.email ? <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{lead.email}</p> : null}<p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Registered {new Date(lead.registeredAtISO).toLocaleString()}</p></div>
           <div><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Lead status</p><p className="mt-1 font-semibold">{lead.leadStatus}</p></div>
           <div><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Login PIN</p><p className="mt-1 font-semibold">{lead.loginPinStatus === 'CONFIGURED' ? 'Configured' : 'Setup required'}</p></div>
-          <div className="flex flex-wrap gap-2"><button type="button" onClick={onOpenAssignments} className="min-h-11 rounded-xl bg-slate-950 px-4 font-semibold text-white">{lead.assignment ? 'Reassign' : 'Assign'}</button><button type="button" disabled={!lead.mobileNumber} onClick={() => void issuePin(lead)} className="min-h-11 rounded-xl border px-4 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Issue temporary Login PIN</button></div>
+          <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setAssignmentClient({ userId: lead.userId, clientId: lead.clientId || lead.userId, name: lead.name, maskedMobileNumber: lead.mobileNumber ? `******${lead.mobileNumber.slice(-4)}` : null, maskedEmail: lead.email ? `${lead.email.slice(0, 1)}***@${lead.email.split('@')[1] || ''}` : null, assignmentStatus: lead.assignment ? 'ASSIGNED' : 'UNASSIGNED', assignedProfessional: lead.assignment?.professional || null })} className="min-h-11 rounded-xl bg-slate-950 px-4 font-semibold text-white">{lead.assignment ? 'Reassign' : 'Assign'}</button><button type="button" disabled={!lead.mobileNumber} onClick={() => void issuePin(lead)} className="min-h-11 rounded-xl border px-4 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Issue temporary Login PIN</button></div>
         </article>)}
         {!loading && leads.length === 0 ? <p className="p-8 text-center text-sm text-[var(--fluent-color-neutral-foreground-2)]">No recent Fiteatsy registrations were found.</p> : null}
       </div>
     </Surface>
+    {assignmentClient ? <ClientAssignmentDrawer initialClient={assignmentClient} onClose={() => setAssignmentClient(null)} onSuccess={({ count, consultant }) => { setAssignmentClient(null); setAssignmentNotice(`${count} client${count === 1 ? '' : 's'} assigned to ${consultant?.name || 'the selected consultant'}.`); void load(); }} /> : null}
   </div>;
 }
 
@@ -5789,9 +5902,12 @@ function ProfessionalAssignmentPage() {
 
   const assign = async () => {
     if (!clientUserId || !professionalUserId) return;
+    const selectedClient = clients.find((client) => client.userId === clientUserId);
+    const isReassignment = selectedClient?.assignmentStatus === 'ASSIGNED' && selectedClient.assignedProfessional?.userId !== professionalUserId;
+    if (isReassignment && !window.confirm(`Reassign ${selectedClient.name} to the selected professional? The current assignment will remain in history.`)) return;
     try {
       setError('');
-      await createFiteatsyProfessionalAssignment({ clientUserId, professionalUserId, professionalType, relationshipType: professionalType === 'MENTOR' ? 'MENTORSHIP' : 'CLIENT_CARE', reason: 'Operational client assignment' });
+      await createFiteatsyProfessionalAssignment({ clientUserId, professionalUserId, professionalType, relationshipType: professionalType === 'MENTOR' ? 'MENTORSHIP' : 'CLIENT_CARE', reason: isReassignment ? 'Confirmed operational client reassignment' : 'Operational client assignment', allowReassignment: isReassignment });
       setMessage('Assignment created');
       await refresh();
     } catch (nextError) { setError(nextError.message); }
@@ -5880,9 +5996,11 @@ function SeniorConsultantClientAllocationPage({ currentUserId, currentUserName =
 
   const assign = async () => {
     if (!selectedClient?.userId || !professionalUserId) return;
+    const isReassignment = selectedClient.assignmentStatus === 'ASSIGNED' && selectedClient.assignedProfessional?.userId !== professionalUserId;
+    if (isReassignment && !window.confirm(`Reassign ${selectedClient.name} to ${selectedTargetName}? The current assignment will remain in history.`)) return;
     try {
       setError('');
-      await createFiteatsyProfessionalAssignment({ clientUserId: selectedClient.userId, professionalUserId, professionalType: 'CONSULTANT', relationshipType: 'CLIENT_CARE', reason: selectedClient.assignmentStatus === 'ASSIGNED' ? 'Senior Consultant reassigned client' : 'Senior Consultant client allocation' });
+      await createFiteatsyProfessionalAssignment({ clientUserId: selectedClient.userId, professionalUserId, professionalType: 'CONSULTANT', relationshipType: 'CLIENT_CARE', reason: isReassignment ? 'Senior Consultant confirmed client reassignment' : 'Senior Consultant client allocation', allowReassignment: isReassignment });
       setMessage('Client assigned successfully.');
       setProfessionalUserId('');
       setAssignmentMode('me');

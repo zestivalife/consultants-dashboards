@@ -593,6 +593,10 @@ export async function createFiteatsyProfessionalAssignment(payload) {
   return requestFiteatsy('/v1/professional-assignments', { method: 'POST', body: payload });
 }
 
+export async function createFiteatsyProfessionalAssignmentsBatch(payload) {
+  return requestFiteatsy('/v1/professional-assignments/batch', { method: 'POST', body: payload });
+}
+
 export async function revokeFiteatsyProfessionalAssignment(assignmentId, reason) {
   return requestFiteatsy(`/v1/professional-assignments/${encodeURIComponent(assignmentId)}`, { method: 'DELETE', body: { reason } });
 }

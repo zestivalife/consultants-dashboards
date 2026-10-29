@@ -37,6 +37,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { ClientAssignmentDrawer } from './PlatformWorkspace';
 import {
   ActionButton,
   Badge,
@@ -392,7 +393,7 @@ function ColumnManager({ columns, visibleColumns, onToggleColumn }) {
   );
 }
 
-function RowActionMenu({ person, isArchiveView, open, onToggle, onView, onArchive, onRestore, onAssignRole, onSuspend, onResetPassword }) {
+function RowActionMenu({ person, isArchiveView, open, onToggle, onView, onArchive, onRestore, onAssignRole, onAssignClients, onSuspend, onResetPassword }) {
   const itemClass = 'flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-100';
   return (
     <div className="relative">
@@ -421,6 +422,10 @@ function RowActionMenu({ person, isArchiveView, open, onToggle, onView, onArchiv
                 <Shield className="h-4 w-4" />
                 Assign role
               </button>
+              {['consultant', 'senior_consultant'].includes(String(person.role || '').toLowerCase()) ? <button type="button" onClick={onAssignClients} className={cn(itemClass, 'text-gray-700 hover:bg-gray-50')}>
+                <Users className="h-4 w-4" />
+                Assign Clients
+              </button> : null}
               <button type="button" onClick={onResetPassword} className={cn(itemClass, 'text-gray-700 hover:bg-gray-50')}>
                 <KeyRound className="h-4 w-4" />
                 Reset password
@@ -968,6 +973,7 @@ export function PeopleAccessModule({
   const [recentSearches, setRecentSearches] = useState([]);
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [restoreTarget, setRestoreTarget] = useState(null);
+  const [assignmentConsultant, setAssignmentConsultant] = useState(null);
   const [archiveReasonDraft, setArchiveReasonDraft] = useState('');
   const searchInputRef = useRef(null);
   const [visibleColumnKeys, setVisibleColumnKeys] = useState([
@@ -2347,6 +2353,10 @@ export function PeopleAccessModule({
                               openUserDrawer(person.id);
                               setProfileTab('Permissions');
                             }}
+                            onAssignClients={() => {
+                              setActionMenuId(null);
+                              setAssignmentConsultant({ userId: person.id, name: person.name || person.email, identifier: person.email });
+                            }}
                             onArchive={() => {
                               setActionMenuId(null);
                               requestArchiveUser(person);
@@ -3464,6 +3474,7 @@ export function PeopleAccessModule({
           </div>
         </div>
       ) : null}
+      {assignmentConsultant ? <ClientAssignmentDrawer consultant={assignmentConsultant} onClose={() => setAssignmentConsultant(null)} onSuccess={() => { setAssignmentConsultant(null); onRefresh?.(); }} /> : null}
     </ModuleFrame>
   );
 }
