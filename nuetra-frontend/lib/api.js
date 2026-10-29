@@ -311,11 +311,21 @@ export async function apiRequest(path, opts = {}) {
       clearTokens();
     }
 
+    const fieldErrors = json?.details?.fieldErrors && typeof json.details.fieldErrors === 'object'
+      ? json.details.fieldErrors
+      : null;
+    const firstFieldError = fieldErrors
+      ? Object.entries(fieldErrors).find(([, messages]) => Array.isArray(messages) && messages.length)
+      : null;
+    const validationMessage = firstFieldError
+      ? `${firstFieldError[0]}: ${firstFieldError[1][0]}`
+      : null;
     const err = new Error(
-      json?.message || json?.error || `Request failed (${res.status})`
+      validationMessage || json?.message || json?.error || `Request failed (${res.status})`
     );
     err.status = res.status;
     err.data = json;
+    err.fieldErrors = fieldErrors;
     throw err;
   }
 

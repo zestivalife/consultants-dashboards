@@ -1,4 +1,5 @@
 import { apiRequest, getToken, refreshAccessToken } from './api';
+import { validateProfessionalAssignmentPayload } from './professionalAssignmentValidation';
 import { collectAllClientAllocationPages } from './clientAllocationPagination.mjs';
 import { normalizeBiomarkerForPresentation } from './biomarkerPresentation.mjs';
 
@@ -590,10 +591,12 @@ export async function listFiteatsyProfessionalAssignments() {
 }
 
 export async function createFiteatsyProfessionalAssignment(payload) {
+  validateProfessionalAssignmentPayload(payload, false);
   return apiRequest('/platform/fiteatsy/professional-assignments', { method: 'POST', headers: { 'Idempotency-Key': globalThis.crypto.randomUUID() }, body: payload });
 }
 
 export async function createFiteatsyProfessionalAssignmentsBatch(payload) {
+  validateProfessionalAssignmentPayload(payload, true);
   return apiRequest('/platform/fiteatsy/professional-assignments/batch', { method: 'POST', headers: { 'Idempotency-Key': globalThis.crypto.randomUUID() }, body: payload });
 }
 

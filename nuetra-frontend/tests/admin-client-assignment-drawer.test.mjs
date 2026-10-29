@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { validateProfessionalAssignmentPayload } from '../lib/professionalAssignmentValidation.js';
 
 const workspace = readFileSync(new URL('../components/platform/PlatformWorkspace.jsx', import.meta.url), 'utf8');
 const owner = readFileSync(new URL('../components/platform/OwnerConsoleModules.jsx', import.meta.url), 'utf8');
 const api = readFileSync(new URL('../lib/fiteatsyConsultantsApi.js', import.meta.url), 'utf8');
+const apiCore = readFileSync(new URL('../lib/api.js', import.meta.url), 'utf8');
+const validation = readFileSync(new URL('../lib/professionalAssignmentValidation.js', import.meta.url), 'utf8');
 
 test('People & Access exposes Assign Clients for consultant rows', () => {
   assert.match(owner, /Assign Clients/);
@@ -79,4 +82,19 @@ test('drawer preserves selected clients across downstream errors and does not co
   assert.match(drawer, /!loading && !error && !clients\.length/);
   assert.doesNotMatch(drawer, /catch[^}]+setClients\(\[\]\)/s);
   assert.match(drawer, /selectedClientMap/);
+});
+
+test('assignment requests validate canonical client and professional identities before submission', () => {
+  assert.match(validation, /POSTGRES_UUID_PATTERN/);
+  assert.match(api, /validateProfessionalAssignmentPayload\(payload, true\)/);
+  const payload = { clientUserIds: ['11111111-1111-f111-1111-111111111111'], professionalUserId: '22222222-2222-f222-1222-222222222222', professionalType: 'CONSULTANT', relationshipType: 'CLIENT_CARE', reason: 'Assignment', allowReassignment: false };
+  assert.equal(validateProfessionalAssignmentPayload(payload, true), payload);
+  assert.throws(() => validateProfessionalAssignmentPayload({ ...payload, professionalUserId: 'invalid' }, true), /canonical professional identity/);
+  assert.throws(() => validateProfessionalAssignmentPayload({ ...payload, clientUserIds: ['invalid'] }, true), /canonical assignable identity/);
+});
+
+test('API errors surface backend field-level validation without exposing submitted values', () => {
+  assert.match(apiCore, /details\?\.fieldErrors/);
+  assert.match(apiCore, /validationMessage/);
+  assert.match(apiCore, /err\.fieldErrors = fieldErrors/);
 });
