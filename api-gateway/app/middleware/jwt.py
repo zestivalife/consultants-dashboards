@@ -51,6 +51,8 @@ DELEGATED_AUTH_PREFIXES: list[str] = [
     # assertion for this connection/consent boundary. It is not a consultant
     # dashboard login token and must pass through unchanged.
     "/api/v1/fiteatsy-connections",
+    # Directory ingestion uses a separate purpose-bound RS256 service assertion.
+    "/api/v1/internal/fiteatsy-client-directory",
 ]
 
 
