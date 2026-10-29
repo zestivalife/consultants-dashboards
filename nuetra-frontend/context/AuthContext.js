@@ -8,7 +8,6 @@ import {
   getPostAuthPathForUser,
 } from '../lib/roleRoutes';
 import { authAPI, clearTokens, getRefreshToken, getToken, isRememberedAuthSession, setRefreshToken, setToken } from '../lib/api';
-import { getFiteatsyConsultantOnboarding } from '../lib/fiteatsyConsultantsApi';
 import {
   getExternalTemporaryPasswordIdentifier,
   isExternalTemporaryPasswordUser,
@@ -33,22 +32,7 @@ async function getGovernedPostLoginPath(user) {
   const accountActionRoute = getAccountActionRoute(user);
   if (accountActionRoute) return accountActionRoute;
 
-  const role = String(user?.role || '').toLowerCase();
-  if (!['consultant', 'provider', 'dietician', 'dietitian'].includes(role)) return getPostLoginPath(user);
-  try {
-    const payload = await getFiteatsyConsultantOnboarding();
-    const onboarding = payload?.onboarding || payload;
-    return onboarding?.workspaceReady && onboarding?.status === 'READY'
-      ? getPostLoginPath(user)
-      : '/onboarding';
-  } catch (error) {
-    // Existing internal/Zestiva consultants do not have an external onboarding record.
-    if (error?.status === 404) return getPostLoginPath(user);
-    // Onboarding is a downstream routing dependency, not an authentication
-    // dependency. Keep the valid session and fail closed into onboarding rather
-    // than reporting a false login failure or clearing credentials.
-    return '/onboarding';
-  }
+  return getPostLoginPath(user);
 }
 
 function readStoredSessionRecord() {

@@ -49,9 +49,9 @@ test('stale-build handling preserves tokens, sessions, and backend authority', (
   assert.doesNotMatch(gateSource, /clearTokens|clearBrowserSessionState|logout|authAPI\.logout/);
 });
 
-test('secondary onboarding failure cannot invalidate a valid session', () => {
-  assert.match(authSource, /return '\/onboarding';/);
-  assert.doesNotMatch(authSource, /if \(error\?\.status === 404\) return getPostLoginPath\(user\);\s*throw error;/);
+test('legacy onboarding is not a secondary authentication dependency', () => {
+  assert.doesNotMatch(authSource, /getFiteatsyConsultantOnboarding/);
+  assert.match(authSource, /return getPostLoginPath\(user\);/);
 });
 
 test('build gate runs before AuthProvider and workspace bootstrap', () => {

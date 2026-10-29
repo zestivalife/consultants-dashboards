@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { ArrowLeft, BriefcaseMedical, ChevronDown, Copy, LogOut, Mail, MessageCircle, Phone, Plus, RefreshCw, Search, Settings, ShieldCheck, UserRound, UserRoundPlus, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTenant } from '../../context/TenantContext';
-import { createExternalClient, createExternalClientInvitation, getCurrentExternalClientInvitation, listExternalClients, regenerateExternalClientInvitation, revokeExternalClientInvitation, updateExternalClient } from '../../lib/fiteatsyConsultantsApi';
+import { createExternalClient, createExternalClientInvitation, getCurrentExternalClientInvitation, regenerateExternalClientInvitation, revokeExternalClientInvitation, updateExternalClient } from '../../lib/fiteatsyConsultantsApi';
+import { listConnectedFiteatsyClients } from '../../lib/practiceOperationsApi';
 import { buildEmailInvitationUrl, buildWhatsAppInvitationUrl } from '../../lib/externalClientInvitationShare';
 import { ExternalClient360 } from './ExternalClient360';
 
@@ -15,7 +16,7 @@ export function ExternalConsultantWorkspace(){
   const {user,logout}=useAuth(); const {tenantName,tenantType,currentMembershipRole}=useTenant();
   const [clients,setClients]=useState([]);const [total,setTotal]=useState(0);const [query,setQuery]=useState('');const [status,setStatus]=useState('');const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [adding,setAdding]=useState(false);const [saving,setSaving]=useState(false);const [form,setForm]=useState(emptyForm);const [selected,setSelected]=useState(null);
   const [accountMenuOpen,setAccountMenuOpen]=useState(false);const [loggingOut,setLoggingOut]=useState(false);
-  const load=useCallback(async()=>{setLoading(true);setError('');try{const result=await listExternalClients({q:query,status,limit:100});setClients(result.clients||[]);setTotal(result.pagination?.total??0);}catch(e){setError(e.message||'Unable to load clients.');}finally{setLoading(false);}},[query,status]);
+  const load=useCallback(async()=>{setLoading(true);setError('');try{const result=await listConnectedFiteatsyClients({q:query,status,limit:100});setClients(result.clients||[]);setTotal(result.pagination?.total??0);}catch(e){setError(e.message||'Unable to load clients.');}finally{setLoading(false);}},[query,status]);
   useEffect(()=>{const timer=setTimeout(load,query?250:0);return()=>clearTimeout(timer);},[load,query]);
   const submit=async(e)=>{e.preventDefault();setSaving(true);setError('');try{const result=await createExternalClient({...form,dateOfBirth:form.dateOfBirth||null,gender:form.gender||null});setAdding(false);setForm(emptyForm);await load();setSelected(result.client);}catch(err){setError(err.message||'Unable to add client.');}finally{setSaving(false);}};
   const changeStatus=async(next)=>{if(!selected)return;try{const result=await updateExternalClient(selected.id,{status:next});setSelected(result.client);await load();}catch(e){setError(e.message||'Unable to update client.');}};

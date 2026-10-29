@@ -4,15 +4,15 @@ import test from 'node:test';
 
 const read = (path) => fs.readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 
-test('external Consultant login resumes governed onboarding before workspace access', () => {
+test('external Consultant login uses authenticated tenant authority without legacy Fiteatsy onboarding', () => {
   const auth = read('context/AuthContext.js');
   const api = read('lib/api.js');
   const fiteatsyApi = read('lib/fiteatsyConsultantsApi.js');
   const canonicalPage = read('pages/onboarding/index.js');
   const page = read('pages/onboarding/consultant.js');
   assert.match(auth, /getGovernedPostLoginPath/);
-  assert.match(auth, /getFiteatsyConsultantOnboarding/);
-  assert.match(auth, /: '\/onboarding';/);
+  assert.doesNotMatch(auth, /getFiteatsyConsultantOnboarding/);
+  assert.match(auth, /return getPostLoginPath\(user\);/);
   assert.match(fiteatsyApi, /getFiteatsyConsultantOnboarding/);
   assert.match(fiteatsyApi, /requestFiteatsy\('\/v1\/consultants\/onboarding'/);
   assert.match(fiteatsyApi, /requestFiteatsy\('\/v1\/consultants\/onboarding\/complete'/);

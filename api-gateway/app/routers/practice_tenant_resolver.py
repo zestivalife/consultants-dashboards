@@ -111,7 +111,7 @@ async def resolve_practice_tenant_authority(
 ) -> PracticeTenantAuthority:
     if not authenticated_user_id or not authorization or not authorization.startswith("Bearer "):
         raise PracticeTenantResolutionError("Authenticated External identity is required")
-    if not auth_service_url or not fiteatsy_service_url:
+    if not auth_service_url:
         raise PracticeTenantResolutionError("External tenant authority is unavailable")
 
     try:
@@ -131,28 +131,9 @@ async def resolve_practice_tenant_authority(
         raise PracticeTenantResolutionError("External tenant authority is unavailable") from exc
     authority = parse_practice_tenant_authority(payload)
 
-    # Profession is owned by the authenticated External onboarding record.  It is
-    # advisory until the Practice Operations service normalises it against its
-    # canonical registry, but callers must never be allowed to supply it.
-    profession_hint = None
-    try:
-        onboarding_response = await client.get(
-            f"{fiteatsy_service_url.rstrip('/')}/v1/consultants/onboarding",
-            headers={"Authorization": authorization, "Accept": "application/json"},
-        )
-        if onboarding_response.status_code == 200:
-            onboarding_payload = onboarding_response.json()
-            onboarding = onboarding_payload.get("onboarding") if isinstance(onboarding_payload, Mapping) else None
-            if isinstance(onboarding, Mapping):
-                details = onboarding.get("professionalDetails")
-                detail_profession = details.get("profession") if isinstance(details, Mapping) else None
-                profession_hint = str(detail_profession or onboarding.get("professionalTitle") or "").strip() or None
-    except (httpx.HTTPError, ValueError):
-        profession_hint = None
-
     return PracticeTenantAuthority(
         authority.tenant_id,
         authority.tenant_type,
         authority.membership_role,
-        profession_hint,
+        None,
     )

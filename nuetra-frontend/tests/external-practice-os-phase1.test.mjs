@@ -53,10 +53,13 @@ test('practice operations forwards the consultant bearer token through the same-
 });
 
 test('client API failure never renders an authoritative empty client state',()=>{
-  assert.match(workspace,/Promise\.allSettled\(\[listExternalClients/);
+  assert.match(workspace,/Promise\.allSettled\(\[listConnectedFiteatsyClients/);
+  assert.match(api,/listFiteatsyConnections/);
+  assert.match(api,/getFiteatsyConnectionHealthContext/);
+  assert.doesNotMatch(workspace,/listExternalClients/);
   assert.match(workspace,/Array\.isArray\(clientResult\.value\?\.clients\)/);
   assert.match(workspace,/setClientLoadState\('error'\)/);
   assert.match(workspace,/clientLoadState==='error'/);
   assert.match(workspace,/No empty client state is shown because the authoritative client request did not complete successfully/);
-  assert.doesNotMatch(workspace,/Promise\.all\(\[listExternalClients/);
+  assert.doesNotMatch(workspace,/Promise\.all\(\[listConnectedFiteatsyClients/);
 });
