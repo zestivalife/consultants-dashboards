@@ -5819,16 +5819,28 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [diagnostic, setDiagnostic] = useState(null);
+  const [searchDraft, setSearchDraft] = useState('');
+  const [query, setQuery] = useState('');
+  const [status, setStatus] = useState('all');
+  const [order, setOrder] = useState('desc');
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({ total: 0, page: 1, pageSize: 20 });
   const [shownPin, setShownPin] = useState(null);
   const [assignmentClient, setAssignmentClient] = useState(null);
   const [assignmentNotice, setAssignmentNotice] = useState('');
 
   const load = useCallback(async () => {
-    setLoading(true); setError('');
-    try { setLeads(await listFiteatsyIntakeLeads()); }
+    setLoading(true); setError(''); setDiagnostic(null);
+    try {
+      const result = await listFiteatsyIntakeLeads({ query, status, order, page, pageSize: 20 });
+      setLeads(result.leads);
+      setPagination(result.pagination);
+      setDiagnostic(result.diagnostic);
+    }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Fiteatsy leads could not be loaded.'); }
     finally { setLoading(false); }
-  }, []);
+  }, [order, page, query, status]);
   useEffect(() => { void load(); }, [load]);
 
   const issuePin = async (lead) => {
@@ -5848,7 +5860,7 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
   };
 
   return <div className="space-y-4">
-    <CompactPageHeader title="Fiteatsy Leads" subtitle="See recent Fiteatsy account registrations, route care, and securely issue a one-time temporary Login PIN." />
+    <CompactPageHeader title="Fiteatsy Leads" subtitle="Find completed Fiteatsy registrations, route care, and securely issue a one-time temporary Login PIN." />
     {shownPin ? <Surface className="border border-amber-300 bg-amber-50 p-5 text-slate-950">
       <p className="text-xs font-semibold uppercase tracking-[0.14em]">Shown once · {shownPin.name} · {shownPin.mobileNumber}</p>
       <p className="mt-2 font-mono text-3xl font-bold tracking-[0.3em]">{shownPin.pin}</p>
@@ -5856,9 +5868,18 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
       <button type="button" className="mt-3 min-h-11 rounded-xl border border-amber-400 px-4 font-semibold" onClick={() => setShownPin(null)}>I have copied it</button>
     </Surface> : null}
     {error ? <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-4 text-red-800">{error}</div> : null}
+    {diagnostic ? <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900"><p className="font-semibold">Registration diagnostic</p><p className="mt-1 text-sm">{diagnostic.message}</p></div> : null}
     {assignmentNotice ? <div role="status" className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-emerald-800">{assignmentNotice}</div> : null}
     <Surface className="overflow-hidden border border-[var(--fluent-color-neutral-stroke-1)]">
-      <div className="flex items-center justify-between border-b p-4"><strong>{loading ? 'Loading registrations…' : `${leads.length} recent registrations`}</strong><button type="button" onClick={() => void load()} className="min-h-11 rounded-xl border px-4">Refresh</button></div>
+      <div className="border-b p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3"><strong>{loading ? 'Loading registrations…' : `${pagination.total} matching registrations`}</strong><button type="button" onClick={() => void load()} className="min-h-11 rounded-xl border px-4">Refresh</button></div>
+        <form onSubmit={(event) => { event.preventDefault(); setPage(1); setQuery(searchDraft.trim()); }} className="mt-4 grid gap-3 lg:grid-cols-[minmax(260px,1fr)_180px_180px_auto]">
+          <label><span className="sr-only">Search registrations</span><input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Search name, email or mobile" className="min-h-11 w-full rounded-xl border px-3" /></label>
+          <label><span className="sr-only">Account status</span><select value={status} onChange={(event) => { setPage(1); setStatus(event.target.value); }} className="min-h-11 w-full rounded-xl border px-3"><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+          <label><span className="sr-only">Registration order</span><select value={order} onChange={(event) => { setPage(1); setOrder(event.target.value); }} className="min-h-11 w-full rounded-xl border px-3"><option value="desc">Newest first</option><option value="asc">Oldest first</option></select></label>
+          <button type="submit" className="min-h-11 rounded-xl bg-slate-950 px-5 font-semibold text-white">Search</button>
+        </form>
+      </div>
       <div className="divide-y">
         {leads.map((lead) => <article key={lead.userId} className="grid gap-4 p-4 lg:grid-cols-[1.4fr_0.8fr_0.8fr_auto] lg:items-center">
           <div><p className="font-semibold">{lead.name}</p><p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{lead.mobileNumber || 'Verified mobile unavailable'}</p>{lead.email ? <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{lead.email}</p> : null}<p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Registered {new Date(lead.registeredAtISO).toLocaleString()}</p></div>
@@ -5866,8 +5887,10 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
           <div><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Login PIN</p><p className="mt-1 font-semibold">{lead.loginPinStatus === 'CONFIGURED' ? 'Configured' : 'Setup required'}</p></div>
           <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setAssignmentClient({ userId: lead.userId, clientId: lead.clientId || lead.userId, name: lead.name, maskedMobileNumber: lead.mobileNumber ? `******${lead.mobileNumber.slice(-4)}` : null, maskedEmail: lead.email ? `${lead.email.slice(0, 1)}***@${lead.email.split('@')[1] || ''}` : null, assignmentStatus: lead.assignment ? 'ASSIGNED' : 'UNASSIGNED', assignedProfessional: lead.assignment?.professional || null })} className="min-h-11 rounded-xl bg-slate-950 px-4 font-semibold text-white">{lead.assignment ? 'Reassign' : 'Assign'}</button><button type="button" disabled={!lead.mobileNumber} onClick={() => void issuePin(lead)} className="min-h-11 rounded-xl border px-4 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Issue temporary Login PIN</button></div>
         </article>)}
-        {!loading && leads.length === 0 ? <p className="p-8 text-center text-sm text-[var(--fluent-color-neutral-foreground-2)]">No recent Fiteatsy registrations were found.</p> : null}
+        {loading ? <p role="status" className="p-8 text-center text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading registrations…</p> : null}
+        {!loading && leads.length === 0 ? <p className="p-8 text-center text-sm text-[var(--fluent-color-neutral-foreground-2)]">No eligible completed registrations match these filters.</p> : null}
       </div>
+      <div className="flex items-center justify-between border-t p-4"><button type="button" disabled={loading || page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="min-h-11 rounded-xl border px-4 disabled:opacity-40">Previous</button><span className="text-sm text-[var(--fluent-color-neutral-foreground-2)]">Page {pagination.page} · {pagination.total} total</span><button type="button" disabled={loading || page * pagination.pageSize >= pagination.total} onClick={() => setPage((value) => value + 1)} className="min-h-11 rounded-xl border px-4 disabled:opacity-40">Next</button></div>
     </Surface>
     {assignmentClient ? <ClientAssignmentDrawer initialClient={assignmentClient} onClose={() => setAssignmentClient(null)} onSuccess={({ count, consultant }) => { setAssignmentClient(null); setAssignmentNotice(`${count} client${count === 1 ? '' : 's'} assigned to ${consultant?.name || 'the selected consultant'}.`); void load(); }} /> : null}
   </div>;

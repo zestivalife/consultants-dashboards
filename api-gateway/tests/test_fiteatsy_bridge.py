@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 from pydantic import ValidationError
 from starlette.requests import Request
 
-from app.routers.fiteatsy_bridge import QaAdminProvisionRequest, _assert_owner_authority, create_professional_assignments_batch, list_professional_assignment_clients, provision_qa_admin
+from app.routers.fiteatsy_bridge import QaAdminProvisionRequest, _assert_owner_authority, create_professional_assignments_batch, list_fiteatsy_leads, list_professional_assignment_clients, provision_qa_admin
 
 
 def owner_request(*, role="platform_owner", permissions=None, products=None, user_id="owner-123", idempotency_key="phase-c-admin", method="POST", query_string=b"", authorization=None):
@@ -171,6 +171,28 @@ class FiteatsyOwnerBridgeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call.args[1], "https://fiteatsy.example/v1/internal/delegated/professional-assignments/clients/pool")
         self.assertEqual(call.kwargs["headers"]["X-Zestiva-Delegation"], "signed-read-token")
         self.assertNotIn("Authorization", call.kwargs["headers"])
+
+    async def test_leads_search_pagination_and_sort_are_forwarded_authoritatively(self):
+        request = owner_request(
+            role="platform_owner",
+            permissions=[],
+            products=["fiteatsy"],
+            method="GET",
+            query_string=b"q=verified-user&status=active&order=desc&page=2&pageSize=20",
+        )
+        settings = SimpleNamespace(fiteatsy_service_url="https://fiteatsy.example")
+        with (
+            patch("app.routers.fiteatsy_bridge.get_settings", return_value=settings),
+            patch("app.routers.fiteatsy_bridge.issue_fiteatsy_delegation", return_value="signed-read-token"),
+            patch("app.routers.fiteatsy_bridge.httpx.AsyncClient", FakeHttpClient),
+        ):
+            await list_fiteatsy_leads(request)
+        call = FakeHttpClient.request.await_args
+        self.assertEqual(call.args[0], "GET")
+        self.assertEqual(call.args[1], "https://fiteatsy.example/v1/internal/delegated/intake-leads")
+        self.assertEqual(call.kwargs["params"], {
+            "q": "verified-user", "status": "active", "order": "desc", "page": "2", "pageSize": "20"
+        })
 
     async def test_assignment_batch_requires_idempotency_and_never_forwards_browser_bearer(self):
         permission = "fiteatsy.client.assign"

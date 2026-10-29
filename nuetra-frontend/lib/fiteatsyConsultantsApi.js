@@ -555,9 +555,20 @@ export async function searchFiteatsyAssignmentClients(query = '', offset = 0) {
   return Array.isArray(body?.clients) ? body.clients : [];
 }
 
-export async function listFiteatsyIntakeLeads() {
-  const body = await apiRequest('/platform/fiteatsy/leads', { method: 'GET' });
-  return Array.isArray(body?.leads) ? body.leads : [];
+export async function listFiteatsyIntakeLeads({ query = '', status = 'all', order = 'desc', page = 1, pageSize = 20 } = {}) {
+  const params = new URLSearchParams({
+    q: query,
+    status,
+    order,
+    page: String(page),
+    pageSize: String(pageSize),
+  });
+  const body = await apiRequest(`/platform/fiteatsy/leads?${params.toString()}`, { method: 'GET' });
+  return {
+    leads: Array.isArray(body?.leads) ? body.leads : [],
+    pagination: body?.pagination || { total: 0, page, pageSize },
+    diagnostic: body?.diagnostic || null,
+  };
 }
 
 export async function issueFiteatsyTemporaryLoginPin(userId, reason) {
