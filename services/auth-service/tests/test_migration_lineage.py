@@ -13,7 +13,20 @@ def test_production_auth_revision_is_present_in_current_lineage():
     assert 'down_revision = "b0d2f6a8c401"' in migration
 
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["a5b6c7d8e9f0"]
+    assert script.get_heads() == ["b6c7d8e9f0a1"]
+
+
+def test_assignment_authority_is_explicit_and_owner_only():
+    migration = Path(
+        "alembic/versions/b6c7d8e9f0a1_grant_fiteatsy_assignment_authority.py"
+    ).read_text()
+
+    assert 'down_revision = "a5b6c7d8e9f0"' in migration
+    assert "fiteatsy.client.assignment.read" in migration
+    assert "fiteatsy.client.assign" in migration
+    assert "fiteatsy.client.assignment.revoke" in migration
+    assert "platform_owner" in migration
+    assert "consultant" not in migration
 
 
 def test_people_access_seed_uses_postgres_compatible_expanding_bind_parameters():

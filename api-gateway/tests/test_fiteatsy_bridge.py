@@ -6,14 +6,16 @@ from unittest.mock import AsyncMock, patch
 from pydantic import ValidationError
 from starlette.requests import Request
 
-from app.routers.fiteatsy_bridge import QaAdminProvisionRequest, _assert_owner_authority, provision_qa_admin
+from app.routers.fiteatsy_bridge import QaAdminProvisionRequest, _assert_owner_authority, create_professional_assignments_batch, list_professional_assignment_clients, provision_qa_admin
 
 
-def owner_request(*, role="platform_owner", permissions=None, products=None, user_id="owner-123", idempotency_key="phase-c-admin"):
+def owner_request(*, role="platform_owner", permissions=None, products=None, user_id="owner-123", idempotency_key="phase-c-admin", method="POST", query_string=b"", authorization=None):
     headers = []
     if idempotency_key is not None:
         headers.append((b"idempotency-key", idempotency_key.encode()))
-    request = Request({"type": "http", "method": "POST", "path": "/api/v1/platform/fiteatsy/qa-admins", "headers": headers})
+    if authorization is not None:
+        headers.append((b"authorization", authorization.encode()))
+    request = Request({"type": "http", "method": method, "path": "/api/v1/platform/fiteatsy/qa-admins", "query_string": query_string, "headers": headers})
     request.state.user_id = user_id
     request.state.user_role = role
     request.state.token_payload = {
@@ -36,6 +38,14 @@ class FakeResponse:
             "handoff": "one_time_exchange",
             "exchange": {"code": "opaque-code", "targetUserId": "qa-admin-1", "purpose": "qa_admin_session_handoff"},
         }
+
+
+class RejectedDelegationResponse:
+    status_code = 401
+    is_success = False
+
+    def json(self):
+        return {"error": "INVALID_DELEGATED_AUTHORITY", "message": "Delegated authority is invalid."}
 
 
 class FakeHttpClient:
@@ -144,6 +154,56 @@ class FiteatsyOwnerBridgeTest(unittest.IsolatedAsyncioTestCase):
             response = await provision_qa_admin(request, body)
         self.assertEqual(response.status_code, 400)
         issue.assert_not_called()
+
+    async def test_assignment_client_list_uses_read_only_short_lived_delegation(self):
+        permission = "fiteatsy.client.assignment.read"
+        request = owner_request(role="platform_owner", permissions=[permission], products=["fiteatsy"], method="GET", query_string=b"q=saya&assignment=unassigned&limit=20&offset=0")
+        settings = SimpleNamespace(fiteatsy_service_url="https://fiteatsy.example")
+        with (
+            patch("app.routers.fiteatsy_bridge.get_settings", return_value=settings),
+            patch("app.routers.fiteatsy_bridge.issue_fiteatsy_delegation", return_value="signed-read-token") as issue,
+            patch("app.routers.fiteatsy_bridge.httpx.AsyncClient", FakeHttpClient),
+        ):
+            await list_professional_assignment_clients(request)
+        issue.assert_called_once_with(subject="owner-123", permissions=[permission], purpose="client_assignment", actor_type="platform_owner")
+        call = FakeHttpClient.request.await_args
+        self.assertEqual(call.args[0], "GET")
+        self.assertEqual(call.args[1], "https://fiteatsy.example/v1/internal/delegated/professional-assignments/clients/pool")
+        self.assertEqual(call.kwargs["headers"]["X-Zestiva-Delegation"], "signed-read-token")
+        self.assertNotIn("Authorization", call.kwargs["headers"])
+
+    async def test_assignment_batch_requires_idempotency_and_never_forwards_browser_bearer(self):
+        permission = "fiteatsy.client.assign"
+        request = owner_request(role="platform_owner", permissions=[permission], products=["fiteatsy"], idempotency_key="batch-123", authorization="Bearer browser-zestiva-token")
+        body = {"clientUserIds": ["11111111-1111-4111-8111-111111111111"], "professionalUserId": "22222222-2222-4222-8222-222222222222", "professionalType": "CONSULTANT", "relationshipType": "CLIENT_CARE"}
+        settings = SimpleNamespace(fiteatsy_service_url="https://fiteatsy.example")
+        with (
+            patch("app.routers.fiteatsy_bridge.get_settings", return_value=settings),
+            patch("app.routers.fiteatsy_bridge.issue_fiteatsy_delegation", return_value="signed-write-token"),
+            patch("app.routers.fiteatsy_bridge.httpx.AsyncClient", FakeHttpClient),
+        ):
+            await create_professional_assignments_batch(request, body)
+        call = FakeHttpClient.request.await_args
+        self.assertEqual(call.args[0], "POST")
+        self.assertEqual(call.kwargs["headers"]["Idempotency-Key"], "batch-123")
+        self.assertEqual(call.kwargs["headers"]["X-Zestiva-Delegation"], "signed-write-token")
+        self.assertNotIn("Authorization", call.kwargs["headers"])
+
+    async def test_downstream_delegation_failure_does_not_expire_the_browser_session(self):
+        permission = "fiteatsy.client.assignment.read"
+        request = owner_request(role="platform_owner", permissions=[permission], products=["fiteatsy"], method="GET")
+        settings = SimpleNamespace(fiteatsy_service_url="https://fiteatsy.example")
+        with (
+            patch("app.routers.fiteatsy_bridge.get_settings", return_value=settings),
+            patch("app.routers.fiteatsy_bridge.issue_fiteatsy_delegation", return_value="signed-read-token"),
+            patch("app.routers.fiteatsy_bridge.httpx.AsyncClient", FakeHttpClient),
+            patch.object(FakeHttpClient, "request", AsyncMock(return_value=RejectedDelegationResponse())),
+        ):
+            response = await list_professional_assignment_clients(request)
+        self.assertEqual(response.status_code, 502)
+        body = json.loads(response.body)
+        self.assertEqual(body["error"], "DOWNSTREAM_AUTHORIZATION_FAILED")
+        self.assertIn("session remains active", body["message"])
 
 if __name__ == "__main__":
     unittest.main()

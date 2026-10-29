@@ -18,6 +18,12 @@ OPERATIONS: dict[str, tuple[str, str, str]] = {
     "qa-admins": ("POST", "/v1/internal/delegated/qa-admins", "fiteatsy.qa.admin.create"),
     "client-assignments": ("POST", "/v1/internal/delegated/client-assignments", "fiteatsy.client.assign"),
     "client-assignment-revoke": ("DELETE", "/v1/internal/delegated/client-assignments/{id}", "fiteatsy.client.assignment.revoke"),
+    "professional-assignment-clients": ("GET", "/v1/internal/delegated/professional-assignments/clients/pool", "fiteatsy.client.assignment.read"),
+    "professional-assignment-professionals": ("GET", "/v1/internal/delegated/professional-assignments/professionals", "fiteatsy.client.assignment.read"),
+    "professional-assignments": ("GET", "/v1/internal/delegated/professional-assignments", "fiteatsy.client.assignment.read"),
+    "professional-assignment-create": ("POST", "/v1/internal/delegated/professional-assignments", "fiteatsy.client.assign"),
+    "professional-assignment-batch": ("POST", "/v1/internal/delegated/professional-assignments/batch", "fiteatsy.client.assign"),
+    "professional-assignment-delete": ("DELETE", "/v1/internal/delegated/professional-assignments/{id}", "fiteatsy.client.assignment.revoke"),
     "qa-identities-deactivate": ("POST", "/v1/internal/delegated/qa-identities/{id}/deactivate", "fiteatsy.qa.identity.deactivate"),
 }
 
@@ -113,8 +119,16 @@ async def _bridge(request: Request, operation: str, target_path: str, permission
         response_body = response.json()
     except ValueError:
         response_body = {"error": "FITEATSY_INVALID_RESPONSE"}
+    response_status = response.status_code
+    if response_status == 401:
+        logger.error("fiteatsy_delegation_rejected", operation=operation, correlation_id=correlation_id)
+        response_status = 502
+        response_body = {
+            "error": "DOWNSTREAM_AUTHORIZATION_FAILED",
+            "message": "Fiteatsy rejected the trusted service delegation. Your Zestiva session remains active; retry after service authorization is restored.",
+        }
     logger.info("fiteatsy_delegated_operation_completed", **audit_context, result_status=response.status_code, succeeded=response.is_success)
-    return JSONResponse(status_code=response.status_code, content=response_body)
+    return JSONResponse(status_code=response_status, content=response_body)
 
 
 @router.post("/qa-clients")
@@ -189,6 +203,42 @@ async def assign_client(request: Request, body: dict[str, Any]):
 @router.delete("/client-assignments/{assignment_id}")
 async def revoke_client(request: Request, assignment_id: str):
     return await _bridge(request, "client_assignment_revoke", OPERATIONS["client-assignment-revoke"][1], OPERATIONS["client-assignment-revoke"][2], "client_assignment", {}, {"id": assignment_id}, method="DELETE")
+
+
+@router.get("/professional-assignments/clients/pool")
+async def list_professional_assignment_clients(request: Request):
+    operation = OPERATIONS["professional-assignment-clients"]
+    return await _bridge(request, "professional_assignment_clients", operation[1], operation[2], "client_assignment", method="GET")
+
+
+@router.get("/professional-assignments/professionals")
+async def list_professional_assignment_professionals(request: Request):
+    operation = OPERATIONS["professional-assignment-professionals"]
+    return await _bridge(request, "professional_assignment_professionals", operation[1], operation[2], "client_assignment", method="GET")
+
+
+@router.get("/professional-assignments")
+async def list_professional_assignments(request: Request):
+    operation = OPERATIONS["professional-assignments"]
+    return await _bridge(request, "professional_assignments", operation[1], operation[2], "client_assignment", method="GET")
+
+
+@router.post("/professional-assignments")
+async def create_professional_assignment(request: Request, body: dict[str, Any]):
+    operation = OPERATIONS["professional-assignment-create"]
+    return await _bridge(request, "professional_assignment_create", operation[1], operation[2], "client_assignment", body)
+
+
+@router.post("/professional-assignments/batch")
+async def create_professional_assignments_batch(request: Request, body: dict[str, Any]):
+    operation = OPERATIONS["professional-assignment-batch"]
+    return await _bridge(request, "professional_assignment_batch", operation[1], operation[2], "client_assignment", body)
+
+
+@router.delete("/professional-assignments/{assignment_id}")
+async def delete_professional_assignment(request: Request, assignment_id: str, body: dict[str, Any] | None = None):
+    operation = OPERATIONS["professional-assignment-delete"]
+    return await _bridge(request, "professional_assignment_delete", operation[1], operation[2], "client_assignment", body or {}, {"id": assignment_id}, method="DELETE")
 
 
 @router.post("/qa-identities/{user_id}/deactivate")

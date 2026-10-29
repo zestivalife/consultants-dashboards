@@ -62,3 +62,21 @@ test('Connection PIN consent is not created by administrative assignment', () =>
   const drawer = workspace.slice(drawerStart, drawerEnd);
   assert.doesNotMatch(drawer, /consent|Connection PIN|connection-pin/i);
 });
+
+test('assignment APIs use the authenticated Zestiva gateway instead of forwarding a browser token to Fiteatsy', () => {
+  const assignmentSection = api.slice(api.indexOf('export async function listFiteatsyClientAllocationPool'), api.indexOf('export async function getFiteatsyConsultantClientProfile'));
+  assert.match(assignmentSection, /apiRequest\(`?\/platform\/fiteatsy\/professional-assignments/);
+  assert.doesNotMatch(assignmentSection, /requestFiteatsy\(/);
+  assert.doesNotMatch(assignmentSection, /requestFiteatsyJson\(/);
+  assert.match(assignmentSection, /Idempotency-Key/);
+});
+
+test('drawer preserves selected clients across downstream errors and does not conceal failures as empty state', () => {
+  const drawerStart = workspace.indexOf('export function ClientAssignmentDrawer');
+  const drawerEnd = workspace.indexOf('export function SuperAdminFiteatsyLeadsPage');
+  const drawer = workspace.slice(drawerStart, drawerEnd);
+  assert.match(drawer, /setError\(reason\?\.message/);
+  assert.match(drawer, /!loading && !error && !clients\.length/);
+  assert.doesNotMatch(drawer, /catch[^}]+setClients\(\[\]\)/s);
+  assert.match(drawer, /selectedClientMap/);
+});
