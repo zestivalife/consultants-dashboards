@@ -33,7 +33,23 @@ test('Platform Owner Leads UI exposes all discovery and state controls', () => {
     'Refresh',
     'Protected identity',
     'Assignment protected',
+    'Review assignment',
+    'Issue temporary Login PIN',
+    'Not assigned',
+    'Not configured',
+    'Deletion protected',
+    'Permanent deletion requires verified erasure workflow',
   ]) {
     assert.ok(workspaceSource.includes(label), `missing Leads UI state: ${label}`);
   }
+});
+
+test('Leads actions use accessible icon controls and do not expose unsafe erasure', () => {
+  assert.match(workspaceSource, /<UserRoundCog[^>]+aria-hidden="true"/);
+  assert.match(workspaceSource, /<KeyRound[^>]+aria-hidden="true"/);
+  assert.match(workspaceSource, /<Trash2[^>]+aria-hidden="true"/);
+  assert.match(workspaceSource, /aria-label=\{lead\.assignable \? `Review assignment for/);
+  assert.match(workspaceSource, /aria-label=\{lead\.assignable \? `Issue temporary Login PIN for/);
+  assert.match(workspaceSource, /<button type="button" title=\{lead\.permanentlyDeletable[^>]+disabled className=/);
+  assert.doesNotMatch(workspaceSource, /Lead status<\/p>/);
 });

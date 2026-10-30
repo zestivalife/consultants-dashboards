@@ -15,6 +15,7 @@ import {
   Filter,
   Flame,
   HeartPulse,
+  KeyRound,
   LayoutGrid,
   ListChecks,
   Mail,
@@ -27,6 +28,8 @@ import {
   Sparkles,
   Scale,
   TrendingUp,
+  Trash2,
+  UserRoundCog,
   Users,
   Wallet,
   X,
@@ -5919,11 +5922,15 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
         </form>
       </div>
       <div className="divide-y">
-        {leads.map((lead) => <article key={lead.userId} className="grid gap-4 p-4 lg:grid-cols-[1.4fr_0.8fr_0.8fr_auto] lg:items-center">
+        {leads.map((lead) => <article key={lead.userId} className="grid gap-4 p-4 lg:grid-cols-[1.4fr_0.9fr_0.8fr_auto] lg:items-center">
           <div><div className="flex flex-wrap items-center gap-2"><p className="font-semibold">{lead.name}</p><span className="rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase">{lead.accountRole || 'user'}</span>{!lead.assignable ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">Protected identity</span> : null}</div><p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{lead.mobileNumber || 'Verified mobile unavailable'}</p>{lead.email ? <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{lead.email}</p> : null}<p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Registered {new Date(lead.registeredAtISO).toLocaleString()}</p>{lead.lastSyncedAtISO ? <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Directory {lead.syncStatus === 'CURRENT' ? 'current' : lead.syncStatus.toLowerCase()} · synced {new Date(lead.lastSyncedAtISO).toLocaleString()}</p> : null}</div>
-          <div><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Lead status</p><p className="mt-1 font-semibold">{lead.leadStatus}</p></div>
-          <div><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Login PIN</p><p className="mt-1 font-semibold">{lead.loginPinStatus === 'CONFIGURED' ? 'Configured' : lead.loginPinStatus === 'UNKNOWN' ? 'Authoritative check required' : 'Setup required'}</p></div>
-          <div className="flex flex-wrap gap-2"><button type="button" disabled={!lead.assignable} onClick={() => setAssignmentClient({ userId: lead.userId, clientId: lead.clientId || lead.userId, name: lead.name, maskedMobileNumber: lead.mobileNumber ? `******${lead.mobileNumber.slice(-4)}` : null, maskedEmail: lead.email ? `${lead.email.slice(0, 1)}***@${lead.email.split('@')[1] || ''}` : null, assignmentStatus: 'UNKNOWN', assignedProfessional: null })} className="min-h-11 rounded-xl bg-slate-950 px-4 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">{lead.assignable ? 'Review assignment' : 'Assignment protected'}</button><button type="button" disabled={!lead.mobileNumber || !lead.assignable} onClick={() => void issuePin(lead)} className="min-h-11 rounded-xl border px-4 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Issue temporary Login PIN</button></div>
+          <div><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Consultant</p><span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${lead.assignment ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>{lead.assignment ? 'Assigned' : 'Not assigned'}</span>{lead.assignment?.consultantName ? <p className="mt-2 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{lead.assignment.consultantName}</p> : null}</div>
+          <div><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Login PIN</p><span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${lead.loginPinStatus === 'CONFIGURED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>{lead.loginPinStatus === 'CONFIGURED' ? 'Configured' : 'Not configured'}</span></div>
+          <div className="flex items-center gap-2" aria-label={`Actions for ${lead.name}`}>
+            <button type="button" title={lead.assignable ? 'Review assignment' : 'Assignment protected'} aria-label={lead.assignable ? `Review assignment for ${lead.name}` : `Assignment protected for ${lead.name}`} disabled={!lead.assignable} onClick={() => setAssignmentClient({ userId: lead.userId, clientId: lead.clientId || lead.userId, name: lead.name, maskedMobileNumber: lead.mobileNumber ? `******${lead.mobileNumber.slice(-4)}` : null, maskedEmail: lead.email ? `${lead.email.slice(0, 1)}***@${lead.email.split('@')[1] || ''}` : null, assignmentStatus: lead.assignment ? 'ASSIGNED' : 'UNASSIGNED', assignedProfessional: lead.assignment ? { userId: lead.assignment.consultantUserId, name: lead.assignment.consultantName } : null })} className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-slate-950 text-white transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"><UserRoundCog className="h-5 w-5" aria-hidden="true" /></button>
+            <button type="button" title={lead.assignable ? 'Issue temporary Login PIN' : 'Login PIN protected'} aria-label={lead.assignable ? `Issue temporary Login PIN for ${lead.name}` : `Login PIN protected for ${lead.name}`} disabled={!lead.mobileNumber || !lead.assignable} onClick={() => void issuePin(lead)} className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 text-slate-800 transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"><KeyRound className="h-5 w-5" aria-hidden="true" /></button>
+            <button type="button" title={lead.permanentlyDeletable ? 'Permanent deletion requires verified erasure workflow' : 'Deletion protected'} aria-label={lead.permanentlyDeletable ? `Permanent deletion unavailable for ${lead.name}` : `Deletion protected for ${lead.name}`} disabled className="inline-flex h-11 w-11 cursor-not-allowed items-center justify-center rounded-xl border border-red-200 text-red-700 opacity-45"><Trash2 className="h-5 w-5" aria-hidden="true" /></button>
+          </div>
         </article>)}
         {loading ? <p role="status" className="p-8 text-center text-sm text-[var(--fluent-color-neutral-foreground-2)]">Loading registrations…</p> : null}
         {!loading && leads.length === 0 ? <p className="p-8 text-center text-sm text-[var(--fluent-color-neutral-foreground-2)]">No eligible completed registrations match these filters.</p> : null}
