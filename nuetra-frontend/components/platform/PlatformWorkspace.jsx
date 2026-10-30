@@ -5868,6 +5868,7 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, page: 1, pageSize: 20 });
   const [shownPin, setShownPin] = useState(null);
+  const [pinCopied, setPinCopied] = useState(false);
   const [assignmentClient, setAssignmentClient] = useState(null);
   const [assignmentNotice, setAssignmentNotice] = useState('');
 
@@ -5893,6 +5894,7 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
     if (!reason || reason.trim().length < 3) return;
     try {
       const result = await issueFiteatsyTemporaryLoginPin(lead.userId, reason.trim());
+      setPinCopied(false);
       setShownPin({ userId: lead.userId, name: lead.name, mobileNumber: lead.mobileNumber, pin: result.temporaryPin });
       await load();
     } catch (reasonError) {
@@ -5902,12 +5904,17 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
 
   return <div className="space-y-4">
     <CompactPageHeader title="Fiteatsy Leads" subtitle="Find completed Fiteatsy registrations, route care, and securely issue a one-time temporary Login PIN." />
-    {shownPin ? <Surface className="border border-amber-300 bg-amber-50 p-5 text-slate-950">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em]">Shown once · {shownPin.name} · {shownPin.mobileNumber}</p>
-      <p className="mt-2 font-mono text-3xl font-bold tracking-[0.3em]">{shownPin.pin}</p>
-      <p className="mt-2 text-sm">The user must change this temporary Login PIN after signing in. It cannot be retrieved again.</p>
-      <button type="button" className="mt-3 min-h-11 rounded-xl border border-amber-400 px-4 font-semibold" onClick={() => setShownPin(null)}>I have copied it</button>
-    </Surface> : null}
+    {shownPin ? <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="temporary-login-pin-title">
+      <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+        <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-amber-700">Shown once</p><h2 id="temporary-login-pin-title" className="mt-1 text-2xl font-bold text-slate-950">Temporary Login PIN</h2></div><button type="button" title="Close PIN dialog" aria-label="Close temporary Login PIN dialog" onClick={() => { setShownPin(null); setPinCopied(false); }} className="inline-flex h-10 w-10 items-center justify-center rounded-full border text-slate-700 hover:bg-slate-100"><X className="h-5 w-5" aria-hidden="true" /></button></div>
+        <div className="mt-5 rounded-2xl border border-amber-300 bg-amber-50 p-5 text-center">
+          <p className="text-sm font-semibold text-slate-700">{shownPin.name} · {shownPin.mobileNumber}</p>
+          <p className="mt-4 font-mono text-4xl font-bold tracking-[0.28em] text-slate-950" aria-label={`Temporary Login PIN ${shownPin.pin.split('').join(' ')}`}>{shownPin.pin}</p>
+        </div>
+        <p className="mt-4 text-sm leading-6 text-slate-600">Copy and share this PIN with the user through your approved private channel. The user must replace it after signing in. It cannot be retrieved after this dialog is closed.</p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2"><button type="button" onClick={async () => { try { await navigator.clipboard.writeText(shownPin.pin); setPinCopied(true); } catch { setError('The PIN could not be copied automatically. Select and copy it manually.'); } }} className="min-h-12 rounded-xl bg-slate-950 px-4 font-bold text-white">{pinCopied ? 'PIN copied' : 'Copy PIN'}</button><button type="button" onClick={() => { setShownPin(null); setPinCopied(false); }} className="min-h-12 rounded-xl border px-4 font-bold text-slate-800">Done</button></div>
+      </div>
+    </div> : null}
     {error ? <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-4 text-red-800">{error}</div> : null}
     {diagnostic ? <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900"><p className="font-semibold">Registration diagnostic</p><p className="mt-1 text-sm">{diagnostic.message}</p></div> : null}
     {assignmentNotice ? <div role="status" className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-emerald-800">{assignmentNotice}</div> : null}

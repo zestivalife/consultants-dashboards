@@ -53,3 +53,23 @@ test('Leads actions use accessible icon controls and do not expose unsafe erasur
   assert.match(workspaceSource, /<button type="button" title=\{lead\.permanentlyDeletable[^>]+disabled className=/);
   assert.doesNotMatch(workspaceSource, /Lead status<\/p>/);
 });
+
+test('temporary Login PIN is presented in a fixed show-once dialog with copy support', () => {
+  const pinDialogSource = workspaceSource.slice(
+    workspaceSource.indexOf('{shownPin ? <div'),
+    workspaceSource.indexOf('{error ? <div', workspaceSource.indexOf('{shownPin ? <div')),
+  );
+  for (const label of [
+    'Temporary Login PIN',
+    'Shown once',
+    'Copy PIN',
+    'PIN copied',
+    'approved private channel',
+    'It cannot be retrieved after this dialog is closed.',
+  ]) {
+    assert.ok(pinDialogSource.includes(label), `missing temporary PIN dialog state: ${label}`);
+  }
+  assert.match(pinDialogSource, /role="dialog" aria-modal="true"/);
+  assert.match(pinDialogSource, /navigator\.clipboard\.writeText\(shownPin\.pin\)/);
+  assert.doesNotMatch(pinDialogSource, /wa\.me|api\.whatsapp\.com|temporaryPin=.*URLSearchParams/);
+});
