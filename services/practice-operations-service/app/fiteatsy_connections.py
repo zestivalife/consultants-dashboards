@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import get_db
+from app.fiteatsy_assertions import decode_fiteatsy_assertion, parse_public_keyring
 
 PIN_ALPHABET = "0123456789"
 ALLOWED_SCOPES = {"PROFILE", "HEALTH_SUMMARY", "MEASUREMENTS", "BIOMARKERS", "DIET_PLANS", "APPOINTMENTS"}
@@ -40,8 +41,15 @@ def verify_pin(pin: str, verifier: str, pepper: str) -> bool:
     return hmac.compare_digest(pin_verifier(pin, pepper), verifier)
 
 
-def decode_fiteatsy_identity(token: str, public_key: str, issuer: str, audience: str) -> dict:
-    claims = jwt.decode(token, public_key, algorithms=["RS256"], issuer=issuer, audience=audience, options={"require": ["exp", "iat", "iss", "aud", "sub"]})
+def decode_fiteatsy_identity(token: str, public_key: str, issuer: str, audience: str, *, keyring: dict[str, str] | None = None) -> dict:
+    claims = decode_fiteatsy_assertion(
+        token,
+        keyring=keyring or {},
+        legacy_public_key=public_key,
+        issuer=issuer,
+        audience=audience,
+        required_claims=["exp", "iat", "iss", "aud", "sub"],
+    )
     if claims.get("actor_type") != "FITEATSY_USER":
         raise jwt.InvalidTokenError("unexpected actor type")
     if claims.get("purpose") != "consultant_connection":
@@ -188,7 +196,13 @@ def build_router(context_dependency, external_only, error):
             return None, error(request, 401, "FITEATSY_IDENTITY_REQUIRED", "A verified Fiteatsy identity is required")
         settings = get_settings()
         try:
-            return decode_fiteatsy_identity(authorization[7:], settings.external_fiteatsy_inbound_public_key or "", settings.external_fiteatsy_inbound_issuer, settings.external_fiteatsy_inbound_audience), None
+            return decode_fiteatsy_identity(
+                authorization[7:],
+                settings.external_fiteatsy_inbound_public_key or "",
+                settings.external_fiteatsy_inbound_issuer,
+                settings.external_fiteatsy_inbound_audience,
+                keyring=parse_public_keyring(settings.external_fiteatsy_inbound_public_keys),
+            ), None
         except jwt.PyJWTError:
             return None, error(request, 401, "FITEATSY_IDENTITY_INVALID", "The Fiteatsy identity assertion is invalid or expired")
 

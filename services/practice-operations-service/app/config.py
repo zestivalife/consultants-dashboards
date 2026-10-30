@@ -2,6 +2,8 @@ from functools import lru_cache
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
+from app.fiteatsy_assertions import parse_public_keyring
+
 
 class Settings(BaseSettings):
     app_name: str = "practice-operations-service"
@@ -36,6 +38,7 @@ class Settings(BaseSettings):
     external_fiteatsy_scheduling_enabled: bool = Field(default=False, validation_alias=AliasChoices("EXTERNAL_FITEATSY_SCHEDULING_ENABLED", "external_fiteatsy_scheduling_enabled"))
     external_fiteatsy_pin_pepper: str | None = Field(default=None, validation_alias=AliasChoices("EXTERNAL_FITEATSY_PIN_PEPPER", "external_fiteatsy_pin_pepper"))
     external_fiteatsy_inbound_public_key: str | None = Field(default=None, validation_alias=AliasChoices("EXTERNAL_FITEATSY_INBOUND_PUBLIC_KEY", "external_fiteatsy_inbound_public_key"))
+    external_fiteatsy_inbound_public_keys: str | None = Field(default=None, validation_alias=AliasChoices("EXTERNAL_FITEATSY_INBOUND_PUBLIC_KEYS", "external_fiteatsy_inbound_public_keys"))
     external_fiteatsy_inbound_issuer: str = Field(default="fiteatsy-auth-service", validation_alias=AliasChoices("EXTERNAL_FITEATSY_INBOUND_ISSUER", "external_fiteatsy_inbound_issuer"))
     external_fiteatsy_inbound_audience: str = Field(default="practice-operations-service", validation_alias=AliasChoices("EXTERNAL_FITEATSY_INBOUND_AUDIENCE", "external_fiteatsy_inbound_audience"))
     external_fiteatsy_backend_url: str | None = Field(default=None, validation_alias=AliasChoices("EXTERNAL_FITEATSY_BACKEND_URL", "external_fiteatsy_backend_url"))
@@ -54,6 +57,13 @@ class Settings(BaseSettings):
                 return "postgresql+asyncpg://" + value[len(prefix):]
         return value
 
+    @field_validator("external_fiteatsy_inbound_public_keys", mode="before")
+    @classmethod
+    def validate_fiteatsy_inbound_keyring(cls, value: str | None) -> str | None:
+        if value:
+            parse_public_keyring(value)
+        return value
+
     @model_validator(mode="after")
     def production_database_required(self):
         if self.app_env.lower() == "production" and ("localhost" in self.database_url or "127.0.0.1" in self.database_url):
@@ -68,8 +78,8 @@ class Settings(BaseSettings):
             raise ValueError("QA_DELEGATION_PUBLIC_KEY must be set in production")
         if self.external_fiteatsy_connection_enabled and not self.external_fiteatsy_pin_pepper:
             raise ValueError("EXTERNAL_FITEATSY_PIN_PEPPER must be set when Fiteatsy connections are enabled")
-        if self.external_fiteatsy_connection_enabled and not self.external_fiteatsy_inbound_public_key:
-            raise ValueError("EXTERNAL_FITEATSY_INBOUND_PUBLIC_KEY must be set when Fiteatsy connections are enabled")
+        if self.external_fiteatsy_connection_enabled and not (self.external_fiteatsy_inbound_public_keys or self.external_fiteatsy_inbound_public_key):
+            raise ValueError("A Fiteatsy inbound assertion verifier must be set when Fiteatsy connections are enabled")
         if self.external_fiteatsy_health_access_enabled and not all((self.external_fiteatsy_backend_url, self.external_fiteatsy_outbound_private_key, self.external_fiteatsy_outbound_key_id)):
             raise ValueError("Fiteatsy outbound URL and signing credentials must be set when health access is enabled")
         return self

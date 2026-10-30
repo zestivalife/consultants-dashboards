@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import get_db
+from app.fiteatsy_assertions import decode_fiteatsy_assertion, parse_public_keyring
 
 
 class DirectoryRecord(BaseModel):
@@ -47,12 +48,13 @@ class DirectoryEvent(BaseModel):
 
 def decode_directory_assertion(token: str) -> dict:
     settings = get_settings()
-    claims = jwt.decode(
+    claims = decode_fiteatsy_assertion(
         token,
-        (settings.external_fiteatsy_inbound_public_key or "").replace("\\n", "\n"),
-        algorithms=["RS256"], issuer=settings.external_fiteatsy_inbound_issuer,
+        keyring=parse_public_keyring(settings.external_fiteatsy_inbound_public_keys),
+        legacy_public_key=settings.external_fiteatsy_inbound_public_key,
+        issuer=settings.external_fiteatsy_inbound_issuer,
         audience=settings.external_fiteatsy_inbound_audience,
-        options={"require": ["exp", "iat", "iss", "aud", "sub", "jti"]},
+        required_claims=["exp", "iat", "iss", "aud", "sub", "jti"],
     )
     if claims.get("actor_type") != "FITEATSY_SERVICE" or claims.get("purpose") != "client_directory_sync":
         raise jwt.InvalidTokenError("unexpected directory assertion purpose")
