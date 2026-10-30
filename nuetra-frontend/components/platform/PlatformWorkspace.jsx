@@ -5724,39 +5724,68 @@ export function ClientAssignmentDrawer({ consultant: initialConsultant = null, i
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [clientError, setClientError] = useState('');
+  const [consultantError, setConsultantError] = useState('');
+  const [submitError, setSubmitError] = useState('');
   const [notice, setNotice] = useState('');
+  const validatedInitialClientId = useRef(null);
 
   const load = useCallback(async () => {
-    setLoading(true); setError('');
-    try {
-      const [nextClients, nextConsultants] = await Promise.all([
-        listFiteatsyClientAllocationPool({ query, assignment: 'all', limit: pageSize, offset: page * pageSize }),
-        listFiteatsyAssignmentProfessionals('CONSULTANT'),
-      ]);
+    setLoading(true);
+    setClientError('');
+    setConsultantError('');
+    const shouldValidateInitialClient = Boolean(initialClient?.userId)
+      && validatedInitialClientId.current !== initialClient.userId;
+    const [clientResult, consultantResult, initialClientResult] = await Promise.allSettled([
+      listFiteatsyClientAllocationPool({ query, assignment: 'all', limit: pageSize, offset: page * pageSize }),
+      listFiteatsyAssignmentProfessionals('CONSULTANT'),
+      shouldValidateInitialClient
+        ? listAllFiteatsyClientAllocationPool({ assignment: 'all' })
+        : Promise.resolve(null),
+    ]);
+
+    if (clientResult.status === 'fulfilled') {
+      const nextClients = clientResult.value;
       setClients(nextClients);
-      if (initialClient?.userId && page === 0) {
-        const authoritativeClient = nextClients.find((item) => item.userId === initialClient.userId);
+    } else {
+      setClientError(clientResult.reason?.message || 'Eligible clients could not be loaded.');
+    }
+
+    if (shouldValidateInitialClient) {
+      if (initialClientResult.status === 'fulfilled') {
+        const authoritativeClient = initialClientResult.value.find((item) => item.userId === initialClient.userId);
         if (!authoritativeClient) {
           setSelectedIds(new Set());
           setSelectedClientMap(new Map());
-          throw new Error('This directory record is not currently eligible for assignment in Fiteatsy. Refresh the directory or review the account status.');
+          setClientError('This directory record is not currently eligible for assignment in Fiteatsy. Refresh the directory or review the account status.');
+        } else {
+          setSelectedIds(new Set([authoritativeClient.userId]));
+          setSelectedClientMap(new Map([[authoritativeClient.userId, authoritativeClient]]));
+          validatedInitialClientId.current = initialClient.userId;
         }
-        setSelectedIds(new Set([authoritativeClient.userId]));
-        setSelectedClientMap(new Map([[authoritativeClient.userId, authoritativeClient]]));
+      } else {
+        setClientError(initialClientResult.reason?.message || 'The selected client could not be verified against the complete eligible-client pool.');
       }
+    }
+
+    if (consultantResult.status === 'fulfilled') {
+      const nextConsultants = consultantResult.value;
       const activeConsultants = nextConsultants.filter((item) => item.status === 'ACTIVE');
       setConsultants(activeConsultants);
       if (initialConsultant) {
         const expectedIdentifier = String(initialConsultant.identifier || initialConsultant.email || '').trim().toLowerCase();
         const resolved = activeConsultants.find((item) => item.userId === initialConsultant.userId)
           || activeConsultants.find((item) => expectedIdentifier && String(item.email || '').trim().toLowerCase() === expectedIdentifier);
-        if (!resolved) throw new Error('This consultant does not have an active Fiteatsy professional identity. Create or activate that identity before assigning clients.');
-        setConsultantId(resolved.userId);
+        if (!resolved) {
+          setConsultantError('This consultant does not have an active Fiteatsy professional identity. Create or activate that identity before assigning clients.');
+        } else {
+          setConsultantId(resolved.userId);
+        }
       }
-    } catch (reason) {
-      setError(reason?.message || 'Eligible clients could not be loaded.');
-    } finally { setLoading(false); }
+    } else {
+      setConsultantError(consultantResult.reason?.message || 'Consultants could not be loaded.');
+    }
+    setLoading(false);
   }, [initialClient, initialConsultant, page, query]);
 
   useEffect(() => { void load(); }, [load]);
@@ -5781,7 +5810,7 @@ export function ClientAssignmentDrawer({ consultant: initialConsultant = null, i
     const selected = Array.from(selectedClientMap.values());
     const transfers = selected.filter((client) => client.assignmentStatus === 'ASSIGNED' && client.assignedProfessional?.userId !== consultantId);
     if (transfers.length && !window.confirm(`${transfers.length} selected client${transfers.length === 1 ? '' : 's'} already have an active consultant. Reassign them to ${selectedConsultant?.name || 'the selected consultant'} and preserve prior assignments in history?`)) return;
-    setSubmitting(true); setError(''); setNotice('');
+    setSubmitting(true); setSubmitError(''); setNotice('');
     try {
       const response = await createFiteatsyProfessionalAssignmentsBatch({
         clientUserIds: selected.map((client) => client.userId),
@@ -5797,7 +5826,7 @@ export function ClientAssignmentDrawer({ consultant: initialConsultant = null, i
       await load();
       onSuccess?.({ count: results.length, consultant: selectedConsultant });
     } catch (reason) {
-      setError(reason?.message || 'Client assignment failed. No success was recorded.');
+      setSubmitError(reason?.message || 'Client assignment failed. No success was recorded.');
     } finally { setSubmitting(false); }
   };
 
@@ -5807,17 +5836,19 @@ export function ClientAssignmentDrawer({ consultant: initialConsultant = null, i
       <div className="flex-1 overflow-y-auto p-5">
         {!initialConsultant ? <label className="block text-sm font-semibold">Consultant<select value={consultantId} onChange={(event) => setConsultantId(event.target.value)} className="mt-2 min-h-12 w-full rounded-xl border px-3"><option value="">Select consultant</option>{consultants.map((item) => <option key={item.userId} value={item.userId}>{item.name} · {item.email || item.userId}</option>)}</select></label> : null}
         <form onSubmit={(event) => { event.preventDefault(); setPage(0); setQuery(searchDraft.trim()); }} className="mt-4 flex gap-2"><label className="relative flex-1"><span className="sr-only">Search clients</span><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400"/><input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Search name, mobile or email" className="min-h-11 w-full rounded-xl border pl-10 pr-3" /></label><button className="rounded-xl border px-4 font-semibold" type="submit">Search</button></form>
-        {error ? <div role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p>{error}</p><button type="button" onClick={() => void load()} className="mt-2 font-bold underline">Retry</button></div> : null}
+        {clientError ? <div role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p className="font-semibold">Eligible clients unavailable</p><p className="mt-1">{clientError}</p><button type="button" onClick={() => void load()} className="mt-2 font-bold underline">Retry client lookup</button></div> : null}
+        {consultantError ? <div role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p className="font-semibold">Consultants unavailable</p><p className="mt-1">{consultantError}</p><button type="button" onClick={() => void load()} className="mt-2 font-bold underline">Retry consultant lookup</button></div> : null}
+        {submitError ? <div role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p className="font-semibold">Assignment not saved</p><p className="mt-1">{submitError}</p></div> : null}
         {notice ? <div role="status" className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{notice}</div> : null}
         {loading ? <div role="status" className="mt-4 rounded-xl border p-8 text-center text-sm text-slate-500">Loading eligible clients…</div> : null}
-        {!loading && !error && !clients.length ? <div className="mt-4 rounded-xl border border-dashed p-8 text-center text-sm text-slate-500">No eligible clients match this search.</div> : null}
-        {!loading && !error ? <div className="mt-4 divide-y rounded-xl border">{clients.map((client) => {
+        {!loading && !clientError && !clients.length ? <div className="mt-4 rounded-xl border border-dashed p-8 text-center text-sm text-slate-500">No eligible clients match this search.</div> : null}
+        {!loading && !clientError ? <div className="mt-4 divide-y rounded-xl border">{clients.map((client) => {
           const assignedHere = client.assignmentStatus === 'ASSIGNED' && client.assignedProfessional?.userId === consultantId;
           return <label key={client.userId} className={`flex gap-3 p-4 ${assignedHere ? 'bg-emerald-50' : ''}`}><input type="checkbox" disabled={assignedHere} checked={assignedHere || selectedIds.has(client.userId)} onChange={() => toggleClient(client)} className="mt-1 h-4 w-4"/><span className="min-w-0 flex-1"><span className="block font-semibold">{client.name}</span><span className="mt-1 block text-xs text-slate-500">{[client.maskedMobileNumber, client.maskedEmail].filter(Boolean).join(' · ') || client.clientId}</span><span className={`mt-2 inline-flex rounded-full px-2 py-1 text-[11px] font-bold ${client.assignmentStatus === 'ASSIGNED' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>{assignedHere ? 'Already assigned to this consultant' : client.assignmentStatus === 'ASSIGNED' ? `Assigned to ${client.assignedProfessional?.name || 'another consultant'}` : 'Unassigned'}</span></span></label>;
         })}</div> : null}
         <div className="mt-4 flex items-center justify-between"><button type="button" disabled={page === 0 || loading} onClick={() => setPage((value) => Math.max(0, value - 1))} className="min-h-11 rounded-xl border px-4 disabled:opacity-40">Previous</button><span className="text-sm text-slate-500">Page {page + 1}</span><button type="button" disabled={loading || clients.length < pageSize} onClick={() => setPage((value) => value + 1)} className="min-h-11 rounded-xl border px-4 disabled:opacity-40">Next</button></div>
       </div>
-      <footer className="border-t p-5"><p className="mb-3 text-sm font-semibold">{selectedIds.size} client{selectedIds.size === 1 ? '' : 's'} selected</p><div className="flex gap-3"><button type="button" onClick={onClose} className="min-h-12 flex-1 rounded-xl border font-semibold">Cancel</button><button type="button" disabled={!consultantId || !selectedIds.size || submitting} onClick={() => void submit()} className="min-h-12 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-40">{submitting ? 'Assigning…' : 'Assign clients'}</button></div></footer>
+      <footer className="border-t p-5"><p className="mb-3 text-sm font-semibold">{selectedIds.size} client{selectedIds.size === 1 ? '' : 's'} selected</p><div className="flex gap-3"><button type="button" onClick={onClose} className="min-h-12 flex-1 rounded-xl border font-semibold">Cancel</button><button type="button" disabled={!consultantId || !selectedIds.size || submitting || Boolean(clientError) || Boolean(consultantError)} onClick={() => void submit()} className="min-h-12 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-40">{submitting ? 'Assigning…' : 'Assign clients'}</button></div></footer>
     </div>
   </div>;
 }

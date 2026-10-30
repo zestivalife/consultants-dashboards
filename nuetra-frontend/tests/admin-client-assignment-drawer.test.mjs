@@ -31,7 +31,8 @@ test('drawer distinguishes loading, empty, error and retry states', () => {
   assert.match(workspace, /Loading eligible clients/);
   assert.match(workspace, /No eligible clients match this search/);
   assert.match(workspace, /role="alert"/);
-  assert.match(workspace, />Retry</);
+  assert.match(workspace, /Retry client lookup/);
+  assert.match(workspace, /Retry consultant lookup/);
 });
 
 test('reassignment requires explicit confirmation and an explicit API flag', () => {
@@ -41,7 +42,7 @@ test('reassignment requires explicit confirmation and an explicit API flag', () 
 });
 
 test('submission failure keeps the drawer open and never emits false success', () => {
-  assert.match(workspace, /setError\(reason\?\.message \|\| 'Client assignment failed/);
+  assert.match(workspace, /setSubmitError\(reason\?\.message \|\| 'Client assignment failed/);
   assert.match(workspace, /if \(results\.length !== selected\.length\) throw new Error\('The server did not atomically confirm every assignment/);
   assert.doesNotMatch(workspace, /catch \([^)]*\) \{\s*onSuccess/);
 });
@@ -78,10 +79,22 @@ test('drawer preserves selected clients across downstream errors and does not co
   const drawerStart = workspace.indexOf('export function ClientAssignmentDrawer');
   const drawerEnd = workspace.indexOf('export function SuperAdminFiteatsyLeadsPage');
   const drawer = workspace.slice(drawerStart, drawerEnd);
-  assert.match(drawer, /setError\(reason\?\.message/);
-  assert.match(drawer, /!loading && !error && !clients\.length/);
+  assert.match(drawer, /Promise\.allSettled/);
+  assert.match(drawer, /setClientError\(clientResult\.reason\?\.message/);
+  assert.match(drawer, /setConsultantError\(consultantResult\.reason\?\.message/);
+  assert.match(drawer, /!loading && !clientError && !clients\.length/);
   assert.doesNotMatch(drawer, /catch[^}]+setClients\(\[\]\)/s);
   assert.match(drawer, /selectedClientMap/);
+});
+
+test('preselected client is verified against the complete allocation pool, not only the visible page', () => {
+  const drawerStart = workspace.indexOf('export function ClientAssignmentDrawer');
+  const drawerEnd = workspace.indexOf('export function SuperAdminFiteatsyLeadsPage');
+  const drawer = workspace.slice(drawerStart, drawerEnd);
+  assert.match(drawer, /listAllFiteatsyClientAllocationPool\(\{ assignment: 'all' \}\)/);
+  assert.match(drawer, /initialClientResult\.value\.find\(\(item\) => item\.userId === initialClient\.userId\)/);
+  assert.doesNotMatch(drawer, /initialClient\?\.userId && page === 0/);
+  assert.match(drawer, /validatedInitialClientId\.current = initialClient\.userId/);
 });
 
 test('assignment requests validate canonical client and professional identities before submission', () => {
