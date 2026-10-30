@@ -14,10 +14,9 @@ test('Leads client sends authoritative search, filters, ordering and pagination'
   assert.match(apiSource, /diagnostic: body\?\.diagnostic/);
 });
 
-test('directory mirror rollout fails safely to the current authoritative Leads API', () => {
-  assert.match(apiSource, /NEXT_PUBLIC_FITEATSY_DIRECTORY_MIRROR_ENABLED !== 'true'/);
+test('owner registry always uses the authoritative all-records Leads API', () => {
   assert.match(apiSource, /apiRequest\(`\/platform\/fiteatsy\/leads\?\$\{params\.toString\(\)\}`/);
-  assert.match(apiSource, /apiRequest\(`\/practice-operations\/fiteatsy-client-directory\?\$\{params\.toString\(\)\}`/);
+  assert.doesNotMatch(apiSource.slice(apiSource.indexOf('export async function listFiteatsyIntakeLeads'), apiSource.indexOf('export async function issueFiteatsyTemporaryLoginPin')), /fiteatsy-client-directory/);
 });
 
 test('Platform Owner Leads UI exposes all discovery and state controls', () => {
@@ -32,6 +31,8 @@ test('Platform Owner Leads UI exposes all discovery and state controls', () => {
     'Previous',
     'Next',
     'Refresh',
+    'Protected identity',
+    'Assignment protected',
   ]) {
     assert.ok(workspaceSource.includes(label), `missing Leads UI state: ${label}`);
   }

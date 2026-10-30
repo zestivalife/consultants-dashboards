@@ -563,36 +563,14 @@ export async function listFiteatsyIntakeLeads({ query = '', status = 'all', orde
     page: String(page),
     pageSize: String(pageSize),
   });
-  if (process.env.NEXT_PUBLIC_FITEATSY_DIRECTORY_MIRROR_ENABLED !== 'true') {
-    const body = await apiRequest(`/platform/fiteatsy/leads?${params.toString()}`, { method: 'GET' });
-    return {
-      leads: Array.isArray(body?.leads) ? body.leads : [],
-      pagination: body?.pagination || { total: 0, page, pageSize },
-      diagnostic: body?.diagnostic || null,
-    };
-  }
-  params.set('page_size', params.get('pageSize'));
-  params.delete('pageSize');
-  const body = await apiRequest(`/practice-operations/fiteatsy-client-directory?${params.toString()}`, { method: 'GET' });
+  // The owner registry is intentionally authoritative. The mirrored directory only
+  // contains assignable client identities and therefore cannot represent protected
+  // workforce/admin accounts that also own a Fiteatsy client profile.
+  const body = await apiRequest(`/platform/fiteatsy/leads?${params.toString()}`, { method: 'GET' });
   return {
-    leads: Array.isArray(body?.clients) ? body.clients.map((record) => ({
-      userId: record.fiteatsy_user_id,
-      clientId: record.fiteatsy_client_id,
-      name: record.display_name,
-      email: record.email_normalized,
-      mobileNumber: record.mobile_number_normalized,
-      registeredAtISO: record.registered_at,
-      accountStatus: record.account_status,
-      verificationStatus: record.mobile_verified ? 'VERIFIED' : 'UNVERIFIED',
-      syncStatus: record.sync_status,
-      lastSyncedAtISO: record.last_synced_at,
-      leadStatus: 'SYNCED',
-      loginPinStatus: 'UNKNOWN',
-      assignment: null,
-      assignmentStatus: 'UNKNOWN',
-    })) : [],
-    pagination: body?.pagination ? { ...body.pagination, pageSize: body.pagination.page_size } : { total: 0, page, pageSize },
-    diagnostic: null,
+    leads: Array.isArray(body?.leads) ? body.leads : [],
+    pagination: body?.pagination || { total: 0, page, pageSize },
+    diagnostic: body?.diagnostic || null,
   };
 }
 
