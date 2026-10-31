@@ -291,8 +291,11 @@ def build_router(context_dependency, external_only, error):
         if denied: return denied
         row = (await db.execute(text("SELECT id::text,consultant_client_id,state,consent_version,consented_scopes,programme_status,connected_at,disconnected_at FROM external_fiteatsy_connections WHERE id=:id AND tenant_id=:tenant AND consultant_id=:consultant"), {"id": connection_id, "tenant": ctx["tenant_id"], "consultant": ctx["user_id"]})).mappings().first()
         if not row: return error(request, 404, "CONNECTION_NOT_FOUND", "The Fiteatsy connection could not be found")
-        programmes = [dict(item) for item in (await db.execute(text("SELECT id::text,name,status,starts_on,ends_on,created_at,updated_at FROM external_fiteatsy_programmes WHERE connection_id=:id ORDER BY created_at DESC"), {"id": connection_id})).mappings().all()]
-        return response(request, {"connection": dict(row), "programmes": programmes})
+        scope = {"id": connection_id, "tenant": ctx["tenant_id"], "consultant": ctx["user_id"]}
+        programmes = [dict(item) for item in (await db.execute(text("SELECT id::text,name,status,starts_on,ends_on,created_at,updated_at FROM external_fiteatsy_programmes WHERE connection_id=:id AND tenant_id=:tenant AND consultant_id=:consultant ORDER BY created_at DESC"), scope)).mappings().all()]
+        plan_publications = [dict(item) for item in (await db.execute(text("SELECT id::text,plan_id,plan_version,title,status,published_at FROM external_fiteatsy_plan_publications WHERE connection_id=:id AND tenant_id=:tenant AND consultant_id=:consultant ORDER BY published_at DESC"), scope)).mappings().all()]
+        appointments = [dict(item) for item in (await db.execute(text("SELECT id::text,appointment_id,title,starts_at,ends_at,status,created_at FROM external_fiteatsy_appointments WHERE connection_id=:id AND tenant_id=:tenant AND consultant_id=:consultant ORDER BY starts_at DESC"), scope)).mappings().all()]
+        return response(request, {"connection": dict(row), "programmes": programmes, "plan_publications": plan_publications, "appointments": appointments})
 
     @router.post("/api/v1/practice-operations/fiteatsy-connections/invitations/{invitation_id}/revoke")
     async def revoke_invitation(invitation_id: str, request: Request, body: ConnectionAction, ctx=Depends(context_dependency), db: AsyncSession=Depends(get_db)):

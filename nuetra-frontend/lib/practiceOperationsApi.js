@@ -74,6 +74,7 @@ export async function listConnectedFiteatsyClients(filters={}){
 export function createFiteatsyConnectionInvitation(payload){return request('/fiteatsy-connections/invitations',{method:'POST',body:JSON.stringify(payload)});}
 export function revokeFiteatsyConnectionInvitation(id,reason='Replaced by consultant'){return request(`/fiteatsy-connections/invitations/${encodeURIComponent(id)}/revoke`,{method:'POST',body:JSON.stringify({reason})});}
 export function revokeFiteatsyConnection(id,reason='Revoked by consultant'){return request(`/fiteatsy-connections/${encodeURIComponent(id)}/revoke`,{method:'POST',body:JSON.stringify({reason})});}
+export function getFiteatsyConnection(id){return request(`/fiteatsy-connections/${encodeURIComponent(id)}`);}
 export function getFiteatsyConnectionHealthContext(id){return request(`/fiteatsy-connections/${encodeURIComponent(id)}/health-context`);}
 export async function downloadFiteatsyConnectionReport(id,reportId){
   const path=`/fiteatsy-connections/${encodeURIComponent(id)}/reports/${encodeURIComponent(reportId)}/file`;
