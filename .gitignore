@@ -36,3 +36,4 @@ uploads/
 *.egg
 dist/
 build/
+.env*
