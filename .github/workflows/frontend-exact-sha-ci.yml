@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - codex/senior-review-authority-v1
+      - codex/p0-connected-client-contract
   workflow_dispatch:
     inputs:
       commit_sha:
