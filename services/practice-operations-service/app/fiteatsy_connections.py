@@ -27,6 +27,10 @@ PIN_ALPHABET = "0123456789"
 ALLOWED_SCOPES = {"PROFILE", "HEALTH_SUMMARY", "MEASUREMENTS", "BIOMARKERS", "DIET_PLANS", "APPOINTMENTS"}
 
 
+class CanonicalFiteatsyProfessionalIdentityRequired(ValueError):
+    """Raised when an external session cannot be bound to its Fiteatsy professional."""
+
+
 def generate_connection_pin(length: int = 6) -> str:
     return "".join(secrets.choice(PIN_ALPHABET) for _ in range(length))
 
@@ -67,15 +71,25 @@ def create_fiteatsy_delegation(connection, permission: str, purpose: str) -> str
 
 def create_assignment_roster_delegation(ctx: dict) -> str:
     settings = get_settings(); now = datetime.now(timezone.utc)
-    raw_user_id = str(ctx["user_id"])
     mapped_professional_id = str(ctx.get("fiteatsy_professional_id") or "").strip()
-    if mapped_professional_id:
-        if not mapped_professional_id.startswith("ext_"):
-            raise ValueError("invalid mapped Fiteatsy professional identity")
+    if not mapped_professional_id:
+        # Zestiva and Fiteatsy user UUIDs are different identity namespaces.
+        # Falling back to ext_<zestiva-user-id> returns a plausible but empty
+        # roster and prevents the browser from refreshing a stale access token.
+        raise CanonicalFiteatsyProfessionalIdentityRequired(
+            "canonical Fiteatsy professional identity is required"
+        )
+    if not mapped_professional_id.startswith("ext_"):
+        raise CanonicalFiteatsyProfessionalIdentityRequired(
+            "invalid mapped Fiteatsy professional identity"
+        )
+    try:
         UUID(mapped_professional_id[4:])
-        canonical_professional_id = mapped_professional_id
-    else:
-        canonical_professional_id = raw_user_id if raw_user_id.startswith("ext_") else f"ext_{UUID(raw_user_id)}"
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise CanonicalFiteatsyProfessionalIdentityRequired(
+            "invalid mapped Fiteatsy professional identity"
+        ) from exc
+    canonical_professional_id = mapped_professional_id
     claims = {
         "iss": settings.external_fiteatsy_outbound_issuer,
         "sub": canonical_professional_id,
@@ -254,6 +268,16 @@ def build_router(context_dependency, external_only, error):
             url = f"{settings.external_fiteatsy_backend_url.rstrip('/')}/v1/internal/external-consultant-access/assignments/clients"
             async with httpx.AsyncClient(timeout=15.0) as client:
                 upstream = await client.get(url, headers={"x-zestiva-delegation": token})
+        except CanonicalFiteatsyProfessionalIdentityRequired:
+            # A 401 intentionally invokes the frontend's single refresh-and-retry
+            # path. A refreshed external session contains the canonical mapping;
+            # a genuinely unmapped consultant remains explicitly denied.
+            return error(
+                request,
+                401,
+                "FITEATSY_PROFESSIONAL_IDENTITY_REQUIRED",
+                "Your consultant identity must be refreshed before assigned clients can be loaded",
+            )
         except (httpx.RequestError, ValueError, TypeError):
             return error(request, 503, "FITEATSY_ASSIGNMENT_ROSTER_UNAVAILABLE", "The assigned Fiteatsy client roster is temporarily unavailable")
         if upstream.status_code != 200:

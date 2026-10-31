@@ -6,7 +6,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 
 from app.config import get_settings
-from app.fiteatsy_connections import ALLOWED_SCOPES, PinPreview, PinRedeem, create_assignment_roster_delegation, create_fiteatsy_delegation, decode_fiteatsy_identity, generate_connection_pin, pin_status_error, pin_verifier, verify_pin
+from app.fiteatsy_connections import ALLOWED_SCOPES, CanonicalFiteatsyProfessionalIdentityRequired, PinPreview, PinRedeem, create_assignment_roster_delegation, create_fiteatsy_delegation, decode_fiteatsy_identity, generate_connection_pin, pin_status_error, pin_verifier, verify_pin
 
 
 def test_pin_is_six_digit_numeric_and_unique_across_sample():
@@ -85,24 +85,12 @@ def test_outbound_delegation_is_short_lived_and_connection_bound(monkeypatch):
     get_settings.cache_clear()
 
 
-def test_assignment_roster_delegation_uses_canonical_external_identity(monkeypatch):
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    ).decode()
-    monkeypatch.setenv("EXTERNAL_FITEATSY_OUTBOUND_PRIVATE_KEY", pem)
-    monkeypatch.setenv("EXTERNAL_FITEATSY_OUTBOUND_KEY_ID", "phase2-test")
+def test_assignment_roster_delegation_rejects_missing_canonical_identity(monkeypatch):
+    monkeypatch.setenv("EXTERNAL_FITEATSY_OUTBOUND_PRIVATE_KEY", "unused")
     get_settings.cache_clear()
     user_id = "f7d1587f-4dc6-47f0-b95c-bb8472e99136"
-    token = create_assignment_roster_delegation({"user_id": user_id, "tenant_id": "tenant-1"})
-    claims = jwt.decode(token, key.public_key(), algorithms=["RS256"], audience="fiteatsy-backend", issuer="zestiva-platform")
-    assert claims["sub"] == f"ext_{user_id}"
-    assert claims["actor_type"] == "EXTERNAL_CONSULTANT"
-    assert claims["permissions"] == ["fiteatsy.external.assignment.read"]
-    assert claims["purpose"] == "external_consultant_assignment_roster"
-    assert claims["exp"] - claims["iat"] == 60
+    with pytest.raises(CanonicalFiteatsyProfessionalIdentityRequired):
+        create_assignment_roster_delegation({"user_id": user_id, "tenant_id": "tenant-1"})
     get_settings.cache_clear()
 
 
@@ -132,7 +120,7 @@ def test_assignment_roster_delegation_prefers_provisioned_fiteatsy_identity(monk
 def test_assignment_roster_delegation_rejects_invalid_mapped_identity(monkeypatch, mapped_id):
     monkeypatch.setenv("EXTERNAL_FITEATSY_OUTBOUND_PRIVATE_KEY", "unused")
     get_settings.cache_clear()
-    with pytest.raises((ValueError, TypeError)):
+    with pytest.raises(CanonicalFiteatsyProfessionalIdentityRequired):
         create_assignment_roster_delegation({
             "user_id": "f7d1587f-4dc6-47f0-b95c-bb8472e99136",
             "tenant_id": "tenant-1",
