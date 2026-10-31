@@ -104,3 +104,38 @@ def test_assignment_roster_delegation_uses_canonical_external_identity(monkeypat
     assert claims["purpose"] == "external_consultant_assignment_roster"
     assert claims["exp"] - claims["iat"] == 60
     get_settings.cache_clear()
+
+
+def test_assignment_roster_delegation_prefers_provisioned_fiteatsy_identity(monkeypatch):
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    monkeypatch.setenv("EXTERNAL_FITEATSY_OUTBOUND_PRIVATE_KEY", pem)
+    monkeypatch.setenv("EXTERNAL_FITEATSY_OUTBOUND_KEY_ID", "phase2-test")
+    get_settings.cache_clear()
+    auth_user_id = "f7d1587f-4dc6-47f0-b95c-bb8472e99136"
+    mapped_id = "ext_8d3b48b8-a8f7-42e2-b1ef-b36ac2c9bc20"
+    token = create_assignment_roster_delegation({
+        "user_id": auth_user_id,
+        "tenant_id": "tenant-1",
+        "fiteatsy_professional_id": mapped_id,
+    })
+    claims = jwt.decode(token, key.public_key(), algorithms=["RS256"], audience="fiteatsy-backend", issuer="zestiva-platform")
+    assert claims["sub"] == mapped_id
+    get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("mapped_id", ["8d3b48b8-a8f7-42e2-b1ef-b36ac2c9bc20", "ext_not-a-uuid"])
+def test_assignment_roster_delegation_rejects_invalid_mapped_identity(monkeypatch, mapped_id):
+    monkeypatch.setenv("EXTERNAL_FITEATSY_OUTBOUND_PRIVATE_KEY", "unused")
+    get_settings.cache_clear()
+    with pytest.raises((ValueError, TypeError)):
+        create_assignment_roster_delegation({
+            "user_id": "f7d1587f-4dc6-47f0-b95c-bb8472e99136",
+            "tenant_id": "tenant-1",
+            "fiteatsy_professional_id": mapped_id,
+        })
+    get_settings.cache_clear()

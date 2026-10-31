@@ -68,7 +68,14 @@ def create_fiteatsy_delegation(connection, permission: str, purpose: str) -> str
 def create_assignment_roster_delegation(ctx: dict) -> str:
     settings = get_settings(); now = datetime.now(timezone.utc)
     raw_user_id = str(ctx["user_id"])
-    canonical_professional_id = raw_user_id if raw_user_id.startswith("ext_") else f"ext_{UUID(raw_user_id)}"
+    mapped_professional_id = str(ctx.get("fiteatsy_professional_id") or "").strip()
+    if mapped_professional_id:
+        if not mapped_professional_id.startswith("ext_"):
+            raise ValueError("invalid mapped Fiteatsy professional identity")
+        UUID(mapped_professional_id[4:])
+        canonical_professional_id = mapped_professional_id
+    else:
+        canonical_professional_id = raw_user_id if raw_user_id.startswith("ext_") else f"ext_{UUID(raw_user_id)}"
     claims = {
         "iss": settings.external_fiteatsy_outbound_issuer,
         "sub": canonical_professional_id,

@@ -323,6 +323,7 @@ def _build_tokens(
     permissions: list[str] | None = None,
     products: list[str] | None = None,
     mfa_assured: bool = False,
+    fiteatsy_professional_id: str | None = None,
 ) -> TokenResponse:
     settings = get_settings()
     access_token = create_access_token(
@@ -335,6 +336,7 @@ def _build_tokens(
             "products": sorted(set(products or [])),
             "mfa_assured": mfa_assured,
             "amr": ["pwd", "otp"] if mfa_assured else ["pwd"],
+            **({"fiteatsy_professional_id": fiteatsy_professional_id} if fiteatsy_professional_id else {}),
         },
     )
     return TokenResponse(
@@ -343,6 +345,21 @@ def _build_tokens(
         token_type="bearer",
         expires_in=settings.jwt_access_expiry_minutes * 60,
     )
+
+
+async def _fiteatsy_professional_identity(session: AsyncSession, user: User) -> str | None:
+    """Return the immutable Fiteatsy identity recorded during consultant provisioning."""
+    provisioning = await session.scalar(
+        select(ExternalSignupProvisioning).where(
+            ExternalSignupProvisioning.auth_user_id == user.id,
+            ExternalSignupProvisioning.status.in_({"ONBOARDING_IN_PROGRESS", "READY"}),
+            ExternalSignupProvisioning.fiteatsy_user_id.is_not(None),
+        )
+    )
+    if provisioning is None:
+        return None
+    value = str(provisioning.fiteatsy_user_id or "").strip()
+    return value or None
 
 
 def _ensure_account_access_user(user: User, *, now: datetime | None = None) -> None:
@@ -558,7 +575,11 @@ async def login(
 
     permission_claims = await people_access_service.resolve_user_permissions(session, user)
     product_claims = await people_access_service.resolve_user_products(session, user)
-    tokens = _build_tokens(user, raw_refresh, permission_claims, product_claims, mfa_assured=mfa_assured)
+    tokens = _build_tokens(
+        user, raw_refresh, permission_claims, product_claims,
+        mfa_assured=mfa_assured,
+        fiteatsy_professional_id=await _fiteatsy_professional_identity(session, user),
+    )
     user_data = await _user_response(session, user, permission_claims)
 
     logger.info("user_logged_in", user_id=str(user.id))
@@ -598,7 +619,7 @@ async def issue_mobile_otp_session(
     user.last_login = now
     await session.flush()
     return LoginResponse(
-        tokens=_build_tokens(user, raw_refresh, permissions, products),
+        tokens=_build_tokens(user, raw_refresh, permissions, products, fiteatsy_professional_id=await _fiteatsy_professional_identity(session, user)),
         user=await _user_response(session, user, permissions),
     )
 
@@ -640,7 +661,7 @@ async def issue_direct_registration_session(
     user.last_login = now
     await session.flush()
     return LoginResponse(
-        tokens=_build_tokens(user, raw_refresh, permissions, products),
+        tokens=_build_tokens(user, raw_refresh, permissions, products, fiteatsy_professional_id=await _fiteatsy_professional_identity(session, user)),
         user=await _user_response(session, user, permissions),
     )
 
@@ -725,7 +746,7 @@ async def refresh(
 
     permissions = await people_access_service.resolve_user_permissions(session, user)
     products = await people_access_service.resolve_user_products(session, user)
-    return _build_tokens(user, new_raw, permissions, products)
+    return _build_tokens(user, new_raw, permissions, products, fiteatsy_professional_id=await _fiteatsy_professional_identity(session, user))
 
 
 async def logout(
@@ -874,7 +895,7 @@ async def change_password(
     permissions = await people_access_service.resolve_user_permissions(session, user)
     products = await people_access_service.resolve_user_products(session, user)
     return LoginResponse(
-        tokens=_build_tokens(user, raw_refresh, permissions, products),
+        tokens=_build_tokens(user, raw_refresh, permissions, products, fiteatsy_professional_id=await _fiteatsy_professional_identity(session, user)),
         user=await _user_response(session, user, permissions),
     )
 

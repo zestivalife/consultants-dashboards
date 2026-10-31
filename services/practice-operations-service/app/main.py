@@ -250,13 +250,13 @@ def error(request: Request, status: int, code: str, message: str, retryable: boo
     return JSONResponse(status_code=status, content={"success": False, "error": {"code": code, "safe_message": message, "correlation_id": getattr(request.state, "correlation_id", None), "retryable": retryable}})
 
 
-def context(x_user_id: str | None = Header(None), x_tenant_id: str | None = Header(None), x_user_role: str | None = Header(None), x_tenant_type: str | None = Header(None), x_user_email: str | None = Header(None), x_profession_code: str | None = Header(None), x_user_permissions: str | None = Header(None)):
+def context(x_user_id: str | None = Header(None), x_tenant_id: str | None = Header(None), x_user_role: str | None = Header(None), x_tenant_type: str | None = Header(None), x_user_email: str | None = Header(None), x_profession_code: str | None = Header(None), x_user_permissions: str | None = Header(None), x_fiteatsy_professional_id: str | None = Header(None)):
     role=(x_user_role or "member").upper()
     if not x_user_id:
         return None
     if not x_tenant_id and role not in {"SUPER_ADMIN","SUPERUSER","PLATFORM_OWNER"}:
         return None
-    return {"user_id": x_user_id, "tenant_id": x_tenant_id, "role": role, "tenant_type": x_tenant_type, "email": (x_user_email or "").lower(), "profession_code": x_profession_code, "permissions": {item.strip() for item in (x_user_permissions or "").split(",") if item.strip()}}
+    return {"user_id": x_user_id, "tenant_id": x_tenant_id, "role": role, "tenant_type": x_tenant_type, "email": (x_user_email or "").lower(), "profession_code": x_profession_code, "permissions": {item.strip() for item in (x_user_permissions or "").split(",") if item.strip()}, "fiteatsy_professional_id": x_fiteatsy_professional_id}
 
 
 def external_only(request: Request, ctx):

@@ -142,6 +142,20 @@ async def test_direct_registration_issues_initial_session_for_active_unverified_
 
 
 @pytest.mark.asyncio
+async def test_provisioned_fiteatsy_professional_identity_is_embedded_in_session(session: AsyncSession):
+    user = await _create_role_user(
+        session, "consultant", email="mapped-session@nuetra.test", is_verified=False, status="ACTIVE"
+    )
+    user.role = await session.get(Role, user.role_id)
+    await _provision_direct_registration(session, user)
+
+    result = await auth_service.issue_direct_registration_session(session, user)
+    claims = decode_access_token(result.tokens.access_token)
+
+    assert claims["fiteatsy_professional_id"] == f"ext_{user.id}"
+
+
+@pytest.mark.asyncio
 async def test_fully_provisioned_direct_registration_can_use_me_and_mobile_password_login(session: AsyncSession):
     password = "QaDirect#2026Strong"
     user = await _create_role_user(

@@ -42,6 +42,6 @@ def test_api_contract_has_safety_controls():
 
 def test_gateway_strips_caller_supplied_authority_headers():
     gateway=(ROOT.parents[1]/"api-gateway/app/routers/proxy.py").read_text()
-    for header in ("x-user-id","x-user-role","x-user-permissions","x-tenant-id","x-tenant-type"):
+    for header in ("x-user-id","x-user-role","x-user-permissions","x-tenant-id","x-tenant-type","x-fiteatsy-professional-id"):
         assert header in gateway
     assert "Authority headers are gateway-owned" in gateway
