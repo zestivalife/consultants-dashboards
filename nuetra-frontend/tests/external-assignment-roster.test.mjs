@@ -14,6 +14,9 @@ test('external client roster merges authoritative assignments with consented con
   assert.match(api, /profileAvailable:false/);
   assert.match(api, /assignment\?\.displayName/);
   assert.match(api, /assignmentState:'NEW_ASSIGNED'/);
+  assert.match(api, /Promise\.allSettled\(active\.map/);
+  assert.match(api, /profileError:result\.reason\?\.message/);
+  assert.match(api, /assignmentByUserId/);
   assert.match(workspace, /selected\.accessState==='ASSIGNED'\?<AssignedClientAccessView/);
   assert.match(workspace, /New assigned/);
   assert.match(workspace, /No missing or zero data is inferred/);
