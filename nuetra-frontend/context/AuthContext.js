@@ -13,6 +13,7 @@ import {
   isExternalTemporaryPasswordUser,
   isSameTemporaryPasswordUser,
 } from '../lib/temporaryPasswordBootstrap';
+import { needsFiteatsyProfessionalClaimRefresh } from '../lib/fiteatsyProfessionalClaim';
 
 const SESSION_KEY = 'nuetra_session';
 const LOGOUT_EVENT_KEY = 'nuetra_logout_event';
@@ -109,7 +110,26 @@ export function AuthProvider({ children }) {
     const hasStoredTokens = Boolean(getToken() || getRefreshToken());
 
     if (BACKEND_AUTH_ENABLED && hasStoredTokens) {
-      refreshSession({ rememberMe: storedSession?.rememberMe ?? isRememberedAuthSession() })
+      const rememberMe = storedSession?.rememberMe ?? isRememberedAuthSession();
+      const refreshProfessionalClaim = async () => {
+        const refreshToken = getRefreshToken();
+        if (
+          refreshToken
+          && needsFiteatsyProfessionalClaimRefresh({ token: getToken(), user: storedSession?.session?.user })
+        ) {
+          try {
+            const freshTokens = await authAPI.refresh(refreshToken);
+            if (freshTokens?.access_token) setToken(freshTokens.access_token, rememberMe);
+            if (freshTokens?.refresh_token) setRefreshToken(freshTokens.refresh_token, rememberMe);
+          } catch {
+            // Preserve the existing access token. The normal authenticated
+            // request path remains responsible for session-expiry handling.
+          }
+        }
+        return refreshSession({ rememberMe });
+      };
+
+      refreshProfessionalClaim()
         .catch(() => {
           clearStoredSession();
           clearTokens();
