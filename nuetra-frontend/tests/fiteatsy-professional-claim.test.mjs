@@ -15,11 +15,11 @@ test('external consultant sessions refresh when the canonical identity claim is 
   }), true);
 });
 
-test('external consultant sessions do not refresh when the canonical claim is present', () => {
+test('external consultant sessions refresh authoritative mapping even when a stored claim is present', () => {
   assert.equal(needsFiteatsyProfessionalClaimRefresh({
     token: token({ sub: 'external-user', fiteatsy_professional_id: 'ext_00000000-0000-4000-8000-000000000001' }),
     user: { currentTenant: { tenantType: 'PRACTICE' } },
-  }), false);
+  }), true);
 });
 
 test('internal and privileged sessions are never refreshed by the external mapping recovery', () => {

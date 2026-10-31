@@ -1,23 +1,15 @@
 const EXTERNAL_TENANT_TYPES = new Set(['INDEPENDENT_CONSULTANT', 'PRACTICE']);
 
-function decodeJwtPayload(token) {
-  const parts = String(token || '').split('.');
-  if (parts.length !== 3) return null;
-
-  try {
-    const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-    const decoded = globalThis.atob(padded);
-    return JSON.parse(decoded);
-  } catch {
-    return null;
-  }
-}
-
-export function needsFiteatsyProfessionalClaimRefresh({ token, user }) {
+export function needsFiteatsyProfessionalClaimRefresh({ user }) {
   const tenantType = String(user?.currentTenant?.tenantType || '').trim().toUpperCase();
   if (!EXTERNAL_TENANT_TYPES.has(tenantType)) return false;
 
-  const payload = decodeJwtPayload(token);
-  return !String(payload?.fiteatsy_professional_id || '').trim();
+  // Refresh external-consultant sessions once during application start even
+  // when the stored token already contains a syntactically valid mapping.
+  // Provisioning can repair or replace the canonical Fiteatsy professional
+  // identity after a token was issued; trusting the stale value then produces
+  // a valid but empty assignment roster. The refresh endpoint resolves the
+  // current immutable mapping from the authoritative provisioning record.
+  // Internal/workforce sessions remain excluded above.
+  return true;
 }
