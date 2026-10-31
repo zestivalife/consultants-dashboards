@@ -52,7 +52,7 @@ export async function listConnectedFiteatsyClients(filters={}){
   for(const assignment of assigned){
     const userId=String(assignment?.userId||'');
     if(!userId||clientsByUserId.has(userId))continue;
-    clientsByUserId.set(userId,{id:userId,fiteatsyUserId:userId,clientId:assignment?.clientId?String(assignment.clientId):null,connectionId:null,displayName:'Assigned Fiteatsy client',email:'',mobile:'',status:'ACTIVE',accessState:'ASSIGNED',registrationDate:null,consentedScopes:[],profileAvailable:false,programmeStatus:null});
+    clientsByUserId.set(userId,{id:userId,fiteatsyUserId:userId,clientId:assignment?.clientId?String(assignment.clientId):null,connectionId:null,displayName:String(assignment?.displayName||'Assigned Fiteatsy client'),email:'',mobile:'',status:'ACTIVE',accessState:'ASSIGNED',assignmentState:'NEW_ASSIGNED',registrationDate:null,consentedScopes:[],profileAvailable:false,programmeStatus:null});
   }
   const clients=[...clientsByUserId.values()];
   const query=String(filters.q||'').trim().toLowerCase();
