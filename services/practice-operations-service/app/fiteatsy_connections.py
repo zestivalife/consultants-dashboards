@@ -65,6 +65,23 @@ def create_fiteatsy_delegation(connection, permission: str, purpose: str) -> str
     return jwt.encode(claims, key, algorithm="RS256", headers={"typ": "Zestiva-Delegated-Authority", "kid": settings.external_fiteatsy_outbound_key_id})
 
 
+def create_assignment_roster_delegation(ctx: dict) -> str:
+    settings = get_settings(); now = datetime.now(timezone.utc)
+    raw_user_id = str(ctx["user_id"])
+    canonical_professional_id = raw_user_id if raw_user_id.startswith("ext_") else f"ext_{UUID(raw_user_id)}"
+    claims = {
+        "iss": settings.external_fiteatsy_outbound_issuer,
+        "sub": canonical_professional_id,
+        "aud": settings.external_fiteatsy_outbound_audience,
+        "iat": int(now.timestamp()), "exp": int((now + timedelta(seconds=60)).timestamp()), "jti": str(uuid4()),
+        "product": "fiteatsy", "permissions": ["fiteatsy.external.assignment.read"],
+        "purpose": "external_consultant_assignment_roster", "actor_type": "EXTERNAL_CONSULTANT",
+        "tenant_id": str(ctx["tenant_id"]),
+    }
+    key = (settings.external_fiteatsy_outbound_private_key or "").replace("\\n", "\n")
+    return jwt.encode(claims, key, algorithm="RS256", headers={"typ": "Zestiva-Delegated-Authority", "kid": settings.external_fiteatsy_outbound_key_id})
+
+
 class InvitationCreate(BaseModel):
     client_id: str | None = Field(default=None, max_length=120)
     expires_in_hours: int = Field(default=72, ge=1, le=168)
@@ -222,9 +239,20 @@ def build_router(context_dependency, external_only, error):
     async def list_connections(request: Request, ctx=Depends(context_dependency), db: AsyncSession=Depends(get_db)):
         denied = external_only(request, ctx) or enabled(request)
         if denied: return denied
-        connections = [dict(row) for row in (await db.execute(text("SELECT id::text,consultant_client_id,state,consent_version,consented_scopes,programme_status,connected_at,disconnected_at FROM external_fiteatsy_connections WHERE tenant_id=:tenant AND consultant_id=:consultant ORDER BY connected_at DESC"), {"tenant": ctx["tenant_id"], "consultant": ctx["user_id"]})).mappings().all()]
+        connections = [dict(row) for row in (await db.execute(text("SELECT id::text,fiteatsy_user_id,consultant_client_id,state,consent_version,consented_scopes,programme_status,connected_at,disconnected_at FROM external_fiteatsy_connections WHERE tenant_id=:tenant AND consultant_id=:consultant ORDER BY connected_at DESC"), {"tenant": ctx["tenant_id"], "consultant": ctx["user_id"]})).mappings().all()]
         invitations = [dict(row) for row in (await db.execute(text("SELECT id::text,intended_client_id,pin_hint,status,expires_at,requested_scopes,created_at FROM external_fiteatsy_connection_invitations WHERE tenant_id=:tenant AND consultant_id=:consultant ORDER BY created_at DESC LIMIT 100"), {"tenant": ctx["tenant_id"], "consultant": ctx["user_id"]})).mappings().all()]
-        return response(request, {"connections": connections, "invitations": invitations})
+        settings = get_settings()
+        try:
+            token = create_assignment_roster_delegation(ctx)
+            url = f"{settings.external_fiteatsy_backend_url.rstrip('/')}/v1/internal/external-consultant-access/assignments/clients"
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                upstream = await client.get(url, headers={"x-zestiva-delegation": token})
+        except (httpx.RequestError, ValueError, TypeError):
+            return error(request, 503, "FITEATSY_ASSIGNMENT_ROSTER_UNAVAILABLE", "The assigned Fiteatsy client roster is temporarily unavailable")
+        if upstream.status_code != 200:
+            return error(request, 502, "FITEATSY_ASSIGNMENT_ROSTER_FAILED", "The assigned Fiteatsy client roster could not be retrieved")
+        assigned_clients = upstream.json().get("clients", [])
+        return response(request, {"connections": connections, "invitations": invitations, "assigned_clients": assigned_clients})
 
     @router.get("/api/v1/practice-operations/fiteatsy-connections/{connection_id}")
     async def connection_details(connection_id: str, request: Request, ctx=Depends(context_dependency), db: AsyncSession=Depends(get_db)):

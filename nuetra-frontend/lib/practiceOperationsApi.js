@@ -37,7 +37,8 @@ export async function listConnectedFiteatsyClients(filters={}){
   const ledger=await listFiteatsyConnections();
   const connections=Array.isArray(ledger?.connections)?ledger.connections:[];
   const active=connections.filter(connection=>connection?.state==='ACTIVE');
-  const clients=await Promise.all(active.map(async connection=>{
+  const assigned=Array.isArray(ledger?.assigned_clients)?ledger.assigned_clients:[];
+  const connectedClients=await Promise.all(active.map(async connection=>{
     const scopes=new Set((connection.consented_scopes||[]).map(scope=>String(scope).toUpperCase()));
     let profile=null;
     if(scopes.has('PROFILE')){
@@ -45,8 +46,15 @@ export async function listConnectedFiteatsyClients(filters={}){
       profile=context?.profile?.client||null;
       if(!profile)throw new Error('The connected client profile could not be retrieved with the authorised scope.');
     }
-    return{id:String(connection.consultant_client_id||connection.id),connectionId:String(connection.id),displayName:profile?.name||'Connected Fiteatsy client',email:profile?.email||'',mobile:profile?.mobile||profile?.mobileNumberMasked||'',status:'ACTIVE',registrationDate:profile?.registrationDate||connection.connected_at||null,consentedScopes:[...scopes],profileAvailable:Boolean(profile),programmeStatus:connection.programme_status||null};
+    return{id:String(connection.fiteatsy_user_id||connection.consultant_client_id||connection.id),fiteatsyUserId:connection.fiteatsy_user_id?String(connection.fiteatsy_user_id):null,connectionId:String(connection.id),displayName:profile?.name||'Connected Fiteatsy client',email:profile?.email||'',mobile:profile?.mobile||profile?.mobileNumberMasked||'',status:'ACTIVE',accessState:'CONNECTED',registrationDate:profile?.registrationDate||connection.connected_at||null,consentedScopes:[...scopes],profileAvailable:Boolean(profile),programmeStatus:connection.programme_status||null};
   }));
+  const clientsByUserId=new Map(connectedClients.map(client=>[String(client.fiteatsyUserId||client.id),client]));
+  for(const assignment of assigned){
+    const userId=String(assignment?.userId||'');
+    if(!userId||clientsByUserId.has(userId))continue;
+    clientsByUserId.set(userId,{id:userId,fiteatsyUserId:userId,clientId:assignment?.clientId?String(assignment.clientId):null,connectionId:null,displayName:'Assigned Fiteatsy client',email:'',mobile:'',status:'ACTIVE',accessState:'ASSIGNED',registrationDate:null,consentedScopes:[],profileAvailable:false,programmeStatus:null});
+  }
+  const clients=[...clientsByUserId.values()];
   const query=String(filters.q||'').trim().toLowerCase();
   const status=String(filters.status||'').trim().toUpperCase();
   const filtered=clients.filter(client=>(!status||client.status===status)&&(!query||`${client.displayName} ${client.email} ${client.mobile}`.toLowerCase().includes(query)));
