@@ -80,6 +80,51 @@ export function measurementValues(projection = {}) {
   return result;
 }
 
+export function externalClient360Base(client = {}, healthContext = null) {
+  const context = healthContext && typeof healthContext === 'object' ? healthContext : {};
+  const profile = context.profile && typeof context.profile === 'object' ? context.profile : {};
+  const healthProfile = context.healthProfile && typeof context.healthProfile === 'object' ? context.healthProfile : {};
+  const suppliedSections = context.sections && typeof context.sections === 'object' ? context.sections : {};
+  const reports = Array.isArray(context.reports) ? context.reports : [];
+  const displayName = client.displayName || client.name || profile.displayName || profile.name || 'Unnamed client';
+
+  return {
+    overview: {
+      name: displayName,
+      status: client.status || 'ACTIVE',
+      primaryContact: client.email || client.mobile || profile.email || profile.mobile || null,
+      dateOfBirth: profile.dateOfBirth || profile.date_of_birth || null,
+      gender: profile.gender || null,
+      missingSections: [],
+      documentCount: reports.length,
+      dietPlanWarnings: [],
+    },
+    sections: {
+      ...suppliedSections,
+      aboutYou: suppliedSections.aboutYou || profile,
+      medicalHistory: suppliedSections.medicalHistory || healthProfile.medicalHistory || {},
+      conditionsSymptoms: suppliedSections.conditionsSymptoms || healthProfile.conditionsSymptoms || {},
+      allergiesFamilyHistory: suppliedSections.allergiesFamilyHistory || healthProfile.allergiesFamilyHistory || {},
+      medicationsSupplements: suppliedSections.medicationsSupplements || healthProfile.medicationsSupplements || {},
+      lifestyle: suppliedSections.lifestyle || healthProfile.lifestyle || {},
+      sleepStress: suppliedSections.sleepStress || healthProfile.sleepStress || {},
+      activityHydration: suppliedSections.activityHydration || healthProfile.activityHydration || {},
+      nutrition: suppliedSections.nutrition || context.nutritionSnapshot || {},
+      goals: suppliedSections.goals || healthProfile.goals || {},
+      measurements: suppliedSections.measurements || context.measurements || {},
+      womensHealth: suppliedSections.womensHealth || healthProfile.womensHealth || {},
+      reportsDocuments: suppliedSections.reportsDocuments || {},
+    },
+    documents: reports,
+    timeline: Array.isArray(context.timeline) ? context.timeline : [],
+    provenance: context.provenance || {},
+    consent: {
+      source: healthContext ? 'FITEATSY_CONNECTION' : 'PRACTICE_DIRECTORY',
+      scopes: Array.isArray(client.consentedScopes) ? client.consentedScopes : [],
+    },
+  };
+}
+
 export function composeExternalClientProfile(baseProfile, enrichment = {}, measurementProjection = {}) {
   const profile = structuredClone(baseProfile || {});
   const sectionKeys = [
