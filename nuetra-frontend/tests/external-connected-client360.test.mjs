@@ -5,6 +5,7 @@ import test from 'node:test';
 import { externalClient360Base, externalConnectedBiomarkerHistory, externalConnectedBiomarkers, externalConnectedHealthRecords } from '../lib/externalClientProfile.mjs';
 
 const component = fs.readFileSync(new URL('../components/external/ExternalClient360.jsx', import.meta.url), 'utf8');
+const enhancements = fs.readFileSync(new URL('../components/external/ExternalClientProfileEnhancements.jsx', import.meta.url), 'utf8');
 
 test('connected external Client 360 uses the consented Practice Operations health context', () => {
   assert.match(component, /getFiteatsyConnectionHealthContext\(client\.connectionId\)/);
@@ -83,6 +84,38 @@ test('connected biomarker history includes only supplied observations', () => {
   const rows=externalConnectedBiomarkerHistory(context,{canonicalBiomarkerId:'hba1c'});
   assert.deepEqual(rows.map(item=>item.value),[5.6,5.8]);
   assert.deepEqual(externalConnectedBiomarkerHistory({biomarkers:[context.biomarkers[0]]},{canonicalBiomarkerId:'missing'}),[]);
+});
+
+test('connected biomarker history preserves every authorised canonical history row', () => {
+  const context={biomarkers:[{biomarkerId:'hba1c',name:'HbA1c',value:5.6,unit:'%',history:[
+    {observationId:'obs-3',value:5.6,unit:'%',testDate:'2026-10-27',clinicalStatus:'NORMAL'},
+    {observationId:'obs-2',value:5.8,unit:'%',testDate:'2026-09-27',clinicalStatus:'HIGH'},
+    {observationId:'obs-1',value:6.1,unit:'%',testDate:'2026-08-27',clinicalStatus:'HIGH'},
+  ]}]};
+  const rows=externalConnectedBiomarkerHistory(context,{canonicalBiomarkerId:'hba1c'});
+  assert.deepEqual(rows.map(item=>item.id),['obs-3','obs-2','obs-1']);
+  assert.deepEqual(rows.map(item=>item.value),[5.6,5.8,6.1]);
+  assert.equal(rows.every(item=>item.source==='FITEATSY_CONNECTION'),true);
+});
+
+test('connected profile retains the complete consented health and nutrition projection', () => {
+  const result=externalClient360Base({display_name:'Canonical Client'}, {profile:{
+    client:{dob:'1990-01-02',gender:'FEMALE'},
+    onboarding:{
+      bodyComposition:{goalWeightKg:58,waistCm:78,hipCm:94,armCircumferenceCm:27},
+      work:{occupation:'Designer',workMode:'Hybrid'},
+      nutrition:{regionalCuisine:'Maharashtrian',foodsLiked:['Poha'],foodIntolerances:['Lactose'],supplements:['Vitamin B12'],breakfastTime:'08:00'},
+      healthHistory:{medications:['Vitamin D3']},
+    },
+  },healthMetrics:{bmr:{status:'AVAILABLE',value:1320,unit:'kcal/day'},tdee:{status:'AVAILABLE',value:1815,unit:'kcal/day'}}});
+  assert.equal(result.overview.name,'Canonical Client');
+  assert.equal(result.sections.aboutYou.occupation,'Designer');
+  assert.equal(result.sections.measurements.goalWeightKg,58);
+  assert.deepEqual(result.sections.nutrition.foodsLiked,['Poha']);
+  assert.deepEqual(result.sections.medicationsSupplements.supplements,['Vitamin B12']);
+  assert.equal(result.healthMetrics.tdee.value,1815);
+  assert.match(enhancements,/label="BMR"/);
+  assert.match(enhancements,/label="TDEE"/);
 });
 
 test('connected reports map to read-only dated evidence records with exact observations', () => {

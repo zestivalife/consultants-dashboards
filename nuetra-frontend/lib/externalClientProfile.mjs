@@ -91,11 +91,14 @@ export function externalClient360Base(client = {}, healthContext = null) {
   const suppliedSections = context.sections && typeof context.sections === 'object' ? context.sections : {};
   const reports = Array.isArray(context.reports) ? context.reports : [];
   const profileName = [profile.firstName || profile.first_name, profile.lastName || profile.last_name].filter(Boolean).join(' ');
-  const displayName = client.displayName || client.name || profile.displayName || profile.name || profileName || 'Unnamed client';
+  const displayName = client.displayName || client.display_name || client.clientName || client.name || profile.displayName || profile.display_name || profile.name || profileName || 'Unnamed client';
   const history = onboarding.healthHistory && typeof onboarding.healthHistory === 'object' ? onboarding.healthHistory : {};
   const lifestyle = onboarding.lifestyle && typeof onboarding.lifestyle === 'object' ? onboarding.lifestyle : {};
   const nutrition = onboarding.nutrition && typeof onboarding.nutrition === 'object' ? onboarding.nutrition : {};
+  const bodyComposition = onboarding.bodyComposition && typeof onboarding.bodyComposition === 'object' ? onboarding.bodyComposition : {};
+  const work = onboarding.work && typeof onboarding.work === 'object' ? onboarding.work : {};
   const measurements = context.measurements && typeof context.measurements === 'object' ? context.measurements : {};
+  const healthMetrics = context.healthMetrics && typeof context.healthMetrics === 'object' ? context.healthMetrics : {};
 
   return {
     overview: {
@@ -121,17 +124,17 @@ export function externalClient360Base(client = {}, healthContext = null) {
     ),
     sections: {
       ...suppliedSections,
-      aboutYou: suppliedSections.aboutYou || profile,
+      aboutYou: suppliedSections.aboutYou || { ...profile, ...work },
       medicalHistory: suppliedSections.medicalHistory || healthProfile.medicalHistory || history,
       conditionsSymptoms: suppliedSections.conditionsSymptoms || healthProfile.conditionsSymptoms || { conditions: onboarding.medicalConditions || history.previousConditions },
       allergiesFamilyHistory: suppliedSections.allergiesFamilyHistory || healthProfile.allergiesFamilyHistory || { allergies: nutrition.foodAllergies, familyMedicalHistory: history.familyMedicalHistory },
-      medicationsSupplements: suppliedSections.medicationsSupplements || healthProfile.medicationsSupplements || { medications: history.medications, supplements: history.supplements },
-      lifestyle: suppliedSections.lifestyle || healthProfile.lifestyle || lifestyle,
+      medicationsSupplements: suppliedSections.medicationsSupplements || healthProfile.medicationsSupplements || { medications: history.medications, supplements: nutrition.supplements || history.supplements },
+      lifestyle: suppliedSections.lifestyle || healthProfile.lifestyle || { ...lifestyle, ...work },
       sleepStress: suppliedSections.sleepStress || healthProfile.sleepStress || { sleepHours: lifestyle.sleepHours, stressLevel: lifestyle.stressLevel },
       activityHydration: suppliedSections.activityHydration || healthProfile.activityHydration || { activityLevel: onboarding.activityLevel, exerciseFrequency: lifestyle.exerciseFrequency, waterIntakeLiters: nutrition.waterIntakeLiters },
       nutrition: suppliedSections.nutrition || context.nutritionSnapshot || nutrition,
       goals: suppliedSections.goals || healthProfile.goals || { primaryGoal: onboarding.goal, selectedGoals: onboarding.goals || [onboarding.goal].filter(Boolean) },
-      measurements: suppliedSections.measurements || measurements,
+      measurements: suppliedSections.measurements || { ...bodyComposition, ...measurements },
       womensHealth: suppliedSections.womensHealth || healthProfile.womensHealth || {},
       reportsDocuments: suppliedSections.reportsDocuments || {},
     },
@@ -155,6 +158,7 @@ export function externalClient360Base(client = {}, healthContext = null) {
       scopes: Array.isArray(client.consentedScopes) ? client.consentedScopes : [],
       status: context.consent?.status || client.consentStatus || (client.healthDataAuthorized ? 'ACTIVE' : null),
     },
+    healthMetrics,
   };
 }
 
@@ -178,18 +182,30 @@ export function externalConnectedBiomarkerHistory(healthContext = {}, biomarker 
   const matches = externalConnectedBiomarkers(healthContext).filter((item) =>
     (item.canonicalBiomarkerId || item.id) === canonicalId,
   );
-  const rows = matches.flatMap((item) => [
-    item,
-    ...(item.previousValue == null ? [] : [{
+  const rows = matches.flatMap((item) => Array.isArray(item.history) && item.history.length
+    ? item.history.map((observation, index) => ({
       ...item,
-      id: `${item.id}-previous`,
-      value: item.previousValue,
-      unit: item.previousUnit || item.unit,
-      observationDate: item.previousTestDate || item.previousObservationDate || null,
-      reviewStatus: 'CONFIRMED',
-    }]),
-  ]).filter((item) => item.observationDate).sort((a, b) => String(b.observationDate).localeCompare(String(a.observationDate)));
-  return rows;
+      ...observation,
+      id: observation.observationId || observation.id || `${item.id}-history-${index}`,
+      observationDate: observation.observationDate || observation.testDate || observation.measuredAt || null,
+      reviewStatus: observation.reviewStatus || observation.validationStatus || 'CONFIRMED',
+      flag: observation.flag || observation.clinicalStatus || item.flag,
+      source: 'FITEATSY_CONNECTION',
+      sourceDetail: observation.source || item.sourceDetail || null,
+    }))
+    : [
+      item,
+      ...(item.previousValue == null ? [] : [{
+        ...item,
+        id: `${item.id}-previous`,
+        value: item.previousValue,
+        unit: item.previousUnit || item.unit,
+        observationDate: item.previousTestDate || item.previousObservationDate || null,
+        reviewStatus: 'CONFIRMED',
+      }]),
+    ]);
+  return [...new Map(rows.filter((item) => item.observationDate).map((item) => [item.id, item])).values()]
+    .sort((a, b) => String(b.observationDate).localeCompare(String(a.observationDate)));
 }
 
 export function externalConnectedHealthRecords(healthContext = {}) {
@@ -310,7 +326,12 @@ export function composeExternalClientProfile(baseProfile, enrichment = {}, measu
     provenance,
     derived: {
       ...(profile.derived || {}),
+      healthMetrics: profile.healthMetrics || {},
       bmi: measurementProjection.calculations?.bmi || (bmi === null ? { status: 'NOT_AVAILABLE', value: null } : { status: 'AVAILABLE', value: bmi, unit: 'kg/m²', methodology: 'bmi.metric.v1' }),
+      bmr: profile.healthMetrics?.bmr || null,
+      tdee: profile.healthMetrics?.tdee || null,
+      bodyFat: profile.healthMetrics?.bodyFat || null,
+      targetHeartRate: profile.healthMetrics?.targetHeartRate || null,
       waistHipRatio,
       waistHipRatioMetric: measurementProjection.calculations?.waist_to_hip_ratio || (waistHipRatio == null ? null : {value: waistHipRatio, methodology: 'whr.metric.v1'}),
       waistToHeightRatio: measurementProjection.calculations?.waist_to_height_ratio || null,
