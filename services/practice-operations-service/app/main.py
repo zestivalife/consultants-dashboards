@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
+from app.version import runtime_commit_sha
 from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            MediaReferenceCreate, OutboxDelivery, ResourceCreate,
                            ResourceUpdate, PracticeConfigurationUpdate,
@@ -1021,7 +1022,7 @@ async def readiness(db: AsyncSession = Depends(get_db)):
 
 @app.get("/version")
 async def version():
-    settings=get_settings(); return {"service": settings.app_name, "version": settings.app_version, "commit_sha": settings.app_commit_sha}
+    settings=get_settings(); return {"service": settings.app_name, "version": settings.app_version, "commit_sha": runtime_commit_sha(settings.app_commit_sha)}
 
 
 # Keep the literal collection route ahead of the generic ``/{resource}``
