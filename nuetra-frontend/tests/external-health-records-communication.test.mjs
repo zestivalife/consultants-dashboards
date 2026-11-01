@@ -11,7 +11,7 @@ test('Client360 exposes additive Health Records without replacing Biomarkers or 
   assert.match(client360,/Health Records/);
   assert.match(client360,/ExternalHealthRecords/);
   assert.match(client360,/ExternalBiomarkerHistory/);
-  assert.match(client360,/ExternalDietPlan/);
+  assert.match(client360,/ExternalMultiDietPlan/);
 });
 
 test('Health Records supports governed removal and comparison modes',()=>{
@@ -37,9 +37,10 @@ test('generic WhatsApp is independent from onboarding-link authority',()=>{
 });
 
 test('published plan sharing is fail-closed for drafts and records open rather than sent',()=>{
-  assert.match(client360,/Only a self-published Diet Plan can be shared/);
-  assert.match(client360,/shareable_type:'PUBLISHED_DIET_PLAN'/);
-  assert.doesNotMatch(client360,/event_type\s*:\s*['"](?:MESSAGE_SENT|DELIVERED|READ)['"]/);
+  const dietPlan=readFileSync(new URL('../components/external/ExternalMultiDietPlan.jsx',import.meta.url),'utf8');
+  assert.match(dietPlan,/Publish approved version/);
+  assert.match(dietPlan,/selected\.status==='APPROVED'/);
+  assert.doesNotMatch(dietPlan,/event_type\s*:\s*['"](?:MESSAGE_SENT|DELIVERED|READ)['"]/);
 });
 
 test('profile completeness remains separate from optional evidence coverage',()=>{

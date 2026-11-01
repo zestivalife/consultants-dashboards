@@ -9,7 +9,7 @@ const routeAdapter = readFileSync(new URL('../components/external/ExternalConsul
 const client360 = readFileSync(new URL('../components/external/ExternalClient360.jsx', import.meta.url), 'utf8');
 
 test('external tenant resolves to the dedicated SaaS shell without touching the internal workspace', () => {
-  assert.match(route, /ExternalConsultantWorkspaceRoute/);
+  assert.match(route, /LegacyWorkspaceRedirect workspaceId="external-consultant"/);
   assert.match(routeAdapter, /workspace === 'EXTERNAL'\) return <ExternalSaaSWorkspace \/>/);
   assert.match(routeAdapter, /workspace === 'IN_HOUSE'\) return <ConsultantWorkspace \/>/);
 });

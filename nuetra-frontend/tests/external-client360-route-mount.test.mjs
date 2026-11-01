@@ -12,7 +12,7 @@ const externalClient360 = read('components/external/ExternalClient360.jsx');
 const sharedWorkspace = read('components/platform/PlatformWorkspace.jsx');
 
 test('all consultant landing routes use the external-only tenant adapter', () => {
-  assert.match(consultantRoute, /ExternalConsultantWorkspaceRoute/);
+  assert.match(consultantRoute, /LegacyWorkspaceRedirect workspaceId="external-consultant"/);
   assert.match(providerRoute, /ExternalConsultantWorkspaceRoute/);
   assert.match(adapter, /workspace === 'EXTERNAL'.*<ExternalSaaSWorkspace/s);
   assert.match(adapter, /workspace === 'IN_HOUSE'.*<ConsultantWorkspace/s);

@@ -216,7 +216,7 @@ class DietPlanSave(BaseModel):
     options: list[dict[str, Any]] = Field(default_factory=list, max_length=35)
 
 class DietPlanReviewAction(BaseModel):
-    action: Literal["SUBMIT","START_REVIEW","REQUEST_CHANGES","APPROVE"]
+    action: Literal["SUBMIT","START_REVIEW","REQUEST_CHANGES","REJECT","APPROVE"]
     expected_version: int = Field(ge=1)
     reason: str | None = Field(default=None, max_length=2000)
 

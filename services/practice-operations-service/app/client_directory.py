@@ -3,7 +3,7 @@ from typing import Any, Mapping
 
 def client_directory_projection(row: Mapping[str, Any]) -> dict[str, Any]:
     """Public directory projection; assignment visibility is not health-data consent."""
-    values = row.get("profile_values") if isinstance(row.get("profile_values"), Mapping) else {}
+    values = row.get("profile_values") if row.get("health_data_authorized") and isinstance(row.get("profile_values"), Mapping) else {}
     first_name = str(values.get("firstName") or values.get("first_name") or "").strip()
     last_name = str(values.get("lastName") or values.get("last_name") or "").strip()
     name = str(values.get("name") or values.get("fullName") or "").strip()

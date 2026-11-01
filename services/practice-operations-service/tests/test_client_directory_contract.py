@@ -45,6 +45,8 @@ def test_assigned_unconnected_client_is_visible_without_health_data_authority():
         "profile_values": {"name": "Pending Client"},
     })
     assert projected["connectionId"] is None
+    assert projected["name"] == "Unnamed client"
+    assert projected["email"] is None
     assert projected["relationshipStatus"] == "ASSIGNED_CONNECTION_PENDING"
     assert projected["healthDataAuthorized"] is False
     assert projected["consentedScopes"] == []

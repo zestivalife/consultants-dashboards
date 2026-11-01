@@ -75,6 +75,13 @@ export function getConsultantDietPlan(planId){return request(`/diet-plans/${enco
 export function saveConsultantDietPlan(planId,payload){return request(`/diet-plans/${encodeURIComponent(planId)}/draft`,{method:'PUT',body:JSON.stringify(payload)});}
 export function reviewConsultantDietPlan(planId,payload){return request(`/diet-plans/${encodeURIComponent(planId)}/review`,{method:'POST',body:JSON.stringify(payload)});}
 export function publishConsultantDietPlan(planId){return request(`/diet-plans/${encodeURIComponent(planId)}/publish`,{method:'POST'});}
+export async function downloadConsultantDietPlan(planId){
+  const path=`/diet-plans/${encodeURIComponent(planId)}/download`;
+  const send=token=>fetch(`${BASE}${path}`,{credentials:'include',headers:{Accept:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',...(token?{'X-Nuetra-Authorization':`Bearer ${token}`}:{})}});
+  let response=await send(getToken());if(response.status===401){const refreshed=await refreshAccessToken().catch(()=>null);if(refreshed)response=await send(refreshed);}
+  if(!response.ok)throw new Error(fallbackMessage(response.status));
+  const disposition=response.headers.get('content-disposition')||'';return{blob:await response.blob(),filename:/filename="?([^";]+)"?/i.exec(disposition)?.[1]||'diet-plan.docx'};
+}
 export function getNutritionAssessment(clientId){return request(`/clients/${encodeURIComponent(clientId)}/nutrition-assessment`);}
 export function saveNutritionAssessment(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/nutrition-assessment`,{method:'PUT',body:JSON.stringify(payload)});}
 export function transitionNutritionAssessment(assessmentId,payload){return request(`/nutrition-assessments/${encodeURIComponent(assessmentId)}/transition`,{method:'POST',body:JSON.stringify(payload)});}

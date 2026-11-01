@@ -31,7 +31,7 @@ test('maps safety, vegan and stale errors', () => {
 test('API client uses every accepted backend common-food route', () => {
   for (const fragment of ['/common-foods', '/common-food/generate', '/common-food/options', '/components/', '/serving']) assert.match(api, new RegExp(fragment.replaceAll('/', '\\/')));
   assert.doesNotMatch(api, /Math\.random/);
-  assert.match(api, /\/v1\/consultants\/clients\/\$\{encodeURIComponent\(clientId\)\}/);
+  assert.match(api, /\/v1\/external\/clients\/\$\{encodeURIComponent\(clientId\)\}/);
   assert.doesNotMatch(api, /\/v1\/consultants\/nutrition\/clients/);
   assert.match(api, /method: 'PUT'/);
 });

@@ -6,6 +6,7 @@ const client360=fs.readFileSync(new URL('../components/external/ExternalClient36
 const intake=fs.readFileSync(new URL('../components/external/ExternalClientHealthIntake.jsx',import.meta.url),'utf8');
 const entry=fs.readFileSync(new URL('../pages/intake/[token].js',import.meta.url),'utf8');
 const api=fs.readFileSync(new URL('../lib/fiteatsyConsultantsApi.js',import.meta.url),'utf8');
+const dietPlan=fs.readFileSync(new URL('../components/external/ExternalMultiDietPlan.jsx',import.meta.url),'utf8');
 
 test('Consultant sees a focused missing-information editor rather than full onboarding',()=>{
   assert.match(client360,/Complete Missing Information/);
@@ -34,7 +35,8 @@ test('external profile warnings are non-blocking and target validation remains t
   assert.match(client360,/Continue to Diet Plan/);
   assert.doesNotMatch(client360,/overview\.dietPlanEligible &&/);
   assert.doesNotMatch(client360,/Diet Plan generation remains unavailable/);
-  assert.match(client360,/const validTargets=/);
-  assert.match(client360,/800–6000 kcal and 20–400 g protein/);
+  assert.match(dietPlan,/const valid =/);
+  assert.match(dietPlan,/Number\(form\.dailyCalories\) >= 800/);
+  assert.match(dietPlan,/Number\(form\.dailyProtein\) >= 20/);
   assert.doesNotMatch(client360,/overview\.intakeStatus='REQUIRED_INFORMATION_MISSING'/);
 });

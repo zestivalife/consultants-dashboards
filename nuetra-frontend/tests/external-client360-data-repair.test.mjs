@@ -5,6 +5,7 @@ import test from 'node:test';
 const client360 = readFileSync(new URL('../components/external/ExternalClient360.jsx', import.meta.url), 'utf8');
 const healthRecords = readFileSync(new URL('../components/external/ExternalHealthRecords.jsx', import.meta.url), 'utf8');
 const reportApi = readFileSync(new URL('../lib/externalTransientReportApi.js', import.meta.url), 'utf8');
+const dietPlan = readFileSync(new URL('../components/external/ExternalMultiDietPlan.jsx', import.meta.url), 'utf8');
 
 test('transient report projection retries normal authentication without exposing credentials', () => {
   assert.match(reportApi, /refreshAccessToken/);
@@ -27,16 +28,17 @@ test('biomarker projection never converts a total request failure to an empty li
 
 test('diet-plan action is capability-gated, state-aware, and opens existing authoring', () => {
   assert.match(client360, /capabilityState\.dietPlan&&<button/);
-  for (const label of ['Create Diet Plan', 'Continue Diet Plan', 'View Published Plan', 'Create Revision']) assert.ok(client360.includes(label), label);
+  assert.match(client360, /Open Diet Plans/);
   assert.match(client360, /setActive\('Diet Plan'\)/);
-  assert.match(client360, /CommonFoodPlanEditor/);
+  assert.match(client360, /ExternalMultiDietPlan/);
+  assert.match(dietPlan, /CommonFoodPlanEditor/);
 });
 
 test('diet authoring receives real read-only client and confirmed biomarker context', () => {
-  for (const contract of ['dietPlanContext', 'Primary goal', 'Diet preference', 'Food restrictions', 'Latest confirmed biomarkers', 'context.biomarkers.map']) {
-    assert.ok(client360.includes(contract), contract);
+  for (const contract of ['dietPlanContext', 'context?.goals', 'Diet preference', 'Food restrictions', 'Confirmed biomarkers']) {
+    assert.ok(`${client360}\n${dietPlan}`.includes(contract), contract);
   }
-  assert.match(client360, /never auto-publishes a plan/);
+  assert.match(dietPlan, /Publish approved version/);
 });
 
 test('dashboard counts avoid false zero when their source is unavailable', () => {

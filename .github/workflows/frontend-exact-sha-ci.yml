@@ -20,6 +20,20 @@ jobs:
     name: Validate exact frontend SHA
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zestiva_practice_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       REQUESTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.commit_sha || github.sha }}
 
@@ -76,14 +90,47 @@ jobs:
           cache: pip
           cache-dependency-path: |
             services/practice-operations-service/requirements.txt
+            services/auth-service/requirements.txt
             api-gateway/requirements.txt
 
       - name: Install locked backend dependencies
         run: python -m pip install -r services/practice-operations-service/requirements.txt
 
+      - name: Migrate isolated Practice Operations database
+        working-directory: services/practice-operations-service
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/zestiva_practice_ci
+        run: python -m alembic upgrade head
+
       - name: Run practice operations regression
         working-directory: services/practice-operations-service
         run: python -m pytest -q
+
+      - name: Run database-backed Practice Operations contracts
+        working-directory: services/practice-operations-service
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/zestiva_practice_ci
+          INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/zestiva_practice_ci
+        run: python -m pytest -q tests/test_client_directory_postgres_integration.py tests/test_diet_plan_postgres_lifecycle.py
+
+      - name: Install locked Auth dependencies
+        run: python -m pip install -r services/auth-service/requirements.txt
+
+      - name: Create and migrate isolated Auth database
+        working-directory: services/auth-service
+        env:
+          PGPASSWORD: postgres
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/zestiva_auth_ci
+        run: |
+          createdb -h 127.0.0.1 -U postgres zestiva_auth_ci
+          python -m alembic upgrade head
+
+      - name: Run persisted Auth workspace-authority contract
+        working-directory: services/auth-service
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/zestiva_auth_ci
+          AUTH_INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/zestiva_auth_ci
+        run: python -m pytest -q tests/test_workspace_authority_postgres_integration.py
 
       - name: Install locked gateway dependencies
         run: python -m pip install -r api-gateway/requirements.txt
@@ -125,6 +172,8 @@ jobs:
           echo "- Focused regression: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Full frontend regression: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Practice operations regression: **PASS**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PostgreSQL integration contracts: **PASS**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Auth workspace-authority contract: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Gateway regression: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Production build: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- git diff --check: **PASS**" >> "$GITHUB_STEP_SUMMARY"

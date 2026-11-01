@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   searchExternalCommonFoods,
 } from '../../lib/fiteatsyConsultantsApi';
-import { bindDietPlanAssessment, createConsultantDietPlan, getConsultantDietPlan, getDietPlanHealthContext, getNutritionAssessment, listConsultantDietPlans, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan } from '../../lib/practiceOperationsApi';
+import { bindDietPlanAssessment, createConsultantDietPlan, downloadConsultantDietPlan, getConsultantDietPlan, getDietPlanHealthContext, getNutritionAssessment, listConsultantDietPlans, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan } from '../../lib/practiceOperationsApi';
 import { useAuth } from '../../context/AuthContext';
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import CommonFoodPlanEditor from '../platform/CommonFoodPlanEditor';
@@ -122,6 +122,7 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
     } catch (error) { onError(error.message || 'Unable to update Diet Plan.'); }
     finally { setBusy(''); }
   };
+  const download=async()=>{if(!selected||busy)return;setBusy('download');try{const file=await downloadConsultantDietPlan(selected.id);const href=URL.createObjectURL(file.blob);const anchor=document.createElement('a');anchor.href=href;anchor.download=file.filename;anchor.click();URL.revokeObjectURL(href);}catch(error){onError(error.message||'Unable to download Diet Plan.');}finally{setBusy('');}};
 
   const resolved=healthContext?.measurement_context||{};const latest=resolved.latest||{};const calculations=resolved.calculations||{};
   const fields = [['Health & wellness goals', healthContext?.profile?.weight_management_goals?.length?healthContext.profile.weight_management_goals:context?.goals], ['Diet preference', healthContext?.profile?.dietary_preference||context?.dietPreference], ['Allergies', healthContext?.profile?.allergies_intolerances?.length?healthContext.profile.allergies_intolerances:context?.allergies], ['Food restrictions', healthContext?.profile?.food_restrictions?.length?healthContext.profile.food_restrictions:context?.restrictions], ['Current weight', latest.WEIGHT_KG?`${latest.WEIGHT_KG.value} ${latest.WEIGHT_KG.unit}`:'Not provided'], ['Current height', latest.HEIGHT_CM?`${latest.HEIGHT_CM.value} ${latest.HEIGHT_CM.unit}`:'Not provided'], ['BMI', calculations.bmi?.value??'Not available']];
@@ -161,6 +162,7 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
             <p className="mt-1 text-xs text-slate-500">Published versions are immutable. Editing a published plan and saving creates the next version.</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button disabled={busy} onClick={download} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy==='download'?'Preparing…':'Download DOCX'}</button>
             {!['APPROVED','PUBLISHED','ARCHIVED'].includes(selected.status) && <button disabled={busy} onClick={() => persist('save')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save version'}</button>}
             {['DRAFT','SAVED','CHANGES_REQUESTED'].includes(selected.status)&&<button disabled={busy} onClick={()=>persist('submit')} className="min-h-11 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">{busy==='submit'?'Submitting…':'Submit for review'}</button>}
             {canReview&&selected.status==='SUBMITTED'&&<button disabled={busy} onClick={()=>persist('startReview')} className="min-h-11 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">Start review</button>}

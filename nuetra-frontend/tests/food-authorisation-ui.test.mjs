@@ -35,7 +35,7 @@ test('owner navigation exposes one canonical Food Authorisation CTA',()=>{
 });
 
 test('authorised Food Authorisation route is distinct from the default owner landing',()=>{
- assert.match(roleRoutes,/platform_owner:\s*'\/dashboard\/owner'/);
+ assert.match(roleRoutes,/platform_owner:\s*CANONICAL_WORKSPACE_PATHS\['super-admin'\]/);
  assert.match(roleRoutes,/pathname === '\/dashboard\/admin'/);
  assert.match(roleRoutes,/view === 'food-authorisation'/);
  assert.match(authContext,/!canAccessDashboardLocation\(nextUser, router\.pathname, router\.query\)/);
