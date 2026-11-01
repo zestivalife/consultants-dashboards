@@ -21,7 +21,7 @@ from app.core.security import (
     generate_refresh_token,
     hash_token,
 )
-from app.db.models.owner_access import UserStatusHistory
+from app.db.models.owner_access import Organization, OrganizationMembership, UserStatusHistory
 from app.db.models.external_signup import ExternalSignupProvisioning
 from app.db.models.refresh_token import RefreshToken
 from app.db.models.user import PasswordHistory, User
@@ -39,6 +39,7 @@ from app.schemas.auth import (
     RoleResponse,
     TokenResponse,
     UserResponse,
+    WorkspaceAuthority,
 )
 from app.services.password_service import password_service
 from app.services import people_access_service
@@ -269,6 +270,41 @@ async def _user_response(
             )
         )
     ).scalar_one_or_none()
+    internal_memberships = (
+        await session.execute(
+            select(OrganizationMembership, Organization)
+            .join(Organization, Organization.id == OrganizationMembership.organization_id)
+            .where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.status == "ACTIVE",
+            )
+            .order_by(OrganizationMembership.joined_at.asc(), OrganizationMembership.id.asc())
+        )
+    ).all()
+    role_key = _normalize_key(access_profile.role or (user.role.name if user.role else "member"))
+    permissions_for_authority = sorted(set(access_profile.capabilities or permission_list))
+    workspace_authorities: list[WorkspaceAuthority] = []
+    if role_key in {"superuser", "super_admin", "platform_owner", "internal_super_admin"}:
+        workspace_authorities.append(WorkspaceAuthority(
+            workspaceId="super-admin",
+            landingPage="/workspace/super-admin",
+            role=role_key,
+            permissions=permissions_for_authority,
+            resolutionPath="BACKEND_ROLE",
+        ))
+    internal_workspace = "senior-consultant" if role_key == "senior_consultant" else "internal-consultant"
+    if role_key in PROFESSIONAL_ROLE_KEYS:
+        for membership, organization in internal_memberships:
+            workspace_authorities.append(WorkspaceAuthority(
+                workspaceId=internal_workspace,
+                landingPage=f"/workspace/{internal_workspace}",
+                role=role_key,
+                permissions=permissions_for_authority,
+                tenantId=str(membership.organization_id),
+                tenantName=organization.name,
+                tenantType="ZESTIVA_INTERNAL",
+                resolutionPath="MEMBERSHIP",
+            ))
     current_tenant = None
     if external_provisioning is not None:
         tenant_type = (
@@ -289,6 +325,18 @@ async def _user_response(
             "membershipStatus": "active",
             "resolutionPath": "MEMBERSHIP",
         }
+        if role_key in PROFESSIONAL_ROLE_KEYS:
+            external_workspace = "senior-consultant" if role_key == "senior_consultant" else "external-consultant"
+            workspace_authorities.append(WorkspaceAuthority(
+                workspaceId=external_workspace,
+                landingPage=f"/workspace/{external_workspace}",
+                role=role_key,
+                permissions=permissions_for_authority,
+                tenantId=str(external_provisioning.tenant_id),
+                tenantName=display_name,
+                tenantType=tenant_type,
+                resolutionPath="MEMBERSHIP",
+            ))
     elif access_profile.active_organization is not None:
         current_tenant = {
             "tenantId": str(access_profile.active_organization.id),
@@ -321,6 +369,7 @@ async def _user_response(
             "reason": next_action.reason,
         },
         currentTenant=current_tenant,
+        workspaceAuthorities=workspace_authorities,
         created_at=user.created_at,
     )
 

@@ -169,6 +169,18 @@ class CanonicalTenant(BaseModel):
     resolutionPath: Literal["MEMBERSHIP"] = "MEMBERSHIP"
 
 
+class WorkspaceAuthority(BaseModel):
+    workspaceId: Literal["internal-consultant", "external-consultant", "senior-consultant", "super-admin"]
+    landingPage: str
+    role: str
+    permissions: list[str] = Field(default_factory=list)
+    tenantId: str | None = None
+    tenantName: str | None = None
+    tenantType: Literal["INDEPENDENT_CONSULTANT", "PRACTICE", "CLINIC", "ENTERPRISE", "ZESTIVA_INTERNAL"] | None = None
+    membershipStatus: Literal["active"] = "active"
+    resolutionPath: Literal["MEMBERSHIP", "BACKEND_ROLE"]
+
+
 class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
@@ -188,6 +200,7 @@ class UserResponse(BaseModel):
     temporary_password_expires_at: datetime | None = None
     next_action: NextAccountAction | None = None
     currentTenant: CanonicalTenant | None = None
+    workspaceAuthorities: list[WorkspaceAuthority] = Field(default_factory=list)
     created_at: datetime
     mfa_assured: bool = False
 

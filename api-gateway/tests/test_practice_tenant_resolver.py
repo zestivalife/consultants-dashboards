@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from app.routers.practice_tenant_resolver import (
+    PracticeTenantAuthorityUnavailable,
     PracticeTenantResolutionError,
     client_belongs_to_authenticated_tenant,
     is_practice_operations_path,
@@ -45,6 +46,13 @@ def tenant_payload(**overrides):
     }
     tenant.update(overrides)
     return {"currentTenant": tenant}
+
+
+def multi_tenant_payload():
+    return {"workspaceAuthorities": [
+        {**tenant_payload()["currentTenant"], "workspaceId": "external-consultant"},
+        {**tenant_payload(tenantId="external-tenant-2", tenantType="PRACTICE")["currentTenant"], "workspaceId": "external-consultant"},
+    ]}
 
 
 @pytest.mark.parametrize("tenant_type", ["INDEPENDENT_CONSULTANT", "PRACTICE", "CLINIC"])
@@ -153,6 +161,28 @@ def test_resolver_denies_no_membership_and_missing_identity():
                 authenticated_user_id="user-1",
             )
         )
+
+
+def test_multi_tenant_authority_requires_and_validates_explicit_selection():
+    with pytest.raises(PracticeTenantResolutionError, match="selection"):
+        parse_practice_tenant_authority(multi_tenant_payload())
+    selected = parse_practice_tenant_authority(multi_tenant_payload(), "external-tenant-2")
+    assert selected.tenant_id == "external-tenant-2"
+    assert selected.tenant_type == "PRACTICE"
+    with pytest.raises(PracticeTenantResolutionError, match="No active"):
+        parse_practice_tenant_authority(multi_tenant_payload(), "foreign-tenant")
+
+
+def test_membership_authority_outage_is_not_misclassified_as_missing_membership():
+    unavailable = FakeClient(FakeResponse(status_code=503, payload={}))
+    with pytest.raises(PracticeTenantAuthorityUnavailable):
+        asyncio.run(resolve_practice_tenant_authority(
+            unavailable,
+            auth_service_url="https://auth.example",
+            fiteatsy_service_url="https://fiteatsy.example",
+            authorization="Bearer signed-token",
+            authenticated_user_id="user-1",
+        ))
 
 
 def test_scope_is_exactly_practice_operations_namespace():

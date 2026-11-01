@@ -175,6 +175,10 @@ async def test_fully_provisioned_direct_registration_can_use_me_and_mobile_passw
     assert current.currentTenant.membershipStatus == "active"
     assert current.currentTenant.resolutionPath == "MEMBERSHIP"
     assert result.user.currentTenant == current.currentTenant
+    assert len(current.workspaceAuthorities) == 1
+    assert current.workspaceAuthorities[0].workspaceId == "external-consultant"
+    assert current.workspaceAuthorities[0].tenantId == current.currentTenant.tenantId
+    assert current.workspaceAuthorities[0].resolutionPath == "MEMBERSHIP"
     assert user.is_verified is False
     assert user.email_verified is False
     assert user.mobile_verified is False
@@ -441,6 +445,9 @@ async def test_login_resolves_workspace_from_people_access_context(session: Asyn
     assert login_result.user.currentTenant is not None
     assert login_result.user.currentTenant.tenantType == "ZESTIVA_INTERNAL"
     assert login_result.user.currentTenant.resolutionPath == "MEMBERSHIP"
+    assert len(login_result.user.workspaceAuthorities) == 1
+    assert login_result.user.workspaceAuthorities[0].workspaceId == "internal-consultant"
+    assert login_result.user.workspaceAuthorities[0].tenantType == "ZESTIVA_INTERNAL"
 
 
 @pytest.mark.asyncio

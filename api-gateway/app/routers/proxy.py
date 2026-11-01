@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 from app.config import get_settings
 from app.routers.owner_permissions import required_owner_permissions
 from app.routers.practice_tenant_resolver import (
+    PracticeTenantAuthorityUnavailable,
     PracticeTenantResolutionError,
     client_belongs_to_authenticated_tenant,
     is_practice_operations_path,
@@ -138,7 +139,7 @@ async def proxy(request: Request, path: str):
     headers = dict(request.headers)
     headers.pop("host", None)
     # Authority headers are gateway-owned and must never be accepted from callers.
-    for authority_header in ("x-user-id", "x-user-role", "x-user-permissions", "x-tenant-id", "x-tenant-type", "x-profession-code"):
+    for authority_header in ("x-user-id", "x-user-role", "x-user-permissions", "x-tenant-id", "x-tenant-type", "x-profession-code", "x-workspace-tenant-id"):
         headers.pop(authority_header, None)
     upstream_host = urlsplit(upstream_base).hostname or ""
     if upstream_host.endswith(".railway.internal"):
@@ -191,7 +192,11 @@ async def proxy(request: Request, path: str):
                 fiteatsy_service_url=get_settings().fiteatsy_service_url,
                 authorization=request.headers.get("Authorization"),
                 authenticated_user_id=str(user_id) if user_id else None,
+                requested_tenant_id=request.headers.get("X-Workspace-Tenant-Id"),
             )
+        except PracticeTenantAuthorityUnavailable as exc:
+            logger.warning("practice_tenant_authority_unavailable",path=full_path,user_id=user_id,reason=str(exc))
+            return JSONResponse(status_code=503,content={"success":False,"message":"Workspace membership service is temporarily unavailable","data":None,"error":"MEMBERSHIP_SERVICE_UNAVAILABLE","request_id":request_id})
         except PracticeTenantResolutionError as exc:
             logger.warning(
                 "practice_tenant_resolution_denied",

@@ -18,6 +18,10 @@ class PracticeTenantResolutionError(Exception):
     """A Practice Operations request has no trusted active External tenant."""
 
 
+class PracticeTenantAuthorityUnavailable(PracticeTenantResolutionError):
+    """The canonical membership authority could not be reached or parsed."""
+
+
 @dataclass(frozen=True)
 class PracticeTenantAuthority:
     tenant_id: str
@@ -66,11 +70,25 @@ async def client_belongs_to_authenticated_tenant(
     raise PracticeTenantResolutionError("External client authority is unavailable")
 
 
-def _canonical_tenant(payload: Any) -> Mapping[str, Any]:
+def _canonical_tenant(payload: Any, requested_tenant_id: str | None = None) -> Mapping[str, Any]:
     if not isinstance(payload, Mapping):
-        raise PracticeTenantResolutionError("External tenant authority is unavailable")
+        raise PracticeTenantAuthorityUnavailable("External tenant authority is unavailable")
 
     data = payload.get("data")
+    authority_source = data if isinstance(data, Mapping) else payload
+    authorities = authority_source.get("workspaceAuthorities") if isinstance(authority_source, Mapping) else None
+    if isinstance(authorities, list):
+        external = [item for item in authorities if isinstance(item, Mapping)
+                    and str(item.get("tenantType") or "").upper() in EXTERNAL_TENANT_TYPES
+                    and str(item.get("membershipStatus") or "").upper() == "ACTIVE"
+                    and str(item.get("resolutionPath") or "").upper() == "MEMBERSHIP"]
+        if requested_tenant_id:
+            external = [item for item in external if str(item.get("tenantId") or "") == requested_tenant_id]
+        if len(external) == 1:
+            return external[0]
+        if len(external) > 1:
+            raise PracticeTenantResolutionError("Explicit External tenant selection is required")
+        raise PracticeTenantResolutionError("No active External membership")
     tenant = payload.get("currentTenant")
     if tenant is None and isinstance(data, Mapping):
         tenant = data.get("currentTenant")
@@ -79,9 +97,9 @@ def _canonical_tenant(payload: Any) -> Mapping[str, Any]:
     return tenant
 
 
-def parse_practice_tenant_authority(payload: Any) -> PracticeTenantAuthority:
+def parse_practice_tenant_authority(payload: Any, requested_tenant_id: str | None = None) -> PracticeTenantAuthority:
     """Validate Fiteatsy's canonical, server-selected active membership."""
-    tenant = _canonical_tenant(payload)
+    tenant = _canonical_tenant(payload, requested_tenant_id)
     tenant_id = str(tenant.get("tenantId") or "").strip()
     tenant_type = str(tenant.get("tenantType") or "").strip().upper()
     membership_role = str(tenant.get("currentMembershipRole") or "").strip().upper()
@@ -108,11 +126,12 @@ async def resolve_practice_tenant_authority(
     fiteatsy_service_url: str,
     authorization: str | None,
     authenticated_user_id: str | None,
+    requested_tenant_id: str | None = None,
 ) -> PracticeTenantAuthority:
     if not authenticated_user_id or not authorization or not authorization.startswith("Bearer "):
         raise PracticeTenantResolutionError("Authenticated External identity is required")
     if not auth_service_url:
-        raise PracticeTenantResolutionError("External tenant authority is unavailable")
+        raise PracticeTenantAuthorityUnavailable("External tenant authority is unavailable")
 
     try:
         response = await client.get(
@@ -120,16 +139,18 @@ async def resolve_practice_tenant_authority(
             headers={"Authorization": authorization, "Accept": "application/json"},
         )
     except (httpx.HTTPError, ValueError) as exc:
-        raise PracticeTenantResolutionError("External tenant authority is unavailable") from exc
+        raise PracticeTenantAuthorityUnavailable("External tenant authority is unavailable") from exc
 
+    if response.status_code in {502, 503, 504}:
+        raise PracticeTenantAuthorityUnavailable("External tenant authority is unavailable")
     if response.status_code != 200:
         raise PracticeTenantResolutionError("No active External membership")
 
     try:
         payload = response.json()
     except ValueError as exc:
-        raise PracticeTenantResolutionError("External tenant authority is unavailable") from exc
-    authority = parse_practice_tenant_authority(payload)
+        raise PracticeTenantAuthorityUnavailable("External tenant authority is unavailable") from exc
+    authority = parse_practice_tenant_authority(payload, requested_tenant_id)
 
     # Profession is owned by the authenticated External onboarding record.  It is
     # advisory until the Practice Operations service normalises it against its
