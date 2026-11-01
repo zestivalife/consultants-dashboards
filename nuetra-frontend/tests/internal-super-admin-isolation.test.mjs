@@ -7,7 +7,7 @@ const ownerRoutes=fs.readFileSync(new URL('../lib/ownerConsoleRoutes.js',import.
 const layout=fs.readFileSync(new URL('../components/platform/OwnerConsoleLayout.jsx',import.meta.url),'utf8');
 
 test('internal super admin reaches only the Internal owner workspace',()=>{
-  assert.match(roleRoutes,/internal_super_admin:\s*'\/dashboard\/owner'/);
+  assert.match(roleRoutes,/internal_super_admin:\s*CANONICAL_WORKSPACE_PATHS\['super-admin'\]/);
   assert.match(roleRoutes,/internal-platform-operations/);
   assert.match(layout,/INTERNAL_OWNER_ROUTE_SLUGS\.has\(item\.slug\)/);
 });

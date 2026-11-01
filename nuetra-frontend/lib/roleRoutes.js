@@ -48,12 +48,19 @@ const WORKSPACE_POLICIES = {
 
 const PROFESSIONAL_ROLE_KEYS = new Set(['consultant', 'provider', 'dietician', 'dietitian', 'senior_consultant', 'practitioner', 'mentor', 'team_lead']);
 const FOOD_AUTHORISATION_ROLE_KEYS = new Set(['platform_owner', 'super_admin', 'superuser']);
+export const CANONICAL_WORKSPACE_PATHS = {
+  'internal-consultant': '/workspace/internal-consultant',
+  'external-consultant': '/workspace/external-consultant',
+  'senior-consultant': '/workspace/senior-consultant',
+  'super-admin': '/workspace/super-admin',
+};
 const PROFESSIONAL_ROUTE_MAP = {
-  senior_consultant: '/dashboard/senior-consultant', consultant: '/dashboard/consultant',
-  provider: '/dashboard/provider', dietician: '/dashboard/provider', dietitian: '/dashboard/provider',
-  practitioner: '/dashboard/provider', mentor: '/dashboard/mentor', team_lead: '/dashboard/team-lead',
+  senior_consultant: CANONICAL_WORKSPACE_PATHS['senior-consultant'],
+  consultant: CANONICAL_WORKSPACE_PATHS['external-consultant'],
+  provider: CANONICAL_WORKSPACE_PATHS['external-consultant'], dietician: CANONICAL_WORKSPACE_PATHS['external-consultant'], dietitian: CANONICAL_WORKSPACE_PATHS['external-consultant'],
+  practitioner: CANONICAL_WORKSPACE_PATHS['external-consultant'], mentor: '/dashboard/mentor', team_lead: '/dashboard/team-lead',
   corporate_admin: '/dashboard/corporate-admin', corporate_client: '/dashboard/corporate-admin', organization_admin: '/dashboard/corporate-admin',
-  admin: '/dashboard/admin', superuser: '/dashboard/owner', super_admin: '/dashboard/owner', platform_owner: '/dashboard/owner', internal_super_admin: '/dashboard/owner',
+  admin: '/dashboard/admin', superuser: CANONICAL_WORKSPACE_PATHS['super-admin'], super_admin: CANONICAL_WORKSPACE_PATHS['super-admin'], platform_owner: CANONICAL_WORKSPACE_PATHS['super-admin'], internal_super_admin: CANONICAL_WORKSPACE_PATHS['super-admin'],
 };
 
 export const OWNER_ACCESS_POLICY = {
@@ -128,6 +135,34 @@ function getProductRole(user) {
 
 export function getEffectiveWorkspaceRole(user) {
   return getProductRole(user) || getRoleKey(user?.role) || getRoleKey(getAccessProfile(user)?.role);
+}
+
+function getCanonicalTenant(user) {
+  return user?.currentTenant || user?.current_tenant || null;
+}
+
+function hasActiveCanonicalMembership(user) {
+  const tenant = getCanonicalTenant(user);
+  return Boolean(tenant?.tenantId || tenant?.tenant_id)
+    && String(tenant?.membershipStatus || tenant?.membership_status || 'ACTIVE').toUpperCase() === 'ACTIVE'
+    && String(tenant?.resolutionPath || tenant?.resolution_path || '').toUpperCase() === 'MEMBERSHIP';
+}
+
+export function getEligibleWorkspaceIds(user) {
+  if (!user || !isDashboardEligible(user)) return [];
+  const role = getEffectiveWorkspaceRole(user);
+  if (OWNER_ACCESS_POLICY.roles.includes(role) && isAccessAllowed(user, OWNER_ACCESS_POLICY, true)) return ['super-admin'];
+  if (!hasActiveCanonicalMembership(user)) return [];
+  const tenantType = String(getCanonicalTenant(user)?.tenantType || getCanonicalTenant(user)?.tenant_type || '').toUpperCase();
+  if (role === 'senior_consultant') return ['senior-consultant'];
+  if (!CONSULTANT_ACCESS_POLICY.roles.includes(role)) return [];
+  if (tenantType === 'ZESTIVA_INTERNAL') return ['internal-consultant'];
+  if (['INDEPENDENT_CONSULTANT', 'PRACTICE', 'CLINIC'].includes(tenantType)) return ['external-consultant'];
+  return [];
+}
+
+export function isCanonicalWorkspaceAllowed(user, workspaceId) {
+  return getEligibleWorkspaceIds(user).includes(workspaceId);
 }
 
 export function canAccessFoodAuthorisation(userOrRole) {
@@ -222,6 +257,9 @@ export function resolveUserWorkspace(user) {
 
 export function getDashboardPathForUser(user, fallback = '/dashboard/team-member') {
   if (!user) return fallback;
+  const eligible = getEligibleWorkspaceIds(user);
+  if (eligible.length === 1) return CANONICAL_WORKSPACE_PATHS[eligible[0]];
+  if (eligible.length > 1) return '/workspace/select';
   const effectiveRole = getEffectiveWorkspaceRole(user);
   if (PROFESSIONAL_ROUTE_MAP[effectiveRole]) return PROFESSIONAL_ROUTE_MAP[effectiveRole];
   return resolveUserWorkspace(user)?.landingPage || fallback;
@@ -294,9 +332,13 @@ function normalizePolicy(policy) {
   return policy;
 }
 
-export function isAccessAllowed(user, policy = {}) {
+export function isAccessAllowed(user, policy = {}, skipCanonicalWorkspace = false) {
   const normalized = normalizePolicy(policy);
   if (!Object.keys(normalized).length) return true;
+
+  if (!skipCanonicalWorkspace && normalized.workspaceId) {
+    return isCanonicalWorkspaceAllowed(user, normalized.workspaceId);
+  }
 
   if (normalized.roles?.length && isRoleAllowed(user?.role, normalized.roles)) {
     return true;

@@ -61,7 +61,7 @@ export default function withAuth(WrappedComponent, accessPolicy = {}) {
         router.replace('/login');
       } else if (!isLoading && user) {
         const accountRoute = getAccountActionRoute(user);
-        if (accountRoute && router.pathname.startsWith('/dashboard')) {
+        if (accountRoute && (router.pathname.startsWith('/dashboard') || router.pathname.startsWith('/workspace'))) {
           router.replace(accountRoute);
         }
       }
@@ -72,7 +72,7 @@ export default function withAuth(WrappedComponent, accessPolicy = {}) {
 
     const role = getRoleKey(user.role);
     const accountRoute = getAccountActionRoute(user);
-    if (accountRoute && router.pathname.startsWith('/dashboard')) {
+    if (accountRoute && (router.pathname.startsWith('/dashboard') || router.pathname.startsWith('/workspace'))) {
       return <RedirectScreen message="Redirecting to your account setup…" />;
     }
     const allowed = isAccessAllowed(user, accessPolicy);

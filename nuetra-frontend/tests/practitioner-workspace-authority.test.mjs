@@ -10,7 +10,7 @@ const professionalRoutes = roleRoutes.match(/PROFESSIONAL_ROUTE_MAP = \{([\s\S]*
 const platformRoles = roleRoutes.match(/FOOD_AUTHORISATION_ROLE_KEYS = new Set\(\[([^\]]+)]\)/)?.[1] || '';
 
 test('practitioner uses the existing provider professional workspace', () => {
-  assert.match(professionalRoutes, /practitioner:\s*'\/dashboard\/provider'/);
+  assert.match(professionalRoutes, /practitioner:\s*CANONICAL_WORKSPACE_PATHS\['external-consultant'\]/);
   assert.match(providerPage, /CONSULTANT_ACCESS_POLICY/);
   assert.ok(consultantPolicy.includes("'practitioner'"));
 });

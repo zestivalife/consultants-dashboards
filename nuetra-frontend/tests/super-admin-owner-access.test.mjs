@@ -22,7 +22,7 @@ for (const role of ['superuser', 'super_admin', 'platform_owner']) {
   test(`${role} reaches the owner workspace without tenant enrichment`, () => {
     const user = { role, status: 'ACTIVE', permissions: [], access_profile: null };
 
-    assert.equal(getPostAuthPathForUser(user), '/dashboard/owner');
+    assert.equal(getPostAuthPathForUser(user), '/workspace/super-admin');
     assert.equal(isAccessAllowed(user, OWNER_ACCESS_POLICY), true);
   });
 }

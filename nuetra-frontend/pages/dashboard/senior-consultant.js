@@ -1,5 +1,6 @@
-import { SeniorConsultantWorkspace } from '../../components/platform/PlatformWorkspace';
+import LegacyWorkspaceRedirect from '../../components/workspace/LegacyWorkspaceRedirect';
 import withAuth from '../../hocs/withAuth';
 import { DELIVERY_ACCESS_POLICY } from '../../lib/roleRoutes';
 
-export default withAuth(SeniorConsultantWorkspace, { ...DELIVERY_ACCESS_POLICY, workspaceRoles: ['senior_consultant'] });
+const LegacySeniorConsultant = () => <LegacyWorkspaceRedirect workspaceId="senior-consultant" />;
+export default withAuth(LegacySeniorConsultant, { ...DELIVERY_ACCESS_POLICY, workspaceRoles: ['senior_consultant'] });
