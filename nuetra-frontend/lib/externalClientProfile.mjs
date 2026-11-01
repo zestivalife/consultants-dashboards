@@ -99,6 +99,15 @@ export function externalClient360Base(client = {}, healthContext = null) {
       documentCount: reports.length,
       dietPlanWarnings: [],
     },
+    basicProfile: Object.fromEntries(
+      Object.entries({
+        name: displayName,
+        email: client.email || profile.email || null,
+        mobile: client.mobile || profile.mobile || null,
+        dateOfBirth: profile.dateOfBirth || profile.date_of_birth || null,
+        gender: profile.gender || null,
+      }).map(([key, value]) => [key, { value, sourceLabel: healthContext ? 'Fiteatsy' : 'Practice directory' }]),
+    ),
     sections: {
       ...suppliedSections,
       aboutYou: suppliedSections.aboutYou || profile,

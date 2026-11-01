@@ -29,6 +29,8 @@ test('directory and consented health data produce an explicit Client 360 base pr
 
   assert.equal(result.overview.name, 'QA Client');
   assert.equal(result.overview.documentCount, 1);
+  assert.equal(result.basicProfile.name.value, 'QA Client');
+  assert.equal(result.basicProfile.name.sourceLabel, 'Fiteatsy');
   assert.equal(result.sections.medicalHistory.conditions[0], 'asthma');
   assert.equal(result.documents[0].id, 'report-1');
   assert.equal(result.consent.source, 'FITEATSY_CONNECTION');
