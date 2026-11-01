@@ -4,11 +4,9 @@ import pytest
 
 from app.routers.practice_tenant_resolver import (
     PracticeTenantResolutionError,
-    client_belongs_to_authenticated_tenant,
     is_practice_operations_path,
     is_platform_marketplace_admin_path,
     parse_practice_tenant_authority,
-    practice_client_resource_id,
     resolve_practice_tenant_authority,
 )
 
@@ -167,29 +165,3 @@ def test_only_platform_marketplace_admin_namespace_bypasses_tenant_resolution():
     assert is_platform_marketplace_admin_path("/api/v1/practice-operations/admin/marketplace/finance")
     assert not is_platform_marketplace_admin_path("/api/v1/practice-operations/marketplace/profile")
     assert not is_platform_marketplace_admin_path("/api/v1/practice-operations/admin/other")
-
-
-def test_only_direct_client_resource_paths_are_class_b():
-    assert practice_client_resource_id("/api/v1/practice-operations/clients/client-a/progress") == "client-a"
-    assert practice_client_resource_id("/api/v1/practice-operations/tasks") is None
-    assert practice_client_resource_id("/api/v1/practice-operations/clients") is None
-
-
-def test_client_authority_uses_one_tenant_scoped_lookup_without_existence_probe():
-    visible = FakeClient(FakeResponse(status_code=200, payload={}))
-    assert asyncio.run(client_belongs_to_authenticated_tenant(
-        visible,
-        fiteatsy_service_url="https://fiteatsy.example",
-        authorization="Bearer signed-token",
-        client_id="client-a",
-    ))
-    assert len(visible.calls) == 1
-
-    foreign = FakeClient(FakeResponse(status_code=404, payload={}))
-    assert not asyncio.run(client_belongs_to_authenticated_tenant(
-        foreign,
-        fiteatsy_service_url="https://fiteatsy.example",
-        authorization="Bearer signed-token",
-        client_id="client-b",
-    ))
-    assert len(foreign.calls) == 1

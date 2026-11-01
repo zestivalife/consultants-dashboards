@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-import re
 from typing import Any, Mapping
 
 import httpx
@@ -9,9 +8,6 @@ PRACTICE_OPERATIONS_PREFIX = "/api/v1/practice-operations"
 PLATFORM_MARKETPLACE_ADMIN_PREFIX = f"{PRACTICE_OPERATIONS_PREFIX}/admin/marketplace"
 EXTERNAL_TENANT_TYPES = frozenset({"INDEPENDENT_CONSULTANT", "PRACTICE", "CLINIC"})
 ACTIVE_VALUES = frozenset({"ACTIVE", "READY", "ONBOARDING_IN_PROGRESS"})
-CLIENT_RESOURCE_PATH = re.compile(
-    r"^/api/v1/practice-operations/clients/([^/]+)(?:/|$)"
-)
 
 
 class PracticeTenantResolutionError(Exception):
@@ -37,33 +33,6 @@ def is_platform_marketplace_admin_path(path: str) -> bool:
     return path == PLATFORM_MARKETPLACE_ADMIN_PREFIX or path.startswith(
         PLATFORM_MARKETPLACE_ADMIN_PREFIX + "/"
     )
-
-
-def practice_client_resource_id(path: str) -> str | None:
-    match = CLIENT_RESOURCE_PATH.match(path)
-    return match.group(1) if match else None
-
-
-async def client_belongs_to_authenticated_tenant(
-    client: httpx.AsyncClient,
-    *,
-    fiteatsy_service_url: str,
-    authorization: str,
-    client_id: str,
-) -> bool:
-    """Use the canonical tenant-scoped client lookup without an existence probe."""
-    try:
-        response = await client.get(
-            f"{fiteatsy_service_url.rstrip('/')}/v1/external/clients/{client_id}",
-            headers={"Authorization": authorization, "Accept": "application/json"},
-        )
-    except (httpx.HTTPError, ValueError) as exc:
-        raise PracticeTenantResolutionError("External client authority is unavailable") from exc
-    if response.status_code == 200:
-        return True
-    if response.status_code in {403, 404}:
-        return False
-    raise PracticeTenantResolutionError("External client authority is unavailable")
 
 
 def _canonical_tenant(payload: Any) -> Mapping[str, Any]:

@@ -8,10 +8,8 @@ from app.config import get_settings
 from app.routers.owner_permissions import required_owner_permissions
 from app.routers.practice_tenant_resolver import (
     PracticeTenantResolutionError,
-    client_belongs_to_authenticated_tenant,
     is_practice_operations_path,
     is_platform_marketplace_admin_path,
-    practice_client_resource_id,
     resolve_practice_tenant_authority,
 )
 
@@ -214,37 +212,9 @@ async def proxy(request: Request, path: str):
         headers["X-User-Role"] = authority.membership_role
         if authority.profession_hint:
             headers["X-Profession-Code"] = authority.profession_hint
-        addressed_client_id = practice_client_resource_id(full_path)
-        if addressed_client_id:
-            try:
-                client_visible = await client_belongs_to_authenticated_tenant(
-                    client,
-                    fiteatsy_service_url=get_settings().fiteatsy_service_url,
-                    authorization=request.headers.get("Authorization") or "",
-                    client_id=addressed_client_id,
-                )
-            except PracticeTenantResolutionError:
-                return JSONResponse(
-                    status_code=503,
-                    content={
-                        "success": False,
-                        "message": "External client authority unavailable",
-                        "data": None,
-                        "error": "Service unavailable",
-                        "request_id": request_id,
-                    },
-                )
-            if not client_visible:
-                return JSONResponse(
-                    status_code=404,
-                    content={
-                        "success": False,
-                        "message": "Resource not found",
-                        "data": None,
-                        "error": "Not found",
-                        "request_id": request_id,
-                    },
-                )
+        # Practice Operations is the authoritative owner of its client IDs and
+        # enforces tenant, role, assignment, and consent at the resource route.
+        # A legacy Fiteatsy client lookup must not veto that canonical contract.
 
     logger.info(
         "proxy_request",
