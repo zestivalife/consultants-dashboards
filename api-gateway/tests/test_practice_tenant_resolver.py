@@ -55,6 +55,28 @@ def test_accepts_active_external_membership_types(tenant_type):
     assert authority.membership_role == "OWNER"
 
 
+def test_accepts_real_auth_workspace_authority_role_contract():
+    payload = {
+        "data": {
+            "workspaceAuthorities": [
+                {
+                    "workspaceId": "external-consultant",
+                    "tenantId": "external-tenant-1",
+                    "tenantType": "PRACTICE",
+                    "role": "consultant",
+                    "membershipStatus": "active",
+                    "resolutionPath": "MEMBERSHIP",
+                }
+            ]
+        }
+    }
+
+    authority = parse_practice_tenant_authority(payload)
+
+    assert authority.tenant_id == "external-tenant-1"
+    assert authority.membership_role == "CONSULTANT"
+
+
 @pytest.mark.parametrize(
     "payload",
     [

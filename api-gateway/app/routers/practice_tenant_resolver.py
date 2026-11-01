@@ -84,7 +84,9 @@ def parse_practice_tenant_authority(payload: Any) -> PracticeTenantAuthority:
     tenant = _canonical_tenant(payload)
     tenant_id = str(tenant.get("tenantId") or "").strip()
     tenant_type = str(tenant.get("tenantType") or "").strip().upper()
-    membership_role = str(tenant.get("currentMembershipRole") or "").strip().upper()
+    membership_role = str(
+        tenant.get("currentMembershipRole") or tenant.get("role") or ""
+    ).strip().upper()
     resolution_path = str(tenant.get("resolutionPath") or "MEMBERSHIP").strip().upper()
     membership_status = str(tenant.get("membershipStatus") or "ACTIVE").strip().upper()
     tenant_status = str(tenant.get("tenantStatus") or "ACTIVE").strip().upper()
