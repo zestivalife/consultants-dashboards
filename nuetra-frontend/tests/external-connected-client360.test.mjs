@@ -111,6 +111,7 @@ test('connected Client 360 binds health records and does not expose a mutable co
   const connectedBranch=component.match(/if\(client\.connectionId&&client\.healthDataAuthorized\)\{try\{[\s\S]*?\}return;\}/)?.[0]||'';
   assert.match(connectedBranch,/externalConnectedBiomarkers/);
   assert.doesNotMatch(connectedBranch,/getExternalClientBiomarkers|getExternalTransientBiomarkers/);
+  assert.match(component,/if\(client\.connectionId&&client\.healthDataAuthorized\)\{setProfileEvidenceReviews\(\[\]\);return;\}/);
 });
 
 test('connected report identifiers and profile names support canonical API aliases', () => {
