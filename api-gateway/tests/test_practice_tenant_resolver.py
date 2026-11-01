@@ -80,6 +80,7 @@ def test_resolver_uses_only_bearer_authenticated_server_context():
     authority = asyncio.run(
         resolve_practice_tenant_authority(
             client,
+            auth_service_url="https://auth.example/",
             fiteatsy_service_url="https://fiteatsy.example/",
             authorization="Bearer signed-token",
             authenticated_user_id="user-1",
@@ -89,7 +90,7 @@ def test_resolver_uses_only_bearer_authenticated_server_context():
     assert authority.profession_hint == "DIETITIAN_NUTRITIONIST"
     assert client.calls == [
         (
-            "https://fiteatsy.example/v1/auth/me",
+            "https://auth.example/api/v1/auth/me",
             {"Authorization": "Bearer signed-token", "Accept": "application/json"},
         ),
         (
@@ -109,6 +110,7 @@ def test_resolver_prefers_explicit_onboarding_profession_and_fails_safe_when_una
     ])
     authority = asyncio.run(resolve_practice_tenant_authority(
         explicit,
+        auth_service_url="https://auth.example",
         fiteatsy_service_url="https://fiteatsy.example",
         authorization="Bearer signed-token",
         authenticated_user_id="user-1",
@@ -121,6 +123,7 @@ def test_resolver_prefers_explicit_onboarding_profession_and_fails_safe_when_una
     ])
     authority = asyncio.run(resolve_practice_tenant_authority(
         unavailable,
+        auth_service_url="https://auth.example",
         fiteatsy_service_url="https://fiteatsy.example",
         authorization="Bearer signed-token",
         authenticated_user_id="user-1",
@@ -134,6 +137,7 @@ def test_resolver_denies_no_membership_and_missing_identity():
         asyncio.run(
             resolve_practice_tenant_authority(
                 no_membership,
+                auth_service_url="https://auth.example",
                 fiteatsy_service_url="https://fiteatsy.example",
                 authorization="Bearer signed-token",
                 authenticated_user_id="user-1",
@@ -143,6 +147,7 @@ def test_resolver_denies_no_membership_and_missing_identity():
         asyncio.run(
             resolve_practice_tenant_authority(
                 no_membership,
+                auth_service_url="https://auth.example",
                 fiteatsy_service_url="https://fiteatsy.example",
                 authorization=None,
                 authenticated_user_id="user-1",

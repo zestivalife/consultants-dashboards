@@ -187,6 +187,7 @@ async def proxy(request: Request, path: str):
         try:
             authority = await resolve_practice_tenant_authority(
                 client,
+                auth_service_url=get_settings().auth_service_url,
                 fiteatsy_service_url=get_settings().fiteatsy_service_url,
                 authorization=request.headers.get("Authorization"),
                 authenticated_user_id=str(user_id) if user_id else None,
