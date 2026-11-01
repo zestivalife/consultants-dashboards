@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-import { externalClient360Base } from '../lib/externalClientProfile.mjs';
+import { externalClient360Base, externalConnectedBiomarkers } from '../lib/externalClientProfile.mjs';
 
 const component = fs.readFileSync(new URL('../components/external/ExternalClient360.jsx', import.meta.url), 'utf8');
 
@@ -42,4 +42,33 @@ test('an unconnected directory client does not receive fabricated health data', 
   assert.deepEqual(result.documents, []);
   assert.deepEqual(result.sections.medicalHistory, {});
   assert.equal(result.consent.source, 'PRACTICE_DIRECTORY');
+});
+
+test('nested Fiteatsy profile, measurements and nutrition populate the original Client 360 contract', () => {
+  const result = externalClient360Base({ displayName: 'Connected Client' }, {
+    profile: {
+      client: { dob: '1992-03-04', gender: 'FEMALE' },
+      onboarding: {
+        goal: 'Improve energy', activityLevel: 'ACTIVE', medicalConditions: ['asthma'],
+        nutrition: { dietaryPreference: 'VEGETARIAN', foodAllergies: ['peanut'] },
+        lifestyle: { sleepHours: 7, stressLevel: 'MODERATE' },
+        healthHistory: { medications: ['inhaler'] },
+      },
+    },
+    measurements: { heightCm: 165, weightKg: 62 },
+  });
+  assert.equal(result.overview.dateOfBirth, '1992-03-04');
+  assert.deepEqual(result.sections.conditionsSymptoms.conditions, ['asthma']);
+  assert.equal(result.sections.nutrition.dietaryPreference, 'VEGETARIAN');
+  assert.deepEqual(result.sections.allergiesFamilyHistory.allergies, ['peanut']);
+  assert.equal(result.sections.measurements.weightKg, 62);
+});
+
+test('consented Fiteatsy biomarkers retain clinical values in the original biomarker contract', () => {
+  const result = externalConnectedBiomarkers({ biomarkers: [{ biomarkerId: 'hba1c', name: 'HbA1c', value: 5.6, unit: '%', clinicalStatus: 'NORMAL', testDate: '2026-10-01', referenceRange: '4.0–5.6' }] });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].canonicalBiomarkerId, 'hba1c');
+  assert.equal(result[0].observationDate, '2026-10-01');
+  assert.equal(result[0].reviewStatus, 'CONFIRMED');
+  assert.equal(result[0].source, 'FITEATSY_CONNECTION');
 });

@@ -82,49 +82,70 @@ export function measurementValues(projection = {}) {
 
 export function externalClient360Base(client = {}, healthContext = null) {
   const context = healthContext && typeof healthContext === 'object' ? healthContext : {};
-  const profile = context.profile && typeof context.profile === 'object' ? context.profile : {};
-  const healthProfile = context.healthProfile && typeof context.healthProfile === 'object' ? context.healthProfile : {};
+  const profileEnvelope = context.profile && typeof context.profile === 'object' ? context.profile : {};
+  const profile = profileEnvelope.client && typeof profileEnvelope.client === 'object' ? profileEnvelope.client : profileEnvelope;
+  const onboarding = profileEnvelope.onboarding && typeof profileEnvelope.onboarding === 'object' ? profileEnvelope.onboarding : {};
+  const healthProfile = profileEnvelope.healthProfile && typeof profileEnvelope.healthProfile === 'object'
+    ? profileEnvelope.healthProfile
+    : context.healthProfile && typeof context.healthProfile === 'object' ? context.healthProfile : {};
   const suppliedSections = context.sections && typeof context.sections === 'object' ? context.sections : {};
   const reports = Array.isArray(context.reports) ? context.reports : [];
   const displayName = client.displayName || client.name || profile.displayName || profile.name || 'Unnamed client';
+  const history = onboarding.healthHistory && typeof onboarding.healthHistory === 'object' ? onboarding.healthHistory : {};
+  const lifestyle = onboarding.lifestyle && typeof onboarding.lifestyle === 'object' ? onboarding.lifestyle : {};
+  const nutrition = onboarding.nutrition && typeof onboarding.nutrition === 'object' ? onboarding.nutrition : {};
+  const measurements = context.measurements && typeof context.measurements === 'object' ? context.measurements : {};
 
   return {
     overview: {
       name: displayName,
       status: client.status || 'ACTIVE',
       primaryContact: client.email || client.mobile || profile.email || profile.mobile || null,
-      dateOfBirth: profile.dateOfBirth || profile.date_of_birth || null,
+      dateOfBirth: profile.dateOfBirth || profile.date_of_birth || profile.dob || null,
       gender: profile.gender || null,
       missingSections: [],
+      missingRequiredFields: [],
       documentCount: reports.length,
       dietPlanWarnings: [],
+      primaryGoal: onboarding.goal || null,
     },
     basicProfile: Object.fromEntries(
       Object.entries({
         name: displayName,
         email: client.email || profile.email || null,
         mobile: client.mobile || profile.mobile || null,
-        dateOfBirth: profile.dateOfBirth || profile.date_of_birth || null,
+        dateOfBirth: profile.dateOfBirth || profile.date_of_birth || profile.dob || null,
         gender: profile.gender || null,
       }).map(([key, value]) => [key, { value, sourceLabel: healthContext ? 'Fiteatsy' : 'Practice directory' }]),
     ),
     sections: {
       ...suppliedSections,
       aboutYou: suppliedSections.aboutYou || profile,
-      medicalHistory: suppliedSections.medicalHistory || healthProfile.medicalHistory || {},
-      conditionsSymptoms: suppliedSections.conditionsSymptoms || healthProfile.conditionsSymptoms || {},
-      allergiesFamilyHistory: suppliedSections.allergiesFamilyHistory || healthProfile.allergiesFamilyHistory || {},
-      medicationsSupplements: suppliedSections.medicationsSupplements || healthProfile.medicationsSupplements || {},
-      lifestyle: suppliedSections.lifestyle || healthProfile.lifestyle || {},
-      sleepStress: suppliedSections.sleepStress || healthProfile.sleepStress || {},
-      activityHydration: suppliedSections.activityHydration || healthProfile.activityHydration || {},
-      nutrition: suppliedSections.nutrition || context.nutritionSnapshot || {},
-      goals: suppliedSections.goals || healthProfile.goals || {},
-      measurements: suppliedSections.measurements || context.measurements || {},
+      medicalHistory: suppliedSections.medicalHistory || healthProfile.medicalHistory || history,
+      conditionsSymptoms: suppliedSections.conditionsSymptoms || healthProfile.conditionsSymptoms || { conditions: onboarding.medicalConditions || history.previousConditions },
+      allergiesFamilyHistory: suppliedSections.allergiesFamilyHistory || healthProfile.allergiesFamilyHistory || { allergies: nutrition.foodAllergies, familyMedicalHistory: history.familyMedicalHistory },
+      medicationsSupplements: suppliedSections.medicationsSupplements || healthProfile.medicationsSupplements || { medications: history.medications, supplements: history.supplements },
+      lifestyle: suppliedSections.lifestyle || healthProfile.lifestyle || lifestyle,
+      sleepStress: suppliedSections.sleepStress || healthProfile.sleepStress || { sleepHours: lifestyle.sleepHours, stressLevel: lifestyle.stressLevel },
+      activityHydration: suppliedSections.activityHydration || healthProfile.activityHydration || { activityLevel: onboarding.activityLevel, exerciseFrequency: lifestyle.exerciseFrequency, waterIntakeLiters: nutrition.waterIntakeLiters },
+      nutrition: suppliedSections.nutrition || context.nutritionSnapshot || nutrition,
+      goals: suppliedSections.goals || healthProfile.goals || { primaryGoal: onboarding.goal, selectedGoals: onboarding.goals || [onboarding.goal].filter(Boolean) },
+      measurements: suppliedSections.measurements || measurements,
       womensHealth: suppliedSections.womensHealth || healthProfile.womensHealth || {},
       reportsDocuments: suppliedSections.reportsDocuments || {},
     },
-    documents: reports,
+    documents: reports.map((report) => ({
+      ...report,
+      name: report.name || report.originalFilename || report.fileName || report.reportType || 'Health report',
+      category: report.category || report.reportType || 'LAB_REPORT',
+      sourceLabel: report.sourceLabel || 'Fiteatsy',
+      mimeType: report.mimeType || report.contentType || 'application/octet-stream',
+      status: report.status || 'ACTIVE',
+      documentDate: report.documentDate || report.reportDate || null,
+      uploadedAt: report.uploadedAt || report.createdAt || report.reportDate || null,
+      processingStatus: report.processingStatus || 'COMPLETED',
+      source: 'FITEATSY_CONNECTION',
+    })),
     timeline: Array.isArray(context.timeline) ? context.timeline : [],
     provenance: context.provenance || {},
     consent: {
@@ -132,6 +153,21 @@ export function externalClient360Base(client = {}, healthContext = null) {
       scopes: Array.isArray(client.consentedScopes) ? client.consentedScopes : [],
     },
   };
+}
+
+export function externalConnectedBiomarkers(healthContext = {}) {
+  return (Array.isArray(healthContext.biomarkers) ? healthContext.biomarkers : []).map((item, index) => ({
+    ...item,
+    id: item.id || item.biomarkerId || `connected-biomarker-${index}`,
+    canonicalBiomarkerId: item.canonicalBiomarkerId || item.biomarkerId || item.canonicalMarkerName || item.name || `connected-biomarker-${index}`,
+    name: item.name || item.canonicalMarkerName || 'Biomarker',
+    observationDate: item.observationDate || item.testDate || item.measuredAt || null,
+    reviewStatus: item.reviewStatus || item.review_status || 'CONFIRMED',
+    flag: item.flag || item.clinicalStatus || item.validationStatus || 'UNKNOWN',
+    referenceText: item.referenceText || item.referenceRange || null,
+    reportDownloadPath: item.reportDownloadPath || item.source?.filePath || null,
+    source: 'FITEATSY_CONNECTION',
+  }));
 }
 
 export function composeExternalClientProfile(baseProfile, enrichment = {}, measurementProjection = {}) {
