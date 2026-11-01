@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - codex/senior-review-authority-v1
+      - codex/p0-role-workspace-routing
   workflow_dispatch:
     inputs:
       commit_sha:
@@ -35,7 +36,7 @@ jobs:
       - name: Check out requested SHA
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.commit_sha }}
+          ref: ${{ env.REQUESTED_SHA }}
           fetch-depth: 1
           persist-credentials: false
 
