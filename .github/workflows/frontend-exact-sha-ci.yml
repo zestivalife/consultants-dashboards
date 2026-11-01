@@ -132,12 +132,29 @@ jobs:
           createdb -h 127.0.0.1 -U postgres zestiva_auth_ci
           python -m alembic upgrade head
 
-      - name: Run persisted Auth workspace-authority contract
+      - name: Run persisted Auth workspace-authority contracts
         working-directory: services/auth-service
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/zestiva_auth_ci
           AUTH_INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/zestiva_auth_ci
-        run: python -m pytest -q tests/test_workspace_authority_postgres_integration.py
+        run: |
+          python -m pytest -q \
+            tests/test_workspace_authority_postgres_integration.py::test_auth_me_projects_only_persisted_role_and_membership_authority \
+            tests/test_workspace_authority_postgres_integration.py::test_invited_consultants_activate_membership_during_temporary_password_journey
+
+      - name: Reject ambiguous Auth membership activation
+        working-directory: services/auth-service
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/zestiva_auth_ci
+          AUTH_INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/zestiva_auth_ci
+        run: python -m pytest -q tests/test_workspace_authority_postgres_integration.py::test_temporary_password_change_rejects_ambiguous_invited_memberships
+
+      - name: Preserve unrelated Auth membership states
+        working-directory: services/auth-service
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/zestiva_auth_ci
+          AUTH_INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/zestiva_auth_ci
+        run: python -m pytest -q tests/test_workspace_authority_postgres_integration.py::test_temporary_password_change_does_not_activate_unrelated_memberships
 
       - name: Install locked gateway dependencies
         run: python -m pip install -r api-gateway/requirements.txt
