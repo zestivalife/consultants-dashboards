@@ -113,7 +113,6 @@ from app.marketplace import (ADMIN_ACTIONS,REASON_REQUIRED,AdminDecision,Booking
 from app.finder import FINDER_EVENTS,SUPPORT_TAXONOMY,FinderEvent,FinderRequest,explain_and_score
 from app.client_portal import PortalTokenError, issue_portal_token, portal_token_hash, validate_portal_token
 from app.communications import InvalidPhone, normalize_phone
-from app.diet_plan_policy import can_publish_independently
 from app.domain import calendar_window, consultation_transition, factual_summary
 from app.db import get_db, engine
 from app.profession_intake import (FROZEN_PROFESSIONS, SUPPORTED_PROFESSIONS,
@@ -1835,7 +1834,7 @@ async def save_diet_plan(request:Request,plan_id:UUID,body:DietPlanSave,ctx=Depe
     if denied:return denied
     plan=await _diet_plan_row(request,db,ctx,plan_id)
     if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
-    if plan["status"] in {"APPROVED","PUBLISHED","ARCHIVED"}:return error(request,409,"DIET_PLAN_IMMUTABLE","Approved and published Diet Plans are immutable")
+    if plan["status"]=="ARCHIVED":return error(request,409,"DIET_PLAN_ARCHIVED","Archived Diet Plans cannot be changed")
     if plan["current_version"]!=body.expected_version:return error(request,409,"STALE_WRITE","This Diet Plan changed. Refresh and retry")
     readiness=await _current_diet_plan_readiness(db,ctx,plan["client_id"])
     health_context=await _diet_plan_health_context(db,ctx,plan["client_id"])
@@ -1895,14 +1894,11 @@ async def publish_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db
     if denied:return denied
     plan=await _diet_plan_row(request,db,ctx,plan_id)
     if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    if plan["status"]=="ARCHIVED":return error(request,409,"DIET_PLAN_ARCHIVED","Archived Diet Plans cannot be published")
+    if plan["status"]=="PUBLISHED":
+        return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"],"publication_basis":"CONSULTANT_AUTHORED_VALIDATED","already_published":True},"error":None,"request_id":request.state.correlation_id}
     readiness=await _current_diet_plan_readiness(db,ctx,plan["client_id"])
     if readiness["outcome"]!="READY":return _diet_plan_readiness_error(request,readiness)
-    eligibility=await _diet_plan_publication_eligibility(db,ctx,plan["authorised_consultant_id"])
-    independently_publishable=can_publish_independently(verification_state=eligibility["state"],experience_years=eligibility["experience_years"],plan_status=plan["status"],actor_is_author=str(ctx["user_id"])==str(plan["authorised_consultant_id"]))
-    if plan["status"]!="APPROVED" and not independently_publishable:
-        code="PROFESSIONAL_EXPERIENCE_UNVERIFIED" if eligibility["state"]=="UNVERIFIED" else "DIET_PLAN_APPROVAL_REQUIRED"
-        message="Verified professional experience is required for independent publication" if eligibility["state"]=="UNVERIFIED" else "Senior review is required when verified experience is under one year"
-        return error(request,409,code,message)
     version_row=(await db.execute(text("""SELECT id,nutrition_snapshot FROM external_profession_plan_versions
       WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version"""),{"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).mappings().one()
     option_count=int((version_row["nutrition_snapshot"] or {}).get("option_count") or 0)
@@ -1913,11 +1909,12 @@ async def publish_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db
     lineage=(await db.execute(text("""SELECT assessment_id,assessment_version FROM external_diet_plan_assessment_links
       WHERE tenant_id=:tenant AND client_id=:client AND external_plan_id=:plan AND external_plan_version=:version
       AND legacy_lineage_state='LINKED'"""),{"tenant":ctx["tenant_id"],"client":plan["client_id"],"plan":str(plan_id),"version":str(plan["current_version"])})).mappings().first()
-    if not lineage:return error(request,409,"NUTRITION_ASSESSMENT_REQUIRED","Bind an approved current Nutrition Assessment before publication")
+    if not lineage:return error(request,409,"NUTRITION_ASSESSMENT_REQUIRED","Bind the current completed Nutrition Assessment before publication")
     now=datetime.now(timezone.utc);version_id=(await db.execute(text("UPDATE external_profession_plan_versions SET status='PUBLISHED',published_at=:now WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version RETURNING id"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).scalar_one()
     await db.execute(text("UPDATE external_profession_plans SET status='PUBLISHED',updated_at=:now WHERE id=:plan AND tenant_id=:tenant"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"]})
-    await db.execute(text("INSERT INTO external_profession_plan_audit_events(id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,created_at) VALUES (:id,:plan,:version,:tenant,:client,'PUBLISHED',:actor,:now)"),{"id":uuid4(),"plan":plan_id,"version":version_id,"tenant":ctx["tenant_id"],"client":plan["client_id"],"actor":ctx["user_id"],"now":now});await db.commit()
-    return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"],"publication_basis":"INDEPENDENT_VERIFIED_EXPERIENCE" if independently_publishable else "SENIOR_APPROVED"},"error":None,"request_id":request.state.correlation_id}
+    publication_metadata={"publication_basis":"CONSULTANT_AUTHORED_VALIDATED","version":plan["current_version"],"assessment_id":str(lineage["assessment_id"]),"assessment_version":lineage["assessment_version"],"readiness":"READY"}
+    await db.execute(text("INSERT INTO external_profession_plan_audit_events(id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,metadata,created_at) VALUES (:id,:plan,:version,:tenant,:client,'PUBLISHED',:actor,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"plan":plan_id,"version":version_id,"tenant":ctx["tenant_id"],"client":plan["client_id"],"actor":ctx["user_id"],"metadata":json.dumps(publication_metadata),"now":now});await db.commit()
+    return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"],"publication_basis":"CONSULTANT_AUTHORED_VALIDATED","already_published":False},"error":None,"request_id":request.state.correlation_id}
 
 async def _write_note_sections(db,tenant,version_id,sections):
     for order,section in enumerate(sections,1):
