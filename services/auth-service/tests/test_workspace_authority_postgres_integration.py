@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import asyncpg
@@ -89,3 +90,80 @@ async def test_auth_me_projects_only_persisted_role_and_membership_authority():
 
     assert data["inactive"]["workspaceAuthorities"] == []
     assert data["inactive"]["currentTenant"] is None
+
+
+@pytest.mark.asyncio
+async def test_invited_consultants_activate_membership_during_temporary_password_journey(monkeypatch):
+    from app.services.password_service import password_service
+    from app.services import auth_service
+
+    monkeypatch.setattr(auth_service, "check_rate_limit", AsyncMock(return_value=True))
+
+    connection = await asyncpg.connect(INTEGRATION_DATABASE_URL)
+    now = datetime.now(timezone.utc)
+    temporary_password = "Temporary!Passphrase2026"
+    replacement_password = "Replacement!Passphrase2026"
+    identities = []
+    try:
+        await connection.execute("TRUNCATE external_signup_provisioning, external_signup_challenges, organization_memberships, organizations RESTART IDENTITY CASCADE")
+        await connection.execute("DELETE FROM users WHERE email LIKE 'qa+%-journey@zestiva.test'")
+        roles = {row["name"]: row["id"] for row in await connection.fetch("SELECT id::text,name FROM roles WHERE name IN ('consultant','senior_consultant')")}
+        organization_id = str(uuid4())
+        await connection.execute("INSERT INTO organizations(id,name,status,created_at,updated_at) VALUES($1,'Provisioning Journey QA','ACTIVE',$2,$2)", organization_id, now)
+        for label, role in (("internal", "consultant"), ("senior", "senior_consultant")):
+            user_id = str(uuid4())
+            email = f"qa+{label}-journey@zestiva.test"
+            identities.append((label, user_id, email))
+            await connection.execute("""INSERT INTO users
+              (id,email,password_hash,role_id,is_verified,failed_login_attempts,created_at,updated_at,is_active,
+               permissions,status,email_verified,mobile_verified,remember_me,mfa_enabled,current_session_version,
+               refresh_token_version,must_change_password,credential_status,temporary_password_created_at,
+               temporary_password_expires_at,account_classification)
+              VALUES($1,$2,$3,$4,TRUE,0,$5,$5,TRUE,'[]','INVITED',TRUE,FALSE,FALSE,FALSE,0,0,TRUE,
+                     'TEMPORARY',$5,$6,'PRODUCTION_USER')""",
+              user_id, email, password_service.hash_password(temporary_password), roles[role], now, now + timedelta(days=1))
+            await connection.execute("""INSERT INTO organization_memberships
+              (id,user_id,organization_id,status,is_verified,tags,joined_at,created_at,updated_at)
+              VALUES($1,$2,$3,'INVITED',TRUE,'[]',$4,$4,$4)""", uuid4(), user_id, organization_id, now)
+    finally:
+        await connection.close()
+
+    from app.main import app
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+        for label, user_id, email in identities:
+            login = await client.post("/api/v1/auth/login", json={"email": email, "password": temporary_password})
+            assert login.status_code == 200, login.text
+            login_data = login.json()["data"]
+            assert login_data["user"]["must_change_password"] is True
+            assert login_data["user"]["workspaceAuthorities"] == []
+
+            changed = await client.post(
+                "/api/v1/auth/change-temporary-password",
+                headers={"Authorization": f"Bearer {login_data['tokens']['access_token']}"},
+                json={"current_password": temporary_password, "new_password": replacement_password, "confirm_password": replacement_password},
+            )
+            assert changed.status_code == 200, changed.text
+            changed_data = changed.json()["data"]
+            current = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {changed_data['tokens']['access_token']}"})
+            assert current.status_code == 200, current.text
+            authorities = current.json()["data"]["workspaceAuthorities"]
+            expected_workspace = "senior-consultant" if label == "senior" else "internal-consultant"
+            assert [(authority["workspaceId"], authority["tenantId"]) for authority in authorities] == [(expected_workspace, organization_id)]
+
+            refreshed = await client.post("/api/v1/auth/refresh", json={"refresh_token": changed_data["tokens"]["refresh_token"]})
+            assert refreshed.status_code == 200, refreshed.text
+            refreshed_data = refreshed.json()["data"]
+            logout = await client.post("/api/v1/auth/logout", json={"refresh_token": refreshed_data["refresh_token"]})
+            assert logout.status_code == 200, logout.text
+            relogin = await client.post("/api/v1/auth/login", json={"email": email, "password": replacement_password})
+            assert relogin.status_code == 200, relogin.text
+            relogin_authorities = relogin.json()["data"]["user"]["workspaceAuthorities"]
+            assert [(authority["workspaceId"], authority["tenantId"]) for authority in relogin_authorities] == [(expected_workspace, organization_id)]
+
+    connection = await asyncpg.connect(INTEGRATION_DATABASE_URL)
+    try:
+        states = await connection.fetch("SELECT u.email,u.status,m.status membership_status FROM users u JOIN organization_memberships m ON m.user_id=u.id WHERE u.email LIKE 'qa+%-journey@zestiva.test' ORDER BY u.email")
+        assert [(row["status"], row["membership_status"]) for row in states] == [("ACTIVE", "ACTIVE"), ("ACTIVE", "ACTIVE")]
+    finally:
+        await connection.close()

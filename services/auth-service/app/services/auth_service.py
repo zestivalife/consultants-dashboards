@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -893,6 +893,18 @@ async def change_password(
         STATUS_PASSWORD_CHANGE_REQUIRED,
     }:
         user.status = STATUS_ACTIVE
+        # People & Access provisions the user and its tenant membership as one
+        # INVITED unit. Completing the temporary-password lifecycle activates
+        # both records transactionally so /auth/me can resolve the workspace
+        # without an operator repairing the membership by hand.
+        await session.execute(
+            update(OrganizationMembership)
+            .where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.status == STATUS_INVITED,
+            )
+            .values(status=STATUS_ACTIVE, updated_at=now)
+        )
     await user_repo.update(user)
     session.add(
         PasswordHistory(
