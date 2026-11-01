@@ -877,8 +877,36 @@ async def change_password(
         )
         raise
 
-    new_hash = password_service.hash_password(new_password)
     now = datetime.now(timezone.utc)
+    bootstrap_membership_id = None
+    if temporary_only and current_status in {
+        STATUS_FIRST_LOGIN,
+        STATUS_APPROVED,
+        STATUS_PASSWORD_CHANGE_REQUIRED,
+    }:
+        membership_rows = (
+            await session.execute(
+                select(OrganizationMembership)
+                .where(OrganizationMembership.user_id == user.id)
+                .with_for_update()
+            )
+        ).scalars().all()
+        active_memberships = [
+            membership for membership in membership_rows
+            if normalize_status(membership.status) == STATUS_ACTIVE
+        ]
+        invited_memberships = [
+            membership for membership in membership_rows
+            if normalize_status(membership.status) == STATUS_INVITED
+        ]
+        if not active_memberships and len(invited_memberships) == 1:
+            bootstrap_membership_id = invited_memberships[0].id
+        elif not active_memberships and len(invited_memberships) > 1:
+            raise ConflictException(
+                "Multiple pending organisation memberships require administrator resolution"
+            )
+
+    new_hash = password_service.hash_password(new_password)
     user.password_hash = new_hash
     user.password_changed_at = now
     user.must_change_password = False
@@ -897,14 +925,16 @@ async def change_password(
         # INVITED unit. Completing the temporary-password lifecycle activates
         # both records transactionally so /auth/me can resolve the workspace
         # without an operator repairing the membership by hand.
-        await session.execute(
-            update(OrganizationMembership)
-            .where(
-                OrganizationMembership.user_id == user.id,
-                OrganizationMembership.status == STATUS_INVITED,
+        if bootstrap_membership_id is not None:
+            await session.execute(
+                update(OrganizationMembership)
+                .where(
+                    OrganizationMembership.id == bootstrap_membership_id,
+                    OrganizationMembership.user_id == user.id,
+                    OrganizationMembership.status == STATUS_INVITED,
+                )
+                .values(status=STATUS_ACTIVE, updated_at=now)
             )
-            .values(status=STATUS_ACTIVE, updated_at=now)
-        )
     await user_repo.update(user)
     session.add(
         PasswordHistory(

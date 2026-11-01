@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, datetime
+from pathlib import Path
+import re
 
 
 _STARTED_AT = datetime.now(UTC).isoformat()
 AUTH_SERVICE_BUILD_MARKER = "2026-07-19T10:15:13Z"
+_SOURCE_REVISION_PATH = Path(__file__).resolve().parents[1] / ".source-revision"
+_GIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _first_env(*names: str, default: str = "unknown") -> str:
@@ -16,6 +20,14 @@ def _first_env(*names: str, default: str = "unknown") -> str:
     return default
 
 
+def _packaged_source_revision() -> str | None:
+    try:
+        revision = _SOURCE_REVISION_PATH.read_text(encoding="utf-8").strip().lower()
+    except OSError:
+        return None
+    return revision if _GIT_SHA_PATTERN.fullmatch(revision) else None
+
+
 def get_runtime_version(service: str, app_version: str, environment: str) -> dict[str, str]:
     build_time = _first_env("BUILD_TIMESTAMP", "RAILWAY_DEPLOYMENT_CREATED_AT", default=_STARTED_AT)
     return {
@@ -23,7 +35,8 @@ def get_runtime_version(service: str, app_version: str, environment: str) -> dic
         "version": app_version,
         "app_version": app_version,
         "environment": environment,
-        "commit_sha": _first_env("COMMIT_SHA", "GIT_COMMIT_SHA", "RAILWAY_GIT_COMMIT_SHA", "VERCEL_GIT_COMMIT_SHA"),
+        "commit_sha": _packaged_source_revision()
+        or _first_env("RAILWAY_GIT_COMMIT_SHA", "VERCEL_GIT_COMMIT_SHA", "GIT_COMMIT_SHA", "COMMIT_SHA"),
         "branch": _first_env("RAILWAY_GIT_BRANCH", "VERCEL_GIT_COMMIT_REF", "GIT_BRANCH", "BRANCH"),
         "build_time": build_time,
         "build_timestamp": build_time,

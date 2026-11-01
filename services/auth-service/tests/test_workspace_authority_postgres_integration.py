@@ -128,6 +128,167 @@ async def test_invited_consultants_activate_membership_during_temporary_password
     finally:
         await connection.close()
 
+
+@pytest.mark.asyncio
+async def test_temporary_password_change_rejects_ambiguous_invited_memberships(monkeypatch):
+    from app.services.password_service import password_service
+    from app.services import auth_service
+
+    monkeypatch.setattr(auth_service, "check_rate_limit", AsyncMock(return_value=True))
+    connection = await asyncpg.connect(INTEGRATION_DATABASE_URL)
+    now = datetime.now(timezone.utc)
+    temporary_password = "Temporary!Ambiguous2026"
+    replacement_password = "Replacement!Ambiguous2026"
+    email = "qa+ambiguous-memberships@zestiva.test"
+    user_id = str(uuid4())
+    try:
+        await connection.execute("DELETE FROM users WHERE email = $1", email)
+        role_id = await connection.fetchval("SELECT id::text FROM roles WHERE name = 'consultant'")
+        await connection.execute(
+            """INSERT INTO users
+            (id,email,password_hash,role_id,is_verified,failed_login_attempts,created_at,updated_at,is_active,
+             permissions,status,email_verified,mobile_verified,remember_me,mfa_enabled,current_session_version,
+             refresh_token_version,must_change_password,credential_status,temporary_password_created_at,
+             temporary_password_expires_at,account_classification)
+            VALUES($1,$2,$3,$4,TRUE,0,$5,$5,TRUE,'[]','INVITED',TRUE,FALSE,FALSE,FALSE,0,0,TRUE,
+                   'TEMPORARY',$5,$6,'PRODUCTION_USER')""",
+            user_id,
+            email,
+            password_service.hash_password(temporary_password),
+            role_id,
+            now,
+            now + timedelta(days=1),
+        )
+        for index in range(2):
+            organization_id = str(uuid4())
+            await connection.execute(
+                "INSERT INTO organizations(id,name,status,created_at,updated_at) VALUES($1,$2,'ACTIVE',$3,$3)",
+                organization_id,
+                f"Ambiguous Membership QA {index}",
+                now,
+            )
+            await connection.execute(
+                """INSERT INTO organization_memberships
+                (id,user_id,organization_id,status,is_verified,tags,joined_at,created_at,updated_at)
+                VALUES($1,$2,$3,'INVITED',TRUE,'[]',$4,$4,$4)""",
+                uuid4(),
+                user_id,
+                organization_id,
+                now,
+            )
+    finally:
+        await connection.close()
+
+    from app.main import app
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+        login = await client.post("/api/v1/auth/login", json={"email": email, "password": temporary_password})
+        assert login.status_code == 200, login.text
+        changed = await client.post(
+            "/api/v1/auth/change-temporary-password",
+            headers={"Authorization": f"Bearer {login.json()['data']['tokens']['access_token']}"},
+            json={
+                "current_password": temporary_password,
+                "new_password": replacement_password,
+                "confirm_password": replacement_password,
+            },
+        )
+        assert changed.status_code == 409, changed.text
+        assert "administrator resolution" in changed.json()["message"]
+
+    connection = await asyncpg.connect(INTEGRATION_DATABASE_URL)
+    try:
+        states = await connection.fetch(
+            "SELECT status FROM organization_memberships WHERE user_id = $1 ORDER BY organization_id",
+            user_id,
+        )
+        assert [row["status"] for row in states] == ["INVITED", "INVITED"]
+        user_state = await connection.fetchrow(
+            "SELECT must_change_password, credential_status FROM users WHERE id = $1", user_id
+        )
+        assert user_state["must_change_password"] is True
+        assert user_state["credential_status"] == "TEMPORARY"
+    finally:
+        await connection.close()
+
+
+@pytest.mark.asyncio
+async def test_temporary_password_change_does_not_activate_unrelated_memberships(monkeypatch):
+    from app.services.password_service import password_service
+    from app.services import auth_service
+
+    monkeypatch.setattr(auth_service, "check_rate_limit", AsyncMock(return_value=True))
+    connection = await asyncpg.connect(INTEGRATION_DATABASE_URL)
+    now = datetime.now(timezone.utc)
+    temporary_password = "Temporary!Existing2026"
+    replacement_password = "Replacement!Existing2026"
+    email = "qa+existing-membership@zestiva.test"
+    user_id = str(uuid4())
+    expected_statuses = ["ACTIVE", "INVITED", "REVOKED", "SUSPENDED"]
+    try:
+        await connection.execute("DELETE FROM users WHERE email = $1", email)
+        role_id = await connection.fetchval("SELECT id::text FROM roles WHERE name = 'consultant'")
+        await connection.execute(
+            """INSERT INTO users
+            (id,email,password_hash,role_id,is_verified,failed_login_attempts,created_at,updated_at,is_active,
+             permissions,status,email_verified,mobile_verified,remember_me,mfa_enabled,current_session_version,
+             refresh_token_version,must_change_password,credential_status,temporary_password_created_at,
+             temporary_password_expires_at,account_classification)
+            VALUES($1,$2,$3,$4,TRUE,0,$5,$5,TRUE,'[]','FIRST_LOGIN',TRUE,FALSE,FALSE,FALSE,0,0,TRUE,
+                   'TEMPORARY',$5,$6,'PRODUCTION_USER')""",
+            user_id,
+            email,
+            password_service.hash_password(temporary_password),
+            role_id,
+            now,
+            now + timedelta(days=1),
+        )
+        for index, status in enumerate(expected_statuses):
+            organization_id = str(uuid4())
+            await connection.execute(
+                "INSERT INTO organizations(id,name,status,created_at,updated_at) VALUES($1,$2,'ACTIVE',$3,$3)",
+                organization_id,
+                f"Membership State QA {index}",
+                now,
+            )
+            await connection.execute(
+                """INSERT INTO organization_memberships
+                (id,user_id,organization_id,status,is_verified,tags,joined_at,created_at,updated_at)
+                VALUES($1,$2,$3,$4,TRUE,'[]',$5,$5,$5)""",
+                uuid4(),
+                user_id,
+                organization_id,
+                status,
+                now,
+            )
+    finally:
+        await connection.close()
+
+    from app.main import app
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+        login = await client.post("/api/v1/auth/login", json={"email": email, "password": temporary_password})
+        assert login.status_code == 200, login.text
+        changed = await client.post(
+            "/api/v1/auth/change-temporary-password",
+            headers={"Authorization": f"Bearer {login.json()['data']['tokens']['access_token']}"},
+            json={
+                "current_password": temporary_password,
+                "new_password": replacement_password,
+                "confirm_password": replacement_password,
+            },
+        )
+        assert changed.status_code == 200, changed.text
+
+    connection = await asyncpg.connect(INTEGRATION_DATABASE_URL)
+    try:
+        states = await connection.fetch(
+            "SELECT status FROM organization_memberships WHERE user_id = $1 ORDER BY status", user_id
+        )
+        assert [row["status"] for row in states] == sorted(expected_statuses)
+    finally:
+        await connection.close()
+
     from app.main import app
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
