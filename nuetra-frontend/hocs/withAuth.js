@@ -8,7 +8,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../context/AuthContext';
-import { getAccountActionRoute, getPostAuthPathForUser, getRoleKey, isAccessAllowed } from '../lib/roleRoutes';
+import { getAccountActionRoute, getPostAuthPathForUser, getRoleKey, isAccessAllowed, isCanonicalWorkspaceAllowed } from '../lib/roleRoutes';
 
 function LoadingScreen() {
   return (
@@ -75,7 +75,10 @@ export default function withAuth(WrappedComponent, accessPolicy = {}) {
     if (accountRoute && (router.pathname.startsWith('/dashboard') || router.pathname.startsWith('/workspace'))) {
       return <RedirectScreen message="Redirecting to your account setup…" />;
     }
-    const allowed = isAccessAllowed(user, accessPolicy);
+    const selectedTenantId = Array.isArray(router.query.tenant) ? router.query.tenant[0] : router.query.tenant;
+    const allowed = accessPolicy.workspaceId
+      ? isCanonicalWorkspaceAllowed(user, accessPolicy.workspaceId, selectedTenantId || null)
+      : isAccessAllowed(user, accessPolicy);
 
     if (!allowed) return <UnauthorizedScreen role={role} user={user} />;
 

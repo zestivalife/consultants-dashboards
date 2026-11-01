@@ -210,10 +210,14 @@ export async function apiRequest(path, opts = {}) {
   const shouldSkipAuthRefresh = skipAuthRefresh || path.startsWith('/auth/refresh') || path.startsWith('/auth/login');
 
   const token = getToken();
+  const selectedTenantId = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('tenant')
+    : null;
   const usesDelegatedFiteatsyGateway = path.startsWith('/platform/fiteatsy/');
   const headers = {
     ...(fetchOptions.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(selectedTenantId ? { 'X-Workspace-Tenant-Id': selectedTenantId } : {}),
     ...(token && usesDelegatedFiteatsyGateway ? { 'X-Nuetra-Authorization': `Bearer ${token}` } : {}),
     ...(fetchOptions.headers || {}),
   };

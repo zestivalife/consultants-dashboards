@@ -5,6 +5,7 @@ import {
   getDashboardPathForUser,
   getEligibleWorkspaceIds,
   isCanonicalWorkspaceAllowed,
+  getWorkspaceAuthorities,
 } from '../lib/roleRoutes.js';
 
 const tenant = (tenantType) => ({ tenantId: 'tenant-1', tenantType, currentMembershipRole: 'OWNER', membershipStatus: 'ACTIVE', resolutionPath: 'MEMBERSHIP' });
@@ -32,4 +33,19 @@ test('missing, inactive, or non-membership tenant authority fails closed', () =>
   const untrusted = user('consultant', 'PRACTICE');
   untrusted.currentTenant.resolutionPath = 'URL';
   assert.deepEqual(getEligibleWorkspaceIds(untrusted), []);
+});
+
+test('canonical auth authorities support multiple roles and tenant selection', () => {
+  const multi = user('consultant', 'PRACTICE', { workspaceAuthorities: [
+    { workspaceId: 'external-consultant', landingPage: '/workspace/external-consultant', tenantId: 'practice-a', membershipStatus: 'active', resolutionPath: 'MEMBERSHIP', role: 'consultant' },
+    { workspaceId: 'internal-consultant', landingPage: '/workspace/internal-consultant', tenantId: 'internal-a', membershipStatus: 'active', resolutionPath: 'MEMBERSHIP', role: 'consultant' },
+  ] });
+  assert.equal(getDashboardPathForUser(multi), '/workspace/select');
+  assert.equal(getWorkspaceAuthorities(multi).length, 2);
+  assert.equal(isCanonicalWorkspaceAllowed(multi, 'external-consultant', 'practice-a'), true);
+  assert.equal(isCanonicalWorkspaceAllowed(multi, 'external-consultant', 'internal-a'), false);
+});
+
+test('explicit empty canonical authority list routes to access denied', () => {
+  assert.equal(getDashboardPathForUser(user('consultant', 'PRACTICE', { workspaceAuthorities: [] })), '/workspace/access-denied');
 });

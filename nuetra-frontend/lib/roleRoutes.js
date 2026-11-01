@@ -148,8 +148,24 @@ function hasActiveCanonicalMembership(user) {
     && String(tenant?.resolutionPath || tenant?.resolution_path || '').toUpperCase() === 'MEMBERSHIP';
 }
 
+export function getWorkspaceAuthorities(user) {
+  const supplied = user?.workspaceAuthorities || user?.workspace_authorities;
+  if (!Array.isArray(supplied)) return null;
+  return supplied.filter((authority) => {
+    if (!CANONICAL_WORKSPACE_PATHS[authority?.workspaceId]) return false;
+    if (String(authority?.membershipStatus || '').toUpperCase() !== 'ACTIVE') return false;
+    if (authority.workspaceId === 'super-admin') {
+      return String(authority?.resolutionPath || '').toUpperCase() === 'BACKEND_ROLE';
+    }
+    return Boolean(authority?.tenantId)
+      && String(authority?.resolutionPath || '').toUpperCase() === 'MEMBERSHIP';
+  });
+}
+
 export function getEligibleWorkspaceIds(user) {
   if (!user || !isDashboardEligible(user)) return [];
+  const authorities = getWorkspaceAuthorities(user);
+  if (authorities !== null) return unique(authorities.map((authority) => authority.workspaceId));
   const role = getEffectiveWorkspaceRole(user);
   if (OWNER_ACCESS_POLICY.roles.includes(role) && isAccessAllowed(user, OWNER_ACCESS_POLICY, true)) return ['super-admin'];
   if (!hasActiveCanonicalMembership(user)) return [];
@@ -161,7 +177,12 @@ export function getEligibleWorkspaceIds(user) {
   return [];
 }
 
-export function isCanonicalWorkspaceAllowed(user, workspaceId) {
+export function isCanonicalWorkspaceAllowed(user, workspaceId, tenantId = null) {
+  const authorities = getWorkspaceAuthorities(user);
+  if (authorities !== null) {
+    return authorities.some((authority) => authority.workspaceId === workspaceId
+      && (!tenantId || String(authority.tenantId || '') === String(tenantId)));
+  }
   return getEligibleWorkspaceIds(user).includes(workspaceId);
 }
 
@@ -257,6 +278,12 @@ export function resolveUserWorkspace(user) {
 
 export function getDashboardPathForUser(user, fallback = '/dashboard/team-member') {
   if (!user) return fallback;
+  const authorities = getWorkspaceAuthorities(user);
+  if (authorities !== null) {
+    if (authorities.length === 1) return authorities[0].landingPage || CANONICAL_WORKSPACE_PATHS[authorities[0].workspaceId];
+    if (authorities.length > 1) return '/workspace/select';
+    return '/workspace/access-denied';
+  }
   const eligible = getEligibleWorkspaceIds(user);
   if (eligible.length === 1) return CANONICAL_WORKSPACE_PATHS[eligible[0]];
   if (eligible.length > 1) return '/workspace/select';

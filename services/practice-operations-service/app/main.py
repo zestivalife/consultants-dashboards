@@ -4275,7 +4275,7 @@ async def list_practice_clients(request:Request,q:str|None=None,status:str|None=
     params={"tenant":ctx["tenant_id"],"user":ctx["user_id"],"wide":wide,
             "q":q.strip() if q and q.strip() else None,"status":status.upper() if status else None,
             "limit":limit,"offset":offset}
-    scope="""c.tenant_id=:tenant AND (:wide OR EXISTS (
+    scope="""c.tenant_id=:tenant AND c.state='ACTIVE' AND (:wide OR EXISTS (
       SELECT 1 FROM external_client_team_assignments a WHERE a.tenant_id=c.tenant_id
       AND a.client_id=c.consultant_client_id AND a.user_id=:user AND a.ended_at IS NULL))
       AND (CAST(:status AS text) IS NULL OR c.state=CAST(:status AS text))

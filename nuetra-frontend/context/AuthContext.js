@@ -35,6 +35,10 @@ async function getGovernedPostLoginPath(user) {
 
   const role = String(user?.role || '').toLowerCase();
   if (!['consultant', 'provider', 'dietician', 'dietitian'].includes(role)) return getPostLoginPath(user);
+  const authorities = user?.workspaceAuthorities || user?.workspace_authorities;
+  if (Array.isArray(authorities) && !authorities.some((authority) => authority.workspaceId === 'external-consultant')) {
+    return getPostLoginPath(user);
+  }
   try {
     const payload = await getFiteatsyConsultantOnboarding();
     const onboarding = payload?.onboarding || payload;
@@ -119,7 +123,8 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const storedSession = readStoredSessionRecord();
     if (!BACKEND_AUTH_ENABLED && storedSession?.session?.user) {
-      setUser(storedSession.session.user);
+      const currentFixture = sampleUsers.find((candidate) => candidate.id === storedSession.session.user.id);
+      setUser(currentFixture ? { ...storedSession.session.user, ...currentFixture } : storedSession.session.user);
     }
 
     const hasStoredTokens = Boolean(getToken() || getRefreshToken());
@@ -347,18 +352,21 @@ export function AuthProvider({ children }) {
           if (
             postAuthPath
             && router.pathname !== postAuthPath
-            && router.pathname.startsWith('/dashboard')
+            && (router.pathname.startsWith('/dashboard') || router.pathname.startsWith('/workspace'))
             && !canAccessDashboardLocation(nextUser, router.pathname, router.query)
           ) {
             router.replace(postAuthPath);
           }
           return true;
         }
-      } catch {
-        // Only /auth/me failure invalidates authentication. Governed routing
-        // resolves fail-closed and does not throw from getGovernedPostLoginPath.
-        clearBrowserSessionState();
-        setUser(null);
+      } catch (refreshError) {
+        if (refreshError?.status === 401 || refreshError?.status === 403) {
+          clearBrowserSessionState();
+          setUser(null);
+        } else {
+          setError('Workspace membership service is temporarily unavailable.');
+          router.replace('/workspace/service-unavailable');
+        }
       }
       return false;
     }

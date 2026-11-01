@@ -32,6 +32,7 @@ def test_directory_route_is_tenant_and_assignment_scoped_and_frontend_uses_it():
     frontend = (ROOT.parents[1] / "nuetra-frontend/lib/fiteatsyConsultantsApi.js").read_text()
     assert '"CLIENT_LIST_VIEW"' in route
     assert "c.tenant_id=:tenant" in route
+    assert "c.state='ACTIVE'" in route
     assert "a.user_id=:user" in route
     assert "a.ended_at IS NULL" in route
     assert "external_fiteatsy_connections" in route
