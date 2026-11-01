@@ -128,6 +128,46 @@ async def test_invited_consultants_activate_membership_during_temporary_password
     finally:
         await connection.close()
 
+    from app.main import app
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+        for label, user_id, email in identities:
+            login = await client.post("/api/v1/auth/login", json={"email": email, "password": temporary_password})
+            assert login.status_code == 200, login.text
+            login_data = login.json()["data"]
+            assert login_data["user"]["must_change_password"] is True
+            assert login_data["user"]["workspaceAuthorities"] == []
+
+            changed = await client.post(
+                "/api/v1/auth/change-temporary-password",
+                headers={"Authorization": f"Bearer {login_data['tokens']['access_token']}"},
+                json={"current_password": temporary_password, "new_password": replacement_password, "confirm_password": replacement_password},
+            )
+            assert changed.status_code == 200, changed.text
+            changed_data = changed.json()["data"]
+            current = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {changed_data['tokens']['access_token']}"})
+            assert current.status_code == 200, current.text
+            authorities = current.json()["data"]["workspaceAuthorities"]
+            expected_workspace = "senior-consultant" if label == "senior" else "internal-consultant"
+            assert [(authority["workspaceId"], authority["tenantId"]) for authority in authorities] == [(expected_workspace, organization_id)]
+
+            refreshed = await client.post("/api/v1/auth/refresh", json={"refresh_token": changed_data["tokens"]["refresh_token"]})
+            assert refreshed.status_code == 200, refreshed.text
+            refreshed_data = refreshed.json()["data"]
+            logout = await client.post("/api/v1/auth/logout", json={"refresh_token": refreshed_data["refresh_token"]})
+            assert logout.status_code == 200, logout.text
+            relogin = await client.post("/api/v1/auth/login", json={"email": email, "password": replacement_password})
+            assert relogin.status_code == 200, relogin.text
+            relogin_authorities = relogin.json()["data"]["user"]["workspaceAuthorities"]
+            assert [(authority["workspaceId"], authority["tenantId"]) for authority in relogin_authorities] == [(expected_workspace, organization_id)]
+
+    connection = await asyncpg.connect(INTEGRATION_DATABASE_URL)
+    try:
+        states = await connection.fetch("SELECT u.email,u.status,m.status membership_status FROM users u JOIN organization_memberships m ON m.user_id=u.id WHERE u.email LIKE 'qa+%-journey@zestiva.test' ORDER BY u.email")
+        assert [(row["status"], row["membership_status"]) for row in states] == [("ACTIVE", "ACTIVE"), ("ACTIVE", "ACTIVE")]
+    finally:
+        await connection.close()
+
 
 @pytest.mark.asyncio
 async def test_temporary_password_change_rejects_ambiguous_invited_memberships(monkeypatch):
@@ -286,45 +326,5 @@ async def test_temporary_password_change_does_not_activate_unrelated_memberships
             "SELECT status FROM organization_memberships WHERE user_id = $1 ORDER BY status", user_id
         )
         assert [row["status"] for row in states] == sorted(expected_statuses)
-    finally:
-        await connection.close()
-
-    from app.main import app
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
-        for label, user_id, email in identities:
-            login = await client.post("/api/v1/auth/login", json={"email": email, "password": temporary_password})
-            assert login.status_code == 200, login.text
-            login_data = login.json()["data"]
-            assert login_data["user"]["must_change_password"] is True
-            assert login_data["user"]["workspaceAuthorities"] == []
-
-            changed = await client.post(
-                "/api/v1/auth/change-temporary-password",
-                headers={"Authorization": f"Bearer {login_data['tokens']['access_token']}"},
-                json={"current_password": temporary_password, "new_password": replacement_password, "confirm_password": replacement_password},
-            )
-            assert changed.status_code == 200, changed.text
-            changed_data = changed.json()["data"]
-            current = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {changed_data['tokens']['access_token']}"})
-            assert current.status_code == 200, current.text
-            authorities = current.json()["data"]["workspaceAuthorities"]
-            expected_workspace = "senior-consultant" if label == "senior" else "internal-consultant"
-            assert [(authority["workspaceId"], authority["tenantId"]) for authority in authorities] == [(expected_workspace, organization_id)]
-
-            refreshed = await client.post("/api/v1/auth/refresh", json={"refresh_token": changed_data["tokens"]["refresh_token"]})
-            assert refreshed.status_code == 200, refreshed.text
-            refreshed_data = refreshed.json()["data"]
-            logout = await client.post("/api/v1/auth/logout", json={"refresh_token": refreshed_data["refresh_token"]})
-            assert logout.status_code == 200, logout.text
-            relogin = await client.post("/api/v1/auth/login", json={"email": email, "password": replacement_password})
-            assert relogin.status_code == 200, relogin.text
-            relogin_authorities = relogin.json()["data"]["user"]["workspaceAuthorities"]
-            assert [(authority["workspaceId"], authority["tenantId"]) for authority in relogin_authorities] == [(expected_workspace, organization_id)]
-
-    connection = await asyncpg.connect(INTEGRATION_DATABASE_URL)
-    try:
-        states = await connection.fetch("SELECT u.email,u.status,m.status membership_status FROM users u JOIN organization_memberships m ON m.user_id=u.id WHERE u.email LIKE 'qa+%-journey@zestiva.test' ORDER BY u.email")
-        assert [(row["status"], row["membership_status"]) for row in states] == [("ACTIVE", "ACTIVE"), ("ACTIVE", "ACTIVE")]
     finally:
         await connection.close()
