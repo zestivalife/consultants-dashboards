@@ -77,6 +77,9 @@ jobs:
           echo "- Checked-out SHA: \`$checked_out_sha\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Exact-SHA parity: **PASS**" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Verify deterministic Railway Auth packaging
+        run: python -m unittest -v tests/test_release_packaging.py
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
