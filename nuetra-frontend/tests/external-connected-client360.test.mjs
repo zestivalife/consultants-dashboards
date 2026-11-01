@@ -96,10 +96,21 @@ test('connected reports map to read-only dated evidence records with exact obser
   assert.equal(records[0].connectionScoped,true);
 });
 
+test('connected evidence records retain factual report lifecycle timestamps', () => {
+  const records=externalConnectedHealthRecords({reports:[{
+    id:'report-1',uploadedAt:'2026-10-27T15:30:00Z',completedAt:'2026-10-27T15:35:00Z',
+  }]});
+  assert.equal(records[0].reportDate,'2026-10-27T15:30:00Z');
+  assert.equal(records[0].confirmedAt,'2026-10-27T15:35:00Z');
+});
+
 test('connected Client 360 binds health records and does not expose a mutable connection status selector', () => {
   assert.match(component,/connectionRecords=\{connectedRecords\}/);
   assert.match(component,/!client\.connectionId&&<select aria-label="Client status"/);
   assert.match(component,/externalConnectedBiomarkerHistory/);
+  const connectedBranch=component.match(/if\(client\.connectionId&&client\.healthDataAuthorized\)\{try\{[\s\S]*?\}return;\}/)?.[0]||'';
+  assert.match(connectedBranch,/externalConnectedBiomarkers/);
+  assert.doesNotMatch(connectedBranch,/getExternalClientBiomarkers|getExternalTransientBiomarkers/);
 });
 
 test('connected report identifiers and profile names support canonical API aliases', () => {

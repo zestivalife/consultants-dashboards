@@ -203,9 +203,9 @@ export function externalConnectedHealthRecords(healthContext = {}) {
     return {
       id: reportId,
       recordType: report.reportType || report.category || 'LAB_REPORT',
-      sampleDate: report.reportDate || report.sampleDate || observations[0]?.observationDate || null,
-      reportDate: report.reportDate || null,
-      confirmedAt: report.confirmedAt || report.reviewedAt || null,
+      sampleDate: report.reportDate || report.sampleDate || report.uploadedAt || report.createdAt || observations[0]?.observationDate || null,
+      reportDate: report.reportDate || report.uploadedAt || report.createdAt || null,
+      confirmedAt: report.confirmedAt || report.reviewedAt || report.completedAt || report.updatedAt || null,
       providerName: report.labName || report.providerName || null,
       biomarkerCount: observations.length,
       uploadedByType: report.uploadedByType || 'FITEATSY_CLIENT',
