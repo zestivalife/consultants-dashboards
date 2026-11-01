@@ -1835,7 +1835,7 @@ async def save_diet_plan(request:Request,plan_id:UUID,body:DietPlanSave,ctx=Depe
     if denied:return denied
     plan=await _diet_plan_row(request,db,ctx,plan_id)
     if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
-    if plan["status"]=="ARCHIVED":return error(request,409,"DIET_PLAN_ARCHIVED","Archived Diet Plans cannot be changed")
+    if plan["status"] in {"APPROVED","PUBLISHED","ARCHIVED"}:return error(request,409,"DIET_PLAN_VERSION_IMMUTABLE","Approved, published, and archived Diet Plan versions cannot be changed")
     if plan["current_version"]!=body.expected_version:return error(request,409,"STALE_WRITE","This Diet Plan changed. Refresh and retry")
     readiness=await _current_diet_plan_readiness(db,ctx,plan["client_id"])
     health_context=await _diet_plan_health_context(db,ctx,plan["client_id"])
@@ -1898,6 +1898,7 @@ async def publish_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db
     if plan["status"]=="ARCHIVED":return error(request,409,"DIET_PLAN_ARCHIVED","Archived Diet Plans cannot be published")
     if plan["status"]=="PUBLISHED":
         return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"],"publication_basis":"CONSULTANT_AUTHORED_VALIDATED","already_published":True},"error":None,"request_id":request.state.correlation_id}
+    if plan["status"]!="APPROVED":return error(request,409,"DIET_PLAN_APPROVAL_REQUIRED","Senior Consultant approval of this exact Diet Plan version is required before publication")
     readiness=await _current_diet_plan_readiness(db,ctx,plan["client_id"])
     if readiness["outcome"]!="READY":return _diet_plan_readiness_error(request,readiness)
     version_row=(await db.execute(text("""SELECT id,nutrition_snapshot FROM external_profession_plan_versions
@@ -4275,20 +4276,52 @@ async def list_practice_clients(request:Request,q:str|None=None,status:str|None=
     params={"tenant":ctx["tenant_id"],"user":ctx["user_id"],"wide":wide,
             "q":q.strip() if q and q.strip() else None,"status":status.upper() if status else None,
             "limit":limit,"offset":offset}
-    scope="""c.tenant_id=:tenant AND c.state='ACTIVE' AND (:wide OR EXISTS (
-      SELECT 1 FROM external_client_team_assignments a WHERE a.tenant_id=c.tenant_id
-      AND a.client_id=c.consultant_client_id AND a.user_id=:user AND a.ended_at IS NULL))
-      AND (CAST(:status AS text) IS NULL OR c.state=CAST(:status AS text))
-      AND (CAST(:q AS text) IS NULL OR c.consultant_client_id ILIKE '%'||CAST(:q AS text)||'%'
+    # Assignment controls directory visibility; a connection independently controls
+    # consented health-data access. Never infer consent merely from assignment.
+    directory="""WITH visible_clients AS (
+      SELECT DISTINCT a.client_id
+      FROM external_client_team_assignments a
+      WHERE a.tenant_id=:tenant AND a.ended_at IS NULL AND (:wide OR a.user_id=:user)
+      UNION
+      SELECT DISTINCT c.consultant_client_id
+      FROM external_fiteatsy_connections c
+      WHERE c.tenant_id=:tenant AND :wide AND c.consultant_client_id IS NOT NULL
+    ), directory AS (
+      SELECT v.client_id,a.id assignment_id,a.ended_at,
+        c.id connection_id,c.state,c.consented_scopes,c.connected_at,c.updated_at,
+        CASE WHEN a.id IS NOT NULL THEN 'ACTIVE' ELSE 'NONE' END assignment_status,
+        CASE
+          WHEN c.state='ACTIVE' THEN 'CONNECTED_CONSENT_ACTIVE'
+          WHEN c.state='REVOKED' THEN 'CONSENT_REVOKED'
+          WHEN c.state IN ('DISCONNECTED','SUSPENDED') THEN 'CONSENT_INACTIVE'
+          ELSE 'ASSIGNED_CONNECTION_PENDING'
+        END relationship_status,
+        (c.state='ACTIVE') health_data_authorized
+      FROM visible_clients v
+      LEFT JOIN LATERAL (
+        SELECT a.id,a.ended_at FROM external_client_team_assignments a
+        WHERE a.tenant_id=:tenant AND a.client_id=v.client_id AND a.ended_at IS NULL
+          AND (:wide OR a.user_id=:user)
+        ORDER BY a.assigned_at DESC LIMIT 1
+      ) a ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT c.id,c.state,c.consented_scopes,c.connected_at,c.updated_at
+        FROM external_fiteatsy_connections c
+        WHERE c.tenant_id=:tenant AND c.consultant_client_id=v.client_id
+          AND (:wide OR c.consultant_id=:user)
+        ORDER BY (c.state='ACTIVE') DESC,c.updated_at DESC LIMIT 1
+      ) c ON TRUE
+    )"""
+    scope="""(CAST(:status AS text) IS NULL OR d.relationship_status=CAST(:status AS text))
+      AND (CAST(:q AS text) IS NULL OR d.client_id ILIKE '%'||CAST(:q AS text)||'%'
         OR COALESCE(p.values->>'name',p.values->>'fullName','') ILIKE '%'||CAST(:q AS text)||'%'
         OR COALESCE(p.values->>'email','') ILIKE '%'||CAST(:q AS text)||'%')"""
-    rows=(await db.execute(text(f"""SELECT c.id connection_id,c.consultant_client_id client_id,c.state,
-      c.consented_scopes,c.connected_at,c.updated_at,p.values profile_values
-      FROM external_fiteatsy_connections c LEFT JOIN external_client_profile_enrichments p
-      ON p.tenant_id=c.tenant_id AND p.client_id=c.consultant_client_id
-      WHERE {scope} ORDER BY c.updated_at DESC LIMIT :limit OFFSET :offset"""),params)).mappings().all()
-    total=(await db.execute(text(f"""SELECT COUNT(*) FROM external_fiteatsy_connections c
-      LEFT JOIN external_client_profile_enrichments p ON p.tenant_id=c.tenant_id AND p.client_id=c.consultant_client_id
+    rows=(await db.execute(text(f"""{directory} SELECT d.*,p.values profile_values
+      FROM directory d LEFT JOIN external_client_profile_enrichments p
+      ON p.tenant_id=:tenant AND p.client_id=d.client_id
+      WHERE {scope} ORDER BY d.updated_at DESC NULLS LAST,d.client_id LIMIT :limit OFFSET :offset"""),params)).mappings().all()
+    total=(await db.execute(text(f"""{directory} SELECT COUNT(*) FROM directory d
+      LEFT JOIN external_client_profile_enrichments p ON p.tenant_id=:tenant AND p.client_id=d.client_id
       WHERE {scope}"""),params)).scalar_one()
     return {"success":True,"data":{"clients":[client_directory_projection(dict(row)) for row in rows],
       "pagination":{"total":total,"limit":limit,"offset":offset},"practiceWide":wide},

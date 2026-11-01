@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   searchExternalCommonFoods,
 } from '../../lib/fiteatsyConsultantsApi';
-import { bindDietPlanAssessment, createConsultantDietPlan, getConsultantDietPlan, getDietPlanHealthContext, getNutritionAssessment, listConsultantDietPlans, publishConsultantDietPlan, saveConsultantDietPlan } from '../../lib/practiceOperationsApi';
+import { bindDietPlanAssessment, createConsultantDietPlan, getConsultantDietPlan, getDietPlanHealthContext, getNutritionAssessment, listConsultantDietPlans, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan } from '../../lib/practiceOperationsApi';
+import { useAuth } from '../../context/AuthContext';
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import CommonFoodPlanEditor from '../platform/CommonFoodPlanEditor';
 
@@ -39,6 +40,7 @@ const show = (value) => valueList(value).join(', ') || 'Not provided';
 const projectDetail=(detail)=>({id:detail.plan.id,name:detail.plan.title,status:detail.plan.status,updatedAt:detail.plan.updated_at,version:{id:detail.current_version?.id,number:detail.plan.current_version,plan:{dailyTargets:{calories:detail.plan.daily_calories_target,protein:Number(detail.plan.daily_protein_target_g)},meals:COMMON_FOOD_MEALS.map(([mealHead])=>({mealHead,options:(detail.options||[]).filter(item=>item.mealHead===mealHead)}))}},versions:detail.versions});
 
 export default function ExternalMultiDietPlan({ clientId, context, onError, onReviewMeasurements }) {
+  const { user } = useAuth();
   const [plans, setPlans] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [form, setForm] = useState(initialForm);
@@ -51,6 +53,8 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
   const editorRef = useRef(null);
   const selected = useMemo(() => plans.find((plan) => plan.id === selectedId) || plans[0] || null, [plans, selectedId]);
   const valid = form.name.trim().length >= 2 && Number(form.dailyCalories) >= 800 && Number(form.dailyCalories) <= 6000 && Number(form.dailyProtein) >= 20 && Number(form.dailyProtein) <= 400;
+  const role=String(user?.role?.code||user?.role||'').toUpperCase();
+  const canReview=['SENIOR_CONSULTANT','PRACTICE_ADMIN','PRACTICE_OWNER','SUPER_ADMIN','SUPERUSER','PLATFORM_OWNER'].includes(role);
 
   const load = useCallback(async (preferredId) => {
     setLoading(true); setLoadError('');
@@ -97,9 +101,8 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
       if (action === 'save') {
         await editorRef.current?.save();
         setMessage('A new immutable Diet Plan version was saved.');
-      } else {
-        if (!window.confirm(`Validate and publish “${selected.name}” to this client? This creates an immutable consultant-authored version; it is not a clinical approval.`)) return;
-        await editorRef.current?.save();
+      } else if (action === 'publish') {
+        if (!window.confirm(`Publish the approved version of “${selected.name}” to this client?`)) return;
         const refreshed = await getConsultantDietPlan(selected.id);
         const currentPlan = refreshed?.plan;
         const currentOptions = refreshed?.options || [];
@@ -107,7 +110,13 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
         try { await bindDietPlanAssessment(clientId, { external_plan_id: selected.id, external_plan_version: String(currentPlan.current_version), assessment_id: readiness.assessmentId, assessment_version: readiness.assessmentVersion, plan_state: currentPlan.status }); }
         catch (bindingError) { if (bindingError.code !== 'PLAN_ASSESSMENT_LINK_EXISTS') throw bindingError; }
         await publishConsultantDietPlan(selected.id);
-        setMessage('Consultant-authored Diet Plan version validated and published.');
+        setMessage('The exact Senior Consultant-approved Diet Plan version was published.');
+      } else {
+        if(action==='submit') await editorRef.current?.save();
+        const refreshed=await getConsultantDietPlan(selected.id);
+        const actionMap={submit:'SUBMIT',startReview:'START_REVIEW',approve:'APPROVE',requestChanges:'REQUEST_CHANGES'};
+        await reviewConsultantDietPlan(selected.id,{action:actionMap[action],expected_version:refreshed.plan.current_version,reason:action==='requestChanges'?'Changes requested by reviewer':undefined});
+        setMessage(action==='submit'?'Diet Plan submitted for Senior Consultant review.':action==='approve'?'This exact Diet Plan version was approved.':action==='requestChanges'?'Changes were requested for this version.':'Senior Consultant review started.');
       }
       await load(selected.id);
     } catch (error) { onError(error.message || 'Unable to update Diet Plan.'); }
@@ -152,8 +161,11 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
             <p className="mt-1 text-xs text-slate-500">Published versions are immutable. Editing a published plan and saving creates the next version.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {selected.status !== 'ARCHIVED' && <button disabled={busy} onClick={() => persist('save')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy === 'save' ? 'Saving…' : selected.status === 'PUBLISHED' ? 'Save as new version' : 'Save version'}</button>}
-            <button disabled={busy || readiness.outcome!=='READY' || ['PUBLISHED','ARCHIVED'].includes(selected.status)} onClick={() => persist('publish')} className="min-h-11 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">{selected.status === 'PUBLISHED' ? 'Published' : selected.status === 'ARCHIVED' ? 'Archived' : readiness.outcome!=='READY' ? 'Complete assessment to continue' : busy === 'publish' ? 'Publishing…' : 'Validate & publish version'}</button>
+            {!['APPROVED','PUBLISHED','ARCHIVED'].includes(selected.status) && <button disabled={busy} onClick={() => persist('save')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save version'}</button>}
+            {['DRAFT','SAVED','CHANGES_REQUESTED'].includes(selected.status)&&<button disabled={busy} onClick={()=>persist('submit')} className="min-h-11 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">{busy==='submit'?'Submitting…':'Submit for review'}</button>}
+            {canReview&&selected.status==='SUBMITTED'&&<button disabled={busy} onClick={()=>persist('startReview')} className="min-h-11 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">Start review</button>}
+            {canReview&&selected.status==='UNDER_REVIEW'&&<><button disabled={busy} onClick={()=>persist('requestChanges')} className="min-h-11 rounded-xl border border-amber-300 px-4 font-semibold disabled:opacity-40">Request changes</button><button disabled={busy} onClick={()=>persist('approve')} className="min-h-11 rounded-xl bg-emerald-700 px-4 font-semibold text-white disabled:opacity-40">Approve exact version</button></>}
+            {selected.status==='APPROVED'&&<button disabled={busy || readiness.outcome!=='READY'} onClick={() => persist('publish')} className="min-h-11 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">{readiness.outcome!=='READY'?'Complete assessment to publish':busy==='publish'?'Publishing…':'Publish approved version'}</button>}
           </div>
         </div>
       </section>
