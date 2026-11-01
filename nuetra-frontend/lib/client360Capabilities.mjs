@@ -6,6 +6,16 @@ const capabilitySet = (configuration = {}) => new Set(
   (configuration.capabilities || []).map(value => String(value).toUpperCase()),
 );
 
+export function connectedClient360Configuration(configuration = {}, client = {}) {
+  const capabilities = capabilitySet(configuration);
+  const scopes = new Set((client.consentedScopes || []).map(value => String(value).toUpperCase()));
+  if (client.connectionId && client.healthDataAuthorized) {
+    if (scopes.has('BIOMARKERS')) capabilities.add('BIOMARKERS');
+    if (scopes.has('MEASUREMENTS')) capabilities.add('MEASUREMENTS');
+  }
+  return { ...configuration, capabilities: [...capabilities] };
+}
+
 export function client360CapabilityState(configuration = {}) {
   const capabilities = capabilitySet(configuration);
   return {

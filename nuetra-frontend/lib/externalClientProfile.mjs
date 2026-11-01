@@ -90,7 +90,8 @@ export function externalClient360Base(client = {}, healthContext = null) {
     : context.healthProfile && typeof context.healthProfile === 'object' ? context.healthProfile : {};
   const suppliedSections = context.sections && typeof context.sections === 'object' ? context.sections : {};
   const reports = Array.isArray(context.reports) ? context.reports : [];
-  const displayName = client.displayName || client.name || profile.displayName || profile.name || 'Unnamed client';
+  const profileName = [profile.firstName || profile.first_name, profile.lastName || profile.last_name].filter(Boolean).join(' ');
+  const displayName = client.displayName || client.name || profile.displayName || profile.name || profileName || 'Unnamed client';
   const history = onboarding.healthHistory && typeof onboarding.healthHistory === 'object' ? onboarding.healthHistory : {};
   const lifestyle = onboarding.lifestyle && typeof onboarding.lifestyle === 'object' ? onboarding.lifestyle : {};
   const nutrition = onboarding.nutrition && typeof onboarding.nutrition === 'object' ? onboarding.nutrition : {};
@@ -136,6 +137,7 @@ export function externalClient360Base(client = {}, healthContext = null) {
     },
     documents: reports.map((report) => ({
       ...report,
+      id: report.id || report.reportId || report.report_id,
       name: report.name || report.originalFilename || report.fileName || report.reportType || 'Health report',
       category: report.category || report.reportType || 'LAB_REPORT',
       sourceLabel: report.sourceLabel || 'Fiteatsy',
@@ -151,6 +153,7 @@ export function externalClient360Base(client = {}, healthContext = null) {
     consent: {
       source: healthContext ? 'FITEATSY_CONNECTION' : 'PRACTICE_DIRECTORY',
       scopes: Array.isArray(client.consentedScopes) ? client.consentedScopes : [],
+      status: context.consent?.status || client.consentStatus || (client.healthDataAuthorized ? 'ACTIVE' : null),
     },
   };
 }
@@ -168,6 +171,52 @@ export function externalConnectedBiomarkers(healthContext = {}) {
     reportDownloadPath: item.reportDownloadPath || item.source?.filePath || null,
     source: 'FITEATSY_CONNECTION',
   }));
+}
+
+export function externalConnectedBiomarkerHistory(healthContext = {}, biomarker = {}) {
+  const canonicalId = biomarker.canonicalBiomarkerId || biomarker.biomarkerId || biomarker.id;
+  const matches = externalConnectedBiomarkers(healthContext).filter((item) =>
+    (item.canonicalBiomarkerId || item.id) === canonicalId,
+  );
+  const rows = matches.flatMap((item) => [
+    item,
+    ...(item.previousValue == null ? [] : [{
+      ...item,
+      id: `${item.id}-previous`,
+      value: item.previousValue,
+      unit: item.previousUnit || item.unit,
+      observationDate: item.previousTestDate || item.previousObservationDate || null,
+      reviewStatus: 'CONFIRMED',
+    }]),
+  ]).filter((item) => item.observationDate).sort((a, b) => String(b.observationDate).localeCompare(String(a.observationDate)));
+  return rows;
+}
+
+export function externalConnectedHealthRecords(healthContext = {}) {
+  const reports = Array.isArray(healthContext.reports) ? healthContext.reports : [];
+  const biomarkers = externalConnectedBiomarkers(healthContext);
+  return reports.map((report) => {
+    const reportId = report.id || report.reportId || report.report_id;
+    const observations = Array.isArray(report.biomarkers)
+      ? report.biomarkers
+      : biomarkers.filter((item) => (item.reportId || item.report_id || item.source?.reportId) === reportId);
+    return {
+      id: reportId,
+      recordType: report.reportType || report.category || 'LAB_REPORT',
+      sampleDate: report.reportDate || report.sampleDate || observations[0]?.observationDate || null,
+      reportDate: report.reportDate || null,
+      confirmedAt: report.confirmedAt || report.reviewedAt || null,
+      providerName: report.labName || report.providerName || null,
+      biomarkerCount: observations.length,
+      uploadedByType: report.uploadedByType || 'FITEATSY_CLIENT',
+      reviewStatus: report.reviewStatus || (report.processingStatus === 'COMPLETED' ? 'CONFIRMED' : 'PENDING'),
+      processingStatus: report.processingStatus || 'COMPLETED',
+      status: 'ACTIVE',
+      provenance: 'FITEATSY_CONNECTION',
+      observations,
+      connectionScoped: true,
+    };
+  });
 }
 
 export function composeExternalClientProfile(baseProfile, enrichment = {}, measurementProjection = {}) {

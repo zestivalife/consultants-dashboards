@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-import { externalClient360Base, externalConnectedBiomarkers } from '../lib/externalClientProfile.mjs';
+import { externalClient360Base, externalConnectedBiomarkerHistory, externalConnectedBiomarkers, externalConnectedHealthRecords } from '../lib/externalClientProfile.mjs';
 
 const component = fs.readFileSync(new URL('../components/external/ExternalClient360.jsx', import.meta.url), 'utf8');
 
@@ -71,4 +71,44 @@ test('consented Fiteatsy biomarkers retain clinical values in the original bioma
   assert.equal(result[0].observationDate, '2026-10-01');
   assert.equal(result[0].reviewStatus, 'CONFIRMED');
   assert.equal(result[0].source, 'FITEATSY_CONNECTION');
+});
+
+test('all 51 authorised biomarkers are projected without truncation', () => {
+  const biomarkers=Array.from({length:51},(_,index)=>({biomarkerId:`marker-${index}`,name:`Marker ${index}`,value:index,unit:'unit'}));
+  assert.equal(externalConnectedBiomarkers({biomarkers}).length,51);
+});
+
+test('connected biomarker history includes only supplied observations', () => {
+  const context={biomarkers:[{biomarkerId:'hba1c',name:'HbA1c',value:5.6,unit:'%',testDate:'2026-10-27',previousValue:5.8,previousTestDate:'2026-09-27'}]};
+  const rows=externalConnectedBiomarkerHistory(context,{canonicalBiomarkerId:'hba1c'});
+  assert.deepEqual(rows.map(item=>item.value),[5.6,5.8]);
+  assert.deepEqual(externalConnectedBiomarkerHistory({biomarkers:[context.biomarkers[0]]},{canonicalBiomarkerId:'missing'}),[]);
+});
+
+test('connected reports map to read-only dated evidence records with exact observations', () => {
+  const records=externalConnectedHealthRecords({
+    reports:[{report_id:'report-1',reportType:'LAB_ANALYSIS',reportDate:'2026-10-27'}],
+    biomarkers:[{biomarkerId:'alt',name:'ALT',value:20,unit:'U/L',report_id:'report-1'}],
+  });
+  assert.equal(records[0].id,'report-1');
+  assert.equal(records[0].biomarkerCount,1);
+  assert.equal(records[0].observations[0].value,20);
+  assert.equal(records[0].connectionScoped,true);
+});
+
+test('connected Client 360 binds health records and does not expose a mutable connection status selector', () => {
+  assert.match(component,/connectionRecords=\{connectedRecords\}/);
+  assert.match(component,/!client\.connectionId&&<select aria-label="Client status"/);
+  assert.match(component,/externalConnectedBiomarkerHistory/);
+});
+
+test('connected report identifiers and profile names support canonical API aliases', () => {
+  const result=externalClient360Base({healthDataAuthorized:true},{
+    profile:{client:{first_name:'Priyanshi',last_name:'Zestiva'}},
+    reports:[{report_id:'report-1',fileName:'lab.pdf'}],
+    consent:{status:'ACTIVE'},
+  });
+  assert.equal(result.overview.name,'Priyanshi Zestiva');
+  assert.equal(result.documents[0].id,'report-1');
+  assert.equal(result.consent.status,'ACTIVE');
 });

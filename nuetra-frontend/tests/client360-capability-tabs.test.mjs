@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { client360CapabilityState, resolveClient360Navigation, resolveClient360Tabs } from '../lib/client360Capabilities.mjs';
+import { client360CapabilityState, connectedClient360Configuration, resolveClient360Navigation, resolveClient360Tabs } from '../lib/client360Capabilities.mjs';
 
 const component=readFileSync(new URL('../components/external/ExternalClient360.jsx',import.meta.url),'utf8');
 
@@ -48,4 +48,24 @@ test('production Client360 uses bounded primary and responsive secondary navigat
   assert.match(component,/grid-cols-5/);
   assert.match(component,/lg:flex-wrap/);
   assert.doesNotMatch(component,/Client 360 sections[^\n]+overflow-x-auto/);
+});
+
+test('an authorised Fiteatsy connection exposes only its consented clinical modules',()=>{
+  const configuration=connectedClient360Configuration({profession:'OTHER',capabilities:[]},{
+    connectionId:'connection-1',healthDataAuthorized:true,consentedScopes:['BIOMARKERS','MEASUREMENTS'],
+  });
+  const state=client360CapabilityState(configuration);
+  assert.deepEqual(state,{dietPlan:false,biomarkers:true,measurements:true});
+  assert.deepEqual(resolveClient360Navigation(configuration)[1].modules,['Health Profile','Biomarkers','Health Records','Measurements','Reports']);
+});
+
+test('connection consent never fabricates diet authority or survives revoked health access',()=>{
+  const active=connectedClient360Configuration({profession:'OTHER',capabilities:[]},{
+    connectionId:'connection-1',healthDataAuthorized:true,consentedScopes:['BIOMARKERS','MEASUREMENTS','DIET_PLAN'],
+  });
+  assert.equal(client360CapabilityState(active).dietPlan,false);
+  const revoked=connectedClient360Configuration({profession:'OTHER',capabilities:[]},{
+    connectionId:'connection-1',healthDataAuthorized:false,consentedScopes:['BIOMARKERS','MEASUREMENTS'],
+  });
+  assert.deepEqual(client360CapabilityState(revoked),{dietPlan:false,biomarkers:false,measurements:false});
 });
