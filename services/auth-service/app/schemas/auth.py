@@ -160,6 +160,15 @@ class NextAccountAction(BaseModel):
     reason: str
 
 
+class CanonicalTenant(BaseModel):
+    tenantId: str
+    tenantName: str | None = None
+    tenantType: Literal["INDEPENDENT_CONSULTANT", "PRACTICE", "CLINIC", "ENTERPRISE", "ZESTIVA_INTERNAL"]
+    currentMembershipRole: str
+    membershipStatus: Literal["active"] = "active"
+    resolutionPath: Literal["MEMBERSHIP"] = "MEMBERSHIP"
+
+
 class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
@@ -178,6 +187,7 @@ class UserResponse(BaseModel):
     must_change_password: bool = False
     temporary_password_expires_at: datetime | None = None
     next_action: NextAccountAction | None = None
+    currentTenant: CanonicalTenant | None = None
     created_at: datetime
     mfa_assured: bool = False
 

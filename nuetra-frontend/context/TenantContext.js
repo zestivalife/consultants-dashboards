@@ -9,7 +9,7 @@ const TenantContext=createContext({
 });
 
 export function TenantProvider({children}){
-  const {user,isLoading:authLoading,isBackendAuthEnabled}=useAuth();
+  const {user,isLoading:authLoading}=useAuth();
   const [state,setState]=useState({currentTenant:null,status:TENANT_CONTEXT_STATUS.IDLE,error:null});
   const requestGeneration=useRef(0);
 
@@ -27,7 +27,10 @@ export function TenantProvider({children}){
     }
 
     const embedded=normalizeCanonicalTenant({currentTenant:user.currentTenant});
-    if(embedded&&!isBackendAuthEnabled){
+    // The authentication service is the authority that selected this active
+    // membership. Prefer its signed-in response instead of forwarding the
+    // Zestiva session token to a second identity service.
+    if(embedded){
       setState({currentTenant:embedded,status:TENANT_CONTEXT_STATUS.READY,error:null});
       return ()=>controller.abort();
     }
@@ -44,7 +47,15 @@ export function TenantProvider({children}){
       setState({currentTenant:null,status:TENANT_CONTEXT_STATUS.UNAVAILABLE,error:error?.message||'TENANT_CONTEXT_UNAVAILABLE'});
     });
     return ()=>controller.abort();
-  },[authLoading,isBackendAuthEnabled,user?.id]);
+  },[
+    authLoading,
+    user?.id,
+    user?.currentTenant?.tenantId,
+    user?.currentTenant?.tenantType,
+    user?.currentTenant?.currentMembershipRole,
+    user?.currentTenant?.membershipStatus,
+    user?.currentTenant?.resolutionPath,
+  ]);
 
   const {currentTenant,status,error}=state;
   const value=useMemo(()=>({

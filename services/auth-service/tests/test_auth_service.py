@@ -27,6 +27,14 @@ def test_product_professional_role_precedes_organization_permissions():
     assert workspace.landing_page == "/dashboard/senior-consultant"
 
 
+def test_inactive_organization_membership_never_resolves_workspace_access():
+    user = SimpleNamespace(
+        organization_memberships=[SimpleNamespace(status="INACTIVE")],
+    )
+
+    assert auth_service._active_membership(user) is None
+
+
 def _always_allow_rate():
     return patch(RATE_LIMIT_PATCH, new_callable=AsyncMock, return_value=True)
 
@@ -161,6 +169,12 @@ async def test_fully_provisioned_direct_registration_can_use_me_and_mobile_passw
 
     assert current.id == user.id
     assert result.user.id == user.id
+    assert current.currentTenant is not None
+    assert current.currentTenant.tenantType == "INDEPENDENT_CONSULTANT"
+    assert current.currentTenant.currentMembershipRole == "OWNER"
+    assert current.currentTenant.membershipStatus == "active"
+    assert current.currentTenant.resolutionPath == "MEMBERSHIP"
+    assert result.user.currentTenant == current.currentTenant
     assert user.is_verified is False
     assert user.email_verified is False
     assert user.mobile_verified is False
@@ -424,6 +438,9 @@ async def test_login_resolves_workspace_from_people_access_context(session: Asyn
     assert access_profile.capabilities == ["reports.view", "users.read"]
     assert access_profile.workspace.id == "care-delivery"
     assert access_profile.workspace.landing_page == "/dashboard/provider"
+    assert login_result.user.currentTenant is not None
+    assert login_result.user.currentTenant.tenantType == "ZESTIVA_INTERNAL"
+    assert login_result.user.currentTenant.resolutionPath == "MEMBERSHIP"
 
 
 @pytest.mark.asyncio

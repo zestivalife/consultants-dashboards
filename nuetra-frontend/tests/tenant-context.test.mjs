@@ -12,7 +12,9 @@ test('frontend hydrates automatic server-issued tenant context without a switche
   assert.match(source,/requestGeneration/);
   assert.match(source,/controller\.abort/);
   assert.match(source,/setState\(\{currentTenant:null,status:TENANT_CONTEXT_STATUS\.IDLE,error:null\}\)/);
-  assert.match(source,/\[authLoading,isBackendAuthEnabled,user\?\.id\]/);
+  assert.match(source,/if\(embedded\)\{/);
+  assert.doesNotMatch(source,/embedded&&!isBackendAuthEnabled/);
+  assert.match(source,/user\?\.currentTenant\?\.tenantId/);
   assert.match(source,/tenantId/);
   assert.match(source,/tenantName/);
   assert.match(source,/tenantType/);

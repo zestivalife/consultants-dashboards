@@ -94,7 +94,15 @@ def _normalize_key(value: object | None) -> str:
 def _active_membership(user: User):
     memberships = list(getattr(user, "organization_memberships", []) or [])
     active = [item for item in memberships if _normalize_key(getattr(item, "status", "")) == "active"]
-    return (active or memberships or [None])[0]
+    # Tenant access is derived only from an explicitly active membership.
+    # Falling back to a suspended/inactive row would silently restore access.
+    return sorted(
+        active,
+        key=lambda item: (
+            getattr(item, "joined_at", None) or getattr(item, "created_at", None) or datetime.min.replace(tzinfo=timezone.utc),
+            str(getattr(item, "id", "")),
+        ),
+    )[0] if active else None
 
 
 def _active_product_access(user: User):
@@ -250,6 +258,46 @@ async def _user_response(
 ) -> UserResponse:
     permission_list = permissions if permissions is not None else (user.permissions or [])
     next_action = next_action_for_user(user)
+    access_profile = await _access_profile(session, user, permission_list)
+    external_provisioning = (
+        await session.execute(
+            select(ExternalSignupProvisioning).where(
+                ExternalSignupProvisioning.auth_user_id == user.id,
+                ExternalSignupProvisioning.status.in_({"ONBOARDING_IN_PROGRESS", "READY"}),
+                ExternalSignupProvisioning.tenant_id.is_not(None),
+                ExternalSignupProvisioning.owner_membership_id.is_not(None),
+            )
+        )
+    ).scalar_one_or_none()
+    current_tenant = None
+    if external_provisioning is not None:
+        tenant_type = (
+            "PRACTICE"
+            if external_provisioning.account_type == "PRACTICE_OWNER"
+            else "INDEPENDENT_CONSULTANT"
+        )
+        display_name = (
+            user.company_name
+            or " ".join(value for value in [user.first_name, user.last_name] if value).strip()
+            or user.email
+        )
+        current_tenant = {
+            "tenantId": str(external_provisioning.tenant_id),
+            "tenantName": display_name,
+            "tenantType": tenant_type,
+            "currentMembershipRole": "OWNER",
+            "membershipStatus": "active",
+            "resolutionPath": "MEMBERSHIP",
+        }
+    elif access_profile.active_organization is not None:
+        current_tenant = {
+            "tenantId": str(access_profile.active_organization.id),
+            "tenantName": access_profile.active_organization.name,
+            "tenantType": "ZESTIVA_INTERNAL",
+            "currentMembershipRole": access_profile.role.upper(),
+            "membershipStatus": "active",
+            "resolutionPath": "MEMBERSHIP",
+        }
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -264,7 +312,7 @@ async def _user_response(
         last_name=user.last_name,
         phone=user.phone,
         permissions=permission_list,
-        access_profile=await _access_profile(session, user, permission_list),
+        access_profile=access_profile,
         must_change_password=user.must_change_password,
         temporary_password_expires_at=getattr(user, "temporary_password_expires_at", None),
         next_action={
@@ -272,6 +320,7 @@ async def _user_response(
             "route": next_action.route,
             "reason": next_action.reason,
         },
+        currentTenant=current_tenant,
         created_at=user.created_at,
     )
 
