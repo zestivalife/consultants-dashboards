@@ -5,6 +5,7 @@ on:
     branches:
       - codex/senior-review-authority-v1
       - codex/p0-role-workspace-routing
+      - codex/p0-release-lineage-reconcile
   workflow_dispatch:
     inputs:
       commit_sha:
