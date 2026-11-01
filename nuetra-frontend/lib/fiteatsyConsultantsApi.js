@@ -145,7 +145,7 @@ export function listExternalClients(filters = {}) {
   Object.entries(filters).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
   });
-  return requestFiteatsy(`/v1/external/clients?${params}`, { method: 'GET' });
+  return apiRequest(`/practice-operations/clients?${params}`, { method: 'GET' });
 }
 
 export function createExternalClient(payload) {

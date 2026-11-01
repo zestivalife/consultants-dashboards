@@ -93,6 +93,7 @@ from app.p28 import PaymentProviderNotConfigured, canonical_payload_hash, verify
 from app.p29 import classify_output, validate_ai_request
 from app.p30 import EXCLUDED_BY_DEFAULT, export_checksum, validate_export_sections
 from app.command_centre import next_action, operational_priority, section as command_section, sort_work
+from app.client_directory import client_directory_projection
 from app.p37 import project_readiness, resolve_requirements
 from app.p38 import project_post_session, resolve_post_session_actions
 from app.p39 import experience_label, public_review_eligible, validate_ratings
@@ -4262,6 +4263,36 @@ async def _team_guard(request,db,ctx,permission,client_id=None):
           AND client_id=:client AND user_id=:user AND ended_at IS NULL LIMIT 1"""),{"tenant":ctx["tenant_id"],"client":client_id,"user":ctx["user_id"]})).scalar_one_or_none()
         if not assigned:return error(request,403,"CLIENT_ASSIGNMENT_REQUIRED","This client is not assigned to the practitioner"),principal
     return None,principal
+
+
+@app.get("/api/v1/practice-operations/clients")
+async def list_practice_clients(request:Request,q:str|None=None,status:str|None=None,
+                                limit:int=Query(25,ge=1,le=100),offset:int=Query(0,ge=0),
+                                ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,principal=await _team_guard(request,db,ctx,"CLIENT_LIST_VIEW")
+    if denied:return denied
+    wide=bool(principal["practice_wide_client_access"] or principal["legacy_solo"])
+    params={"tenant":ctx["tenant_id"],"user":ctx["user_id"],"wide":wide,
+            "q":q.strip() if q and q.strip() else None,"status":status.upper() if status else None,
+            "limit":limit,"offset":offset}
+    scope="""c.tenant_id=:tenant AND (:wide OR EXISTS (
+      SELECT 1 FROM external_client_team_assignments a WHERE a.tenant_id=c.tenant_id
+      AND a.client_id=c.consultant_client_id AND a.user_id=:user AND a.ended_at IS NULL))
+      AND (CAST(:status AS text) IS NULL OR c.state=CAST(:status AS text))
+      AND (CAST(:q AS text) IS NULL OR c.consultant_client_id ILIKE '%'||CAST(:q AS text)||'%'
+        OR COALESCE(p.values->>'name',p.values->>'fullName','') ILIKE '%'||CAST(:q AS text)||'%'
+        OR COALESCE(p.values->>'email','') ILIKE '%'||CAST(:q AS text)||'%')"""
+    rows=(await db.execute(text(f"""SELECT c.id connection_id,c.consultant_client_id client_id,c.state,
+      c.consented_scopes,c.connected_at,c.updated_at,p.values profile_values
+      FROM external_fiteatsy_connections c LEFT JOIN external_client_profile_enrichments p
+      ON p.tenant_id=c.tenant_id AND p.client_id=c.consultant_client_id
+      WHERE {scope} ORDER BY c.updated_at DESC LIMIT :limit OFFSET :offset"""),params)).mappings().all()
+    total=(await db.execute(text(f"""SELECT COUNT(*) FROM external_fiteatsy_connections c
+      LEFT JOIN external_client_profile_enrichments p ON p.tenant_id=c.tenant_id AND p.client_id=c.consultant_client_id
+      WHERE {scope}"""),params)).scalar_one()
+    return {"success":True,"data":{"clients":[client_directory_projection(dict(row)) for row in rows],
+      "pagination":{"total":total,"limit":limit,"offset":offset},"practiceWide":wide},
+      "error":None,"request_id":request.state.correlation_id}
 
 
 async def _team_audit(db,ctx,event_type,target_user_id=None,client_id=None,old_value=None,new_value=None,metadata=None):
