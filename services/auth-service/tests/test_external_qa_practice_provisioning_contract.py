@@ -84,3 +84,25 @@ def test_nutrition_profession_expansion_is_constraint_only():
     assert "create_check_constraint" in source
     for forbidden in ("delete from", "update ", "truncate", "drop_table"):
         assert forbidden not in source
+
+
+def test_governed_qa_membership_is_projected_only_from_ready_canonical_binding():
+    service = Path("app/services/external_qa_practice_service.py").read_text()
+    auth = Path("app/services/auth_service.py").read_text()
+    model = Path("app/db/models/external_qa.py").read_text()
+    for field in ("owner_membership_id", "onboarding_id", "account_type"):
+        assert field in service
+        assert field in model
+    assert 'ExternalQaPracticeProvisioning.status == "READY"' in auth
+    assert "ExternalQaPracticeProvisioning.owner_membership_id.is_not(None)" in auth
+    assert "QA_EXTERNAL_MEMBERSHIP_RECONCILED" in service
+
+
+def test_governed_qa_membership_migration_is_additive_and_merges_heads():
+    source = Path("alembic/versions/d8e9f0a1b2c3_bind_governed_qa_membership.py").read_text().lower()
+    assert 'down_revision = ("b7c8d9e0f1a2", "c1e2f3a4b5c6")' in source
+    for column in ("owner_membership_id", "onboarding_id", "account_type"):
+        assert f'add_column("external_qa_practice_provisioning"' in source
+        assert column in source
+    for forbidden in ("delete from", "update ", "truncate", "drop_table"):
+        assert forbidden not in source

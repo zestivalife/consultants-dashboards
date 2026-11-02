@@ -23,6 +23,7 @@ from app.core.security import (
 )
 from app.db.models.owner_access import Organization, OrganizationMembership, UserStatusHistory
 from app.db.models.external_signup import ExternalSignupProvisioning
+from app.db.models.external_qa import ExternalQaPracticeProvisioning
 from app.db.models.refresh_token import RefreshToken
 from app.db.models.user import PasswordHistory, User
 from app.repositories.audit_log_repository import AuditLogRepository
@@ -270,6 +271,17 @@ async def _user_response(
             )
         )
     ).scalar_one_or_none()
+    if external_provisioning is None:
+        external_provisioning = (
+            await session.execute(
+                select(ExternalQaPracticeProvisioning).where(
+                    ExternalQaPracticeProvisioning.auth_user_id == user.id,
+                    ExternalQaPracticeProvisioning.status == "READY",
+                    ExternalQaPracticeProvisioning.tenant_id.is_not(None),
+                    ExternalQaPracticeProvisioning.owner_membership_id.is_not(None),
+                )
+            )
+        ).scalar_one_or_none()
     internal_memberships = (
         await session.execute(
             select(OrganizationMembership, Organization)

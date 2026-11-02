@@ -109,6 +109,9 @@ async def provision_external_qa_practice(session: AsyncSession, body: ExternalQa
         if ledger.status == "PENDING":
             workspace = await _provision_workspace(actor_id, user, ledger, body)
             ledger.fiteatsy_user_id, ledger.tenant_id = workspace["userId"], workspace["tenantId"]
+            ledger.owner_membership_id = workspace["ownerMembershipId"]
+            ledger.onboarding_id = workspace["onboardingId"]
+            ledger.account_type = workspace["accountType"]
             ledger.client_ids, ledger.status = workspace["clientIds"], "WORKSPACE_READY"
             ledger.last_error_code = None
             await session.commit()
@@ -116,6 +119,15 @@ async def provision_external_qa_practice(session: AsyncSession, body: ExternalQa
             config = await _configure_profession(actor_id, user.id, str(ledger.tenant_id), body)
             ledger.status, ledger.last_error_code, ledger.updated_at = "READY", None, datetime.now(timezone.utc)
             await AuditLogRepository(session).create("QA_EXTERNAL_PRACTICE_PROVISIONED", user_id=user.id)
+            await session.commit()
+        if ledger.status == "READY" and not ledger.owner_membership_id:
+            workspace = await _provision_workspace(actor_id, user, ledger, body)
+            ledger.fiteatsy_user_id, ledger.tenant_id = workspace["userId"], workspace["tenantId"]
+            ledger.owner_membership_id = workspace["ownerMembershipId"]
+            ledger.onboarding_id = workspace["onboardingId"]
+            ledger.account_type = workspace["accountType"]
+            ledger.client_ids = workspace["clientIds"]
+            await AuditLogRepository(session).create("QA_EXTERNAL_MEMBERSHIP_RECONCILED", user_id=user.id)
             await session.commit()
     except Exception:
         await session.rollback()
