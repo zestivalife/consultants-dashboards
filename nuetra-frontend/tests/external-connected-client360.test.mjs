@@ -163,3 +163,16 @@ test('connected report identifiers and profile names support canonical API alias
   assert.equal(result.documents[0].id,'report-1');
   assert.equal(result.consent.status,'ACTIVE');
 });
+
+test('authorised Fiteatsy profile name replaces directory placeholder without fabricating identity', () => {
+  const named=externalClient360Base({displayName:'Unnamed client'}, {
+    profile:{client:{name:'Kirti'}},
+  });
+  assert.equal(named.overview.name,'Kirti');
+  assert.equal(named.basicProfile.name.value,'Kirti');
+
+  const missing=externalClient360Base({displayName:'No contact provided'}, {
+    profile:{client:{name:null,first_name:null,last_name:null}},
+  });
+  assert.equal(missing.overview.name,'Unnamed client');
+});

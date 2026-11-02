@@ -32,6 +32,9 @@ export function normalizeExternalHealthGoals(value) {
 
 const present = (value) => value !== null && value !== undefined && value !== '' && value !== 0 && (!Array.isArray(value) || value.length > 0);
 const number = (value) => present(value) && Number.isFinite(Number(value)) ? Number(value) : null;
+const clientName = (...values) => values
+  .map((value) => String(value ?? '').trim())
+  .find((value) => value && !['unnamed client', 'client', 'no contact provided'].includes(value.toLowerCase())) || '';
 
 export function formatDateOnlyDDMMYYYY(value) {
   if (!value) return 'Not available';
@@ -91,7 +94,9 @@ export function externalClient360Base(client = {}, healthContext = null) {
   const suppliedSections = context.sections && typeof context.sections === 'object' ? context.sections : {};
   const reports = Array.isArray(context.reports) ? context.reports : [];
   const profileName = [profile.firstName || profile.first_name, profile.lastName || profile.last_name].filter(Boolean).join(' ');
-  const displayName = client.displayName || client.display_name || client.clientName || client.name || profile.displayName || profile.display_name || profile.name || profileName || 'Unnamed client';
+  const authorisedProfileName = clientName(profile.displayName, profile.display_name, profile.name, profileName);
+  const directoryName = clientName(client.displayName, client.display_name, client.clientName, client.name);
+  const displayName = authorisedProfileName || directoryName || 'Unnamed client';
   const history = onboarding.healthHistory && typeof onboarding.healthHistory === 'object' ? onboarding.healthHistory : {};
   const lifestyle = onboarding.lifestyle && typeof onboarding.lifestyle === 'object' ? onboarding.lifestyle : {};
   const nutrition = onboarding.nutrition && typeof onboarding.nutrition === 'object' ? onboarding.nutrition : {};
