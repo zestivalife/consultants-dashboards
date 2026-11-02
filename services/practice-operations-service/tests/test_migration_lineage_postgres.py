@@ -168,7 +168,7 @@ def test_both_migration_heads_converge_without_losing_records(migrated_database)
     with psycopg.connect(url) as connection:
         assert connection.execute(
             "SELECT version_num FROM practice_operations_alembic_version"
-        ).fetchall() == [("0062_merge_release_heads",)]
+        ).fetchall() == [("0063_diet_plan_idempotency",)]
         assert connection.execute(
             "SELECT id::text FROM external_client_team_assignments WHERE id = %s",
             (sentinels["assignment_id"],),

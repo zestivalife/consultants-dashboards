@@ -26,6 +26,8 @@ def test_diet_plan_client_routes_enforce_team_assignment_and_tenant_scope():
 
 
 def test_idempotency_migration_is_forward_scoped_and_reversible():
+    assert 'revision = "0063_diet_plan_idempotency"' in MIGRATION
+    assert len("0063_diet_plan_idempotency") <= 32
     assert 'down_revision = "0062_merge_release_heads"' in MIGRATION
     assert 'ADD COLUMN idempotency_key VARCHAR(160)' in MIGRATION
     assert 'tenant_id,authorised_consultant_id,idempotency_key' in MIGRATION
