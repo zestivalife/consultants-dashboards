@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  canAccessDashboardLocation,
   getDashboardPathForUser,
   getEligibleWorkspaceIds,
   isCanonicalWorkspaceAllowed,
@@ -23,6 +24,20 @@ test('manual URL switching cannot grant another workspace', () => {
   assert.equal(isCanonicalWorkspaceAllowed(external, 'external-consultant'), true);
   assert.equal(isCanonicalWorkspaceAllowed(external, 'internal-consultant'), false);
   assert.equal(isCanonicalWorkspaceAllowed(external, 'super-admin'), false);
+});
+
+test('nested canonical workspace routes survive refresh only for authorised workspace and tenant', () => {
+  const owner = user('platform_owner', null, { workspaceAuthorities: [
+    { workspaceId: 'super-admin', landingPage: '/workspace/super-admin', tenantId: null, membershipStatus: 'active', resolutionPath: 'BACKEND_ROLE', role: 'platform_owner' },
+  ] });
+  assert.equal(canAccessDashboardLocation(owner, '/workspace/super-admin/[[...path]]', { path: ['client-assignments'] }), true);
+
+  const external = user('consultant', 'PRACTICE', { workspaceAuthorities: [
+    { workspaceId: 'external-consultant', landingPage: '/workspace/external-consultant', tenantId: 'practice-a', membershipStatus: 'active', resolutionPath: 'MEMBERSHIP', role: 'consultant' },
+  ] });
+  assert.equal(canAccessDashboardLocation(external, '/workspace/external-consultant/[[...path]]', { tenant: 'practice-a', path: ['clients'] }), true);
+  assert.equal(canAccessDashboardLocation(external, '/workspace/super-admin/[[...path]]', { path: ['client-assignments'] }), false);
+  assert.equal(canAccessDashboardLocation(external, '/workspace/external-consultant/[[...path]]', { tenant: 'practice-b', path: ['clients'] }), false);
 });
 
 test('missing, inactive, or non-membership tenant authority fails closed', () => {

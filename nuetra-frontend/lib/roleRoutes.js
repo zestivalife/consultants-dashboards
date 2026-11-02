@@ -195,9 +195,14 @@ export function canAccessFoodAuthorisation(userOrRole) {
 
 export function canAccessDashboardLocation(user, pathname, query = {}) {
   const view = Array.isArray(query?.view) ? query.view[0] : query?.view;
-  return pathname === '/dashboard/admin'
+  if (pathname === '/dashboard/admin'
     && view === 'food-authorisation'
-    && canAccessFoodAuthorisation(user);
+    && canAccessFoodAuthorisation(user)) return true;
+
+  const workspaceMatch = String(pathname || '').match(/^\/workspace\/([^/]+)/);
+  if (!workspaceMatch) return false;
+  const tenant = Array.isArray(query?.tenant) ? query.tenant[0] : query?.tenant;
+  return isCanonicalWorkspaceAllowed(user, workspaceMatch[1], tenant || null);
 }
 
 function unique(values) {

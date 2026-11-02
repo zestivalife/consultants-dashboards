@@ -9,6 +9,7 @@ test('platform owner exposes the governed client assignment workflow on a canoni
   const page = read('components/platform/OwnerConsolePage.jsx');
   const workspace = read('components/platform/PlatformWorkspace.jsx');
   const api = read('lib/fiteatsyConsultantsApi.js');
+  const roles = read('lib/roleRoutes.js');
 
   assert.match(routes, /slug: 'client-assignments', moduleKey: 'client-assignments', label: 'Client Assignments'/);
   assert.match(routes, /assignments: 'client-assignments'/);
@@ -20,4 +21,6 @@ test('platform owner exposes the governed client assignment workflow on a canoni
   assert.match(api, /apiRequest\(`?\/platform\/fiteatsy\/professional-assignments\/professionals/);
   assert.match(api, /apiRequest\('\/platform\/fiteatsy\/professional-assignments'/);
   assert.doesNotMatch(api, /requestFiteatsy(?:Json)?\(`?\/v1\/professional-assignments/);
+  assert.match(roles, /match\(\/\^\\\/workspace\\\/\(\[\^\/\]\+\)\//);
+  assert.match(roles, /isCanonicalWorkspaceAllowed\(user, workspaceMatch\[1\], tenant \|\| null\)/);
 });
