@@ -38,7 +38,9 @@ test('diet authoring receives real read-only client and confirmed biomarker cont
   for (const contract of ['dietPlanContext', 'context?.goals', 'Diet preference', 'Food restrictions', 'Confirmed biomarkers']) {
     assert.ok(`${client360}\n${dietPlan}`.includes(contract), contract);
   }
+  assert.match(dietPlan, /Approve exact version/);
   assert.match(dietPlan, /Publish approved version/);
+  assert.doesNotMatch(dietPlan, /Submit for review|Senior Consultant review|canReview/);
 });
 
 test('dashboard counts avoid false zero when their source is unavailable', () => {

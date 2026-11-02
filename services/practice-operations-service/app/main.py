@@ -2018,11 +2018,13 @@ async def review_diet_plan(request:Request,plan_id:UUID,body:DietPlanReviewActio
     plan=await _diet_plan_row(request,db,ctx,plan_id)
     if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
     if plan["current_version"]!=body.expected_version:return error(request,409,"STALE_WRITE","This Diet Plan changed. Refresh and retry")
-    transitions={"SUBMIT":({"DRAFT","SAVED","CHANGES_REQUESTED"},"SUBMITTED"),"START_REVIEW":({"SUBMITTED"},"UNDER_REVIEW"),"REQUEST_CHANGES":({"SUBMITTED","UNDER_REVIEW"},"CHANGES_REQUESTED"),"REJECT":({"SUBMITTED","UNDER_REVIEW"},"REJECTED"),"APPROVE":({"UNDER_REVIEW"},"APPROVED")}
+    transitions={"SUBMIT":({"DRAFT","SAVED","CHANGES_REQUESTED"},"SUBMITTED"),"START_REVIEW":({"SUBMITTED"},"UNDER_REVIEW"),"REQUEST_CHANGES":({"SUBMITTED","UNDER_REVIEW"},"CHANGES_REQUESTED"),"REJECT":({"SUBMITTED","UNDER_REVIEW"},"REJECTED"),"APPROVE":({"DRAFT","SAVED","CHANGES_REQUESTED","SUBMITTED","UNDER_REVIEW"},"APPROVED")}
     allowed,target=transitions[body.action]
     if plan["status"] not in allowed:return error(request,409,"INVALID_DIET_PLAN_TRANSITION",f"Cannot {body.action.lower().replace('_',' ')} a {plan['status'].lower()} Diet Plan")
-    if body.action!="SUBMIT" and ctx.get("role") not in DIET_PLAN_REVIEW_ROLES:return error(request,403,"SENIOR_REVIEW_REQUIRED","Senior Consultant or administrator authority is required")
-    now=datetime.now(timezone.utc);version_id=(await db.execute(text("SELECT id FROM external_profession_plan_versions WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version"),{"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).scalar_one()
+    if body.action not in {"SUBMIT","APPROVE"} and ctx.get("role") not in DIET_PLAN_REVIEW_ROLES:return error(request,403,"SENIOR_REVIEW_REQUIRED","Senior Consultant or administrator authority is required")
+    version_row=(await db.execute(text("SELECT id,nutrition_snapshot FROM external_profession_plan_versions WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version"),{"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).mappings().one()
+    if body.action=="APPROVE" and int((version_row["nutrition_snapshot"] or {}).get("option_count") or 0)<1:return error(request,409,"DIET_PLAN_CONTENT_REQUIRED","Add and save at least one governed meal option before approval")
+    now=datetime.now(timezone.utc);version_id=version_row["id"]
     await db.execute(text("UPDATE external_profession_plans SET status=:status,updated_at=:now WHERE id=:plan AND tenant_id=:tenant"),{"status":target,"now":now,"plan":plan_id,"tenant":ctx["tenant_id"]})
     await db.execute(text("UPDATE external_profession_plan_versions SET status=:status WHERE id=:version AND tenant_id=:tenant"),{"status":target,"version":version_id,"tenant":ctx["tenant_id"]})
     await db.execute(text("""INSERT INTO external_profession_plan_audit_events
@@ -2041,7 +2043,7 @@ async def publish_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db
     if plan["status"]=="ARCHIVED":return error(request,409,"DIET_PLAN_ARCHIVED","Archived Diet Plans cannot be published")
     if plan["status"]=="PUBLISHED":
         return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"],"publication_basis":"CONSULTANT_AUTHORED_VALIDATED","already_published":True},"error":None,"request_id":request.state.correlation_id}
-    if plan["status"]!="APPROVED":return error(request,409,"DIET_PLAN_APPROVAL_REQUIRED","Senior Consultant approval of this exact Diet Plan version is required before publication")
+    if plan["status"]!="APPROVED":return error(request,409,"DIET_PLAN_APPROVAL_REQUIRED","Consultant approval of this exact Diet Plan version is required before publication")
     if not get_settings().external_fiteatsy_diet_publish_enabled:return error(request,409,"FITEATSY_DELIVERY_DISABLED","Fiteatsy Diet Plan delivery is not enabled")
     connection=(await db.execute(text("""SELECT id FROM external_fiteatsy_connections
       WHERE tenant_id=:tenant AND consultant_id=:consultant AND consultant_client_id=:client

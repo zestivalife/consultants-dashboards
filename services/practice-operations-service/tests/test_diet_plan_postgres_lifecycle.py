@@ -89,10 +89,7 @@ async def test_real_http_exact_version_review_publication_mobile_and_docx_lifecy
         assert concurrent.status_code==200 and concurrent.json()["data"]["version"]==3
         stale_approval=await client.post(f"/api/v1/practice-operations/diet-plans/{plan_id}/review",headers=practitioner_headers("senior-reviewer","SENIOR_CONSULTANT"),json={"action":"APPROVE","expected_version":2})
         assert stale_approval.status_code==409 and stale_approval.json()["error"]["code"]=="STALE_WRITE"
-        await client.post(f"/api/v1/practice-operations/diet-plans/{plan_id}/review",headers=practitioner_headers(),json={"action":"SUBMIT","expected_version":3})
-        started=await client.post(f"/api/v1/practice-operations/diet-plans/{plan_id}/review",headers=practitioner_headers("senior-reviewer","SENIOR_CONSULTANT"),json={"action":"START_REVIEW","expected_version":3})
-        assert started.status_code==200
-        approved=await client.post(f"/api/v1/practice-operations/diet-plans/{plan_id}/review",headers=practitioner_headers("senior-reviewer","SENIOR_CONSULTANT"),json={"action":"APPROVE","expected_version":3})
+        approved=await client.post(f"/api/v1/practice-operations/diet-plans/{plan_id}/review",headers=practitioner_headers(),json={"action":"APPROVE","expected_version":3})
         assert approved.status_code==200 and approved.json()["data"]["version"]==3
         unauthorised=await client.post(f"/api/v1/practice-operations/diet-plans/{plan_id}/publish",headers=practitioner_headers("other-consultant"))
         assert unauthorised.status_code==404

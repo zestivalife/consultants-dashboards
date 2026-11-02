@@ -24,6 +24,7 @@ from app.core.security import (
 from app.db.models.owner_access import Organization, OrganizationMembership, UserStatusHistory
 from app.db.models.external_signup import ExternalSignupProvisioning
 from app.db.models.external_qa import ExternalQaPracticeProvisioning
+from app.db.models.inhouse_qa import InhouseQaProvisioning
 from app.db.models.refresh_token import RefreshToken
 from app.db.models.user import PasswordHistory, User
 from app.repositories.audit_log_repository import AuditLogRepository
@@ -392,6 +393,7 @@ def _build_tokens(
     permissions: list[str] | None = None,
     products: list[str] | None = None,
     mfa_assured: bool = False,
+    fiteatsy_user_id: str | None = None,
 ) -> TokenResponse:
     settings = get_settings()
     access_token = create_access_token(
@@ -404,6 +406,7 @@ def _build_tokens(
             "products": sorted(set(products or [])),
             "mfa_assured": mfa_assured,
             "amr": ["pwd", "otp"] if mfa_assured else ["pwd"],
+            **({"fiteatsy_user_id": fiteatsy_user_id} if fiteatsy_user_id else {}),
         },
     )
     return TokenResponse(
@@ -412,6 +415,29 @@ def _build_tokens(
         token_type="bearer",
         expires_in=settings.jwt_access_expiry_minutes * 60,
     )
+
+
+async def _resolve_fiteatsy_user_id(session: AsyncSession, user_id: uuid.UUID) -> str | None:
+    candidates: set[str] = set()
+    for model, ready_states in (
+        (ExternalSignupProvisioning, {"ONBOARDING_IN_PROGRESS", "READY"}),
+        (ExternalQaPracticeProvisioning, {"READY"}),
+        (InhouseQaProvisioning, {"READY"}),
+    ):
+        value = (
+            await session.execute(
+                select(model.fiteatsy_user_id).where(
+                    model.auth_user_id == user_id,
+                    model.status.in_(ready_states),
+                    model.fiteatsy_user_id.is_not(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if value:
+            candidates.add(str(value))
+    if len(candidates) > 1:
+        raise ForbiddenException("Conflicting application identities require administrator reconciliation.")
+    return next(iter(candidates), None)
 
 
 def _ensure_account_access_user(user: User, *, now: datetime | None = None) -> None:
@@ -627,7 +653,8 @@ async def login(
 
     permission_claims = await people_access_service.resolve_user_permissions(session, user)
     product_claims = await people_access_service.resolve_user_products(session, user)
-    tokens = _build_tokens(user, raw_refresh, permission_claims, product_claims, mfa_assured=mfa_assured)
+    tokens = _build_tokens(user, raw_refresh, permission_claims, product_claims, mfa_assured=mfa_assured,
+                           fiteatsy_user_id=await _resolve_fiteatsy_user_id(session, user.id))
     user_data = await _user_response(session, user, permission_claims)
 
     logger.info("user_logged_in", user_id=str(user.id))
@@ -667,7 +694,8 @@ async def issue_mobile_otp_session(
     user.last_login = now
     await session.flush()
     return LoginResponse(
-        tokens=_build_tokens(user, raw_refresh, permissions, products),
+        tokens=_build_tokens(user, raw_refresh, permissions, products,
+                             fiteatsy_user_id=await _resolve_fiteatsy_user_id(session, user.id)),
         user=await _user_response(session, user, permissions),
     )
 
@@ -709,7 +737,8 @@ async def issue_direct_registration_session(
     user.last_login = now
     await session.flush()
     return LoginResponse(
-        tokens=_build_tokens(user, raw_refresh, permissions, products),
+        tokens=_build_tokens(user, raw_refresh, permissions, products,
+                             fiteatsy_user_id=await _resolve_fiteatsy_user_id(session, user.id)),
         user=await _user_response(session, user, permissions),
     )
 
@@ -794,7 +823,8 @@ async def refresh(
 
     permissions = await people_access_service.resolve_user_permissions(session, user)
     products = await people_access_service.resolve_user_products(session, user)
-    return _build_tokens(user, new_raw, permissions, products)
+    return _build_tokens(user, new_raw, permissions, products,
+                         fiteatsy_user_id=await _resolve_fiteatsy_user_id(session, user.id))
 
 
 async def logout(
@@ -985,7 +1015,8 @@ async def change_password(
     permissions = await people_access_service.resolve_user_permissions(session, user)
     products = await people_access_service.resolve_user_products(session, user)
     return LoginResponse(
-        tokens=_build_tokens(user, raw_refresh, permissions, products),
+        tokens=_build_tokens(user, raw_refresh, permissions, products,
+                             fiteatsy_user_id=await _resolve_fiteatsy_user_id(session, user.id)),
         user=await _user_response(session, user, permissions),
     )
 

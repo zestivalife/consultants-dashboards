@@ -139,10 +139,12 @@ async def test_direct_registration_issues_initial_session_for_active_unverified_
     user.email_verified = False
     user.mobile_verified = False
     user.role = await session.get(Role, user.role_id)
+    await _provision_direct_registration(session, user)
 
     result = await auth_service.issue_direct_registration_session(session, user)
 
     assert result.tokens.access_token
+    assert decode_access_token(result.tokens.access_token)["fiteatsy_user_id"] == f"ext_{user.id}"
     assert result.tokens.refresh_token
     assert user.is_verified is False
     assert user.email_verified is False
