@@ -147,6 +147,12 @@ test('connected Client 360 binds health records and does not expose a mutable co
   assert.match(component,/if\(client\.connectionId&&client\.healthDataAuthorized\)\{setProfileEvidenceReviews\(\[\]\);return;\}/);
 });
 
+test('connected report download uses the browser document instead of shadowing it with report data', () => {
+  assert.match(component,/const downloadDocument=async\(report\)/);
+  assert.match(component,/window\.document\.createElement\('a'\)/);
+  assert.doesNotMatch(component,/downloadDocument=async\(document\)/);
+});
+
 test('connected report identifiers and profile names support canonical API aliases', () => {
   const result=externalClient360Base({healthDataAuthorized:true},{
     profile:{client:{first_name:'Priyanshi',last_name:'Zestiva'}},
