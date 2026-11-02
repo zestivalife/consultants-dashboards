@@ -6,6 +6,7 @@ on:
       - codex/senior-review-authority-v1
       - codex/p0-role-workspace-routing
       - codex/p0-release-lineage-reconcile
+      - codex/p0-owner-profession-configuration
   workflow_dispatch:
     inputs:
       commit_sha:
