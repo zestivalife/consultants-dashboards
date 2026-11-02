@@ -52,7 +52,7 @@ def test_nutrition_profession_aliases_resolve_centrally_with_full_client360_capa
         assert required <= PROFESSION_DEFAULTS[expected]
 
     assert canonical_profession("Health Coach") == "HEALTH_COACH"
-    assert "DIET_PLAN" not in PROFESSION_DEFAULTS["HEALTH_COACH"]
+    assert required <= PROFESSION_DEFAULTS["HEALTH_COACH"]
     assert canonical_profession("Unknown clinical role") == "OTHER"
 
 

@@ -22,7 +22,9 @@ def test_profession_configuration_reuses_authoritative_models():
     assert "body.profession not in SUPPORTED_PROFESSIONS" not in section
     for table in ("practice_tenant_configuration", "external_profession_profiles", "external_profession_capability_profiles"):
         assert table in section
-    for frozen in ("diet", "biomarker", "zestiva_internal"):
+    assert "diet_chart_eligibility(body.profession)" in section
+    assert "effective_diet_chart_capabilities(body.profession, requested)" in section
+    for frozen in ("biomarker", "zestiva_internal"):
         assert frozen not in section.lower()
 
 
