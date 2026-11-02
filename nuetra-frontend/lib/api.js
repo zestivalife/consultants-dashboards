@@ -449,6 +449,14 @@ export const ownerPeopleAccessAPI = {
     return apiRequest(`/owner/people-access/users/${userId}`);
   },
 
+  getUserProfession(userId) {
+    return apiRequest(`/owner/people-access/users/${userId}/profession`);
+  },
+
+  updateUserProfession(userId, payload) {
+    return apiRequest(`/owner/people-access/users/${userId}/profession`, { method: 'PUT', body: payload });
+  },
+
   createUser(payload) {
     return apiRequest('/owner/people-access/users', {
       method: 'POST',

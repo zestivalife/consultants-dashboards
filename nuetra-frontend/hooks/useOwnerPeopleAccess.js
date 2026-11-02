@@ -151,9 +151,16 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     }
     setDetailLoading(true);
     try {
-      const detail = await ownerPeopleAccessAPI.getUser(userId);
-      setSelectedUser(detail);
-      return detail;
+      const [detail, profession] = await Promise.all([
+        ownerPeopleAccessAPI.getUser(userId),
+        ownerPeopleAccessAPI.getUserProfession(userId).catch((professionError) => ({
+          state: 'UNAVAILABLE', profession: null, version: 0,
+          safe_message: professionError?.message || 'Profession configuration is unavailable.',
+        })),
+      ]);
+      const combined = { ...detail, profession_configuration: profession };
+      setSelectedUser(combined);
+      return combined;
     } finally {
       setDetailLoading(false);
     }
@@ -265,6 +272,12 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     }
     return updated;
   }, [loadSelectedUser, onSelectUser, refresh]);
+
+  const onUpdateProfession = useCallback(async (userId, payload) => {
+    const updated = await ownerPeopleAccessAPI.updateUserProfession(userId, payload);
+    await loadSelectedUser(userId);
+    return updated;
+  }, [loadSelectedUser]);
 
   const onArchiveUser = useCallback(async (userId, reason) => {
     const updated = await ownerPeopleAccessAPI.archiveUser(userId, { reason });
@@ -409,6 +422,7 @@ export function useOwnerPeopleAccess({ router, enabled, detailEnabled }) {
     onProvisionFiteatsyQaAdmin,
     onAssignFiteatsyClient,
     onUpdateUser,
+    onUpdateProfession,
     onArchiveUser,
     onRestoreUser,
     onBulkAction,

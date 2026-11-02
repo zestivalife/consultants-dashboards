@@ -18,9 +18,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.version import runtime_commit_sha
+from app.owner_profession_delegation import (OwnerProfessionDelegation,
+    OwnerProfessionDelegationError, require_owner_profession_delegation)
 from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            MediaReferenceCreate, OutboxDelivery, ResourceCreate,
-                           ResourceUpdate, PracticeConfigurationUpdate,
+                           ResourceUpdate, PracticeConfigurationUpdate, OwnerProfessionUpdate,
                            CommunicationTemplateCreate, WhatsAppOpenCreate,
                            OnboardingCompletedCreate, ProfessionIntakeInvitationCreate,
                            ProfessionIntakeAnswerSave, ProfessionIntakeSubmit,
@@ -970,6 +972,86 @@ async def update_internal_client_profile_enrichment(request: Request, client_id:
 @app.exception_handler(QaDelegationError)
 async def qa_delegation_error(_request: Request, exc: QaDelegationError):
     return JSONResponse(status_code=403, content={"success": False, "error": {"code": "QA_DELEGATION_DENIED", "safe_message": str(exc)}})
+
+
+@app.exception_handler(OwnerProfessionDelegationError)
+async def owner_profession_delegation_error(_request: Request, exc: OwnerProfessionDelegationError):
+    return JSONResponse(status_code=403, content={"success": False, "error": {"code": "OWNER_PROFESSION_DELEGATION_DENIED", "safe_message": str(exc)}})
+
+
+def _owner_profession_projection(row):
+    if not row:
+        return {"state": "UNCONFIGURED", "profession": None, "version": 0,
+                "diet_chart_eligibility": "UNMAPPED", "diet_chart_authoring_enabled": False,
+                "diet_chart_entitlement_required": False}
+    result = dict(row)
+    profession = canonical_profession(result["profession"])
+    eligibility = diet_chart_eligibility(profession)
+    effective = effective_diet_chart_capabilities(profession, set(result.get("capabilities") or []))
+    return {"state": "CONFIGURED", "profession": profession, "version": result["version"],
+            "diet_chart_eligibility": eligibility.value if eligibility else "UNMAPPED",
+            "diet_chart_authoring_enabled": "DIET_PLAN" in effective,
+            "diet_chart_entitlement_required": eligibility == DietChartEligibility.OPTIONAL}
+
+
+@app.get("/internal/owner/users/{target_user_id}/profession")
+async def get_owner_managed_profession(target_user_id: str,
+    authority: OwnerProfessionDelegation = Depends(require_owner_profession_delegation),
+    db: AsyncSession = Depends(get_db)):
+    if target_user_id != authority.user_id:
+        raise OwnerProfessionDelegationError("Target user is outside the signed scope")
+    row = (await db.execute(text("SELECT profession,capabilities,version FROM practice_tenant_configuration WHERE tenant_id=:tenant"),
+                            {"tenant": authority.tenant_id})).mappings().first()
+    return {"success": True, "data": _owner_profession_projection(row), "error": None}
+
+
+@app.put("/internal/owner/users/{target_user_id}/profession")
+async def put_owner_managed_profession(target_user_id: str, body: OwnerProfessionUpdate,
+    authority: OwnerProfessionDelegation = Depends(require_owner_profession_delegation),
+    db: AsyncSession = Depends(get_db)):
+    if target_user_id != authority.user_id:
+        raise OwnerProfessionDelegationError("Target user is outside the signed scope")
+    current = (await db.execute(text("SELECT profession,capabilities,profile,version FROM practice_tenant_configuration WHERE tenant_id=:tenant"),
+                                {"tenant": authority.tenant_id})).mappings().first()
+    current_version = current["version"] if current else 0
+    if body.expected_version != current_version:
+        return JSONResponse(status_code=409, content={"success": False, "error": {"code": "STALE_CONFIGURATION", "safe_message": "Profession configuration changed in another session. Refresh and try again."}})
+    profession = canonical_profession(body.profession)
+    if profession != body.profession or profession not in PROFESSION_DEFAULTS:
+        return JSONResponse(status_code=422, content={"success": False, "error": {"code": "UNSUPPORTED_PROFESSION", "safe_message": "Select a supported canonical profession."}})
+    capabilities = set(PROFESSION_DEFAULTS[profession])
+    # Preserve an explicit optional grant only when the profession itself is unchanged.
+    if (current and canonical_profession(current["profession"]) == profession
+            and diet_chart_eligibility(profession) == DietChartEligibility.OPTIONAL
+            and "DIET_PLAN" in set(current["capabilities"] or [])):
+        capabilities.add("DIET_PLAN")
+    capabilities = effective_diet_chart_capabilities(profession, capabilities)
+    terminology = TERMINOLOGY.get(profession, {"consultation":"Consultation","plan":"Care Plan","goal":"Goal"})
+    now = datetime.now(timezone.utc)
+    if current:
+        row = (await db.execute(text("""UPDATE practice_tenant_configuration SET profession=:profession,
+          capabilities=CAST(:capabilities AS jsonb),terminology=CAST(:terminology AS jsonb),version=version+1,
+          updated_by=:actor,updated_at=:now WHERE tenant_id=:tenant AND version=:expected
+          RETURNING profession,capabilities,version"""), {"profession": profession,
+          "capabilities": json.dumps(sorted(capabilities)), "terminology": json.dumps(terminology),
+          "actor": authority.actor_id, "now": now, "tenant": authority.tenant_id,
+          "expected": body.expected_version})).mappings().first()
+        if not row:
+            await db.rollback()
+            return JSONResponse(status_code=409, content={"success": False, "error": {"code": "STALE_CONFIGURATION", "safe_message": "Profession configuration changed in another session. Refresh and try again."}})
+    else:
+        try:
+            row = (await db.execute(text("""INSERT INTO practice_tenant_configuration
+              (tenant_id,profession,capabilities,terminology,profile,version,updated_by,updated_at)
+              VALUES (:tenant,:profession,CAST(:capabilities AS jsonb),CAST(:terminology AS jsonb),'{}'::jsonb,1,:actor,:now)
+              RETURNING profession,capabilities,version"""), {"tenant": authority.tenant_id,
+              "profession": profession, "capabilities": json.dumps(sorted(capabilities)),
+              "terminology": json.dumps(terminology), "actor": authority.actor_id, "now": now})).mappings().one()
+        except IntegrityError:
+            await db.rollback()
+            return JSONResponse(status_code=409, content={"success": False, "error": {"code": "STALE_CONFIGURATION", "safe_message": "Profession configuration changed in another session. Refresh and try again."}})
+    await db.commit()
+    return {"success": True, "data": _owner_profession_projection(row), "error": None}
 
 
 @app.put("/internal/qa/external-practice/configuration")

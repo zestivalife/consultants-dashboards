@@ -102,6 +102,19 @@ class PracticeConfigurationUpdate(BaseModel):
     profile: dict[str, Any] = Field(default_factory=dict)
 
 
+class OwnerProfessionUpdate(BaseModel):
+    profession: Literal[
+        "DIETITIAN", "NUTRITIONIST", "CLINICAL_NUTRITIONIST", "SPORTS_NUTRITIONIST",
+        "HEALTH_COACH", "WELLNESS_COACH", "PSYCHOLOGIST", "COUNSELLOR",
+        "PHYSIOTHERAPIST", "FITNESS_TRAINER", "YOGA_MEDITATION_COACH",
+        "DIABETES_EDUCATOR", "WOMENS_HEALTH_PRACTITIONER",
+        "LIFESTYLE_MEDICINE_PRACTITIONER", "MENTOR", "DOCTOR_PHYSICIAN", "OTHER",
+        "WELLNESS_CONSULTANT", "BEHAVIOURAL_THERAPIST", "OCCUPATIONAL_THERAPIST",
+        "MENTAL_WELLNESS_THERAPIST",
+    ]
+    expected_version: int = Field(ge=0)
+
+
 class CommunicationTemplateCreate(BaseModel):
     code: str = Field(min_length=2, max_length=80, pattern=r"^[A-Z0-9_]+$")
     label: str = Field(min_length=1, max_length=120)

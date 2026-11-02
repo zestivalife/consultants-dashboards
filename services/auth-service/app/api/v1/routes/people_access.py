@@ -25,9 +25,11 @@ from app.schemas.people_access import (
     UserNoteCreateRequest,
     ExternalQaPracticeCreateRequest,
     ExternalQaPracticeDeactivateRequest,
+    OwnerProfessionUpdateRequest,
 )
 from app.services import people_access_service
 from app.services.external_qa_practice_service import deactivate_external_qa_practice, provision_external_qa_practice
+from app.services.owner_profession_service import get_profession, update_profession
 
 
 router = APIRouter(tags=["people-access"])
@@ -145,6 +147,21 @@ async def get_user_detail(
     await _require_people_access(session, current_user, "users.read")
     result = await people_access_service.get_user_detail(session, user_id)
     return success_response(data=result.model_dump(mode="json"))
+
+
+@router.get("/users/{user_id}/profession")
+async def get_user_profession(user_id: uuid.UUID, session: AsyncSession = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user)):
+    await _require_people_access(session, current_user, "users.read")
+    return success_response(data=await get_profession(session, current_user.id, user_id))
+
+
+@router.put("/users/{user_id}/profession")
+async def put_user_profession(user_id: uuid.UUID, body: OwnerProfessionUpdateRequest,
+    session: AsyncSession = Depends(get_db), current_user: UserResponse = Depends(get_current_user)):
+    await _require_people_access(session, current_user, "users.edit")
+    return success_response(data=await update_profession(session, current_user.id, user_id,
+        body.profession, body.expected_version), message="Profession updated")
 
 
 @router.post("/users")

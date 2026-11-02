@@ -117,6 +117,7 @@ export default function OwnerConsolePage({ moduleSlug = 'command-center' }) {
             onProvisionFiteatsyQaAdmin={peopleAccess.onProvisionFiteatsyQaAdmin}
             onAssignFiteatsyClient={peopleAccess.onAssignFiteatsyClient}
             onUpdateUser={peopleAccess.onUpdateUser}
+            onUpdateProfession={peopleAccess.onUpdateProfession}
             onBulkAction={peopleAccess.onBulkAction}
             onAddNote={peopleAccess.onAddNote}
             onAddAttachment={peopleAccess.onAddAttachment}

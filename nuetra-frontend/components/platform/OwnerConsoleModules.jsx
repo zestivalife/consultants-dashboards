@@ -37,6 +37,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { PROFESSION_CATALOG, LEGACY_PROFESSION_ACCESS_ROLES, dietEligibilityLabel, professionOption } from '../../lib/professionCatalog.mjs';
 import {
   ActionButton,
   Badge,
@@ -931,6 +932,7 @@ export function PeopleAccessModule({
   onProvisionExternalQaPractice,
   onProvisionFiteatsyQaAdmin,
   onUpdateUser,
+  onUpdateProfession,
   onArchiveUser,
   onRestoreUser,
   onBulkAction,
@@ -962,6 +964,8 @@ export function PeopleAccessModule({
   const [showColumnManager, setShowColumnManager] = useState(false);
   const [isProfileDrawerOpen, setIsProfileDrawerOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isProfessionSubmitting, setIsProfessionSubmitting] = useState(false);
+  const [professionDraft, setProfessionDraft] = useState('');
   const [actionError, setActionError] = useState(null);
   const [actionNotice, setActionNotice] = useState(null);
   const [actionMenuId, setActionMenuId] = useState(null);
@@ -1045,6 +1049,10 @@ export function PeopleAccessModule({
   });
   const profileTabs = ['General', 'Professional', 'Organizations', 'Permissions', 'Product Access', 'Status History', 'Login Sessions', 'Audit History', 'Assigned Packages', 'Assigned Services', 'Attachments', 'Notes'];
   const roleOptions = metadata?.roles || [];
+  const accessRoleOptions = useMemo(() => roleOptions.filter((role) => {
+    const value = role.name.toLowerCase().replace(/ /g, '_');
+    return !LEGACY_PROFESSION_ACCESS_ROLES.has(value) || value === form.role;
+  }), [form.role, roleOptions]);
   const permissionOptions = metadata?.permissions || [];
   const organizationOptions = metadata?.organizations || [];
   const departmentOptions = metadata?.departments || [];
@@ -1201,6 +1209,7 @@ export function PeopleAccessModule({
 
   useEffect(() => {
     if (!safeSelectedUser) return;
+    setProfessionDraft(safeSelectedUser.profession_configuration?.profession || '');
     setForm((current) => ({
       ...current,
       email: safeSelectedUser.email || '',
@@ -1655,6 +1664,19 @@ export function PeopleAccessModule({
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const submitUpdateProfession = async () => {
+    if (!selectedUser?.id || !professionDraft) return;
+    setIsProfessionSubmitting(true);
+    try {
+      await runAction('Update profession', onUpdateProfession, selectedUser.id, {
+        profession: professionDraft,
+        expected_version: safeSelectedUser.profession_configuration?.version || 0,
+      });
+    } finally {
+      setIsProfessionSubmitting(false);
     }
   };
 
@@ -3188,8 +3210,10 @@ export function PeopleAccessModule({
                 <input value={form.last_name} onChange={(event) => updateForm('last_name', event.target.value)} placeholder="Last name" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
                 <input value={form.phone} onChange={(event) => updateForm('phone', event.target.value)} placeholder="Phone number" className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none" />
                 <select value={form.role} onChange={(event) => updateForm('role', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
-                  {roleOptions.map((role) => (
-                    <option key={role.id} value={role.name.toLowerCase().replace(/ /g, '_')}>{role.name}</option>
+                  {accessRoleOptions.map((role) => (
+                    <option key={role.id} value={role.name.toLowerCase().replace(/ /g, '_')}>
+                      {role.name}{LEGACY_PROFESSION_ACCESS_ROLES.has(role.name.toLowerCase().replace(/ /g, '_')) ? ' (legacy; change explicitly)' : ''}
+                    </option>
                   ))}
                 </select>
                 <select value={form.status} onChange={(event) => updateForm('status', event.target.value)} className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
@@ -3241,6 +3265,9 @@ export function PeopleAccessModule({
                     <p><span className="font-bold text-gray-900">Phone:</span> {safeSelectedUser.phone || 'Not added'}</p>
                     <p><span className="font-bold text-gray-900">Created:</span> {safeSelectedUser.created_at ? new Date(safeSelectedUser.created_at).toLocaleString() : 'Not recorded'}</p>
                     <p><span className="font-bold text-gray-900">Status:</span> {safeSelectedUser.status}</p>
+                    <p><span className="font-bold text-gray-900">Access Role:</span> {safeSelectedUser.role.replace(/_/g, ' ')}</p>
+                    <p><span className="font-bold text-gray-900">Profession:</span> {professionOption(safeSelectedUser.profession_configuration?.profession)?.label || 'Not configured'}</p>
+                    <p><span className="font-bold text-gray-900">Diet Chart:</span> {dietEligibilityLabel(safeSelectedUser.profession_configuration)}</p>
                     {safeSelectedUser.archived_at ? (
                       <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-amber-900">
                         <p><span className="font-bold">Archived:</span> {new Date(safeSelectedUser.archived_at).toLocaleString()}</p>
@@ -3251,10 +3278,20 @@ export function PeopleAccessModule({
                   </div>
                 )}
                 {profileTab === 'Professional' && (
-                  <div className="space-y-3 text-sm text-gray-600">
-                    <p><span className="font-bold text-gray-900">Role focus:</span> {safeSelectedUser.professional_title || safeSelectedUser.role}</p>
+                  <div className="space-y-4 text-sm text-gray-600">
+                    <div className="rounded-2xl border border-gray-200 bg-white p-4">
+                      <label className="block text-xs font-black uppercase tracking-[0.18em] text-gray-500" htmlFor="owner-profession">Profession</label>
+                      <select id="owner-profession" value={professionDraft} onChange={(event) => setProfessionDraft(event.target.value)} className="mt-3 w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none">
+                        <option value="">Select profession</option>
+                        {PROFESSION_CATALOG.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                      </select>
+                      <p className="mt-3"><span className="font-bold text-gray-900">Effective Diet Chart eligibility:</span> {dietEligibilityLabel(safeSelectedUser.profession_configuration)}</p>
+                      {safeSelectedUser.profession_configuration?.state === 'UNAVAILABLE' ? <p className="mt-2 text-amber-700">{safeSelectedUser.profession_configuration.safe_message}</p> : null}
+                      <p className="mt-2 text-xs text-gray-500">Profession controls module eligibility. It never changes the user&apos;s Access Role, tenant, assignment or consent.</p>
+                      <div className="mt-4"><ActionButton icon={Save} label="Save profession" tone="primary" onClick={submitUpdateProfession} disabled={isProfessionSubmitting || !professionDraft} /></div>
+                    </div>
+                    <p><span className="font-bold text-gray-900">Access Role:</span> {safeSelectedUser.role.replace(/_/g, ' ')}</p>
                     <p><span className="font-bold text-gray-900">Verification:</span> {safeSelectedUser.verification}</p>
-                    <p><span className="font-bold text-gray-900">Primary role:</span> {safeSelectedUser.role.replace(/_/g, ' ')}</p>
                   </div>
                 )}
                 {profileTab === 'Organizations' && (

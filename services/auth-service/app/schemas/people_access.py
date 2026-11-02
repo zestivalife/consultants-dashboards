@@ -365,6 +365,11 @@ class ManagedUserUpdateRequest(BaseModel):
     note: str | None = None
 
 
+class OwnerProfessionUpdateRequest(BaseModel):
+    profession: str = Field(min_length=2, max_length=80, pattern=r"^[A-Z0-9_]+$")
+    expected_version: int = Field(ge=0)
+
+
 class UserArchiveRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=1000)
 
