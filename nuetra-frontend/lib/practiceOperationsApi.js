@@ -71,7 +71,7 @@ export function saveProfessionPlan(planId,payload){return request(`/profession-p
 export function publishProfessionPlan(planId){return request(`/profession-plans/${encodeURIComponent(planId)}/publish`,{method:'POST'});}
 export function listConsultantDietPlans(clientId){return request(`/clients/${encodeURIComponent(clientId)}/diet-plans`);}
 export function getDietPlanHealthContext(clientId){return request(`/clients/${encodeURIComponent(clientId)}/diet-plan-context`);}
-export function createConsultantDietPlan(payload){return request('/diet-plans',{method:'POST',body:JSON.stringify(payload)});}
+export function createConsultantDietPlan(payload,idempotencyKey){return request('/diet-plans',{method:'POST',headers:{'Idempotency-Key':idempotencyKey},body:JSON.stringify(payload)});}
 export function getConsultantDietPlan(planId){return request(`/diet-plans/${encodeURIComponent(planId)}`);}
 export function saveConsultantDietPlan(planId,payload){return request(`/diet-plans/${encodeURIComponent(planId)}/draft`,{method:'PUT',body:JSON.stringify(payload)});}
 export function reviewConsultantDietPlan(planId,payload){return request(`/diet-plans/${encodeURIComponent(planId)}/review`,{method:'POST',body:JSON.stringify(payload)});}

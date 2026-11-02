@@ -3,6 +3,7 @@ import {
   searchExternalCommonFoods,
 } from '../../lib/fiteatsyConsultantsApi';
 import { bindDietPlanAssessment, createConsultantDietPlan, downloadConsultantDietPlan, getConsultantDietPlan, getDietPlanHealthContext, getNutritionAssessment, listConsultantDietPlans, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan } from '../../lib/practiceOperationsApi';
+import { createdDraftPresentation, loadDietPlanWorkspace } from '../../lib/dietPlanWorkspaceState.mjs';
 import { useAuth } from '../../context/AuthContext';
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import CommonFoodPlanEditor from '../platform/CommonFoodPlanEditor';
@@ -42,38 +43,37 @@ const projectDetail=(detail)=>({id:detail.plan.id,name:detail.plan.title,status:
 export default function ExternalMultiDietPlan({ clientId, context, onError, onReviewMeasurements }) {
   const { user } = useAuth();
   const [plans, setPlans] = useState([]);
+  const [plansStatus, setPlansStatus] = useState('loading');
   const [selectedId, setSelectedId] = useState('');
   const [form, setForm] = useState(initialForm);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
+  const [creationState, setCreationState] = useState({ state: 'idle', createdId: '' });
   const [loadError, setLoadError] = useState('');
   const [readiness, setReadiness] = useState({ outcome: 'LOADING' });
   const [healthContext, setHealthContext] = useState(null);
   const editorRef = useRef(null);
+  const selectedIdRef = useRef('');
+  const creationKeyRef = useRef('');
   const selected = useMemo(() => plans.find((plan) => plan.id === selectedId) || plans[0] || null, [plans, selectedId]);
   const valid = form.name.trim().length >= 2 && Number(form.dailyCalories) >= 800 && Number(form.dailyCalories) <= 6000 && Number(form.dailyProtein) >= 20 && Number(form.dailyProtein) <= 400;
+  const canCreate=valid&&!busy&&plansStatus!=='error'&&!['ERROR','UNAVAILABLE'].includes(readiness.outcome);
   const role=String(user?.role?.code||user?.role||'').toUpperCase();
   const canReview=['SENIOR_CONSULTANT','PRACTICE_ADMIN','PRACTICE_OWNER','SUPER_ADMIN','SUPERUSER','PLATFORM_OWNER'].includes(role);
 
   const load = useCallback(async (preferredId) => {
     setLoading(true); setLoadError('');
     try {
-      const [plansResult,assessmentResult,contextResult]=await Promise.allSettled([listConsultantDietPlans(clientId),getNutritionAssessment(clientId),getDietPlanHealthContext(clientId)]);
-      if(plansResult.status==='rejected'){setPlans([]);setLoadError('Diet plans could not be loaded.');onError(plansResult.reason?.message||'Diet plans could not be loaded.');return;}
-      if(assessmentResult.status==='fulfilled'){const assessment=assessmentResult.value;setReadiness({ outcome: assessment.readiness_status || assessment.readiness?.outcome || 'NOT_STARTED', assessmentId: assessment.id, assessmentVersion: assessment.current_version || assessment.version });}
-      else{setReadiness({outcome:'UNAVAILABLE'});onError(assessmentResult.reason?.message||'Unable to load nutrition assessment.');}
-      if(contextResult.status==='fulfilled')setHealthContext(contextResult.value);
-      else{setHealthContext(null);onError(contextResult.reason?.message||'Unable to load Diet Plan health context.');}
-      const details=await Promise.allSettled((plansResult.value.items||[]).map((item)=>getConsultantDietPlan(item.id).then(projectDetail)));
-      const next=details.filter(item=>item.status==='fulfilled').map(item=>item.value);
-      const failedDetails=details.length-next.length;
-      if(failedDetails){setLoadError(`${failedDetails} Diet Plan ${failedDetails===1?'detail could':'details could'} not be loaded.`);onError('One or more Diet Plan details could not be loaded.');}
-      next.forEach((plan) => editorVersionAliases.delete(plan.id));
-      setPlans(next);
-      setSelectedId((current) => preferredId || (next.some((plan) => plan.id === current) ? current : next[0]?.id || ''));
+      const result=await loadDietPlanWorkspace({clientId,preferredId,currentId:selectedIdRef.current,projectDetail,api:{list:listConsultantDietPlans,assessment:getNutritionAssessment,context:getDietPlanHealthContext,detail:getConsultantDietPlan}});
+      setReadiness(result.readiness);setHealthContext(result.healthContext);setLoadError(result.loadError);setPlansStatus(result.plansStatus);
+      if(result.plans!==null){result.plans.forEach((plan)=>editorVersionAliases.delete(plan.id));setPlans(result.plans);selectedIdRef.current=result.selectedId;setSelectedId(result.selectedId);}
+      if(result.errors.length)onError(result.errors[0]?.message||result.loadError||'One or more Diet Plan requests failed.');
+      return result;
     } catch (error) {
+      setPlansStatus('error');setLoadError('Diet plans could not be loaded.');setReadiness({outcome:'ERROR'});
       onError(error.message || 'Unable to load Diet Plans.');
+      return {plansStatus:'error',plans:null,selectedId:selectedIdRef.current,preferredLoaded:false,loadError:'Diet plans could not be loaded.',readiness:{outcome:'ERROR'},healthContext:null,errors:[error]};
     } finally {
       setLoading(false);
     }
@@ -84,13 +84,14 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
   const create = async (event) => {
     event.preventDefault();
     if (!valid || busy) return;
-    setBusy('create'); setMessage(''); onError('');
+    setBusy('create'); setMessage(''); setCreationState({state:'creating',createdId:''}); onError('');
     try {
-      const result = await createConsultantDietPlan({ client_id: clientId, name: form.name.trim(), daily_calories_target: Number(form.dailyCalories), daily_protein_target_g: Number(form.dailyProtein), health_goals: valueList(context?.goals).slice(0, 3) });
+      const idempotencyKey=creationKeyRef.current||globalThis.crypto.randomUUID();creationKeyRef.current=idempotencyKey;
+      const result = await createConsultantDietPlan({ client_id: clientId, name: form.name.trim(), daily_calories_target: Number(form.dailyCalories), daily_protein_target_g: Number(form.dailyProtein), health_goals: valueList(context?.goals).slice(0, 3) },idempotencyKey);
+      creationKeyRef.current='';
       setForm(initialForm);
-      await load(result.id);
-      setMessage('A new independent Diet Plan draft was created and reloaded.');
-    } catch (error) { onError(error.message || 'Unable to create Diet Plan.'); }
+      const loaded=await load(result.id);const presentation=createdDraftPresentation(result.id,loaded);setCreationState(presentation);setMessage(presentation.message);
+    } catch (error) { setCreationState({state:'failed',createdId:''});onError(error.message || 'Unable to create Diet Plan.'); }
     finally { setBusy(''); }
   };
 
@@ -131,10 +132,10 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
 
   return <div className="space-y-4">
     {loadError&&<section role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-900"><p className="font-semibold">{loadError}</p><button type="button" onClick={()=>load(selectedId)} className="mt-3 min-h-11 rounded-xl border border-rose-300 bg-white px-4 font-semibold">Retry</button></section>}
-    <section className={`rounded-2xl border p-5 ${readiness.outcome==='READY'?'border-emerald-200 bg-emerald-50':'border-amber-200 bg-amber-50'}`}>
+    <section className={`rounded-2xl border p-5 ${readiness.outcome==='READY'?'border-emerald-200 bg-emerald-50':readiness.outcome==='ERROR'?'border-rose-200 bg-rose-50':'border-amber-200 bg-amber-50'}`}>
       <p className="text-xs font-bold uppercase tracking-wider">Nutrition Assessment readiness</p>
       <h3 className="mt-1 text-lg font-semibold">{String(readiness.outcome || 'NOT_STARTED').replaceAll('_',' ')}</h3>
-      <p className="mt-1 text-sm">{readiness.outcome==='READY'?'Available client information is ready for Diet Chart authoring and publication checks.':'You can generate and save a draft using the available information. Completing the assessment improves accuracy and may still be required before publication.'}</p>
+      <p className="mt-1 text-sm">{readiness.outcome==='READY'?'Available client information is ready for Diet Chart authoring and publication checks.':readiness.outcome==='ERROR'?'Assessment readiness could not be verified. Retry before creating or publishing a Diet Chart.':readiness.outcome==='UNAVAILABLE'?'Nutrition Assessment is unavailable for this client. Existing plans remain read-only until readiness can be verified.':'You can generate and save a draft using the available information. Completing the assessment improves accuracy and may still be required before publication.'}</p>
     </section>
     <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
       <p className="text-xs font-bold uppercase tracking-wider text-blue-700">Health Context for Diet Planning</p>
@@ -147,9 +148,9 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
     </section>
 
     <section className="rounded-2xl border border-slate-200 bg-white p-5">
-      <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-blue-700">All Diet Plans</p><h3 className="mt-1 text-xl font-semibold">{plans.length} independent {plans.length === 1 ? 'plan' : 'plans'}</h3></div>{plans.length > 0 && <label className="text-sm font-semibold">Selected plan<select aria-label="Selected Diet Plan" value={selected?.id || ''} onChange={(event) => setSelectedId(event.target.value)} className="ml-2 min-h-11 rounded-xl border border-slate-200 px-3">{plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · {plan.status.replaceAll('_', ' ')}</option>)}</select></label>}</div>
+      <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-blue-700">All Diet Plans</p><h3 className="mt-1 text-xl font-semibold">{plansStatus==='error'?'Plan count unavailable':plansStatus==='partial'?`${plans.length} loaded ${plans.length===1?'plan':'plans'} · some unavailable`:`${plans.length} independent ${plans.length===1?'plan':'plans'}`}</h3></div>{plans.length > 0 && <label className="text-sm font-semibold">Selected plan<select aria-label="Selected Diet Plan" value={selected?.id || ''} onChange={(event) => {selectedIdRef.current=event.target.value;setSelectedId(event.target.value);}} className="ml-2 min-h-11 rounded-xl border border-slate-200 px-3">{plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · {plan.status.replaceAll('_', ' ')}</option>)}</select></label>}</div>
       {plans.length===0&&!loadError&&<p className="mt-4 text-sm text-slate-500">No independent Diet Plans have been created for this client.</p>}
-      {plans.length > 0 && <div className="mt-4 grid gap-3 md:grid-cols-2">{plans.map((plan) => <button key={plan.id} onClick={() => setSelectedId(plan.id)} className={`rounded-xl border p-4 text-left ${plan.id === selected?.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}><strong>{plan.name}</strong><p className="mt-1 text-xs text-slate-500">{plan.status.replaceAll('_', ' ')} · {plan.version.plan.dailyTargets.calories} kcal · {plan.version.plan.dailyTargets.protein} g protein</p><p className="mt-1 text-xs text-slate-400">Updated {new Date(plan.updatedAt).toLocaleString()}</p></button>)}</div>}
+      {plans.length > 0 && <div className="mt-4 grid gap-3 md:grid-cols-2">{plans.map((plan) => <button key={plan.id} onClick={() => {selectedIdRef.current=plan.id;setSelectedId(plan.id);}} className={`rounded-xl border p-4 text-left ${plan.id === selected?.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}><strong>{plan.name}</strong><p className="mt-1 text-xs text-slate-500">{plan.status.replaceAll('_', ' ')} · {plan.version.plan.dailyTargets.calories} kcal · {plan.version.plan.dailyTargets.protein} g protein</p><p className="mt-1 text-xs text-slate-400">Updated {new Date(plan.updatedAt).toLocaleString()}</p></button>)}</div>}
     </section>
 
     {selected && <>
@@ -181,7 +182,7 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
       </section>
     </>}
 
-    <form onSubmit={create} className="rounded-2xl border border-slate-200 bg-white p-5"><h3 className="text-lg font-semibold">Generate Diet Chart</h3><p className="mt-1 text-sm text-slate-500">Create an independent plan with its own targets, draft and publication history.</p>{readiness.outcome!=='READY'&&<div role="note" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><strong>Based on available information.</strong> You can generate this draft now. A completed Nutrition Assessment helps produce a more accurate, personalised Diet Chart before publication.</div>}<div className="mt-4 grid gap-3 md:grid-cols-3"><label className="text-sm font-semibold">Plan name<input required minLength={2} maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label><label className="text-sm font-semibold">Calories (800–6000)<input required type="number" min="800" max="6000" value={form.dailyCalories} onChange={(event) => setForm({ ...form, dailyCalories: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label><label className="text-sm font-semibold">Protein (20–400 g)<input required type="number" min="20" max="400" step="0.1" value={form.dailyProtein} onChange={(event) => setForm({ ...form, dailyProtein: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label></div><button disabled={!valid || busy} className="mt-4 min-h-11 rounded-xl bg-slate-950 px-5 font-semibold text-white disabled:opacity-40">{busy === 'create' ? 'Generating…' : 'Generate Diet Chart'}</button></form>
-    {message && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{message}</p>}
+    <form onSubmit={create} className="rounded-2xl border border-slate-200 bg-white p-5"><h3 className="text-lg font-semibold">Generate Diet Chart</h3><p className="mt-1 text-sm text-slate-500">Create an independent plan with its own targets, draft and publication history.</p>{readiness.outcome!=='READY'&&!['ERROR','UNAVAILABLE'].includes(readiness.outcome)&&<div role="note" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><strong>Based on available information.</strong> You can generate this draft now. A completed Nutrition Assessment helps produce a more accurate, personalised Diet Chart before publication.</div>}<div className="mt-4 grid gap-3 md:grid-cols-3"><label className="text-sm font-semibold">Plan name<input required minLength={2} maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label><label className="text-sm font-semibold">Calories (800–6000)<input required type="number" min="800" max="6000" value={form.dailyCalories} onChange={(event) => setForm({ ...form, dailyCalories: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label><label className="text-sm font-semibold">Protein (20–400 g)<input required type="number" min="20" max="400" step="0.1" value={form.dailyProtein} onChange={(event) => setForm({ ...form, dailyProtein: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label></div><button disabled={!canCreate} className="mt-4 min-h-11 rounded-xl bg-slate-950 px-5 font-semibold text-white disabled:opacity-40">{busy === 'create' ? 'Generating…' : 'Generate Diet Chart'}</button></form>
+    {message && <p role="status" className={`rounded-xl p-3 text-sm font-semibold ${creationState.state==='reload_failed'?'border border-amber-300 bg-amber-50 text-amber-900':'bg-emerald-50 text-emerald-800'}`}>{message}</p>}
   </div>;
 }

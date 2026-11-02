@@ -66,8 +66,14 @@ async def test_real_http_exact_version_review_publication_mobile_and_docx_lifecy
     from app.main import app
     transport=httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport,base_url="http://test") as client:
-        created=await client.post("/api/v1/practice-operations/diet-plans",headers=practitioner_headers(),json={"client_id":"diet-client","name":"QA exact plan","daily_calories_target":2000,"daily_protein_target_g":90,"health_goals":["ENERGY"]})
+        create_headers={**practitioner_headers(),"Idempotency-Key":"diet-plan-create-1"}
+        create_payload={"client_id":"diet-client","name":"QA exact plan","daily_calories_target":2000,"daily_protein_target_g":90,"health_goals":["ENERGY"]}
+        created=await client.post("/api/v1/practice-operations/diet-plans",headers=create_headers,json=create_payload)
         assert created.status_code==201;plan_id=created.json()["data"]["id"]
+        replayed=await client.post("/api/v1/practice-operations/diet-plans",headers=create_headers,json=create_payload)
+        assert replayed.status_code==201 and replayed.json()["data"]["id"]==plan_id and replayed.json()["data"]["idempotent_replay"] is True
+        key_reused=await client.post("/api/v1/practice-operations/diet-plans",headers=create_headers,json={**create_payload,"name":"Different request"})
+        assert key_reused.status_code==409 and key_reused.json()["error"]["code"]=="IDEMPOTENCY_KEY_REUSED"
         options=[{"combinationId":"breakfast-1","mealHead":"BREAKFAST","clientTitle":"Oats and fruit","selected":True,"nutrition":{"kcal":420,"protein":18}}]
         saved=await client.put(f"/api/v1/practice-operations/diet-plans/{plan_id}/draft",headers=practitioner_headers(),json={"expected_version":1,"options":options})
         assert saved.status_code==200 and saved.json()["data"]["version"]==2
@@ -123,7 +129,7 @@ async def test_real_http_exact_version_review_publication_mobile_and_docx_lifecy
         revoked=await client.get(f"/api/v1/fiteatsy-connections/{connection_id}/diet-plans",headers={"Authorization":f"Bearer {token}"})
         assert revoked.status_code==200 and revoked.json()["data"]["plans"]==[]
 
-        rejected_plan=await client.post("/api/v1/practice-operations/diet-plans",headers=practitioner_headers(),json={"client_id":"diet-client","name":"Rejected QA plan","daily_calories_target":1800,"daily_protein_target_g":80,"health_goals":[]})
+        rejected_plan=await client.post("/api/v1/practice-operations/diet-plans",headers={**practitioner_headers(),"Idempotency-Key":"diet-plan-create-rejected"},json={"client_id":"diet-client","name":"Rejected QA plan","daily_calories_target":1800,"daily_protein_target_g":80,"health_goals":[]})
         rejected_id=rejected_plan.json()["data"]["id"]
         await client.post(f"/api/v1/practice-operations/diet-plans/{rejected_id}/review",headers=practitioner_headers(),json={"action":"SUBMIT","expected_version":1})
         rejection=await client.post(f"/api/v1/practice-operations/diet-plans/{rejected_id}/review",headers=practitioner_headers("senior-reviewer","SENIOR_CONSULTANT"),json={"action":"REJECT","expected_version":1,"reason":"Unsafe clinical assumptions"})
