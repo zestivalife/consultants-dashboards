@@ -1746,7 +1746,7 @@ async def _diet_plan_health_context(db,ctx,client_id):
 
 @app.get("/api/v1/practice-operations/clients/{client_id}/diet-plan-context")
 async def get_diet_plan_health_context(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx)
+    denied,_=await _team_guard(request,db,ctx,"PLAN_VIEW",client_id)
     if denied:return denied
     capability_denied=await require_capability(request,db,ctx,"DIET_PLAN")
     if capability_denied:return capability_denied
@@ -1781,7 +1781,7 @@ async def _diet_plan_projection(db, plan):
 
 @app.get("/api/v1/practice-operations/clients/{client_id}/diet-plans")
 async def list_diet_plans(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx)
+    denied,_=await _team_guard(request,db,ctx,"PLAN_VIEW",client_id)
     if denied:return denied
     capability_denied=await require_capability(request,db,ctx,"DIET_PLAN")
     if capability_denied:return capability_denied
@@ -1793,18 +1793,30 @@ async def list_diet_plans(request:Request,client_id:str,ctx=Depends(context),db:
     return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
 
 @app.post("/api/v1/practice-operations/diet-plans",status_code=201)
-async def create_diet_plan(request:Request,body:DietPlanCreate,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
-    denied=external_only(request,ctx)
+async def create_diet_plan(request:Request,body:DietPlanCreate,idempotency_key:str|None=Header(None,alias="Idempotency-Key"),ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"PLAN_CREATE",body.client_id)
     if denied:return denied
     capability_denied=await require_capability(request,db,ctx,"DIET_PLAN")
     if capability_denied:return capability_denied
+    if not idempotency_key or len(idempotency_key)>160:return error(request,400,"IDEMPOTENCY_KEY_REQUIRED","A valid Idempotency-Key is required")
+    await db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:scope,0))"),{"scope":f"diet-plan:{ctx['tenant_id']}:{ctx['user_id']}:{idempotency_key}"})
+    existing=(await db.execute(text("""SELECT p.id,p.client_id,p.title,p.daily_calories_target,p.daily_protein_target_g,p.status,p.current_version,v.nutrition_snapshot
+      FROM external_profession_plans p JOIN external_profession_plan_versions v
+      ON v.plan_id=p.id AND v.tenant_id=p.tenant_id AND v.version=1
+      WHERE p.tenant_id=:tenant AND p.authorised_consultant_id=:actor AND p.plan_type='DIET_PLAN' AND p.idempotency_key=:key"""),
+      {"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"key":idempotency_key})).mappings().first()
+    if existing:
+        snapshot=dict(existing["nutrition_snapshot"] or {})
+        same=existing["client_id"]==body.client_id and existing["title"]==body.name and existing["daily_calories_target"]==body.daily_calories_target and float(existing["daily_protein_target_g"] or 0)==float(body.daily_protein_target_g) and list(snapshot.get("health_goals") or [])==list(body.health_goals or [])
+        if not same:return error(request,409,"IDEMPOTENCY_KEY_REUSED","This Idempotency-Key was already used for a different Diet Plan request")
+        return {"success":True,"data":{"id":str(existing["id"]),"status":existing["status"],"version":existing["current_version"],"idempotent_replay":True},"error":None,"request_id":request.state.correlation_id}
     readiness=await _current_diet_plan_readiness(db,ctx,body.client_id)
     health_context=await _diet_plan_health_context(db,ctx,body.client_id)
     config=await configuration(db,ctx);now=datetime.now(timezone.utc);plan_id=uuid4();version_id=uuid4()
     await db.execute(text("""INSERT INTO external_profession_plans
-      (id,tenant_id,client_id,profession_code,plan_type,title,status,current_version,created_by,authorised_consultant_id,daily_calories_target,daily_protein_target_g,created_at,updated_at)
-      VALUES (:id,:tenant,:client,:profession,'DIET_PLAN',:title,'DRAFT',1,:actor,:actor,:calories,:protein,:now,:now)"""),
-      {"id":plan_id,"tenant":ctx["tenant_id"],"client":body.client_id,"profession":config["profession"],"title":body.name,"actor":ctx["user_id"],"calories":body.daily_calories_target,"protein":body.daily_protein_target_g,"now":now})
+      (id,tenant_id,client_id,profession_code,plan_type,title,status,current_version,created_by,authorised_consultant_id,daily_calories_target,daily_protein_target_g,idempotency_key,created_at,updated_at)
+      VALUES (:id,:tenant,:client,:profession,'DIET_PLAN',:title,'DRAFT',1,:actor,:actor,:calories,:protein,:key,:now,:now)"""),
+      {"id":plan_id,"tenant":ctx["tenant_id"],"client":body.client_id,"profession":config["profession"],"title":body.name,"actor":ctx["user_id"],"calories":body.daily_calories_target,"protein":body.daily_protein_target_g,"key":idempotency_key,"now":now})
     measurement=health_context["measurement_context"]
     snapshot={"daily_calories_target":body.daily_calories_target,"daily_protein_target_g":body.daily_protein_target_g,"health_goals":body.health_goals,"actual_calories":0,"actual_protein_g":0,"source":"CONSULTANT_AUTHORED",
       "target_methodology":"PROFESSIONAL_JUDGEMENT","target_reviewed_by":ctx["user_id"],

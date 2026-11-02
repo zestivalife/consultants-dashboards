@@ -5,6 +5,7 @@ import { canonicalPhoneDisplay, normaliseWaterIntake, validDateOfBirth, validate
 
 const intake=fs.readFileSync(new URL('../components/external/ExternalClientHealthIntake.jsx',import.meta.url),'utf8');
 const plans=fs.readFileSync(new URL('../components/external/ExternalMultiDietPlan.jsx',import.meta.url),'utf8');
+const planState=fs.readFileSync(new URL('../lib/dietPlanWorkspaceState.mjs',import.meta.url),'utf8');
 const client360=fs.readFileSync(new URL('../components/external/ExternalClient360.jsx',import.meta.url),'utf8');
 const practiceApi=fs.readFileSync(new URL('../lib/practiceOperationsApi.js',import.meta.url),'utf8');
 const proxy=fs.readFileSync(new URL('../pages/api/fiteatsy/[...path].js',import.meta.url),'utf8');
@@ -57,14 +58,14 @@ test('blood report intake accepts PDF only and uses persisted document contract'
 });
 
 test('Diet Plan UI allows available-information drafts while publication stays readiness-governed',()=>{
-  assert.match(plans,/getNutritionAssessment\(clientId\)/);
+  assert.match(plans,/assessment:getNutritionAssessment/);
   assert.match(plans,/readiness\.outcome\s*!==?\s*'READY'/);
   assert.match(plans,/Based on available information/);
   assert.doesNotMatch(plans,/disabled=\{!valid \|\| busy \|\| readiness\.outcome!==/);
   assert.match(plans,/bindDietPlanAssessment/);
   assert.doesNotMatch(plans,/Assessment review required/);
   assert.match(plans,/Generate Diet Chart/);
-  assert.match(plans,/Promise\.allSettled/);
+  assert.match(planState,/Promise\.allSettled/);
   assert.match(plans,/Diet plans could not be loaded/);
   assert.match(plans,/No independent Diet Plans have been created/);
   assert.match(plans,/>Retry</);
