@@ -1,5 +1,6 @@
 import {getToken,refreshAccessToken} from './api';
 import {closeReservedWhatsAppWindow,navigateReservedWhatsAppWindow,reserveWhatsAppWindow} from './whatsappLaunch.mjs';
+import {contentDispositionFilename} from './contentDisposition.mjs';
 
 const BASE='/api/gateway/api/v1/practice-operations';
 
@@ -44,7 +45,7 @@ export async function downloadFiteatsyConnectionReport(id,reportId){
   if(response.status===401){const refreshedToken=await refreshAccessToken().catch(()=>null);if(refreshedToken)response=await send(refreshedToken);}
   if(!response.ok)throw new Error(fallbackMessage(response.status));
   const disposition=response.headers.get('content-disposition')||'';
-  const filename=/filename="?([^";]+)"?/i.exec(disposition)?.[1]||'fiteatsy-health-report';
+  const filename=contentDispositionFilename(disposition,'fiteatsy-health-report');
   return{blob:await response.blob(),filename};
 }
 export function updatePracticeConfiguration(payload){return request('/configuration',{method:'PUT',body:JSON.stringify(payload)});}

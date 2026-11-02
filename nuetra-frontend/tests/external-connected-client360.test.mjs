@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 
 import { externalClient360Base, externalConnectedBiomarkerHistory, externalConnectedBiomarkers, externalConnectedHealthRecords } from '../lib/externalClientProfile.mjs';
+import { contentDispositionFilename } from '../lib/contentDisposition.mjs';
 
 const component = fs.readFileSync(new URL('../components/external/ExternalClient360.jsx', import.meta.url), 'utf8');
 const enhancements = fs.readFileSync(new URL('../components/external/ExternalClientProfileEnhancements.jsx', import.meta.url), 'utf8');
@@ -151,6 +152,12 @@ test('connected report download uses the browser document instead of shadowing i
   assert.match(component,/const downloadDocument=async\(report\)/);
   assert.match(component,/window\.document\.createElement\('a'\)/);
   assert.doesNotMatch(component,/downloadDocument=async\(document\)/);
+});
+
+test('connected report download preserves RFC 5987 and legacy response filenames', () => {
+  assert.equal(contentDispositionFilename("attachment; filename*=UTF-8''Pitambar_Paunikar.pdf",'fallback.pdf'),'Pitambar_Paunikar.pdf');
+  assert.equal(contentDispositionFilename('attachment; filename="Kirti%20Paunikar.pdf"','fallback.pdf'),'Kirti%20Paunikar.pdf');
+  assert.equal(contentDispositionFilename('', 'fallback.pdf'),'fallback.pdf');
 });
 
 test('connected report identifiers and profile names support canonical API aliases', () => {
