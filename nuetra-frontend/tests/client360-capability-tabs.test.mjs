@@ -69,3 +69,9 @@ test('connection consent never fabricates diet authority or survives revoked hea
   });
   assert.deepEqual(client360CapabilityState(revoked),{dietPlan:false,biomarkers:false,measurements:false});
 });
+
+test('unauthorised Care explains the backend capability requirement without mounting diet authoring',()=>{
+  assert.match(component,/data-testid="diet-plan-unavailable"/);
+  assert.match(component,/Client consent allows approved data access, but does not grant diet-authoring authority/);
+  assert.match(component,/active === 'Diet Plan' && capabilityState\.dietPlan && <ExternalMultiDietPlan/);
+});
