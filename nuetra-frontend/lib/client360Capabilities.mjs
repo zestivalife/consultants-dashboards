@@ -18,8 +18,11 @@ export function connectedClient360Configuration(configuration = {}, client = {})
 
 export function client360CapabilityState(configuration = {}) {
   const capabilities = capabilitySet(configuration);
+  const dietPlanEligibility = String(configuration.diet_chart_eligibility || 'UNMAPPED').toUpperCase();
   return {
     dietPlan: capabilities.has('DIET_PLAN') || capabilities.has('DIET_PLAN_AUTHORING'),
+    dietPlanEligibility,
+    dietPlanEntitlementRequired: dietPlanEligibility === 'OPTIONAL' && !capabilities.has('DIET_PLAN') && !capabilities.has('DIET_PLAN_AUTHORING'),
     biomarkers: capabilities.has('BIOMARKERS') || capabilities.has('LAB_ANALYSIS'),
     measurements: capabilities.has('MEASUREMENTS'),
   };

@@ -65,6 +65,8 @@ from app.external_client_profile import merge_external_enrichment, projection as
 from app.external_measurements import calculated_health_parameters, validated_measurement
 from app.measurement_context import assessment_measurement_sources, resolve_latest_measurements
 from app.intake_truth import calculate_intake_truth
+from app.diet_chart_entitlements import (DietChartEligibility, diet_chart_eligibility,
+                                         effective_diet_chart_capabilities)
 from app.nutrition_foundation import (AssessmentReview, AssessmentSource, AssessmentStale,
                                       ClinicalDocumentLink, DietPlanAssessmentBind,
                                       NutritionAssessmentCreate, NutritionAssessmentSave,
@@ -161,8 +163,16 @@ PROFESSION_DEFAULTS = {
     "COUNSELLOR": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "PHYSIOTHERAPIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","REHAB_PLAN","EXERCISE_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "HEALTH_COACH": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","HABIT_PLAN","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "WELLNESS_COACH": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","HABIT_PLAN","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "FITNESS_TRAINER": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","EXERCISE_PLAN","MEASUREMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "YOGA_MEDITATION_COACH": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","HABIT_PLAN","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "DIABETES_EDUCATOR": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","CARE_PLAN","ASSESSMENTS","MEASUREMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "WELLNESS_CONSULTANT": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","CARE_PLAN","HABIT_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "WOMENS_HEALTH_PRACTITIONER": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","CARE_PLAN","ASSESSMENTS","MEASUREMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "LIFESTYLE_MEDICINE_PRACTITIONER": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","CARE_PLAN","ASSESSMENTS","MEASUREMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "DOCTOR_PHYSICIAN": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","CARE_PLAN","LAB_ANALYSIS","BIOMARKERS","MEASUREMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "MENTOR": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
+    "OTHER": {"CONSULTATIONS","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "BEHAVIOURAL_THERAPIST": {"CONSULTATIONS","SESSION_NOTES","PRIVATE_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","BEHAVIOURAL_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "OCCUPATIONAL_THERAPIST": {"CONSULTATIONS","SESSION_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
     "MENTAL_WELLNESS_THERAPIST": {"CONSULTATIONS","SESSION_NOTES","PRIVATE_NOTES","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","THERAPY_PLAN","ASSESSMENTS","TEMPLATES","CLIENT_CRM","CLIENT_ONBOARDING"},
@@ -171,6 +181,7 @@ for _profession, _profession_capabilities in PROFESSION_DEFAULTS.items():
     _profession_capabilities.update({"RESOURCE_LIBRARY", "HOMEWORK", "ADHERENCE"})
     if _profession not in FROZEN_PROFESSIONS:
         _profession_capabilities.add("AUTOMATIONS")
+    _profession_capabilities.update(effective_diet_chart_capabilities(_profession, _profession_capabilities))
 TERMINOLOGY = {
     "DIETITIAN":{"consultation":"Consultation","plan":"Diet Plan","goal":"Nutrition Goal"},
     "NUTRITIONIST":{"consultation":"Consultation","plan":"Nutrition Plan","goal":"Nutrition Goal"},
@@ -198,6 +209,14 @@ PROFESSION_ALIASES = {
     "DIETITIAN_NUTRITIONIST": "DIETITIAN",
     "CLINICAL_NUTRITIONIST": "CLINICAL_NUTRITIONIST",
     "SPORTS_NUTRITIONIST": "SPORTS_NUTRITIONIST",
+    "COUNSELLOR_THERAPIST": "COUNSELLOR",
+    "YOGA_COACH": "YOGA_MEDITATION_COACH",
+    "YOGA_MEDITATION_COACH": "YOGA_MEDITATION_COACH",
+    "WOMENS_HEALTH_PRACTITIONER": "WOMENS_HEALTH_PRACTITIONER",
+    "DOCTOR": "DOCTOR_PHYSICIAN",
+    "PHYSICIAN": "DOCTOR_PHYSICIAN",
+    "DOCTOR_PHYSICIAN": "DOCTOR_PHYSICIAN",
+    "OTHER_HEALTHCARE_PROFESSIONAL": "OTHER",
 }
 
 
@@ -232,16 +251,31 @@ def _diet_plan_actor_clause(ctx):
 
 async def configuration(db: AsyncSession, ctx):
     row = (await db.execute(text("SELECT profession,capabilities,terminology,profile,version FROM practice_tenant_configuration WHERE tenant_id=:tenant_id"), {"tenant_id":ctx["tenant_id"]})).mappings().first()
-    if row: return dict(row)
+    if row:
+        result = dict(row)
+        profession = canonical_profession(result.get("profession"))
+        effective = effective_diet_chart_capabilities(profession, set(result.get("capabilities") or []))
+        eligibility = diet_chart_eligibility(profession)
+        result.update({"profession": profession, "capabilities": sorted(effective),
+                       "diet_chart_eligibility": eligibility.value if eligibility else "UNMAPPED",
+                       "diet_chart_authoring_enabled": "DIET_PLAN" in effective,
+                       "diet_chart_entitlement_required": eligibility == DietChartEligibility.OPTIONAL})
+        return result
     profession = canonical_profession(ctx.get("profession_code"))
     if profession in PROFESSION_DEFAULTS:
-        return {"profession":profession,"capabilities":sorted(PROFESSION_DEFAULTS[profession]),"terminology":TERMINOLOGY[profession],"profile":{},"version":0}
-    return {"profession":"OTHER","capabilities":["CLIENT_CRM","CLIENT_ONBOARDING","CONSULTATIONS","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","TEMPLATES"],"terminology":{"consultation":"Consultation","plan":"Care Plan","goal":"Goal"},"profile":{},"version":0}
+        effective = effective_diet_chart_capabilities(profession, set(PROFESSION_DEFAULTS[profession]))
+        eligibility = diet_chart_eligibility(profession)
+        return {"profession":profession,"capabilities":sorted(effective),"terminology":TERMINOLOGY.get(profession,{"consultation":"Consultation","plan":"Care Plan","goal":"Goal"}),"profile":{},"version":0,"diet_chart_eligibility":eligibility.value if eligibility else "UNMAPPED","diet_chart_authoring_enabled":"DIET_PLAN" in effective,"diet_chart_entitlement_required":eligibility == DietChartEligibility.OPTIONAL}
+    return {"profession":"UNMAPPED","capabilities":["CLIENT_CRM","CLIENT_ONBOARDING","CONSULTATIONS","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","TEMPLATES"],"terminology":{"consultation":"Consultation","plan":"Care Plan","goal":"Goal"},"profile":{},"version":0,"diet_chart_eligibility":"UNMAPPED","diet_chart_authoring_enabled":False,"diet_chart_entitlement_required":False}
 
 
 async def require_capability(request: Request, db: AsyncSession, ctx, capability: str):
     config = await configuration(db, ctx)
     if capability not in set(config["capabilities"]):
+        if capability == "DIET_PLAN":
+            if config.get("diet_chart_eligibility") == "OPTIONAL":
+                return error(request, 403, "DIET_PLAN_ENTITLEMENT_REQUIRED", "Diet Chart access requires an administrator-enabled entitlement")
+            return error(request, 403, "PROFESSION_NOT_ELIGIBLE_FOR_DIET_PLAN", "This profession is not eligible for Diet Chart authoring")
         return error(request, 403, "CAPABILITY_NOT_ENABLED", f"{capability.replace('_',' ').title()} is not enabled for this practice")
     return None
 
@@ -946,7 +980,12 @@ async def configure_external_qa_practice(request: Request, body: PracticeConfigu
     requested = set(body.capabilities) or PROFESSION_DEFAULTS[body.profession]
     if requested - ALL_CAPABILITIES:
         return error(request, 400, "UNKNOWN_CAPABILITY", "One or more capabilities are not recognised")
-    terminology, now = TERMINOLOGY[body.profession], datetime.now(timezone.utc)
+    eligibility = diet_chart_eligibility(body.profession)
+    if "DIET_PLAN" in requested and eligibility == DietChartEligibility.DISABLED:
+        return error(request, 403, "PROFESSION_NOT_ELIGIBLE_FOR_DIET_PLAN", "This profession is not eligible for Diet Chart authoring")
+    requested = effective_diet_chart_capabilities(body.profession, requested)
+    terminology = TERMINOLOGY.get(body.profession, {"consultation":"Consultation","plan":"Care Plan","goal":"Goal"})
+    now = datetime.now(timezone.utc)
     row = (await db.execute(text("""INSERT INTO practice_tenant_configuration
       (tenant_id,profession,capabilities,terminology,profile,version,updated_by,updated_at)
       VALUES (:tenant,:profession,CAST(:capabilities AS jsonb),CAST(:terminology AS jsonb),CAST(:profile AS jsonb),1,:actor,:now)
@@ -1236,10 +1275,15 @@ async def put_configuration(request: Request, body: PracticeConfigurationUpdate,
     if denied: return denied
     if (ctx.get("role") or "").upper() not in {"OWNER", "ADMIN", "ORGANISATION_ADMIN"}:
         return error(request, 403, "PRACTICE_ADMIN_REQUIRED", "Practice owner or administrator access is required")
-    requested = set(body.capabilities) or PROFESSION_DEFAULTS.get(body.profession, {"CLIENT_CRM","CLIENT_ONBOARDING","CONSULTATIONS","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","TEMPLATES"})
+    profession = canonical_profession(body.profession)
+    requested = set(body.capabilities) or PROFESSION_DEFAULTS.get(profession, {"CLIENT_CRM","CLIENT_ONBOARDING","CONSULTATIONS","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","TEMPLATES"})
     unknown = requested - ALL_CAPABILITIES
     if unknown: return error(request, 400, "UNKNOWN_CAPABILITY", "One or more capabilities are not recognised")
-    terminology = TERMINOLOGY.get(body.profession, {"consultation":"Consultation","plan":"Care Plan","goal":"Goal"})
+    eligibility = diet_chart_eligibility(profession)
+    if "DIET_PLAN" in requested and eligibility == DietChartEligibility.DISABLED:
+        return error(request, 403, "PROFESSION_NOT_ELIGIBLE_FOR_DIET_PLAN", "This profession is not eligible for Diet Chart authoring")
+    requested = effective_diet_chart_capabilities(profession, requested)
+    terminology = TERMINOLOGY.get(profession, {"consultation":"Consultation","plan":"Care Plan","goal":"Goal"})
     now = datetime.now(timezone.utc)
     row = (await db.execute(text("""INSERT INTO practice_tenant_configuration
       (tenant_id,profession,capabilities,terminology,profile,version,updated_by,updated_at)
@@ -1247,20 +1291,24 @@ async def put_configuration(request: Request, body: PracticeConfigurationUpdate,
       ON CONFLICT (tenant_id) DO UPDATE SET profession=EXCLUDED.profession,capabilities=EXCLUDED.capabilities,
       terminology=EXCLUDED.terminology,profile=EXCLUDED.profile,version=practice_tenant_configuration.version+1,
       updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at
-      RETURNING profession,capabilities,terminology,profile,version"""), {"tenant_id":ctx["tenant_id"],"profession":body.profession,"capabilities":json.dumps(sorted(requested)),"terminology":json.dumps(terminology),"profile":json.dumps(body.profile),"actor":ctx["user_id"],"now":now})).mappings().one()
-    if body.profession in SUPPORTED_PROFESSIONS:
+      RETURNING profession,capabilities,terminology,profile,version"""), {"tenant_id":ctx["tenant_id"],"profession":profession,"capabilities":json.dumps(sorted(requested)),"terminology":json.dumps(terminology),"profile":json.dumps(body.profile),"actor":ctx["user_id"],"now":now})).mappings().one()
+    if profession in SUPPORTED_PROFESSIONS:
         profession_profile_id = (await db.execute(text("""INSERT INTO external_profession_profiles
           (id,tenant_id,profession_code,display_name,terminology,active,version,created_by,created_at,updated_at)
           VALUES (:id,:tenant,:profession,:display,CAST(:terminology AS jsonb),TRUE,1,:actor,:now,:now)
           ON CONFLICT (tenant_id,profession_code) DO UPDATE SET terminology=EXCLUDED.terminology,active=TRUE,
           version=external_profession_profiles.version+1,updated_at=EXCLUDED.updated_at
-          RETURNING id"""), {"id":uuid4(),"tenant":ctx["tenant_id"],"profession":body.profession,"display":body.profession.replace("_"," ").title(),"terminology":json.dumps(terminology),"actor":ctx["user_id"],"now":now})).scalar_one()
+          RETURNING id"""), {"id":uuid4(),"tenant":ctx["tenant_id"],"profession":profession,"display":profession.replace("_"," ").title(),"terminology":json.dumps(terminology),"actor":ctx["user_id"],"now":now})).scalar_one()
         await db.execute(text("DELETE FROM external_profession_capability_profiles WHERE tenant_id=:tenant AND profession_profile_id=:profile"), {"tenant":ctx["tenant_id"],"profile":profession_profile_id})
         for capability in sorted(requested):
             await db.execute(text("""INSERT INTO external_profession_capability_profiles
               (id,profession_profile_id,tenant_id,capability_code,enabled,created_at)
               VALUES (:id,:profile,:tenant,:capability,TRUE,:now)"""), {"id":uuid4(),"profile":profession_profile_id,"tenant":ctx["tenant_id"],"capability":capability,"now":now})
-    return {"success": True, "data": dict(row), "error": None, "request_id": request.state.correlation_id}
+    response = dict(row)
+    response.update({"diet_chart_eligibility": eligibility.value if eligibility else "UNMAPPED",
+                     "diet_chart_authoring_enabled": "DIET_PLAN" in requested,
+                     "diet_chart_entitlement_required": eligibility == DietChartEligibility.OPTIONAL})
+    return {"success": True, "data": response, "error": None, "request_id": request.state.correlation_id}
 
 
 @app.get("/api/v1/practice-operations/communication/templates")

@@ -38,7 +38,7 @@ test('Psychologist and Physiotherapist never inherit nutrition-only modules',()=
 
 test('registry-controlled Diabetes Educator capabilities are respected',()=>{
   const enabled=client360CapabilityState({profession:'DIABETES_EDUCATOR',capabilities:['BIOMARKERS','DIET_PLAN_AUTHORING']});
-  assert.deepEqual(enabled,{dietPlan:true,biomarkers:true,measurements:false});
+  assert.deepEqual(enabled,{dietPlan:true,dietPlanEligibility:'UNMAPPED',dietPlanEntitlementRequired:false,biomarkers:true,measurements:false});
 });
 
 test('production Client360 uses bounded primary and responsive secondary navigation',()=>{
@@ -55,7 +55,7 @@ test('an authorised Fiteatsy connection exposes only its consented clinical modu
     connectionId:'connection-1',healthDataAuthorized:true,consentedScopes:['BIOMARKERS','MEASUREMENTS'],
   });
   const state=client360CapabilityState(configuration);
-  assert.deepEqual(state,{dietPlan:false,biomarkers:true,measurements:true});
+  assert.deepEqual(state,{dietPlan:false,dietPlanEligibility:'UNMAPPED',dietPlanEntitlementRequired:false,biomarkers:true,measurements:true});
   assert.deepEqual(resolveClient360Navigation(configuration)[1].modules,['Health Profile','Biomarkers','Health Records','Measurements','Reports']);
 });
 
@@ -67,11 +67,11 @@ test('connection consent never fabricates diet authority or survives revoked hea
   const revoked=connectedClient360Configuration({profession:'OTHER',capabilities:[]},{
     connectionId:'connection-1',healthDataAuthorized:false,consentedScopes:['BIOMARKERS','MEASUREMENTS'],
   });
-  assert.deepEqual(client360CapabilityState(revoked),{dietPlan:false,biomarkers:false,measurements:false});
+  assert.deepEqual(client360CapabilityState(revoked),{dietPlan:false,dietPlanEligibility:'UNMAPPED',dietPlanEntitlementRequired:false,biomarkers:false,measurements:false});
 });
 
-test('unauthorised Care explains the backend capability requirement without mounting diet authoring',()=>{
+test('optional Care explains the explicit administrator entitlement without mounting diet authoring',()=>{
   assert.match(component,/data-testid="diet-plan-unavailable"/);
-  assert.match(component,/Client consent allows approved data access, but does not grant diet-authoring authority/);
+  assert.match(component,/Client consent and directory visibility do not grant authoring authority/);
   assert.match(component,/active === 'Diet Plan' && capabilityState\.dietPlan && <ExternalMultiDietPlan/);
 });
