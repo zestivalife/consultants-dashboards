@@ -24,7 +24,7 @@ import GrievanceManagementModule from './GrievanceManagementModule';
 import MarketplaceGovernanceModule from './MarketplaceGovernanceModule';
 import SupportQueueModule from './SupportQueueModule';
 import OwnerConsoleLayout from './OwnerConsoleLayout';
-import { SuperAdminFiteatsyLeadsPage } from './PlatformWorkspace';
+import { ProfessionalAssignmentPage, SuperAdminFiteatsyLeadsPage } from './PlatformWorkspace';
 import { platformOwnerConsoleData } from '../../data/platformOwnerConsoleData';
 import { INTERNAL_OWNER_ROUTE_SLUGS, getOwnerBreadcrumbs, getOwnerRouteBySlug } from '../../lib/ownerConsoleRoutes';
 import { useOwnerPeopleAccess } from '../../hooks/useOwnerPeopleAccess';
@@ -134,7 +134,9 @@ export default function OwnerConsolePage({ moduleSlug = 'command-center' }) {
           />
         );
       case 'fiteatsy-leads':
-        return <SuperAdminFiteatsyLeadsPage onOpenAssignments={() => router.push('/dashboard/owner/people-access')} />;
+        return <SuperAdminFiteatsyLeadsPage onOpenAssignments={() => router.push('/dashboard/owner/client-assignments')} />;
+      case 'client-assignments':
+        return <ProfessionalAssignmentPage />;
       case 'roles':
         return (
           <PermissionMatrixModule

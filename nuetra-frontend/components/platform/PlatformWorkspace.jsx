@@ -5760,7 +5760,7 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
   </div>;
 }
 
-function ProfessionalAssignmentPage() {
+export function ProfessionalAssignmentPage() {
   const [query, setQuery] = useState('');
   const [clients, setClients] = useState([]);
   const [professionals, setProfessionals] = useState([]);

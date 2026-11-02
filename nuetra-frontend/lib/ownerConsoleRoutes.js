@@ -3,6 +3,7 @@ export const OWNER_ROUTE_DEFINITIONS = [
   { slug: 'organizations', moduleKey: 'companies', label: 'Organizations', section: 'Owner Console' },
   { slug: 'people-access', moduleKey: 'users', label: 'People & Access', section: 'Owner Console' },
   { slug: 'fiteatsy-leads', moduleKey: 'fiteatsy-leads', label: 'Fiteatsy Leads', section: 'Owner Console' },
+  { slug: 'client-assignments', moduleKey: 'client-assignments', label: 'Client Assignments', section: 'Owner Console' },
   { slug: 'permissions', moduleKey: 'roles', label: 'Permissions', section: 'Owner Console' },
   {
     slug: 'master-data',
@@ -30,6 +31,7 @@ export const OWNER_LEGACY_TAB_TO_ROUTE = {
   companies: 'organizations',
   users: 'people-access',
   fiteatsy_leads: 'fiteatsy-leads',
+  assignments: 'client-assignments',
   roles: 'permissions',
   master_data: 'master-data',
   packages: 'packages',

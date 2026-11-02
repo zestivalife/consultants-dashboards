@@ -30,6 +30,7 @@ const OWNER_NAV_ICONS = {
   organizations: Building2,
   'people-access': Users,
   'fiteatsy-leads': ClipboardCheck,
+  'client-assignments': Users,
   permissions: Shield,
   'master-data': Database,
   packages: FolderKanban,
