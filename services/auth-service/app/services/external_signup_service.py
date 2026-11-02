@@ -267,7 +267,11 @@ async def verify_and_provision(
             raise ConflictException("An account already exists for this contact email.")
         user = User(
             email=identity_email, mobile=mobile, phone=mobile,
-            password_hash=password_service.hash_password(secrets.token_urlsafe(48)),
+            # The identity cannot use this generated secret to sign in, but it still
+            # passes through the shared password policy. URL-safe tokens do not
+            # guarantee every required character class, so add a fixed-strength
+            # suffix while retaining the token's cryptographic entropy.
+            password_hash=password_service.hash_password(f"{secrets.token_urlsafe(48)}Aa1!"),
             role_id=role.id, first_name=name.strip(), is_active=True, is_verified=True,
             email_verified=False, mobile_verified=True, status="ACTIVE",
         )

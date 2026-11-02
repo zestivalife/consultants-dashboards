@@ -198,6 +198,58 @@ async def test_successful_verify_is_single_use_and_does_not_duplicate_identity(s
 
 
 @pytest.mark.asyncio
+async def test_verified_identity_generation_satisfies_password_policy_for_alphanumeric_token(session, monkeypatch):
+    role = (await session.execute(select(Role).where(Role.name == "consultant"))).scalar_one_or_none()
+    created_role = role is None
+    if role is None:
+        role = Role(name="consultant", description="External Consultant")
+        session.add(role)
+        await session.flush()
+    challenge = await _challenge(session)
+
+    async def provision(user, _body, _idempotency_key):
+        return {
+            "state": "ONBOARDING_IN_PROGRESS",
+            "userId": f"ext_{user.id}",
+            "tenantId": str(uuid.uuid4()),
+            "ownerMembershipId": str(uuid.uuid4()),
+            "onboardingId": str(uuid.uuid4()),
+            "workspaceReady": False,
+        }
+
+    monkeypatch.setattr(external_signup_service.secrets, "token_urlsafe", lambda _size: "a" * 64)
+    monkeypatch.setattr(external_signup_service, "_provision_fiteatsy", provision)
+
+    result = await external_signup_service.verify_and_provision(
+        session,
+        challenge_id=challenge.id,
+        code="123456",
+        name="External Owner",
+        email=None,
+        account_type="INDEPENDENT_CONSULTANT",
+        professional_title=None,
+        speciality=None,
+        practice_name=None,
+    )
+
+    assert result["identity_type"] == "NEW_CONSULTANT"
+    user = (await session.execute(select(User).where(User.mobile == challenge.mobile_normalized))).scalar_one()
+    provisioning = (
+        await session.execute(
+            select(ExternalSignupProvisioning).where(ExternalSignupProvisioning.challenge_id == challenge.id)
+        )
+    ).scalar_one()
+    await session.execute(delete(LoginSession).where(LoginSession.user_id == user.id))
+    await session.execute(delete(RefreshToken).where(RefreshToken.user_id == user.id))
+    await session.delete(provisioning)
+    await session.delete(user)
+    await session.delete(challenge)
+    if created_role:
+        await session.delete(role)
+    await session.commit()
+
+
+@pytest.mark.asyncio
 async def test_direct_registration_provisions_unverified_identity_and_resumes_without_duplicates(session, monkeypatch):
     role = (await session.execute(select(Role).where(Role.name == "consultant"))).scalar_one_or_none()
     created_role = role is None
