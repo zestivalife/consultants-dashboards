@@ -18,7 +18,16 @@ def test_internal_configuration_is_signed_and_exact_scope_only():
 def test_profession_configuration_reuses_authoritative_models():
     route = Path("app/main.py").read_text()
     section = route[route.index('async def configure_external_qa_practice'):route.index('def _profession_token_error')]
+    assert "body.profession not in PROFESSION_DEFAULTS" in section
+    assert "body.profession not in SUPPORTED_PROFESSIONS" not in section
     for table in ("practice_tenant_configuration", "external_profession_profiles", "external_profession_capability_profiles"):
         assert table in section
     for frozen in ("diet", "biomarker", "zestiva_internal"):
         assert frozen not in section.lower()
+
+
+def test_governed_nutritionist_configuration_uses_existing_diet_plan_defaults():
+    route = Path("app/main.py").read_text()
+    assert '"NUTRITIONIST": {' in route
+    nutritionist_defaults = route[route.index('"NUTRITIONIST": {'):route.index('"CLINICAL_NUTRITIONIST": {')]
+    assert '"DIET_PLAN"' in nutritionist_defaults

@@ -941,7 +941,7 @@ async def qa_delegation_error(_request: Request, exc: QaDelegationError):
 @app.put("/internal/qa/external-practice/configuration")
 async def configure_external_qa_practice(request: Request, body: PracticeConfigurationUpdate,
     authority: QaDelegation = Depends(require_qa_delegation), db: AsyncSession = Depends(get_db)):
-    if body.profession != authority.profession_code or body.profession not in SUPPORTED_PROFESSIONS:
+    if body.profession != authority.profession_code or body.profession not in PROFESSION_DEFAULTS:
         return error(request, 422, "QA_PROFESSION_SCOPE_MISMATCH", "The signed profession scope does not match the request")
     requested = set(body.capabilities) or PROFESSION_DEFAULTS[body.profession]
     if requested - ALL_CAPABILITIES:
