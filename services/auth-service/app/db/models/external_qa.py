@@ -9,7 +9,7 @@ class ExternalQaPracticeProvisioning(Base):
     __tablename__ = "external_qa_practice_provisioning"
     __table_args__ = (
         CheckConstraint("status in ('PENDING','WORKSPACE_READY','READY','FAILED','DEACTIVATED')"),
-        CheckConstraint("profession_code in ('DIABETES_EDUCATOR','PSYCHOLOGIST','WELLNESS_CONSULTANT','HEALTH_COACH','BEHAVIOURAL_THERAPIST','OCCUPATIONAL_THERAPIST','PHYSIOTHERAPIST','MENTAL_WELLNESS_THERAPIST')"),
+        CheckConstraint("profession_code in ('DIETITIAN','NUTRITIONIST','CLINICAL_NUTRITIONIST','SPORTS_NUTRITIONIST','DIABETES_EDUCATOR','PSYCHOLOGIST','WELLNESS_CONSULTANT','HEALTH_COACH','BEHAVIOURAL_THERAPIST','OCCUPATIONAL_THERAPIST','PHYSIOTHERAPIST','MENTAL_WELLNESS_THERAPIST')"),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     fixture_key: Mapped[str] = mapped_column(String(96), nullable=False, unique=True)

@@ -1009,6 +1009,7 @@ export function PeopleAccessModule({
   const [qaAdminHandoff, setQaAdminHandoff] = useState(null);
 
   const externalQaFixtures = [
+    ['NUTRITIONIST', 'QA External Nutritionist', 'qa+external-nutritionist@zestiva.test', 'Nutrition and diet planning'],
     ['DIABETES_EDUCATOR', 'QA External Diabetes Educator', 'qa+external-diabetes-educator@zestiva.test', 'Diabetes education'],
     ['PSYCHOLOGIST', 'QA External Psychologist', 'qa+external-psychologist@zestiva.test', 'Psychological wellbeing'],
     ['WELLNESS_CONSULTANT', 'QA External Wellness Consultant', 'qa+external-wellness-consultant@zestiva.test', 'General wellness'],

@@ -6,6 +6,7 @@ from app.schemas.auth import LoginRequest
 from app.services.external_qa_practice_service import _fixture_key, _validate_qa
 
 PROFESSIONS = (
+    "DIETITIAN","NUTRITIONIST","CLINICAL_NUTRITIONIST","SPORTS_NUTRITIONIST",
     "DIABETES_EDUCATOR","PSYCHOLOGIST","WELLNESS_CONSULTANT","HEALTH_COACH",
     "BEHAVIOURAL_THERAPIST","OCCUPATIONAL_THERAPIST","PHYSIOTHERAPIST","MENTAL_WELLNESS_THERAPIST",
 )
@@ -21,7 +22,7 @@ def test_all_and_only_governed_professions_are_accepted():
         assert body(profession=profession).profession_code == profession
         assert _fixture_key(profession).startswith("external-qa-")
     with pytest.raises(ValidationError):
-        body(profession="DIETITIAN")
+        body(profession="OTHER")
 
 
 @pytest.mark.parametrize("email,tenant", [
@@ -72,4 +73,14 @@ def test_migration_is_additive_and_does_not_touch_normal_auth_semantics():
     assert "qa.external_practice.provision" in source
     assert "governed_qa_external" in source
     for forbidden in ("jwt", "refresh_tokens", "external_signup_challenges", "password_hash"):
+        assert forbidden not in source
+
+
+def test_nutrition_profession_expansion_is_constraint_only():
+    source = Path("alembic/versions/b7c8d9e0f1a2_expand_external_qa_nutrition_professions.py").read_text().lower()
+    for profession in ("dietitian", "nutritionist", "clinical_nutritionist", "sports_nutritionist"):
+        assert profession in source
+    assert "drop_constraint" in source
+    assert "create_check_constraint" in source
+    for forbidden in ("delete from", "update ", "truncate", "drop_table"):
         assert forbidden not in source
