@@ -135,6 +135,13 @@ jobs:
           createdb -h 127.0.0.1 -U postgres zestiva_auth_ci
           python -m alembic upgrade head
 
+      - name: Run full Auth regression
+        working-directory: services/auth-service
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/zestiva_auth_ci
+          AUTH_INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/zestiva_auth_ci
+        run: python -m pytest -q
+
       - name: Run persisted Auth workspace-authority contracts
         working-directory: services/auth-service
         env:
@@ -209,6 +216,7 @@ jobs:
           echo "- Practice operations regression: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- PostgreSQL integration contracts: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Auth workspace-authority contract: **PASS**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Full Auth regression: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Gateway regression: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Production build: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- git diff --check: **PASS**" >> "$GITHUB_STEP_SUMMARY"
