@@ -8,6 +8,7 @@ test('platform owner exposes the governed client assignment workflow on a canoni
   const routes = read('lib/ownerConsoleRoutes.js');
   const page = read('components/platform/OwnerConsolePage.jsx');
   const workspace = read('components/platform/PlatformWorkspace.jsx');
+  const api = read('lib/fiteatsyConsultantsApi.js');
 
   assert.match(routes, /slug: 'client-assignments', moduleKey: 'client-assignments', label: 'Client Assignments'/);
   assert.match(routes, /assignments: 'client-assignments'/);
@@ -15,4 +16,8 @@ test('platform owner exposes the governed client assignment workflow on a canoni
   assert.match(page, /onOpenAssignments=\{\(\) => router\.push\('\/dashboard\/owner\/client-assignments'\)\}/);
   assert.match(workspace, /export function ProfessionalAssignmentPage\(\)/);
   assert.match(workspace, /createFiteatsyProfessionalAssignment/);
+  assert.match(api, /apiRequest\(`?\/platform\/fiteatsy\/professional-assignments\/clients\/pool/);
+  assert.match(api, /apiRequest\(`?\/platform\/fiteatsy\/professional-assignments\/professionals/);
+  assert.match(api, /apiRequest\('\/platform\/fiteatsy\/professional-assignments'/);
+  assert.doesNotMatch(api, /requestFiteatsy(?:Json)?\(`?\/v1\/professional-assignments/);
 });
