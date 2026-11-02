@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { COMMON_FOOD_ERROR_MESSAGES, COMMON_FOOD_MEALS, commonFoodOptionType, formatNutrient, legacyOptionsForUnifiedPlan, optionSummary, optionTitle } from '../lib/commonFoodUi.mjs';
+import { COMMON_FOOD_ERROR_MESSAGES, COMMON_FOOD_MEALS, commonFoodErrorMessage, commonFoodOptionType, formatNutrient, legacyOptionsForUnifiedPlan, optionSummary, optionTitle } from '../lib/commonFoodUi.mjs';
 
 const api = await readFile(new URL('../lib/fiteatsyConsultantsApi.js', import.meta.url), 'utf8');
 const featureFlags = await readFile(new URL('../lib/dietFeatureFlags.js', import.meta.url), 'utf8');
@@ -26,6 +26,13 @@ test('summarises a component-rich option without calling it a recipe', () => {
 
 test('maps safety, vegan and stale errors', () => {
   for (const code of ['ALLERGY_CONFLICT', 'INTOLERANCE_CONFLICT', 'HARD_AVOID_CONFLICT', 'DIET_PATTERN_CONFLICT', 'SERVING_INVALID', 'SERVING_NOT_FOUND', 'UNSAFE_OR_INELIGIBLE_FOOD', 'STALE_PLAN_VERSION', 'VEGAN_COMMON_FOOD_ENGINE_V1_NOT_SUPPORTED']) assert.ok(COMMON_FOOD_ERROR_MESSAGES[code]);
+});
+
+test('distinguishes assignment, entitlement, session and backend failures', () => {
+  assert.match(commonFoodErrorMessage({ status: 403, data: { error: 'CLIENT_ASSIGNMENT_REQUIRED' } }), /not assigned/i);
+  assert.match(commonFoodErrorMessage({ status: 403, data: { error: 'DIET_PLAN_ENTITLEMENT_REQUIRED' } }), /administrator-granted entitlement/i);
+  assert.match(commonFoodErrorMessage({ status: 401 }), /session has expired/i);
+  assert.match(commonFoodErrorMessage({ status: 503 }), /temporarily unavailable/i);
 });
 
 test('API client uses every accepted backend common-food route', () => {
@@ -68,8 +75,8 @@ test('one build-time feature flag source fails safely without undeclared globals
   assert.match(featureFlags, /process\.env\.NEXT_PUBLIC_COMMON_FOOD_COMBINATION_ENGINE_V1/);
   assert.match(featureFlags, /COMMON_FOOD_FLAG !== 'false'/);
   assert.doesNotMatch(editor, /process\.env\.NEXT_PUBLIC_COMMON_FOOD_COMBINATION_ENGINE_V1|COMMON_FOOD_COMBINATION_ENGINE_V1_ENABLED/);
-  assert.match(editor, /savedOptions\.length < 35/);
-  assert.match(editor, /await generate\(\{ autoSelect: savedOptions\.length === 0, baseOptions: savedOptions, selectedSeed: savedIds \}\)/);
+  assert.doesNotMatch(editor, /savedOptions\.length < 35[\s\S]{0,300}await generate/);
+  assert.match(editor, /No meal options loaded/);
 });
 
 test('legacy, validated recipe and generated combination normalize into one editor without identity collisions', () => {

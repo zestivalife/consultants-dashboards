@@ -68,8 +68,8 @@ test('component mutations remain unsaved until the authoritative 35-selection re
   assert.doesNotMatch(editor, /Option updated and recalculated by Fiteatsy\.['"]\); \}\s*catch/);
 });
 
-test('legacy partial drafts keep persisted selection truth separate from generated candidates', () => {
-  assert.match(editor, /generate\(\{ autoSelect: savedOptions\.length === 0, baseOptions: savedOptions, selectedSeed: savedIds \}\)/);
+test('legacy partial drafts keep persisted selection truth separate without automatic generation', () => {
+  assert.doesNotMatch(editor, /savedOptions\.length < 35[\s\S]{0,300}generate\(/);
   assert.match(editor, /if \(!autoSelect\) return new Set/);
   assert.match(editor, /Incomplete saved draft: \$\{savedOptions\.length\}\/35 persisted/);
   assert.match(editor, /Missing candidates loaded\. Existing saved selections were preserved/);
@@ -77,8 +77,9 @@ test('legacy partial drafts keep persisted selection truth separate from generat
   assert.match(editor, /persistedByMeal/);
 });
 
-test('empty new drafts include generated options by default while partial saved drafts remain explicit', () => {
-  assert.match(editor, /autoSelect: savedOptions\.length === 0/);
+test('empty drafts require an explicit generate action while generated options retain selection semantics', () => {
+  assert.match(editor, /onClick=\{\(\)=>void generate\(\)\}/);
+  assert.match(editor, /No meal options loaded/);
   assert.match(editor, /setDirty\(autoSelect\)/);
   assert.match(editor, /Generated options are included by default/);
 });

@@ -173,7 +173,7 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
         </div>
       </section>
       <section className="rounded-2xl border border-slate-200 bg-white p-5">
-        <CommonFoodPlanEditor key={`${selected.id}:${selected.version.id}`} ref={editorRef} clientId={clientId} dietPlanId={selected.id} planVersionId={selected.version.id} generationRequestId={1} lifecycle={selected.status === 'ARCHIVED' ? 'published' : 'draft'} initialOptions={selected.version.plan.meals.flatMap((meal) => meal.options)} legacyMealPlan={{}} readOnly={selected.status === 'ARCHIVED'} authoringApi={authoringApi} templatesEnabled={false} proposalsEnabled={false} autoBalanceEnabled={false} onStale={() => load(selected.id)} />
+        <CommonFoodPlanEditor key={`${selected.id}:${selected.version.id}`} ref={editorRef} clientId={clientId} dietPlanId={selected.id} planVersionId={selected.version.id} generationRequestId={0} lifecycle={selected.status === 'ARCHIVED' ? 'published' : 'draft'} initialOptions={selected.version.plan.meals.flatMap((meal) => meal.options)} legacyMealPlan={{}} readOnly={selected.status === 'ARCHIVED'} authoringApi={authoringApi} templatesEnabled={false} proposalsEnabled={false} autoBalanceEnabled={false} onStale={() => load(selected.id)} />
       </section>
       <section className="rounded-2xl border bg-white p-5">
         <h4 className="font-semibold">Version history</h4>

@@ -20,13 +20,21 @@ export const COMMON_FOOD_ERROR_MESSAGES = {
   VEGAN_COMMON_FOOD_ENGINE_V1_NOT_SUPPORTED: 'Diet Plan generation is not yet available for this diet pattern because a governed Bedtime food source is still required.',
   MEAL_QUALITY_SANITY_FAILED: 'This meal does not meet the serving, structure, calorie, or client-facing quality requirements.',
   COMPONENT_ROLE_MISMATCH: 'Choose a replacement from the same meal component role.',
+  CLIENT_ASSIGNMENT_REQUIRED: 'This client is not assigned to your authenticated Fiteatsy consultant identity. Ask an authorised administrator to correct the assignment before authoring.',
+  DIET_PLAN_ENTITLEMENT_REQUIRED: 'Diet Plan authoring requires an explicit administrator-granted entitlement for this profession.',
+  PROFESSION_NOT_ELIGIBLE_FOR_DIET_PLAN: 'This profession is not eligible for Diet Plan authoring.',
+  TENANT_ACCESS_DENIED: 'This client does not belong to the selected consultant workspace.',
+  DIET_PLAN_CONSENT_REQUIRED: 'The client has not granted the consent required for this Diet Plan operation.',
 };
 
 export function commonFoodErrorMessage(error, fallback = 'The common-food action could not be completed.') {
-  const code = error?.data?.error || error?.data?.code || error?.code;
-  if (error?.status === 401 || error?.status === 403) return 'You do not have access to generate or edit a Diet Plan for this client.';
+  const rawCode = error?.data?.error || error?.data?.code || error?.code;
+  const code = typeof rawCode === 'string' ? rawCode : rawCode?.code;
+  if (COMMON_FOOD_ERROR_MESSAGES[code]) return COMMON_FOOD_ERROR_MESSAGES[code];
+  if (error?.status === 401) return 'Your session has expired. Sign in again before editing this Diet Plan.';
+  if (error?.status === 403) return 'Diet Plan authoring is not permitted for this consultant, client, or workspace.';
   if (error?.status >= 500) return 'Diet Plan generation is temporarily unavailable. Try again.';
-  return COMMON_FOOD_ERROR_MESSAGES[code] || error?.data?.message || error?.message || fallback;
+  return error?.data?.message || error?.message || fallback;
 }
 
 export function formatNutrient(value, unit = 'g') {
