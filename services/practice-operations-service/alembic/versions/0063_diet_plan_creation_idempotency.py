@@ -3,7 +3,7 @@
 from alembic import op
 
 
-revision = "0063_diet_plan_creation_idempotency"
+revision = "0063_diet_plan_idempotency"
 down_revision = "0062_merge_release_heads"
 branch_labels = None
 depends_on = None
