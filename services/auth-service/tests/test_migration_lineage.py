@@ -13,7 +13,9 @@ def test_production_auth_revision_is_present_in_current_lineage():
     assert 'down_revision = "b0d2f6a8c401"' in migration
 
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["b6c7d8e9f0a1"]
+    # The governed QA membership merge is the deployed production head and
+    # retains both the assignment-authority and QA-identity lineages.
+    assert script.get_heads() == ["d8e9f0a1b2c3"]
 
 
 def test_assignment_authority_is_explicit_and_owner_only():
