@@ -3,12 +3,15 @@ from typing import Any, Mapping
 
 def client_directory_projection(row: Mapping[str, Any]) -> dict[str, Any]:
     """Public directory projection; assignment visibility is not health-data consent."""
-    values = row.get("profile_values") if row.get("health_data_authorized") and isinstance(row.get("profile_values"), Mapping) else {}
+    profile_authorized = bool(row.get("health_data_authorized")) and "PROFILE" in (row.get("consented_scopes") or [])
+    values = row.get("profile_values") if profile_authorized and isinstance(row.get("profile_values"), Mapping) else {}
     first_name = str(values.get("firstName") or values.get("first_name") or "").strip()
     last_name = str(values.get("lastName") or values.get("last_name") or "").strip()
     name = str(values.get("name") or values.get("fullName") or "").strip()
     if not name:
         name = " ".join(part for part in (first_name, last_name) if part)
+    if not name and profile_authorized:
+        name = str(row.get("directory_display_name") or "").strip()
 
     client_id = str(row["client_id"])
     return {

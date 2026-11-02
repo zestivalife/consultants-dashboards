@@ -34,7 +34,7 @@ async def seed_directory() -> None:
     connection = await asyncpg.connect(INTEGRATION_DATABASE_URL)
     now = datetime.now(timezone.utc)
     try:
-        await connection.execute("TRUNCATE external_client_profile_enrichments, external_fiteatsy_connections, external_client_team_assignments, external_practice_role_profiles, practice_tenant_configuration CASCADE")
+        await connection.execute("TRUNCATE external_client_profile_enrichments, external_fiteatsy_connections, external_client_team_assignments, external_practice_role_profiles, practice_tenant_configuration, fiteatsy_client_directory CASCADE")
         for tenant in ("tenant-a", "tenant-b"):
             await connection.execute("""INSERT INTO practice_tenant_configuration
               (tenant_id,profession,capabilities,terminology,profile,version,updated_by,updated_at)
@@ -84,6 +84,18 @@ async def seed_directory() -> None:
                consented_scopes,programme_status,connected_at,disconnected_at,updated_at)
               VALUES($1,$2,$3,$4,$5,$6,'v1','[\"PROFILE\",\"DIET_PLANS\"]','ACTIVE',$7,$8,$7)""",
               uuid4(), tenant, consultant, f"mobile-{tenant}-{client}", client, state, now, now if state != "ACTIVE" else None)
+        directory_user_id = uuid4()
+        await connection.execute("""INSERT INTO fiteatsy_client_directory
+          (id,fiteatsy_user_id,fiteatsy_client_id,display_name,account_status,mobile_verified,
+           registration_status,registered_at,source_updated_at,source_version,last_synced_at,sync_status,
+           created_at,updated_at)
+          VALUES($1,$2,'client-directory-linked','QA Directory Linked','ACTIVE',TRUE,'COMPLETED',$3,$3,1,$3,'CURRENT',$3,$3)""",
+          uuid4(), directory_user_id, now)
+        await connection.execute("""INSERT INTO external_fiteatsy_connections
+          (id,tenant_id,consultant_id,fiteatsy_user_id,consultant_client_id,state,consent_version,
+           consented_scopes,programme_status,connected_at,updated_at)
+          VALUES($1,'tenant-a','practice-owner',$2,NULL,'ACTIVE','v1','["PROFILE","DIET_PLANS"]','ACTIVE',$3,$3)""",
+          uuid4(), str(directory_user_id), now)
         for tenant, client in (("tenant-a", value) for value in {row[1] for row in assignments if row[0] == "tenant-a"} | {"client-unassigned"}):
             await connection.execute("""INSERT INTO external_client_profile_enrichments
               (tenant_id,client_id,values,version,schema_version,provenance,audit_history,created_by,updated_by,created_at,updated_at)
@@ -134,5 +146,10 @@ async def test_real_http_client_directory_assignment_consent_pagination_and_isol
         wide_ids = [row["clientId"] for row in wide.json()["data"]["clients"]]
         assert wide.json()["data"]["practiceWide"] is True
         assert len(wide_ids) == len(set(wide_ids))
-        assert {"client-unassigned", "client-other", "client-removed"}.issubset(wide_ids)
+        assert {"client-unassigned", "client-other", "client-removed", "client-directory-linked"}.issubset(wide_ids)
+        linked = next(row for row in wide.json()["data"]["clients"] if row["clientId"] == "client-directory-linked")
+        assert linked["name"] == "QA Directory Linked"
+        assert linked["relationshipStatus"] == "CONNECTED_CONSENT_ACTIVE"
+        assert linked["assignmentStatus"] == "NONE"
+        assert linked["healthDataAuthorized"] is True
         assert "client-cross-tenant" not in wide_ids

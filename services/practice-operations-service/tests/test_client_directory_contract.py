@@ -70,6 +70,28 @@ def test_revoked_connection_remains_a_restricted_directory_state():
     assert projected["healthDataAuthorized"] is False
 
 
+def test_connected_directory_name_requires_active_profile_consent():
+    row = {
+        "connection_id": "connection-directory",
+        "client_id": "canonical-client",
+        "state": "ACTIVE",
+        "relationship_status": "CONNECTED_CONSENT_ACTIVE",
+        "assignment_status": "NONE",
+        "health_data_authorized": True,
+        "consented_scopes": ["PROFILE", "DIET_PLANS"],
+        "directory_display_name": "QA Connected Client",
+        "profile_values": {},
+    }
+    connected = client_directory_projection(row)
+    restricted = client_directory_projection({
+        **row,
+        "health_data_authorized": False,
+        "consented_scopes": ["DIET_PLANS"],
+    })
+    assert connected["name"] == "QA Connected Client"
+    assert restricted["name"] == "Unnamed client"
+
+
 def test_directory_route_is_tenant_and_assignment_scoped_and_frontend_uses_it():
     backend = (ROOT / "app/main.py").read_text()
     route = backend[backend.index('@app.get("/api/v1/practice-operations/clients")'):backend.index("async def _team_audit")]
@@ -82,5 +104,8 @@ def test_directory_route_is_tenant_and_assignment_scoped_and_frontend_uses_it():
     assert "a.user_id=:user" in route
     assert "a.ended_at IS NULL" in route
     assert "external_fiteatsy_connections" in route
+    assert "fiteatsy_client_directory" in route
+    assert "COALESCE(c.consultant_client_id,fd.fiteatsy_client_id)" in route
+    assert "fd.deleted_at IS NULL AND fd.sync_status='CURRENT'" in route
     assert "apiRequest(`/practice-operations/clients?${params}`" in frontend
     assert "requestFiteatsy(`/v1/external/clients?${params}`" not in frontend

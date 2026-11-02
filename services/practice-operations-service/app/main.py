@@ -4314,12 +4314,16 @@ async def list_practice_clients(request:Request,q:str|None=None,status:str|None=
       FROM external_client_team_assignments a
       WHERE a.tenant_id=:tenant AND a.ended_at IS NULL AND (:wide OR a.user_id=:user)
       UNION
-      SELECT DISTINCT c.consultant_client_id
+      SELECT DISTINCT COALESCE(c.consultant_client_id,fd.fiteatsy_client_id)
       FROM external_fiteatsy_connections c
-      WHERE c.tenant_id=:tenant AND :wide AND c.consultant_client_id IS NOT NULL
+      LEFT JOIN fiteatsy_client_directory fd ON fd.fiteatsy_user_id::text=c.fiteatsy_user_id
+        AND fd.deleted_at IS NULL AND fd.sync_status='CURRENT'
+      WHERE c.tenant_id=:tenant AND :wide
+        AND COALESCE(c.consultant_client_id,fd.fiteatsy_client_id) IS NOT NULL
     ), directory AS (
       SELECT v.client_id,a.id assignment_id,a.ended_at,
         c.id connection_id,c.state,c.consented_scopes,c.connected_at,c.updated_at,
+        c.directory_display_name,
         CASE WHEN a.id IS NOT NULL THEN 'ACTIVE' ELSE 'NONE' END assignment_status,
         CASE
           WHEN c.state='ACTIVE' THEN 'CONNECTED_CONSENT_ACTIVE'
@@ -4336,9 +4340,14 @@ async def list_practice_clients(request:Request,q:str|None=None,status:str|None=
         ORDER BY a.assigned_at DESC LIMIT 1
       ) a ON TRUE
       LEFT JOIN LATERAL (
-        SELECT c.id,c.state,c.consented_scopes,c.connected_at,c.updated_at
+        SELECT c.id,c.state,c.consented_scopes,c.connected_at,c.updated_at,
+          fd.display_name directory_display_name
         FROM external_fiteatsy_connections c
-        WHERE c.tenant_id=:tenant AND c.consultant_client_id=v.client_id
+        LEFT JOIN fiteatsy_client_directory fd ON fd.fiteatsy_user_id::text=c.fiteatsy_user_id
+          AND fd.deleted_at IS NULL AND fd.sync_status='CURRENT'
+        WHERE c.tenant_id=:tenant
+          AND (c.consultant_client_id=v.client_id
+            OR (c.consultant_client_id IS NULL AND fd.fiteatsy_client_id=v.client_id))
           AND (:wide OR c.consultant_id=:user)
         ORDER BY (c.state='ACTIVE') DESC,c.updated_at DESC LIMIT 1
       ) c ON TRUE
