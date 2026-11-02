@@ -21,8 +21,7 @@ test('external Diet Plan reuses the full Internal Common Food editor through an 
   assert.match(multi,/templatesEnabled=\{false\}/);
   for(const operation of ['searchExternalCommonFoods','replaceSelection','replaceComponent','addComponent','removeComponent','updateServing'])assert.match(multi,new RegExp(operation));
 });
-test('external Common Food API remains on external tenant-authority routes',()=>{
-  assert.match(api,/externalCommonFoodPath/);
-  assert.match(api,/\/v1\/external\/clients\/\$\{encodeURIComponent\(clientId\)\}\/common-foods/);
-  assert.doesNotMatch(api,/externalCommonFoodPath[^\n]+\/v1\/consultants/);
+test('external Common Food search uses the backend-authorised consultant client contract',()=>{
+  assert.match(api,/searchExternalCommonFoods[\s\S]*\/v1\/consultants\/clients\/\$\{encodeURIComponent\(clientId\)\}\/common-foods/);
+  assert.doesNotMatch(api,/searchExternalCommonFoods[\s\S]{0,500}\/v1\/external\/clients\/\$\{encodeURIComponent\(clientId\)\}\/common-foods/);
 });
