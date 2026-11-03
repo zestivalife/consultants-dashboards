@@ -79,6 +79,7 @@ function toClientVM(client){
   const onboarding=deriveOnboardingState(client);const intake=onboarding.state==='COMPLETED'?'Complete':onboarding.state==='NOT_STARTED'?'Not started':onboarding.completionPercent===null?'Status unavailable':`${onboarding.completionPercent}% complete`;
   return {
     ...client,
+    displayName: client.displayName || client.name || 'Unnamed client',
     displayStatus: STATUS_LABEL[client.relationshipStatus] || STATUS_LABEL[client.status] || 'Active',
     intakeLabel: intake,
     goal: client.primaryGoal || 'Not provided',
@@ -88,7 +89,7 @@ function toClientVM(client){
   };
 }
 
-function AssignedClientAccessView({client,onBack}){return <section className="mx-auto max-w-3xl rounded-3xl border border-blue-200 bg-white p-6 shadow-sm sm:p-8"><button onClick={onBack} className="min-h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700">← Back to clients</button><p className="mt-6 text-xs font-bold uppercase tracking-[.16em] text-blue-700">Assigned Fiteatsy client</p><h2 className="mt-2 text-3xl font-bold tracking-tight">{client.displayName}</h2><p className="mt-2 text-sm text-slate-600">This client is assigned to your practice and is ready for contact.</p><div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5"><h3 className="font-bold text-amber-950">Connection and consent pending</h3><p className="mt-2 text-sm leading-6 text-amber-900">Return to the Clients page and generate a Connection PIN. After the client redeems it and chooses consent scopes, the same client record will open in Client 360. Assignment alone does not expose health data.</p></div></section>}
+function AssignedClientAccessView({client,onBack}){const contact=[client.email,client.mobile].filter(Boolean).join(' · ');return <section className="mx-auto max-w-3xl rounded-3xl border border-blue-200 bg-white p-6 shadow-sm sm:p-8"><button onClick={onBack} className="min-h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700">← Back to clients</button><p className="mt-6 text-xs font-bold uppercase tracking-[.16em] text-blue-700">Assigned Fiteatsy client</p><h2 className="mt-2 text-3xl font-bold tracking-tight">{client.displayName}</h2>{contact&&<p className="mt-2 text-sm font-medium text-slate-600">{contact}</p>}<p className="mt-2 text-sm text-slate-600">This client is assigned to your practice and is ready for contact.</p><div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5"><h3 className="font-bold text-amber-950">Connection and consent pending</h3><p className="mt-2 text-sm leading-6 text-amber-900">Health data remains private until the client explicitly connects and chooses consent scopes. Assignment alone does not expose health data.</p></div></section>}
 
 function StatusChip({children,tone='slate'}){
   const tones={slate:'bg-slate-100 text-slate-700',blue:'bg-blue-50 text-blue-700',amber:'bg-amber-50 text-amber-800',emerald:'bg-emerald-50 text-emerald-700'};

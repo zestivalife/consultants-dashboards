@@ -24,3 +24,9 @@ test('assignment-only clients are visible but cannot enter Client 360',()=>{
 test('client list renders email and mobile together when both are assigned',()=>{
   assert.match(workspace,/\[client\.email,client\.mobile\]\.filter\(Boolean\)\.join\(' · '\)/);
 });
+
+test('assignment-only client identity is normalized and shown on its dashboard',()=>{
+  assert.match(workspace,/displayName: client\.displayName \|\| client\.name \|\| 'Unnamed client'/);
+  assert.match(workspace,/const contact=\[client\.email,client\.mobile\]\.filter\(Boolean\)\.join\(' · '\)/);
+  assert.match(workspace,/Health data remains private until the client explicitly connects/);
+});
