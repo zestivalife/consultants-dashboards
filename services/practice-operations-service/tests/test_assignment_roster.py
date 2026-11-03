@@ -68,3 +68,12 @@ async def test_assignment_roster_failure_is_not_converted_to_empty_list(monkeypa
     monkeypatch.setattr(assignment_roster.httpx, "AsyncClient", lambda **_kwargs: Client())
     with pytest.raises(assignment_roster.AssignmentRosterUnavailable):
         await assignment_roster.list_assigned_fiteatsy_clients({"user_id": "b1fe3d8e-ebba-4326-9e5a-e18c94e6d055", "tenant_id": "tenant"})
+
+
+@pytest.mark.asyncio
+async def test_assignment_roster_is_disabled_when_bridge_is_not_configured(monkeypatch):
+    settings = _settings()
+    settings.external_fiteatsy_backend_url = None
+    monkeypatch.setattr(assignment_roster, "get_settings", lambda: settings)
+
+    assert await assignment_roster.list_assigned_fiteatsy_clients({"user_id": "user", "tenant_id": "tenant"}) == []

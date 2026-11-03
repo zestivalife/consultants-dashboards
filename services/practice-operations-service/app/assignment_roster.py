@@ -45,7 +45,13 @@ def _delegation(ctx: dict) -> str:
 
 async def list_assigned_fiteatsy_clients(ctx: dict) -> list[dict]:
     settings = get_settings()
-    url = f"{settings.external_fiteatsy_backend_url.rstrip('/')}/v1/internal/external-consultant-access/assignments/clients"
+    backend_url = settings.external_fiteatsy_backend_url
+    if not backend_url:
+        # The Fiteatsy bridge is optional in isolated/local Practice Operations
+        # environments. An explicitly unavailable configured upstream still fails
+        # closed below instead of being misreported as an empty roster.
+        return []
+    url = f"{backend_url.rstrip('/')}/v1/internal/external-consultant-access/assignments/clients"
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             upstream = await client.get(url, headers={"x-zestiva-delegation": _delegation(ctx)})
