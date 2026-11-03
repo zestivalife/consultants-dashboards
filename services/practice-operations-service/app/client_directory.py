@@ -27,7 +27,6 @@ def client_directory_projection(row: Mapping[str, Any]) -> dict[str, Any]:
         "clientId": client_id,
         "connectionId": str(row["connection_id"]) if row.get("connection_id") else None,
         "name": name or "Unnamed client",
-        "displayName": name or "Unnamed client",
         "email": values.get("email") or directory_email,
         "mobile": values.get("mobile") or values.get("phone") or directory_mobile,
         "status": row.get("relationship_status"),

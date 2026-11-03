@@ -45,7 +45,7 @@ def test_assignment_projection_exposes_directory_identity_without_health_access(
         "consented_scopes": [],
     })
 
-    assert projected["displayName"] == "Rest fit"
+    assert projected["name"] == "Rest fit"
     assert projected["email"] == "t***@fit.com"
     assert projected["healthDataAuthorized"] is False
     assert projected["consentedScopes"] == []
