@@ -168,7 +168,7 @@ def test_both_migration_heads_converge_without_losing_records(migrated_database)
     with psycopg.connect(url) as connection:
         assert connection.execute(
             "SELECT version_num FROM practice_operations_alembic_version"
-        ).fetchall() == [("0063_diet_plan_idempotency",)]
+        ).fetchall() == [("0064_external_practice_clients",)]
         assert connection.execute(
             "SELECT id::text FROM external_client_team_assignments WHERE id = %s",
             (sentinels["assignment_id"],),
@@ -190,6 +190,15 @@ def test_both_migration_heads_converge_without_losing_records(migrated_database)
         assert connection.execute(
             "SELECT to_regclass('public.fiteatsy_client_directory')::text"
         ).fetchone() == ("fiteatsy_client_directory",)
+        assert connection.execute(
+            "SELECT to_regclass('public.external_practice_clients')::text"
+        ).fetchone() == ("external_practice_clients",)
+        assert connection.execute(
+            "SELECT to_regclass('public.uq_external_practice_client_email')::text"
+        ).fetchone() == ("uq_external_practice_client_email",)
+        assert connection.execute(
+            "SELECT to_regclass('public.uq_external_practice_client_mobile')::text"
+        ).fetchone() == ("uq_external_practice_client_mobile",)
         if path == "production":
             assert connection.execute(
                 "SELECT display_name, source_version FROM fiteatsy_client_directory WHERE id = %s",
