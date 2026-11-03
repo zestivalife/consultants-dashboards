@@ -1,7 +1,6 @@
 import {useEffect,useMemo,useState} from 'react';
 import {ArrowRight,RefreshCw,UserRoundPlus} from 'lucide-react';
-import {createExternalClient} from '../../lib/fiteatsyConsultantsApi';
-import {convertLead,createLead,listLeads,updateLeadStage} from '../../lib/practiceOperationsApi';
+import {convertLead,createLead,createPracticeClient,listLeads,updateLeadStage} from '../../lib/practiceOperationsApi';
 import PhoneNumberField,{PHONE_COUNTRIES,toE164} from './PhoneNumberField';
 
 const STAGES=['NEW','CONTACTED','QUALIFIED','CONSULTATION_BOOKED','CONVERTED','NOT_INTERESTED','LOST'];
@@ -13,7 +12,7 @@ export function ExternalLeads({onClientCreated}){
   useEffect(()=>{void load()},[stage]);
   const counts=useMemo(()=>Object.fromEntries(STAGES.map(value=>[value,items.filter(item=>item.stage===value).length])),[items]);
   const save=async event=>{event.preventDefault();setError('');try{const dial=PHONE_COUNTRIES.find(item=>item.iso===form.country_iso2)?.dial||'+91';await createLead({...form,phone:toE164(dial,form.national_number),country_iso2:undefined,national_number:undefined});setOpen(false);setForm({first_name:'',last_name:'',email:'',country_iso2:'IN',national_number:'',source:'REFERRAL',notes:''});await load()}catch(reason){setError(reason.message||'Lead could not be created.')}};
-  const move=async(item,target)=>{setError('');try{if(target==='CONVERTED'){const client=await createExternalClient({firstName:item.first_name,lastName:item.last_name||'',email:item.email||'',mobile:item.phone||''});await convertLead(item.id,client.client.id);onClientCreated?.(client.client)}else await updateLeadStage(item.id,target);await load()}catch(reason){setError(reason.message||'Lead stage could not be changed.')}};
+  const move=async(item,target)=>{setError('');try{if(target==='CONVERTED'){const client=await createPracticeClient({firstName:item.first_name,lastName:item.last_name||'',email:item.email||'',mobile:item.phone||''});await convertLead(item.id,client.client.id);onClientCreated?.(client.client)}else await updateLeadStage(item.id,target);await load()}catch(reason){setError(reason.message||'Lead stage could not be changed.')}};
   return <section className="space-y-5"><header className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end"><div><p className="text-xs font-bold uppercase tracking-widest text-blue-700">Growth</p><h2 className="mt-1 text-3xl font-bold">Leads</h2><p className="mt-2 text-sm text-slate-600">A tenant-scoped prospect pipeline with governed Client Core conversion.</p></div><button onClick={()=>setOpen(true)} className="min-h-11 rounded-xl bg-slate-950 px-4 font-semibold text-white"><UserRoundPlus className="mr-2 inline" size={17}/>Add lead</button></header>
     <div className="flex gap-2 overflow-x-auto" aria-label="Lead stage filters"><button onClick={()=>setStage('')} aria-pressed={!stage} className={`min-h-11 shrink-0 rounded-xl px-4 text-sm font-semibold ${!stage?'bg-blue-700 text-white':'border bg-white'}`}>All</button>{STAGES.map(value=><button key={value} onClick={()=>setStage(value)} aria-pressed={stage===value} className={`min-h-11 shrink-0 rounded-xl px-4 text-sm font-semibold ${stage===value?'bg-blue-700 text-white':'border bg-white'}`}>{value.replaceAll('_',' ')} {!stage&&counts[value]?`· ${counts[value]}`:''}</button>)}</div>
     {error&&<p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">{error}</p>}
