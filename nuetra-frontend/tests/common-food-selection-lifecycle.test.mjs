@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chooseRandomFive, chooseRecommendedFive, isExactSelection, mergeCandidateOptions, sameOptionIds, verifyPersistedSelection } from '../lib/commonFoodSelectionLifecycle.mjs';
+import { chooseRandomFive, chooseRecommendedFive, isExactSelection, isValidDraftSelection, mergeCandidateOptions, sameOptionIds, verifyPersistedSelection } from '../lib/commonFoodSelectionLifecycle.mjs';
 
 const heads = ['a','b'];
 const options = heads.flatMap((mealHead) => Array.from({ length: 7 }, (_, index) => ({ combinationId: `${mealHead}${index}`, mealHead })));
@@ -24,10 +24,14 @@ test('recommended five only uses the backend-approved ranking', () => {
   assert.deepEqual(chooseRecommendedFive(meal, ['a6', 'a3', 'a1', 'a5', 'a2']), ['a6', 'a3', 'a1', 'a5', 'a2']);
 });
 
-test('verified saved state requires exact IDs, version, and five per meal', () => {
+test('verified saved state supports zero-to-five options per meal with exact IDs and version', () => {
   const persisted = options.filter((item) => Number(item.combinationId.slice(1)) < 5);
   const requested = new Set(persisted.map((item) => item.combinationId));
   assert.equal(isExactSelection(persisted, requested, heads), true);
+  const partial = persisted.filter((item) => item.combinationId === 'a0');
+  assert.equal(isValidDraftSelection(partial, new Set(['a0']), heads), true);
+  assert.equal(verifyPersistedSelection({ requestedIds: new Set(['a0']), responseOptions: partial, expectedPlanVersionId: 'v1', responsePlanVersionId: 'v1', mealHeads: heads }), true);
+  assert.equal(verifyPersistedSelection({ requestedIds: new Set(), responseOptions: [], expectedPlanVersionId: 'v1', responsePlanVersionId: 'v1', mealHeads: heads }), true);
   assert.equal(verifyPersistedSelection({ requestedIds: requested, responseOptions: persisted, expectedPlanVersionId: 'v1', responsePlanVersionId: 'v1', mealHeads: heads }), true);
   assert.equal(verifyPersistedSelection({ requestedIds: requested, responseOptions: persisted.slice(1), expectedPlanVersionId: 'v1', responsePlanVersionId: 'v1', mealHeads: heads }), false);
   assert.equal(verifyPersistedSelection({ requestedIds: requested, responseOptions: persisted, expectedPlanVersionId: 'v1', responsePlanVersionId: 'v2', mealHeads: heads }), false);

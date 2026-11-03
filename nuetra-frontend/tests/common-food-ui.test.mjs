@@ -86,9 +86,9 @@ test('mixed-plan compatibility is rendered inside the existing Diet Plan surface
   for (const fragment of ['legacyMealPlan', 'legacyOptionsForUnifiedPlan', 'Previous plan options available now', 'data-option-type']) assert.ok(editor.includes(fragment), fragment);
 });
 
-test('generated candidates default to exact-five inclusion before persistence', () => {
-  for (const fragment of ['AVAILABLE', 'SELECTED', 'SAVED', 'selectedIds', 'Select exactly five options for every meal', 'data-selection-state']) assert.ok(editor.includes(fragment), fragment);
-  assert.match(editor, /selected\.filter\(\(option\) => option\.mealHead === head\)\.length !== 5/);
+test('generated candidates allow partial draft persistence while retaining five-option maximum', () => {
+  for (const fragment of ['AVAILABLE', 'SELECTED', 'SAVED', 'selectedIds', 'Each meal supports at most five draft options', 'data-selection-state']) assert.ok(editor.includes(fragment), fragment);
+  assert.doesNotMatch(editor, /length !== 5/);
   assert.match(editor, /replaceFiteatsyCommonFoodSelection/);
   assert.match(editor, /options: selected\.map/);
   assert.match(editor, /useImperativeHandle[\s\S]*selectedIds/);

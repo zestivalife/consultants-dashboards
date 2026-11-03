@@ -68,10 +68,10 @@ test('component mutations remain unsaved until the authoritative 35-selection re
   assert.doesNotMatch(editor, /Option updated and recalculated by Fiteatsy\.['"]\); \}\s*catch/);
 });
 
-test('legacy partial drafts keep persisted selection truth separate from generated candidates', () => {
+test('partial drafts keep persisted selection truth separate from generated candidates', () => {
   assert.match(editor, /generate\(\{ autoSelect: savedOptions\.length === 0, baseOptions: savedOptions, selectedSeed: savedIds \}\)/);
   assert.match(editor, /if \(!autoSelect\) return new Set/);
-  assert.match(editor, /Incomplete saved draft: \$\{savedOptions\.length\}\/35 persisted/);
+  assert.match(editor, /Saved draft verified: \$\{savedOptions\.length\} option/);
   assert.match(editor, /Missing candidates loaded\. Existing saved selections were preserved/);
   assert.match(editor, /persistedTotal/);
   assert.match(editor, /persistedByMeal/);

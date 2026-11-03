@@ -19,7 +19,7 @@ import {
 } from '../../lib/fiteatsyConsultantsApi';
 import { isCommonFoodCombinationEngineEnabled } from '../../lib/dietFeatureFlags';
 import { COMMON_FOOD_MEALS, buildMealAuthoringPool, commonFoodErrorMessage, commonFoodOptionType, formatNutrient, legacyOptionsForUnifiedPlan, optionSummary, optionTitle, previousOptionReuseState } from '../../lib/commonFoodUi.mjs';
-import { isExactSelection, mergeCandidateOptions, verifyPersistedSelection } from '../../lib/commonFoodSelectionLifecycle.mjs';
+import { isValidDraftSelection, mergeCandidateOptions, verifyPersistedSelection } from '../../lib/commonFoodSelectionLifecycle.mjs';
 import { ConsultantFoodProposalPanel } from './FoodProposalUx';
 
 const roles = [['', 'All food groups'], ['STARCH', 'Staples'], ['GRAIN', 'Grains'], ['BREAD', 'Indian breads'], ['PULSE', 'Dal & pulses'], ['PROTEIN', 'Protein foods'], ['VEGETABLE', 'Vegetables'], ['FRUIT', 'Fruits'], ['DAIRY', 'Dairy'], ['FAT', 'Fats'], ['NUT_SEED', 'Nuts & seeds'], ['BEVERAGE', 'Drinks'], ['ACCOMPANIMENT', 'Accompaniments']];
@@ -250,9 +250,9 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
       const savedOptions = response?.options || [];
       const savedIds = new Set(savedOptions.map((option) => option.combinationId));
       const verified = response?.planVersionId === planVersionId
-        && isExactSelection(savedOptions, savedIds, COMMON_FOOD_MEALS.map(([head]) => head));
+        && isValidDraftSelection(savedOptions, savedIds, COMMON_FOOD_MEALS.map(([head]) => head));
       setOptions(savedOptions); setSelectedIds(savedIds); setPersistedIds(savedIds); setDirty(false); setSavedVerified(verified);
-      setMessage(verified ? 'Saved selections verified against the current server version.' : savedOptions.length ? `Incomplete saved draft: ${savedOptions.length}/35 persisted.` : 'No saved Diet Plan options yet.');
+      setMessage(verified ? `Saved draft verified: ${savedOptions.length} option${savedOptions.length === 1 ? '' : 's'} persisted.` : 'Saved draft could not be verified against the current server version.');
       if (isCommonFoodCombinationEngineEnabled && savedOptions.length < 35 && ['draft', 'changes_requested'].includes(lifecycle) && !readOnly) {
         await generate({ autoSelect: savedOptions.length === 0, baseOptions: savedOptions, selectedSeed: savedIds });
       }
@@ -273,9 +273,9 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
 
   const saveAll = async (expectedPlanVersionId = planVersionId) => {
     const selected = options.filter((option) => selectedIds.has(option.combinationId));
-    const incomplete = COMMON_FOOD_MEALS.filter(([head]) => selected.filter((option) => option.mealHead === head).length !== 5);
-    if (incomplete.length) {
-      const nextError = `Select exactly five options for every meal before saving. Incomplete: ${incomplete.map(([, label]) => label).join(', ')}.`;
+    const overflow = COMMON_FOOD_MEALS.filter(([head]) => selected.filter((option) => option.mealHead === head).length > 5);
+    if (overflow.length) {
+      const nextError = `Each meal supports at most five draft options. Review: ${overflow.map(([, label]) => label).join(', ')}.`;
       setError(nextError);
       throw new Error(nextError);
     }

@@ -14,6 +14,13 @@ export const isExactSelection = (options, selectedIds, mealHeads) => {
   const counts = countSelections(options, selectedIds, mealHeads);
   return selectedIds.size === mealHeads.length * 5 && mealHeads.every((head) => counts[head] === 5);
 };
+export const isValidDraftSelection = (options, selectedIds, mealHeads) => {
+  const optionIds = new Set(options.map((option) => String(option.combinationId)));
+  const counts = countSelections(options, selectedIds, mealHeads);
+  return selectedIds.size <= mealHeads.length * 5
+    && [...selectedIds].every((id) => optionIds.has(String(id)))
+    && mealHeads.every((head) => counts[head] >= 0 && counts[head] <= 5);
+};
 export const mergeCandidateOptions = (current, incoming) => [...new Map(
   [...current, ...incoming].map((option) => [option.combinationId, option]),
 ).values()];
@@ -32,6 +39,6 @@ export const chooseRandomFive = (options, random = Math.random) => {
 export const verifyPersistedSelection = ({ requestedIds, responseOptions, expectedPlanVersionId, responsePlanVersionId, mealHeads }) => {
   const responseIds = new Set(responseOptions.map((option) => option.combinationId));
   return responsePlanVersionId === expectedPlanVersionId
-    && isExactSelection(responseOptions, responseIds, mealHeads)
+    && isValidDraftSelection(responseOptions, responseIds, mealHeads)
     && sameOptionIds(requestedIds, responseIds);
 };
