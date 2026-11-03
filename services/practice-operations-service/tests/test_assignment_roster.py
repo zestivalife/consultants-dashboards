@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -47,9 +48,17 @@ def test_assignment_projection_exposes_directory_identity_without_health_access(
 
     assert projected["name"] == "Rest fit"
     assert projected["email"] == "t***@fit.com"
+    assert projected["mobile"] == "******3333"
     assert projected["healthDataAuthorized"] is False
     assert projected["consentedScopes"] == []
     assert projected["relationshipStatus"] == "ASSIGNED_CONNECTION_PENDING"
+
+
+def test_directory_route_searches_assignment_mobile():
+    source = (Path(__file__).parents[1] / "app/main.py").read_text()
+    route = source[source.index('@app.get("/api/v1/practice-operations/clients")'):source.index("async def _team_audit")]
+
+    assert "COALESCE(d.assignment_mobile,'') ILIKE" in route
 
 
 @pytest.mark.asyncio

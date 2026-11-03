@@ -20,3 +20,7 @@ test('assignment-only clients are visible but cannot enter Client 360',()=>{
   assert.match(workspace,/Assignment alone does not expose health data/);
   assert.match(workspace,/selected\.relationshipStatus==='ASSIGNED_CONNECTION_PENDING'/);
 });
+
+test('client list renders email and mobile together when both are assigned',()=>{
+  assert.match(workspace,/\[client\.email,client\.mobile\]\.filter\(Boolean\)\.join\(' · '\)/);
+});

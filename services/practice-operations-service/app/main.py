@@ -4525,6 +4525,7 @@ async def list_practice_clients(request:Request,q:str|None=None,status:str|None=
       AND (CAST(:q AS text) IS NULL OR d.client_id ILIKE '%'||CAST(:q AS text)||'%'
         OR COALESCE(d.assignment_display_name,'') ILIKE '%'||CAST(:q AS text)||'%'
         OR COALESCE(d.assignment_email,'') ILIKE '%'||CAST(:q AS text)||'%'
+        OR COALESCE(d.assignment_mobile,'') ILIKE '%'||CAST(:q AS text)||'%'
         OR COALESCE(p.values->>'name',p.values->>'fullName','') ILIKE '%'||CAST(:q AS text)||'%'
         OR COALESCE(p.values->>'email','') ILIKE '%'||CAST(:q AS text)||'%')"""
     rows=(await db.execute(text(f"""{directory} SELECT d.*,p.values profile_values
