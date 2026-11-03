@@ -5706,11 +5706,13 @@ function ClientDirectoryPage({ queueViews, activeQueue, setActiveQueue, filtered
   );
 }
 
-export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
+export function SuperAdminFiteatsyLeadsPage() {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [shownPin, setShownPin] = useState(null);
+  const [assignmentClient, setAssignmentClient] = useState(null);
+  const [assignmentNotice, setAssignmentNotice] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -5745,6 +5747,7 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
       <button type="button" className="mt-3 min-h-11 rounded-xl border border-amber-400 px-4 font-semibold" onClick={() => setShownPin(null)}>I have copied it</button>
     </Surface> : null}
     {error ? <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-4 text-red-800">{error}</div> : null}
+    {assignmentNotice ? <div role="status" className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-emerald-800">{assignmentNotice}</div> : null}
     <Surface className="overflow-hidden border border-[var(--fluent-color-neutral-stroke-1)]">
       <div className="flex items-center justify-between border-b p-4"><strong>{loading ? 'Loading registrations…' : `${leads.length} recent registrations`}</strong><button type="button" onClick={() => void load()} className="min-h-11 rounded-xl border px-4">Refresh</button></div>
       <div className="divide-y">
@@ -5752,11 +5755,82 @@ export function SuperAdminFiteatsyLeadsPage({ onOpenAssignments }) {
           <div><p className="font-semibold">{lead.name}</p><p className="mt-1 text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{lead.mobileNumber || 'Verified mobile unavailable'}</p>{lead.email ? <p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-2)]">{lead.email}</p> : null}<p className="mt-1 text-xs text-[var(--fluent-color-neutral-foreground-3)]">Registered {new Date(lead.registeredAtISO).toLocaleString()}</p></div>
           <div><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Lead status</p><p className="mt-1 font-semibold">{lead.leadStatus}</p></div>
           <div><p className="text-xs uppercase text-[var(--fluent-color-neutral-foreground-3)]">Login PIN</p><p className="mt-1 font-semibold">{lead.loginPinStatus === 'CONFIGURED' ? 'Configured' : 'Setup required'}</p></div>
-          <div className="flex flex-wrap gap-2"><button type="button" onClick={onOpenAssignments} className="min-h-11 rounded-xl bg-slate-950 px-4 font-semibold text-white">{lead.assignment ? 'Reassign' : 'Assign'}</button><button type="button" disabled={!lead.mobileNumber} onClick={() => void issuePin(lead)} className="min-h-11 rounded-xl border px-4 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Issue temporary Login PIN</button></div>
+          <div className="flex flex-wrap gap-2"><button type="button" onClick={() => { setAssignmentNotice(''); setAssignmentClient({ userId: lead.userId, clientId: lead.clientId || lead.userId, name: lead.name, maskedMobileNumber: lead.mobileNumber ? `******${lead.mobileNumber.slice(-4)}` : null, maskedEmail: lead.email ? `${lead.email.slice(0, 1)}***@${lead.email.split('@')[1] || ''}` : null, assignmentStatus: lead.assignment ? 'ASSIGNED' : 'UNASSIGNED', assignedProfessional: lead.assignment?.professional || null }); }} className="min-h-11 rounded-xl bg-slate-950 px-4 font-semibold text-white">{lead.assignment ? 'Reassign' : 'Assign'}</button><button type="button" disabled={!lead.mobileNumber} onClick={() => void issuePin(lead)} className="min-h-11 rounded-xl border px-4 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Issue temporary Login PIN</button></div>
         </article>)}
         {!loading && leads.length === 0 ? <p className="p-8 text-center text-sm text-[var(--fluent-color-neutral-foreground-2)]">No recent Fiteatsy registrations were found.</p> : null}
       </div>
     </Surface>
+    {assignmentClient ? <FiteatsyLeadAssignmentDrawer initialClient={assignmentClient} onClose={() => setAssignmentClient(null)} onSuccess={({ consultant }) => { setAssignmentClient(null); setAssignmentNotice(`${assignmentClient.name} assigned to ${consultant?.name || 'the selected consultant'}.`); void load(); }} /> : null}
+  </div>;
+}
+
+export function FiteatsyLeadAssignmentDrawer({ initialClient, onClose, onSuccess }) {
+  const [consultants, setConsultants] = useState([]);
+  const [consultantId, setConsultantId] = useState('');
+  const [client, setClient] = useState(initialClient);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [submitError, setSubmitError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      const [eligibleClients, availableConsultants] = await Promise.all([
+        listAllFiteatsyClientAllocationPool({ assignment: 'all' }),
+        listFiteatsyAssignmentProfessionals('CONSULTANT'),
+      ]);
+      const authoritativeClient = eligibleClients.find((item) => item.userId === initialClient.userId);
+      if (!authoritativeClient) throw new Error('This Fiteatsy lead is not currently eligible for consultant assignment.');
+      setClient(authoritativeClient);
+      setConsultants(availableConsultants.filter((item) => String(item.status).toUpperCase() === 'ACTIVE'));
+      setConsultantId(authoritativeClient.assignedProfessional?.userId || '');
+    } catch (reason) {
+      setLoadError(reason?.message || 'Assignment details could not be loaded.');
+    } finally {
+      setLoading(false);
+    }
+  }, [initialClient]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const submit = async () => {
+    const consultant = consultants.find((item) => item.userId === consultantId);
+    if (!consultant || !client?.userId) return;
+    const isReassignment = client.assignmentStatus === 'ASSIGNED'
+      && client.assignedProfessional?.userId !== consultantId;
+    if (isReassignment && !window.confirm(`Reassign ${client.name} to ${consultant.name} and preserve the previous assignment in history?`)) return;
+    setSubmitting(true);
+    setSubmitError('');
+    try {
+      await createFiteatsyProfessionalAssignment({
+        clientUserId: client.userId,
+        professionalUserId: consultantId,
+        professionalType: 'CONSULTANT',
+        relationshipType: 'CLIENT_CARE',
+        reason: isReassignment ? 'Platform Owner confirmed consultant reassignment' : 'Platform Owner assigned Fiteatsy lead',
+        allowReassignment: isReassignment,
+      });
+      onSuccess?.({ client, consultant });
+    } catch (reason) {
+      setSubmitError(reason?.message || 'Client assignment failed. No success was recorded.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return <div className="fixed inset-0 z-[80] bg-slate-950/45" role="dialog" aria-modal="true" aria-labelledby="assign-fiteatsy-lead-title">
+    <div className="ml-auto flex h-full w-full max-w-[500px] flex-col bg-white shadow-2xl">
+      <header className="flex items-start justify-between border-b px-5 py-5"><div><h2 id="assign-fiteatsy-lead-title" className="text-xl font-bold">Assign Fiteatsy client</h2><p className="mt-1 text-sm text-slate-500">{initialClient.name}</p></div><button type="button" onClick={onClose} aria-label="Close assignment drawer" className="rounded-full p-2 hover:bg-slate-100"><X className="h-5 w-5" /></button></header>
+      <div className="flex-1 overflow-y-auto p-5">
+        {loading ? <div role="status" className="rounded-xl border p-8 text-center text-sm text-slate-500">Loading eligible consultants…</div> : null}
+        {loadError ? <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p className="font-semibold">Assignment unavailable</p><p className="mt-1">{loadError}</p><button type="button" onClick={() => void load()} className="mt-2 font-bold underline">Retry</button></div> : null}
+        {!loading && !loadError ? <><div className="rounded-xl border bg-slate-50 p-4"><p className="font-semibold">{client.name}</p><p className="mt-1 text-xs text-slate-500">{[client.maskedMobileNumber, client.maskedEmail].filter(Boolean).join(' · ') || client.clientId}</p><p className="mt-2 text-xs font-semibold text-slate-700">{client.assignmentStatus === 'ASSIGNED' ? `Currently assigned to ${client.assignedProfessional?.name || 'a consultant'}` : 'Currently unassigned'}</p></div><label className="mt-5 block text-sm font-semibold">Consultant<select value={consultantId} onChange={(event) => { setConsultantId(event.target.value); setSubmitError(''); }} className="mt-2 min-h-12 w-full rounded-xl border px-3"><option value="">Select consultant</option>{consultants.map((item) => <option key={item.userId} value={item.userId}>{item.name} · {item.email || item.userId}</option>)}</select></label>{consultants.length === 0 ? <p className="mt-3 text-sm text-amber-800">No active consultants are currently eligible for assignment.</p> : null}</> : null}
+        {submitError ? <div role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{submitError}</div> : null}
+      </div>
+      <footer className="border-t p-5"><div className="flex gap-3"><button type="button" onClick={onClose} className="min-h-12 flex-1 rounded-xl border font-semibold">Cancel</button><button type="button" disabled={loading || Boolean(loadError) || !consultantId || submitting || client?.assignedProfessional?.userId === consultantId} onClick={() => void submit()} className="min-h-12 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-40">{submitting ? 'Assigning…' : client?.assignmentStatus === 'ASSIGNED' ? 'Confirm reassignment' : 'Assign client'}</button></div></footer>
+    </div>
   </div>;
 }
 
@@ -8228,7 +8302,7 @@ function PlatformWorkspace({ forcedRole }) {
               {nav === 'food-authorisation' ? (
                 isSuperAdmin ? <FoodAuthorisationPage /> : <CompactPageHeader title="Restricted" subtitle="Only super admins can authorise Food Master items." />
               ) : nav === 'leads' ? (
-                isSuperAdmin ? <SuperAdminFiteatsyLeadsPage onOpenAssignments={() => setNav('assignments')} /> : <CompactPageHeader title="Restricted" subtitle="Only super admins can manage Fiteatsy leads." />
+                isSuperAdmin ? <SuperAdminFiteatsyLeadsPage /> : <CompactPageHeader title="Restricted" subtitle="Only super admins can manage Fiteatsy leads." />
               ) : nav === 'assignments' ? (
                 <ProfessionalAssignmentPage />
               ) : nav === 'organizations' ? (
