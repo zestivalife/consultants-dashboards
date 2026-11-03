@@ -31,6 +31,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            AssessmentAnswerSave, AssessmentComplete,
                            ProfessionPlanCreate, ProfessionPlanSave,
                            DietPlanCreate, DietPlanSave, DietPlanReviewAction)
+from app.contracts import PracticeClientCreate
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
 from app.contracts import TemplateCreate, TemplateUpdate, SessionSuggestionGenerate, SessionSuggestionDecision, EngagementProjectionRequest, PostSessionStart, PostSessionActionComplete, FeedbackRequestCreate, FeedbackSubmit, FeedbackAction, TeleconsultConfigure, TeleconsultTransition, SecureConversationCreate, SecureMessageCreate, CalendarConnectionPrepare, CalendarBusyBlockImport, CalendarExternalChange, MarketplaceCommissionRuleCreate, MarketplacePayoutUpdate, RefundCreate, RefundTransition, SupportTicketCreate, SupportTicketUpdate
@@ -4464,6 +4465,11 @@ async def list_practice_clients(request:Request,q:str|None=None,status:str|None=
         AND fd.deleted_at IS NULL AND fd.sync_status='CURRENT'
       WHERE c.tenant_id=:tenant AND :wide
         AND COALESCE(c.consultant_client_id,fd.fiteatsy_client_id) IS NOT NULL
+      UNION
+      SELECT DISTINCT pc.client_id FROM external_practice_clients pc
+      WHERE pc.tenant_id=:tenant AND pc.status='ACTIVE'
+        AND (:wide OR EXISTS (SELECT 1 FROM external_client_team_assignments a
+          WHERE a.tenant_id=:tenant AND a.client_id=pc.client_id AND a.user_id=:user AND a.ended_at IS NULL))
     ), directory AS (
       SELECT v.client_id,a.id assignment_id,a.ended_at,
         c.id connection_id,c.state,c.consented_scopes,c.connected_at,c.updated_at,
@@ -4509,6 +4515,42 @@ async def list_practice_clients(request:Request,q:str|None=None,status:str|None=
       WHERE {scope}"""),params)).scalar_one()
     return {"success":True,"data":{"clients":[client_directory_projection(dict(row)) for row in rows],
       "pagination":{"total":total,"limit":limit,"offset":offset},"practiceWide":wide},
+      "error":None,"request_id":request.state.correlation_id}
+
+
+@app.post("/api/v1/practice-operations/clients", status_code=201)
+async def create_practice_client(body:PracticeClientCreate,request:Request,
+                                 idempotency_key:str=Header(alias="Idempotency-Key"),
+                                 ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"CLIENT_CREATE")
+    if denied:return denied
+    first_name=body.first_name.strip();last_name=body.last_name.strip()
+    email=(body.email or "").strip().lower() or None
+    mobile=re.sub(r"\D","",body.mobile or "") or None
+    if not email and not mobile:return error(request,422,"CLIENT_CONTACT_REQUIRED","Email or mobile number is required")
+    replay=(await db.execute(text("""SELECT client_id,first_name,last_name FROM external_practice_clients
+      WHERE tenant_id=:tenant AND idempotency_key=:key"""),{"tenant":ctx["tenant_id"],"key":idempotency_key})).mappings().first()
+    if replay:
+        return {"success":True,"data":{"client":{"id":replay["client_id"],"clientId":replay["client_id"],
+          "name":" ".join(filter(None,[replay["first_name"],replay["last_name"]]))}},"error":None,"request_id":request.state.correlation_id}
+    existing=(await db.execute(text("""SELECT client_id FROM external_practice_clients
+      WHERE tenant_id=:tenant AND status='ACTIVE'
+        AND ((:email IS NOT NULL AND email_key=:email) OR (:mobile IS NOT NULL AND mobile_key=:mobile)) LIMIT 1"""),
+      {"tenant":ctx["tenant_id"],"email":email,"mobile":mobile})).scalar_one_or_none()
+    if existing:return error(request,409,"CLIENT_ALREADY_EXISTS","A client with this contact already exists in this practice")
+    client_id=f"pc_{uuid4()}";now=datetime.now(timezone.utc)
+    await db.execute(text("""INSERT INTO external_practice_clients
+      (id,tenant_id,client_id,first_name,last_name,email,email_key,mobile,mobile_key,status,created_by,created_at,updated_at,idempotency_key)
+      VALUES (:id,:tenant,:client,:first,:last,:email,:email,:mobile,:mobile,'ACTIVE',:actor,:now,:now,:key)"""),
+      {"id":uuid4(),"tenant":ctx["tenant_id"],"client":client_id,"first":first_name,"last":last_name,
+       "email":email,"mobile":mobile,"actor":ctx["user_id"],"now":now,"key":idempotency_key})
+    await db.execute(text("""INSERT INTO external_client_team_assignments
+      (id,tenant_id,client_id,user_id,assignment_role,assigned_by,assigned_at,reason)
+      VALUES (:id,:tenant,:client,:user,'PRIMARY_PRACTITIONER',:user,:now,'Client created by consultant')"""),
+      {"id":uuid4(),"tenant":ctx["tenant_id"],"client":client_id,"user":ctx["user_id"],"now":now})
+    await _team_audit(db,ctx,"CLIENT_CREATED",client_id=client_id,metadata={"source":"CONSULTANT_WORKSPACE"})
+    return {"success":True,"data":{"client":{"id":client_id,"clientId":client_id,
+      "name":" ".join(filter(None,[first_name,last_name])),"assignmentStatus":"ACTIVE","healthDataAuthorized":False}},
       "error":None,"request_id":request.state.correlation_id}
 
 

@@ -16,6 +16,13 @@ class ConsultationStatus(StrEnum):
     SCHEDULED="SCHEDULED"; IN_PROGRESS="IN_PROGRESS"; COMPLETED="COMPLETED"; CANCELLED="CANCELLED"; NO_SHOW="NO_SHOW"
 
 
+class PracticeClientCreate(BaseModel):
+    first_name: str = Field(min_length=1, max_length=120)
+    last_name: str = Field(default="", max_length=120)
+    email: str | None = Field(default=None, max_length=320)
+    mobile: str | None = Field(default=None, max_length=32)
+
+
 class WorkStatus(StrEnum):
     TODO="TODO"; IN_PROGRESS="IN_PROGRESS"; COMPLETED="COMPLETED"; OVERDUE="OVERDUE"; CANCELLED="CANCELLED"
 
