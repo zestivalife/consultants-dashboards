@@ -100,6 +100,7 @@ from app.p29 import classify_output, validate_ai_request
 from app.p30 import EXCLUDED_BY_DEFAULT, export_checksum, validate_export_sections
 from app.command_centre import next_action, operational_priority, section as command_section, sort_work
 from app.client_directory import client_directory_projection
+from app.assignment_roster import AssignmentRosterUnavailable, list_assigned_fiteatsy_clients
 from app.p37 import project_readiness, resolve_requirements
 from app.p38 import project_post_session, resolve_post_session_actions
 from app.p39 import experience_label, public_review_eligible, validate_ratings
@@ -4448,13 +4449,27 @@ async def list_practice_clients(request:Request,q:str|None=None,status:str|None=
                                 ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied,principal=await _team_guard(request,db,ctx,"CLIENT_LIST_VIEW")
     if denied:return denied
+    try:
+        assignment_roster=await list_assigned_fiteatsy_clients(ctx)
+    except AssignmentRosterUnavailable:
+        return error(request,503,"FITEATSY_ASSIGNMENT_ROSTER_UNAVAILABLE","The assigned client roster is temporarily unavailable")
     wide=bool(principal["practice_wide_client_access"] or principal["legacy_solo"])
     params={"tenant":ctx["tenant_id"],"user":ctx["user_id"],"wide":wide,
             "q":q.strip() if q and q.strip() else None,"status":status.upper() if status else None,
-            "limit":limit,"offset":offset}
+            "limit":limit,"offset":offset,"assignment_roster":json.dumps([{
+              "client_id":str(item.get("clientId") or ""),
+              "display_name":str(item.get("displayName") or "").strip() or None,
+              "email":str(item.get("email") or "").strip() or None,
+              "mobile":str(item.get("mobile") or "").strip() or None,
+            } for item in assignment_roster if item.get("clientId")])}
     # Assignment controls directory visibility; a connection independently controls
     # consented health-data access. Never infer consent merely from assignment.
-    directory="""WITH visible_clients AS (
+    directory="""WITH remote_assignments AS (
+      SELECT DISTINCT client_id,display_name,email,mobile
+      FROM jsonb_to_recordset(CAST(:assignment_roster AS jsonb))
+        AS roster(client_id text,display_name text,email text,mobile text)
+      WHERE client_id IS NOT NULL AND client_id<>''
+    ), visible_clients AS (
       SELECT DISTINCT a.client_id
       FROM external_client_team_assignments a
       WHERE a.tenant_id=:tenant AND a.ended_at IS NULL AND (:wide OR a.user_id=:user)
@@ -4470,11 +4485,14 @@ async def list_practice_clients(request:Request,q:str|None=None,status:str|None=
       WHERE pc.tenant_id=:tenant AND pc.status='ACTIVE'
         AND (:wide OR EXISTS (SELECT 1 FROM external_client_team_assignments a
           WHERE a.tenant_id=:tenant AND a.client_id=pc.client_id AND a.user_id=:user AND a.ended_at IS NULL))
+      UNION
+      SELECT client_id FROM remote_assignments
     ), directory AS (
       SELECT v.client_id,a.id assignment_id,a.ended_at,
         c.id connection_id,c.state,c.consented_scopes,c.connected_at,c.updated_at,
-        c.directory_display_name,
-        CASE WHEN a.id IS NOT NULL THEN 'ACTIVE' ELSE 'NONE' END assignment_status,
+        c.directory_display_name,ra.display_name assignment_display_name,
+        ra.email assignment_email,ra.mobile assignment_mobile,
+        CASE WHEN a.id IS NOT NULL OR ra.client_id IS NOT NULL THEN 'ACTIVE' ELSE 'NONE' END assignment_status,
         CASE
           WHEN c.state='ACTIVE' THEN 'CONNECTED_CONSENT_ACTIVE'
           WHEN c.state='REVOKED' THEN 'CONSENT_REVOKED'
@@ -4483,6 +4501,7 @@ async def list_practice_clients(request:Request,q:str|None=None,status:str|None=
         END relationship_status,
         (c.state='ACTIVE') health_data_authorized
       FROM visible_clients v
+      LEFT JOIN remote_assignments ra ON ra.client_id=v.client_id
       LEFT JOIN LATERAL (
         SELECT a.id,a.ended_at FROM external_client_team_assignments a
         WHERE a.tenant_id=:tenant AND a.client_id=v.client_id AND a.ended_at IS NULL
@@ -4504,6 +4523,8 @@ async def list_practice_clients(request:Request,q:str|None=None,status:str|None=
     )"""
     scope="""(CAST(:status AS text) IS NULL OR d.relationship_status=CAST(:status AS text))
       AND (CAST(:q AS text) IS NULL OR d.client_id ILIKE '%'||CAST(:q AS text)||'%'
+        OR COALESCE(d.assignment_display_name,'') ILIKE '%'||CAST(:q AS text)||'%'
+        OR COALESCE(d.assignment_email,'') ILIKE '%'||CAST(:q AS text)||'%'
         OR COALESCE(p.values->>'name',p.values->>'fullName','') ILIKE '%'||CAST(:q AS text)||'%'
         OR COALESCE(p.values->>'email','') ILIKE '%'||CAST(:q AS text)||'%')"""
     rows=(await db.execute(text(f"""{directory} SELECT d.*,p.values profile_values
