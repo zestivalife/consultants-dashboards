@@ -47,6 +47,10 @@ DELEGATED_AUTH_PREFIXES: list[str] = [
     "/api/v1/team-lead",
     "/api/v1/team-member",
     "/api/v1/notifications",
+    # Practice Operations validates the short-lived RS256 Fiteatsy identity
+    # assertion for this connection/consent boundary. It is not a consultant
+    # dashboard login token and must pass through unchanged.
+    "/api/v1/fiteatsy-connections",
 ]
 
 
