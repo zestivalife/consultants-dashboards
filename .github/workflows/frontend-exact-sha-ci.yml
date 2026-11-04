@@ -77,6 +77,15 @@ jobs:
           echo "- Checked-out SHA: \`$checked_out_sha\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Exact-SHA parity: **PASS**" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Check out pinned Fiteatsy provider contracts
+        uses: actions/checkout@v4
+        with:
+          repository: zestivalife/Fiteatsy
+          ref: f7762c1eed4c3026913028742655d6c3f5a6e38e
+          path: external/fiteatsy
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -158,6 +167,22 @@ jobs:
       - name: Enforce executable consumer-provider compatibility
         working-directory: nuetra-frontend
         run: node --test tests/api-contract-registry.test.mjs
+
+      - name: Enforce pinned cross-repository Fiteatsy contracts
+        working-directory: nuetra-frontend
+        env:
+          FITEATSY_ROOT: ${{ github.workspace }}/external/fiteatsy
+        run: node scripts/verify-fiteatsy-contracts.mjs
+
+      - name: Install pinned Fiteatsy backend dependencies
+        working-directory: external/fiteatsy/backend
+        run: npm ci
+
+      - name: Verify real Fiteatsy delegated health response schema
+        working-directory: external/fiteatsy/backend
+        run: >-
+          node --import tsx --test --test-concurrency=1
+          ../tests/api/external-consultant-health-context.api.test.ts
 
       - name: Run full frontend regression
         working-directory: nuetra-frontend
