@@ -4,10 +4,21 @@ import {contentDispositionFilename} from './contentDisposition.mjs';
 
 const BASE='/api/gateway/api/v1/practice-operations';
 
-const fallbackMessage=(status)=>({
+const missingRecordMessage=(path)=>{
+  if(path.includes('/measurements'))return 'No measurements have been recorded for this client yet.';
+  if(path.includes('/nutrition-assessment'))return 'The client has not completed a nutrition assessment yet.';
+  if(path.includes('/information-completeness'))return 'The client information checklist is not available yet.';
+  if(path.includes('/information-requests'))return 'No client information request is available yet.';
+  if(path.includes('/profession-intake'))return 'The client has not completed the professional intake yet.';
+  if(path.includes('/profile-enrichment'))return 'No additional profile details have been recorded for this client yet.';
+  if(path.includes('/timeline'))return 'No client activity has been recorded yet.';
+  return 'This client record is not available yet.';
+};
+
+const fallbackMessage=(status,path='')=>({
   401:'Your session has expired. Sign in again to continue.',
   403:'You do not have permission to access this client.',
-  404:'The requested practice record could not be found.',
+  404:missingRecordMessage(path),
   409:'This practice operation conflicts with the current record state.',
   422:'The submitted practice information is not valid.',
   500:'The practice service could not complete this request.',
@@ -20,7 +31,7 @@ async function request(path,options={}){
   let response=await send(getToken());
   if(response.status===401){const refreshedToken=await refreshAccessToken().catch(()=>null);if(refreshedToken)response=await send(refreshedToken);}
   const body=await response.json().catch(()=>null);
-  if(!response.ok){const error=new Error(body?.error?.safe_message||fallbackMessage(response.status));error.code=body?.error?.code||'PRACTICE_OPERATION_FAILED';error.retryable=body?.error?.retryable===undefined?response.status>=500:Boolean(body.error.retryable);error.correlationId=body?.error?.correlation_id||response.headers.get('x-correlation-id')||undefined;error.status=response.status;throw error;}
+  if(!response.ok){const error=new Error(body?.error?.safe_message||fallbackMessage(response.status,path));error.code=body?.error?.code||'PRACTICE_OPERATION_FAILED';error.retryable=body?.error?.retryable===undefined?response.status>=500:Boolean(body.error.retryable);error.correlationId=body?.error?.correlation_id||response.headers.get('x-correlation-id')||undefined;error.status=response.status;throw error;}
   return body?.data;
 }
 
