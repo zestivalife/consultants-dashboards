@@ -178,8 +178,15 @@ jobs:
         working-directory: external/fiteatsy/backend
         run: npm ci
 
+      - name: Create isolated Fiteatsy contract database
+        env:
+          PGPASSWORD: postgres
+        run: createdb -h 127.0.0.1 -U postgres fiteatsy_contract_ci
+
       - name: Verify real Fiteatsy delegated health response schema
         working-directory: external/fiteatsy/backend
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/fiteatsy_contract_ci
         run: >-
           node --import tsx --test --test-concurrency=1
           ../tests/api/external-consultant-health-context.api.test.ts

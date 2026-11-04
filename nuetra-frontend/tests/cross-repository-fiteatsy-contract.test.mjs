@@ -22,4 +22,5 @@ test('cross-repository verification is mandatory in exact-SHA CI', () => {
   assert.match(workflow, /FITEATSY_ROOT:/);
   assert.match(workflow, /verify-fiteatsy-contracts\.mjs/);
   assert.match(workflow, /external-consultant-health-context\.api\.test\.ts/);
+  assert.match(workflow, /fiteatsy_contract_ci/);
 });
