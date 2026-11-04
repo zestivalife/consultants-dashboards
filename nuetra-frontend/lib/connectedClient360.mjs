@@ -5,6 +5,7 @@ export function projectConnectedClient360(client, healthContext = {}) {
   const person = profile.client || {};
   const onboarding = profile.onboarding || {};
   const nutrition = onboarding.nutrition || {};
+  const foodPreferences = healthContext.foodPreferences?.profile || {};
   const history = onboarding.healthHistory || {};
   const measurements = healthContext.measurements || {};
   const reports = list(healthContext.reports);
@@ -30,6 +31,7 @@ export function projectConnectedClient360(client, healthContext = {}) {
       missingRequiredFields,
       missingSections: [],
       dietPlanWarnings: missingRequiredFields.length ? ['REQUIRED_FIELDS_MISSING'] : [],
+      fiteatsyAssessment: healthContext.assessment || null,
     },
     sections: {
       aboutYou: { dateOfBirth: person.dob || null, gender: person.gender || onboarding.gender || null },
@@ -40,7 +42,18 @@ export function projectConnectedClient360(client, healthContext = {}) {
       lifestyle: { ...(onboarding.lifestyle || {}), activityLevel: onboarding.activityLevel || null },
       sleepStress: { sleepHours: onboarding.lifestyle?.sleepHours ?? null, sleepQuality: onboarding.lifestyle?.sleepQuality || null, stressLevel: onboarding.lifestyle?.stressLevel || null },
       activityHydration: { activityLevel: onboarding.activityLevel || null, waterIntakeLiters: nutrition.waterIntakeLiters ?? null },
-      nutrition: { dietPreference: nutrition.dietaryPreference || onboarding.dietPreference || null, preferredCuisines: list(nutrition.preferredCuisines), foodDislikes: list(nutrition.foodDislikes), restrictions: list(nutrition.foodAllergies) },
+      nutrition: {
+        dietPreference: foodPreferences.dietType || nutrition.dietaryPreference || onboarding.dietPreference || null,
+        proteins: list(foodPreferences.proteins),
+        preferredCuisines: list(foodPreferences.cuisines).length ? list(foodPreferences.cuisines) : list(nutrition.preferredCuisines),
+        foodsLiked: list(foodPreferences.foodsLiked),
+        foodDislikes: list(foodPreferences.foodsDisliked).length ? list(foodPreferences.foodsDisliked) : list(nutrition.foodDislikes),
+        foodsAvoided: list(foodPreferences.foodsAvoided),
+        restrictions: list(foodPreferences.restrictions).length ? list(foodPreferences.restrictions) : list(nutrition.foodAllergies),
+        staplePreference: foodPreferences.staplePreference || null,
+        dairyPreference: foodPreferences.dairyPreference || null,
+        practicality: list(foodPreferences.practicality),
+      },
       goals: { primaryGoal: onboarding.goal || null, selectedGoals: list(onboarding.goal) },
       measurements: { height: onboarding.height ?? measurements.heightCm ?? null, heightCm: onboarding.height ?? measurements.heightCm ?? null, weight: onboarding.weight ?? measurements.weightKg ?? null, weightKg: onboarding.weight ?? measurements.weightKg ?? null },
       womensHealth: { pregnancy: history.pregnancy || null, breastfeeding: history.breastfeeding || null },

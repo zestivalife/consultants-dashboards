@@ -13,3 +13,17 @@ test('projects a consent-backed Fiteatsy connection into Client 360 without lega
   assert.equal(result.consent.status,'CONNECTED_CONSENT_ACTIVE');
   assert.equal(result.derived.bmi.value,25.9);
 });
+
+test('projects canonical Fiteatsy food preferences and assessment status without false missing states',()=>{
+  const result=projectConnectedClient360({id:'fc_rest',displayName:'Rest fit',status:'CONNECTED_CONSENT_ACTIVE'}, {
+    profile:{client:{name:'Rest fit'},onboarding:{nutrition:{dietaryPreference:'NON_VEGETARIAN',preferredCuisines:['LEGACY']}}},
+    foodPreferences:{profile:{dietType:'non_vegetarian',proteins:['Eggs','Chicken'],cuisines:['Maharashtrian','North Indian'],foodsLiked:['Poha'],foodsDisliked:['Oats'],foodsAvoided:['Mushroom'],restrictions:['No onion after sunset'],staplePreference:'both',dairyPreference:'allowed',practicality:['Office-friendly']}},
+    assessment:{type:'PSS10',status:'COMPLETED',completedAtISO:'2026-11-04T08:00:00.000Z',instrumentVersion:'PSS10_V1'},
+  });
+  assert.equal(result.sections.nutrition.dietPreference,'non_vegetarian');
+  assert.deepEqual(result.sections.nutrition.proteins,['Eggs','Chicken']);
+  assert.deepEqual(result.sections.nutrition.preferredCuisines,['Maharashtrian','North Indian']);
+  assert.deepEqual(result.sections.nutrition.foodDislikes,['Oats']);
+  assert.deepEqual(result.sections.nutrition.restrictions,['No onion after sunset']);
+  assert.equal(result.overview.fiteatsyAssessment.status,'COMPLETED');
+});
