@@ -18,7 +18,7 @@ import {ClientCareTeam} from './ExternalTeam';
 import {ExternalReferrals} from './ExternalReferrals';
 import {ExternalProgressReports} from './ExternalProgressReports';
 import {ClientDocumentVault} from './ExternalDocumentVault';
-import {correctExternalClientMeasurement,createExternalClientMeasurements,createProfessionIntakeInvitation,getClientProfessionIntake,getExternalClientProfileEnrichment,getFiteatsyConnectionHealthContext,listClientTimeline,listExternalClientMeasurements,openWhatsApp,revokeProfessionIntakeInvitation,updateExternalClientProfileEnrichment} from '../../lib/practiceOperationsApi';
+import {correctExternalClientMeasurement,createExternalClientMeasurements,createProfessionIntakeInvitation,getClientProfessionIntake,getExternalClientProfileEnrichment,listClientTimeline,listExternalClientMeasurements,openWhatsApp,revokeProfessionIntakeInvitation,updateExternalClientProfileEnrichment} from '../../lib/practiceOperationsApi';
 import { client360CapabilityState, resolveClient360Navigation } from '../../lib/client360Capabilities.mjs';
 import { assertCurrentClientBinding, resolveClientDietChartAction } from '../../lib/clientDietChartBinding.mjs';
 import {composeExternalClientProfile,formatDateOnlyDDMMYYYY} from '../../lib/externalClientProfile.mjs';
@@ -26,7 +26,6 @@ import {canonicalPhoneDisplay} from '../../lib/externalIntakeCorrections.mjs';
 import {canonicaliseWhatsAppPhone} from '../../lib/whatsappLaunch.mjs';
 import ExternalClientProfileEnhancements from './ExternalClientProfileEnhancements';
 import ExternalNutritionAssessment from './ExternalNutritionAssessment';
-import {projectConnectedClient360} from '../../lib/connectedClient360.mjs';
 
 const professionIntakeCodes=new Set(['DIABETES_EDUCATOR','PSYCHOLOGIST','WELLNESS_CONSULTANT','HEALTH_COACH','BEHAVIOURAL_THERAPIST','OCCUPATIONAL_THERAPIST','PHYSIOTHERAPIST','MENTAL_WELLNESS_THERAPIST']);
 
@@ -76,10 +75,7 @@ export function ExternalClient360({ client, practiceName, onBack, onStatus, init
   const openSection=(sectionId)=>{const section=clientNavigation.find(item=>item.id===sectionId);if(section)setActive(section.modules.includes(active)?active:section.modules[0]);};
   const data=useMemo(()=>baseData?composeExternalClientProfile(baseData,profileEnrichment,measurementData):null,[baseData,profileEnrichment,measurementData]);
   const loadMeasurements=async()=>{setMeasurementState({status:'loading',error:''});try{const next=await listExternalClientMeasurements(client.id);setMeasurementData(next);setMeasurementState({status:'ready',error:''});return next;}catch(requestError){setMeasurementState({status:'failed',error:requestError.message||'Measurement history could not be loaded.'});return null;}};
-  const loadCore=async()=>client.connectionId
-    ? projectConnectedClient360(client,await getFiteatsyConnectionHealthContext(client.connectionId))
-    : (await getExternalClient360(client.id)).client360;
-  const load = async () => { setLoading(true); setError(''); setMeasurementState({status:'loading',error:''}); try { const [coreResult,enrichmentResult,measurementsResult]=await Promise.allSettled([loadCore(),getExternalClientProfileEnrichment(client.id),listExternalClientMeasurements(client.id)]);if(coreResult.status==='rejected')throw coreResult.reason;setBaseData(coreResult.value);if(enrichmentResult.status==='fulfilled')setProfileEnrichment(enrichmentResult.value);if(measurementsResult.status==='fulfilled'){setMeasurementData(measurementsResult.value);setMeasurementState({status:'ready',error:''});}else setMeasurementState({status:'failed',error:measurementsResult.reason?.message||'Measurement history could not be loaded.'});if(enrichmentResult.status==='rejected')setError('Client 360 loaded, but profile details could not be loaded. Retry this request.'); } catch (requestError) { setError(requestError.message || 'Unable to load Client 360.'); } finally { setLoading(false); } };
+  const load = async () => { setLoading(true); setError(''); setMeasurementState({status:'loading',error:''}); try { const [coreResult,enrichmentResult,measurementsResult]=await Promise.allSettled([getExternalClient360(client.id),getExternalClientProfileEnrichment(client.id),listExternalClientMeasurements(client.id)]);if(coreResult.status==='rejected')throw coreResult.reason;setBaseData(coreResult.value.client360);if(enrichmentResult.status==='fulfilled')setProfileEnrichment(enrichmentResult.value);if(measurementsResult.status==='fulfilled'){setMeasurementData(measurementsResult.value);setMeasurementState({status:'ready',error:''});}else setMeasurementState({status:'failed',error:measurementsResult.reason?.message||'Measurement history could not be loaded.'});if(enrichmentResult.status==='rejected')setError('Client 360 loaded, but profile details could not be loaded. Retry this request.'); } catch (requestError) { setError(requestError.message || 'Unable to load Client 360.'); } finally { setLoading(false); } };
   const loadPendingReportReviews=async()=>{setPendingReportReviews({state:'loading',count:null});try{const result=await getPendingExternalReportAnalyses(client.id);setPendingReportReviews({state:'ready',count:(result.analyses||[]).length});}catch{setPendingReportReviews({state:'failed',count:null});}};
   useEffect(() => { void Promise.all([load(), loadBiomarkers(),loadPendingReportReviews()]); getClientProfessionIntake(client.id).then((projection)=>{setProfessionIntake(projection);if(professionIntakeCodes.has(professionConfig?.profession)){setInvitation(projection?{status:projection.status,shareUrl:null}:null);return;}getCurrentExternalClientInvitation(client.id).then((result)=>setInvitation(result.invitation)).catch(()=>setInvitation(null));}).catch(()=>{setProfessionIntake(null);if(!professionIntakeCodes.has(professionConfig?.profession))getCurrentExternalClientInvitation(client.id).then((result)=>setInvitation(result.invitation)).catch(()=>setInvitation(null));}); }, [client.id,professionConfig?.profession]);
   const overview = data?.overview;
@@ -88,14 +84,14 @@ export function ExternalClient360({ client, practiceName, onBack, onStatus, init
   useEffect(() => {
     if (active !== 'Reports' || !reportProcessingPending) return undefined;
     const interval = window.setInterval(() => {
-      loadCore().then(setBaseData).catch(() => undefined);
+      getExternalClient360(client.id).then((result) => setBaseData(result.client360)).catch(() => undefined);
     }, 2000);
     return () => window.clearInterval(interval);
   }, [active, client.id, reportProcessingPending]);
   const dietWarnings=overview?.dietPlanWarnings||[];
   const edit = (section, values) => setEditing({ section, text: JSON.stringify(values || {}, null, 2) });
   const save = async () => { try { const values = JSON.parse(editing.text); const result = await updateExternalClient360(client.id, editing.section, values); setBaseData(result.client360); setEditing(null); } catch (saveError) { setError(saveError.message || 'Unable to save changes.'); } };
-  const refreshCore=async()=>{const result=await loadCore();setBaseData(result);return result;};
+  const refreshCore=async()=>{const result=await getExternalClient360(client.id);setBaseData(result.client360);return result.client360;};
   const saveProfileEnrichment=async values=>{const next=await updateExternalClientProfileEnrichment(client.id,{expected_version:profileEnrichment.version||0,values});setProfileEnrichment(next);await refreshCore();return next;};
   const addMeasurements=async values=>{const next=await createExternalClientMeasurements(client.id,values);setMeasurementData(next);await refreshCore();return next;};
   const correctMeasurement=async(measurementId,values)=>{const next=await correctExternalClientMeasurement(client.id,measurementId,values);setMeasurementData(next);return next;};
