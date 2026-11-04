@@ -16,6 +16,12 @@ test('Fiteatsy lead Assign opens the selected-client drawer without route naviga
   assert.doesNotMatch(leads, /onOpenAssignments/);
 });
 
+test('Fiteatsy lead request failures do not render a false empty state', () => {
+  const leadsStart = workspace.indexOf('export function SuperAdminFiteatsyLeadsPage');
+  const leads = workspace.slice(leadsStart, drawerStart);
+  assert.match(leads, /!loading && !error && leads\.length === 0/);
+});
+
 test('drawer verifies the lead and lists only active consultant identities', () => {
   assert.match(drawer, /listAllFiteatsyClientAllocationPool\(\{ assignment: 'all' \}\)/);
   assert.match(drawer, /find\(\(item\) => item\.userId === initialClient\.userId\)/);
