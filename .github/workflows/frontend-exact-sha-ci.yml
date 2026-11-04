@@ -187,6 +187,8 @@ jobs:
         working-directory: external/fiteatsy/backend
         env:
           DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/fiteatsy_contract_ci
+          NODE_ENV: test
+          FITEATSY_ALLOW_DESTRUCTIVE_TEST_RESET: 'true'
         run: >-
           node --import tsx --test --test-concurrency=1
           ../tests/api/external-consultant-health-context.api.test.ts
