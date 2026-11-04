@@ -80,7 +80,7 @@ jobs:
       - name: Check out pinned Fiteatsy provider contracts
         uses: actions/checkout@v4
         with:
-          repository: zestivalife/Fiteatsy
+          repository: zestivalife/Fiteatsy-mobile
           ref: f7762c1eed4c3026913028742655d6c3f5a6e38e
           path: external/fiteatsy
           fetch-depth: 1

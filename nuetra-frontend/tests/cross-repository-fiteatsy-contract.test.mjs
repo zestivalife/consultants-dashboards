@@ -18,7 +18,7 @@ test('pinned Fiteatsy checkout satisfies executable route, authorization and res
 
 test('cross-repository verification is mandatory in exact-SHA CI', () => {
   const workflow = readFileSync(path.resolve(import.meta.dirname, '..', '..', '.github/workflows/frontend-exact-sha-ci.yml'), 'utf8');
-  assert.match(workflow, /repository: zestivalife\/Fiteatsy/);
+  assert.match(workflow, /repository: zestivalife\/Fiteatsy-mobile/);
   assert.match(workflow, /FITEATSY_ROOT:/);
   assert.match(workflow, /verify-fiteatsy-contracts\.mjs/);
   assert.match(workflow, /external-consultant-health-context\.api\.test\.ts/);
