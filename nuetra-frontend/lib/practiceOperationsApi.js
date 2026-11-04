@@ -8,7 +8,7 @@ const missingRecordMessage=(path)=>{
   if(path.includes('/nutrition-assessment'))return 'The client has not completed a nutrition assessment yet.';
   if(path.includes('/information-completeness'))return 'The client information checklist is not available yet.';
   if(path.includes('/information-requests'))return 'No client information request is available yet.';
-  if(path.includes('/profession-intake'))return 'The client has not completed the professional intake yet.';
+  if(path.includes('/profession-intake'))return 'The client has not completed the profession-specific intake questionnaire yet.';
   if(path.includes('/profile-enrichment'))return 'No additional profile details have been recorded for this client yet.';
   if(path.includes('/timeline'))return 'No client activity has been recorded yet.';
   return 'This client record is not available yet.';
@@ -50,13 +50,14 @@ export async function listConnectedFiteatsyClients(filters={}){
   const active=connections.filter(connection=>connection?.state==='ACTIVE');
   const clients=await Promise.all(active.map(async connection=>{
     const scopes=new Set((connection.consented_scopes||[]).map(scope=>String(scope).toUpperCase()));
-    let profile=null;
+    let profile=null;let context=null;
     if(scopes.has('PROFILE')){
-      const context=await getFiteatsyConnectionHealthContext(connection.id);
+      context=await getFiteatsyConnectionHealthContext(connection.id);
       profile=context?.profile?.client||null;
       if(!profile)throw new Error('The connected client profile could not be retrieved with the authorised scope.');
     }
-    return{id:String(connection.consultant_client_id||connection.id),connectionId:String(connection.id),displayName:profile?.name||'Connected Fiteatsy client',email:profile?.email||'',mobile:profile?.mobile||profile?.mobileNumberMasked||'',status:'ACTIVE',registrationDate:profile?.registrationDate||connection.connected_at||null,consentedScopes:[...scopes],profileAvailable:Boolean(profile),programmeStatus:connection.programme_status||null};
+    const savedPreferences=context?.foodPreferences?.profile||null;
+    return{id:String(connection.consultant_client_id||connection.id),connectionId:String(connection.id),displayName:profile?.name||'Connected Fiteatsy client',email:profile?.email||'',mobile:profile?.mobile||profile?.mobileNumberMasked||'',status:'ACTIVE',registrationDate:profile?.registrationDate||connection.connected_at||null,consentedScopes:[...scopes],profileAvailable:Boolean(profile),programmeStatus:connection.programme_status||null,dietPreference:savedPreferences?.dietType||null,foodPreferences:savedPreferences,foodPreferencesUpdatedAt:context?.foodPreferences?.updatedAtISO||null};
   }));
   const query=String(filters.q||'').trim().toLowerCase();
   const status=String(filters.status||'').trim().toUpperCase();
