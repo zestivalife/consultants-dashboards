@@ -164,10 +164,6 @@ export function updateExternalClient(clientId, payload) {
   return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}`, { method: 'PATCH', body: payload });
 }
 
-export function getExternalClient360(clientId) {
-  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/360`, { method: 'GET' });
-}
-
 export async function downloadExternalDietPlan(clientId) {
   const token = getToken();
   const url = `${getFiteatsyApiBaseUrl()}/v1/external/clients/${encodeURIComponent(clientId)}/diet-plan/download`;

@@ -15,7 +15,7 @@
     {"id":"delegated-fiteatsy-health","workflow":"Cross-repository Fiteatsy health data","consumer_source":"services/practice-operations-service/app/fiteatsy_connections.py","consumer_operation":"/v1/internal/external-consultant-access/","browser_endpoint":"/v1/internal/external-consultant-access/{userId}/health-context","method":"GET","gateway_prefix":null,"provider":"fiteatsy","service_endpoint":"/v1/internal/external-consultant-access/{userId}/health-context","required_response_fields":["connectionId","profile","foodPreferences","assessment","measurements","reports","biomarkers","wearables","generatedAt"]},
     {"id":"mobile-published-nutrition-plan","workflow":"Fiteatsy mobile diet synchronisation","consumer_source":"services/practice-operations-service/app/fiteatsy_connections.py","consumer_operation":"external_fiteatsy_plan_publications","browser_endpoint":"/v1/platform/nutrition-plan","method":"GET","gateway_prefix":null,"provider":"fiteatsy","service_endpoint":"/v1/platform/nutrition-plan","required_response_fields":["plan","version","today"]}
   ],
-  "known_incompatible_consumers": [
-    {"id":"legacy-unconnected-client360","consumer_source":"nuetra-frontend/lib/fiteatsyConsultantsApi.js","operation":"getExternalClient360","method":"GET","endpoint":"/v1/external/clients/{clientId}/360","reason":"No matching route is registered by Fiteatsy baseline f7762c1eed4c3026913028742655d6c3f5a6e38e; connected clients use the consent-gated Practice Operations health-context path."}
+  "forbidden_consumer_operations": [
+    {"id":"unsupported-unconnected-client360","consumer_source":"nuetra-frontend/lib/fiteatsyConsultantsApi.js","operation":"getExternalClient360","method":"GET","endpoint":"/v1/external/clients/{clientId}/360","reason":"No matching Fiteatsy route exists. Unconnected assignments use the authorised Practice Operations directory projection; connected clients use the consent-gated health-context path."}
   ]
 }

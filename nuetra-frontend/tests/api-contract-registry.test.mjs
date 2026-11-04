@@ -45,8 +45,12 @@ test('negative fixture: removing a required response field fails compatibility',
   assert.throws(() => assertContractCompatibility(registry, broken), /RESPONSE_SCHEMA_INCOMPATIBLE/);
 });
 
-test('known legacy unconnected Client 360 route is explicit and cannot masquerade as covered', () => {
-  const legacy = registry.known_incompatible_consumers.find((item) => item.id === 'legacy-unconnected-client360');
-  assert.equal(legacy.endpoint, '/v1/external/clients/{clientId}/360');
-  assert.equal(inventory.operations.some((item) => item.provider === 'fiteatsy' && item.path === legacy.endpoint), false);
+test('unsupported unconnected Client 360 route cannot silently reappear as a supported contract', async () => {
+  const forbidden = registry.forbidden_consumer_operations.find((item) => item.id === 'unsupported-unconnected-client360');
+  assert.equal(forbidden.endpoint, '/v1/external/clients/{clientId}/360');
+  assert.equal(inventory.operations.some((item) => item.provider === 'fiteatsy' && item.path === forbidden.endpoint), false);
+  assert.equal(registry.contracts.some((item) => item.service_endpoint === forbidden.endpoint), false);
+  const source = await readFile(path.join(root, forbidden.consumer_source), 'utf8');
+  assert.equal(source.includes(forbidden.operation), false);
+  assert.equal(source.includes('/360'), false);
 });

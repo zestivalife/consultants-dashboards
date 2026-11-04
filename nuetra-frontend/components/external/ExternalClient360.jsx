@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ArrowUpRight, CalendarClock, CheckCircle2, CircleAlert, Download, FileText, HeartPulse, MessageCircle, Pencil, RefreshCw, Sparkles } from 'lucide-react';
-import { archiveExternalClientDocument, confirmExternalBiomarker, correctExternalBiomarker, createExternalClientInvitation, downloadExternalClientDocument, getCurrentExternalClientInvitation, getExternalBiomarkerHistory, getExternalClient360, getExternalClientBiomarkers, processExternalClientReport, regenerateExternalClientInvitation, rejectExternalBiomarker, revokeExternalClientInvitation, updateExternalClient360, updateExternalClientDocument, updateExternalDietEligibility, uploadExternalClientDocument } from '../../lib/fiteatsyConsultantsApi';
+import { archiveExternalClientDocument, confirmExternalBiomarker, correctExternalBiomarker, createExternalClientInvitation, downloadExternalClientDocument, getCurrentExternalClientInvitation, getExternalBiomarkerHistory, getExternalClientBiomarkers, processExternalClientReport, regenerateExternalClientInvitation, rejectExternalBiomarker, revokeExternalClientInvitation, updateExternalClient360, updateExternalClientDocument, updateExternalDietEligibility, uploadExternalClientDocument } from '../../lib/fiteatsyConsultantsApi';
 import { getExternalTransientBiomarkerHistory, getExternalTransientBiomarkers, getPendingExternalReportAnalyses, listExternalProfileEvidenceReviews, reviewExternalProfileEvidence } from '../../lib/externalTransientReportApi';
 import { FocusedRequiredFieldControl } from './ExternalClientHealthIntake';
 import ExternalMultiDietPlan from './ExternalMultiDietPlan';
@@ -23,7 +23,7 @@ import {canonicalPhoneDisplay} from '../../lib/externalIntakeCorrections.mjs';
 import {canonicaliseWhatsAppPhone} from '../../lib/whatsappLaunch.mjs';
 import ExternalClientProfileEnhancements from './ExternalClientProfileEnhancements';
 import ExternalNutritionAssessment from './ExternalNutritionAssessment';
-import {projectConnectedClient360} from '../../lib/connectedClient360.mjs';
+import {projectAssignedClient360,projectConnectedClient360} from '../../lib/connectedClient360.mjs';
 
 const professionIntakeCodes=new Set(['DIABETES_EDUCATOR','PSYCHOLOGIST','WELLNESS_CONSULTANT','HEALTH_COACH','BEHAVIOURAL_THERAPIST','OCCUPATIONAL_THERAPIST','PHYSIOTHERAPIST','MENTAL_WELLNESS_THERAPIST']);
 
@@ -71,7 +71,7 @@ export function ExternalClient360({ client, onBack, onStatus, initialTab='Overvi
   const loadMeasurements=async()=>{setMeasurementState({status:'loading',error:''});try{const next=await listExternalClientMeasurements(client.id);setMeasurementData(next);setMeasurementState({status:'ready',error:''});return next;}catch(requestError){setMeasurementState({status:'failed',error:requestError.message||'Measurement history could not be loaded.'});return null;}};
   const loadCore=async()=>client.connectionId
     ? projectConnectedClient360(client,await getFiteatsyConnectionHealthContext(client.connectionId))
-    : (await getExternalClient360(client.id)).client360;
+    : projectAssignedClient360(client);
   const load = async () => { setLoading(true); setError(''); setMeasurementState({status:'loading',error:''}); try { const [coreResult,enrichmentResult,measurementsResult]=await Promise.allSettled([loadCore(),getExternalClientProfileEnrichment(client.id),listExternalClientMeasurements(client.id)]);if(coreResult.status==='rejected')throw coreResult.reason;setBaseData(coreResult.value);if(enrichmentResult.status==='fulfilled')setProfileEnrichment(enrichmentResult.value);if(measurementsResult.status==='fulfilled'){setMeasurementData(measurementsResult.value);setMeasurementState({status:'ready',error:''});}else setMeasurementState({status:'failed',error:measurementsResult.reason?.message||'Measurement history could not be loaded.'});if(enrichmentResult.status==='rejected')setError('Client 360 loaded, but profile details could not be loaded. Retry this request.'); } catch (requestError) { setError(requestError.message || 'Unable to load Client 360.'); } finally { setLoading(false); } };
   const loadPendingReportReviews=async()=>{setPendingReportReviews({state:'loading',count:null});try{const result=await getPendingExternalReportAnalyses(client.id);setPendingReportReviews({state:'ready',count:(result.analyses||[]).length});}catch{setPendingReportReviews({state:'failed',count:null});}};
   useEffect(() => { void Promise.all([load(), loadBiomarkers(),loadPendingReportReviews()]); getClientProfessionIntake(client.id).then((projection)=>{setProfessionIntake(projection);if(professionIntakeCodes.has(professionConfig?.profession)){setInvitation(projection?{status:projection.status,shareUrl:null}:null);return;}getCurrentExternalClientInvitation(client.id).then((result)=>setInvitation(result.invitation)).catch(()=>setInvitation(null));}).catch(()=>{setProfessionIntake(null);if(!professionIntakeCodes.has(professionConfig?.profession))getCurrentExternalClientInvitation(client.id).then((result)=>setInvitation(result.invitation)).catch(()=>setInvitation(null));}); }, [client.id,professionConfig?.profession]);

@@ -1,5 +1,36 @@
 const list = (value) => Array.isArray(value) ? value : value == null || value === '' ? [] : [value];
 
+export function projectAssignedClient360(client) {
+  return {
+    overview: {
+      id: client.id,
+      name: client.displayName || client.name || 'Client',
+      email: client.email || null,
+      primaryContact: client.mobile || null,
+      dateOfBirth: null,
+      age: null,
+      gender: null,
+      status: client.status || 'ASSIGNED_CONNECTION_PENDING',
+      primaryGoal: null,
+      documentCount: null,
+      missingRequiredFields: [],
+      missingSections: [],
+      dietPlanWarnings: ['CONSENT_PENDING'],
+      fiteatsyAssessment: null,
+    },
+    sections: {
+      aboutYou: {}, medicalHistory: {}, conditionsSymptoms: {}, allergiesFamilyHistory: {},
+      medicationsSupplements: {}, lifestyle: {}, sleepStress: {}, activityHydration: {},
+      nutrition: {}, goals: {}, measurements: {}, womensHealth: {}, reportsDocuments: {},
+    },
+    provenance: {},
+    consent: { status: client.relationshipStatus || client.status || 'ASSIGNED_CONNECTION_PENDING' },
+    documents: [],
+    timeline: [],
+    derived: { bmi: { status: 'NOT_AVAILABLE', value: null } },
+  };
+}
+
 export function projectConnectedClient360(client, healthContext = {}) {
   const profile = healthContext.profile || {};
   const person = profile.client || {};
