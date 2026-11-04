@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     db_pool_size: int = 20
     db_max_overflow: int = 10
     db_pool_recycle: int = 300
+    db_pool_timeout: int = 30
 
     redis_url: str = "redis://localhost:6379/0"
     trusted_hosts: str = (
