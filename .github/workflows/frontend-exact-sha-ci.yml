@@ -181,12 +181,12 @@ jobs:
       - name: Create isolated Fiteatsy contract database
         env:
           PGPASSWORD: postgres
-        run: createdb -h 127.0.0.1 -U postgres fiteatsy_contract_ci
+        run: createdb -h 127.0.0.1 -U postgres fiteatsy_test_contract_ci
 
       - name: Verify real Fiteatsy delegated health response schema
         working-directory: external/fiteatsy/backend
         env:
-          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/fiteatsy_contract_ci
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/fiteatsy_test_contract_ci
           NODE_ENV: test
           FITEATSY_ALLOW_DESTRUCTIVE_TEST_RESET: 'true'
         run: >-
