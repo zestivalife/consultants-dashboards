@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -165,3 +166,10 @@ def test_only_platform_marketplace_admin_namespace_bypasses_tenant_resolution():
     assert is_platform_marketplace_admin_path("/api/v1/practice-operations/admin/marketplace/finance")
     assert not is_platform_marketplace_admin_path("/api/v1/practice-operations/marketplace/profile")
     assert not is_platform_marketplace_admin_path("/api/v1/practice-operations/admin/other")
+
+
+def test_projected_practice_client_ids_are_not_vetoed_by_legacy_fiteatsy_lookup():
+    proxy_source = (Path(__file__).resolve().parents[1] / "app" / "routers" / "proxy.py").read_text()
+    assert "client_belongs_to_authenticated_tenant" not in proxy_source
+    assert "practice_client_resource_id" not in proxy_source
+    assert "Practice Operations is the authoritative owner of its client IDs" in proxy_source
