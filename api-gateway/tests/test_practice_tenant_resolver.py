@@ -55,9 +55,11 @@ def test_accepts_active_external_membership_types(tenant_type):
     assert authority.membership_role == "OWNER"
 
 
-def test_accepts_real_auth_workspace_authority_role_contract():
+@pytest.mark.parametrize("connection_status", ["PIN_ISSUED", "CONSENTED", "REVOKED"])
+def test_connection_lifecycle_does_not_replace_membership_authority(connection_status):
     payload = {
         "data": {
+            "fiteatsyConnection": {"status": connection_status},
             "workspaceAuthorities": [
                 {
                     "workspaceId": "external-consultant",

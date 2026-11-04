@@ -71,6 +71,24 @@ def _canonical_tenant(payload: Any) -> Mapping[str, Any]:
         raise PracticeTenantResolutionError("External tenant authority is unavailable")
 
     data = payload.get("data")
+    authority_source = data if isinstance(data, Mapping) else payload
+    authorities = authority_source.get("workspaceAuthorities")
+    if isinstance(authorities, list):
+        external = [
+            item
+            for item in authorities
+            if isinstance(item, Mapping)
+            and str(item.get("tenantType") or "").upper() in EXTERNAL_TENANT_TYPES
+            and str(item.get("membershipStatus") or "").upper() == "ACTIVE"
+            and str(item.get("resolutionPath") or "").upper() == "MEMBERSHIP"
+        ]
+        if len(external) == 1:
+            return external[0]
+        if len(external) > 1:
+            raise PracticeTenantResolutionError(
+                "Explicit External tenant selection is required"
+            )
+        raise PracticeTenantResolutionError("No active External membership")
     tenant = payload.get("currentTenant")
     if tenant is None and isinstance(data, Mapping):
         tenant = data.get("currentTenant")
