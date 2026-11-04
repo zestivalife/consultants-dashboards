@@ -3,7 +3,6 @@ import {
   searchExternalCommonFoods,
 } from '../../lib/fiteatsyConsultantsApi';
 import { bindDietPlanAssessment, createConsultantDietPlan, downloadConsultantDietPlan, getConsultantDietPlan, getDietPlanHealthContext, getNutritionAssessment, listConsultantDietPlans, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan } from '../../lib/practiceOperationsApi';
-import { useAuth } from '../../context/AuthContext';
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import CommonFoodPlanEditor from '../platform/CommonFoodPlanEditor';
 
@@ -40,7 +39,6 @@ const show = (value) => valueList(value).join(', ') || 'Not provided';
 const projectDetail=(detail)=>({id:detail.plan.id,name:detail.plan.title,status:detail.plan.status,updatedAt:detail.plan.updated_at,version:{id:detail.current_version?.id,number:detail.plan.current_version,plan:{dailyTargets:{calories:detail.plan.daily_calories_target,protein:Number(detail.plan.daily_protein_target_g)},meals:COMMON_FOOD_MEALS.map(([mealHead])=>({mealHead,options:(detail.options||[]).filter(item=>item.mealHead===mealHead)}))}},versions:detail.versions});
 
 export default function ExternalMultiDietPlan({ clientId, context, onError, onReviewMeasurements }) {
-  const { user } = useAuth();
   const [plans, setPlans] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [form, setForm] = useState(initialForm);
@@ -53,8 +51,6 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
   const editorRef = useRef(null);
   const selected = useMemo(() => plans.find((plan) => plan.id === selectedId) || plans[0] || null, [plans, selectedId]);
   const valid = form.name.trim().length >= 2 && Number(form.dailyCalories) >= 800 && Number(form.dailyCalories) <= 6000 && Number(form.dailyProtein) >= 20 && Number(form.dailyProtein) <= 400;
-  const role=String(user?.role?.code||user?.role||'').toUpperCase();
-  const canReview=['SENIOR_CONSULTANT','PRACTICE_ADMIN','PRACTICE_OWNER','SUPER_ADMIN','SUPERUSER','PLATFORM_OWNER'].includes(role);
 
   const load = useCallback(async (preferredId) => {
     setLoading(true); setLoadError('');
@@ -110,13 +106,13 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
         try { await bindDietPlanAssessment(clientId, { external_plan_id: selected.id, external_plan_version: String(currentPlan.current_version), assessment_id: readiness.assessmentId, assessment_version: readiness.assessmentVersion, plan_state: currentPlan.status }); }
         catch (bindingError) { if (bindingError.code !== 'PLAN_ASSESSMENT_LINK_EXISTS') throw bindingError; }
         await publishConsultantDietPlan(selected.id);
-        setMessage('The exact Senior Consultant-approved Diet Plan version was published.');
+        setMessage('The exact consultant-approved Diet Plan version was published to the client.');
       } else {
         if(action==='submit') await editorRef.current?.save();
         const refreshed=await getConsultantDietPlan(selected.id);
         const actionMap={submit:'SUBMIT',startReview:'START_REVIEW',approve:'APPROVE',requestChanges:'REQUEST_CHANGES'};
         await reviewConsultantDietPlan(selected.id,{action:actionMap[action],expected_version:refreshed.plan.current_version,reason:action==='requestChanges'?'Changes requested by reviewer':undefined});
-        setMessage(action==='submit'?'Diet Plan submitted for Senior Consultant review.':action==='approve'?'This exact Diet Plan version was approved.':action==='requestChanges'?'Changes were requested for this version.':'Senior Consultant review started.');
+        setMessage(action==='approve'?'This exact Diet Plan version was approved and is ready to publish.':action==='submit'?'Diet Plan submitted for review.':action==='requestChanges'?'Changes were requested for this version.':'Review started.');
       }
       await load(selected.id);
     } catch (error) { onError(error.message || 'Unable to update Diet Plan.'); }
@@ -164,9 +160,7 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
           <div className="flex flex-wrap gap-2">
             <button disabled={busy} onClick={download} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy==='download'?'Preparing…':'Download DOCX'}</button>
             {!['APPROVED','PUBLISHED','ARCHIVED'].includes(selected.status) && <button disabled={busy} onClick={() => persist('save')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save version'}</button>}
-            {['DRAFT','SAVED','CHANGES_REQUESTED'].includes(selected.status)&&<button disabled={busy} onClick={()=>persist('submit')} className="min-h-11 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">{busy==='submit'?'Submitting…':'Submit for review'}</button>}
-            {canReview&&selected.status==='SUBMITTED'&&<button disabled={busy} onClick={()=>persist('startReview')} className="min-h-11 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">Start review</button>}
-            {canReview&&selected.status==='UNDER_REVIEW'&&<><button disabled={busy} onClick={()=>persist('requestChanges')} className="min-h-11 rounded-xl border border-amber-300 px-4 font-semibold disabled:opacity-40">Request changes</button><button disabled={busy} onClick={()=>persist('approve')} className="min-h-11 rounded-xl bg-emerald-700 px-4 font-semibold text-white disabled:opacity-40">Approve exact version</button></>}
+            {['DRAFT','SAVED','CHANGES_REQUESTED','SUBMITTED','UNDER_REVIEW'].includes(selected.status)&&<button disabled={busy} onClick={()=>persist('approve')} className="min-h-11 rounded-xl bg-emerald-700 px-4 font-semibold text-white disabled:opacity-40">{busy==='approve'?'Approving…':'Approve exact version'}</button>}
             {selected.status==='APPROVED'&&<button disabled={busy || readiness.outcome!=='READY'} onClick={() => persist('publish')} className="min-h-11 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">{readiness.outcome!=='READY'?'Complete assessment to publish':busy==='publish'?'Publishing…':'Publish approved version'}</button>}
           </div>
         </div>
