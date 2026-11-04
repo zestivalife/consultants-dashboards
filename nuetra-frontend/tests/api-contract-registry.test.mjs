@@ -2,53 +2,51 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
+import { assertContractCompatibility, validateContractCompatibility } from '../lib/apiContractCompatibility.mjs';
 
 const root = path.resolve(import.meta.dirname, '..', '..');
-const registryPath = path.join(root, 'nuetra-frontend/contracts/external-consultant-api-registry.json');
-const registry = JSON.parse(await readFile(registryPath, 'utf8'));
+const load = async (name) => JSON.parse(await readFile(path.join(root, 'nuetra-frontend/contracts', name), 'utf8'));
+const registry = await load('external-consultant-api-registry.json');
+const inventory = await load('provider-route-inventory.json');
+const copy = (value) => structuredClone(value);
 
-const required = [
-  'id', 'workflow', 'frontend', 'client', 'browser_endpoint', 'method', 'gateway',
-  'owner', 'service_endpoint', 'authentication', 'authorization',
-  'database_dependency', 'request_schema_source', 'response_schema_source',
-  'expected_statuses', 'source_contract_markers'
-];
-
-test('critical API registry is complete, unique and source-backed', async () => {
-  assert.equal(registry.registry_version, 1);
-  assert.equal(registry.compatibility_policy.breaking_changes_require_tested_strategy, true);
-  assert.deepEqual(registry.compatibility_policy.expected_error_statuses_must_be_preserved, [400, 401, 403, 404]);
-  assert.ok(registry.contracts.length >= 10);
-
-  const ids = new Set();
-  const operations = new Set();
+test('ten critical consumer operations are compatible with registered provider and gateway contracts', async () => {
+  assert.equal(registry.registry_version, 2);
+  assert.equal(registry.contracts.length, 10);
+  assert.doesNotThrow(() => assertContractCompatibility(registry, inventory));
   for (const contract of registry.contracts) {
-    for (const field of required) assert.ok(contract[field], `${contract.id || 'unknown'} missing ${field}`);
-    assert.match(contract.method, /^(GET|POST|PUT|PATCH|DELETE)$/);
-    assert.ok(contract.expected_statuses.every((status) => Number.isInteger(status) && status >= 200 && status < 600));
-    assert.ok(!ids.has(contract.id), `duplicate contract id ${contract.id}`);
-    ids.add(contract.id);
-
-    const operation = `${contract.method} ${contract.browser_endpoint}`;
-    assert.ok(!operations.has(operation), `duplicate browser operation ${operation}`);
-    operations.add(operation);
-
-    const [frontend, client] = await Promise.all([
-      readFile(path.join(root, contract.frontend), 'utf8'),
-      readFile(path.join(root, contract.client), 'utf8')
-    ]);
-    const source = `${frontend}\n${client}`;
-    for (const marker of contract.source_contract_markers) {
-      assert.ok(source.includes(marker), `${contract.id} source no longer contains ${marker}`);
-    }
+    const source = await readFile(path.join(root, contract.consumer_source), 'utf8');
+    assert.ok(source.includes(contract.consumer_operation), `${contract.id} consumer operation is absent`);
   }
 });
 
-test('registry covers the ten production-critical workflows', () => {
-  const workflows = registry.contracts.map((contract) => contract.workflow.toLowerCase()).join('\n');
-  for (const expected of [
-    'client management', 'client 360', 'assessment', 'diet chart generation',
-    'diet chart editor', 'draft management', 'self-approval', 'publication',
-    'mobile diet synchronisation', 'delegated health context'
-  ]) assert.ok(workflows.includes(expected), `missing workflow coverage: ${expected}`);
+test('negative fixture: removing a backend operation fails compatibility', () => {
+  const broken = copy(inventory);
+  broken.operations = broken.operations.filter((item) => item.path !== '/api/v1/practice-operations/diet-plans');
+  const failures = validateContractCompatibility(registry, broken);
+  assert.deepEqual(failures.filter((item) => item.contract === 'diet-plan-create').map((item) => item.code), ['MISSING_PROVIDER_OPERATION']);
+  assert.throws(() => assertContractCompatibility(registry, broken), /MISSING_PROVIDER_OPERATION/);
+});
+
+test('negative fixture: changing an HTTP method fails compatibility', () => {
+  const broken = copy(inventory);
+  broken.operations.find((item) => item.path.endsWith('/draft')).method = 'PATCH';
+  const failures = validateContractCompatibility(registry, broken);
+  assert.deepEqual(failures.filter((item) => item.contract === 'diet-plan-draft').map((item) => item.code), ['METHOD_MISMATCH']);
+  assert.throws(() => assertContractCompatibility(registry, broken), /METHOD_MISMATCH/);
+});
+
+test('negative fixture: removing a required response field fails compatibility', () => {
+  const broken = copy(inventory);
+  const publish = broken.operations.find((item) => item.path.endsWith('/publish'));
+  publish.required_response_fields = publish.required_response_fields.filter((field) => field !== 'data.publication_basis');
+  const failures = validateContractCompatibility(registry, broken);
+  assert.deepEqual(failures.find((item) => item.contract === 'diet-plan-publish'), { code: 'RESPONSE_SCHEMA_INCOMPATIBLE', contract: 'diet-plan-publish', missingFields: ['data.publication_basis'] });
+  assert.throws(() => assertContractCompatibility(registry, broken), /RESPONSE_SCHEMA_INCOMPATIBLE/);
+});
+
+test('known legacy unconnected Client 360 route is explicit and cannot masquerade as covered', () => {
+  const legacy = registry.known_incompatible_consumers.find((item) => item.id === 'legacy-unconnected-client360');
+  assert.equal(legacy.endpoint, '/v1/external/clients/{clientId}/360');
+  assert.equal(inventory.operations.some((item) => item.provider === 'fiteatsy' && item.path === legacy.endpoint), false);
 });

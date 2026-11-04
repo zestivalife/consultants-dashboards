@@ -1,0 +1,17 @@
+{
+  "inventory_version": 1,
+  "generated_from": {"consultant":"b5ba06f6351f992496ba91d265cd961223a21b89","fiteatsy":"f7762c1eed4c3026913028742655d6c3f5a6e38e"},
+  "gateway_prefixes": ["/api/v1/practice-operations"],
+  "operations": [
+    {"provider":"practice-operations","method":"GET","path":"/api/v1/practice-operations/clients","required_response_fields":["success","data","data.clients","data.pagination","data.practiceWide","error","request_id"]},
+    {"provider":"practice-operations","method":"GET","path":"/api/v1/practice-operations/fiteatsy-connections/{connection_id}/health-context","required_response_fields":["connectionId","profile","foodPreferences","assessment","measurements","reports","biomarkers","wearables","generatedAt"]},
+    {"provider":"practice-operations","method":"GET","path":"/api/v1/practice-operations/assessments/definitions","required_response_fields":["success","data","error","request_id"]},
+    {"provider":"practice-operations","method":"GET","path":"/api/v1/practice-operations/clients/{client_id}/diet-plan-context","required_response_fields":["success","data","data.measurement_context","data.assessment","data.profile","data.target_policy","error","request_id"]},
+    {"provider":"practice-operations","method":"POST","path":"/api/v1/practice-operations/diet-plans","required_response_fields":["success","data","data.id","data.version_id","data.status","data.version","error","request_id"]},
+    {"provider":"practice-operations","method":"PUT","path":"/api/v1/practice-operations/diet-plans/{plan_id}/draft","required_response_fields":["success","data","data.id","data.version_id","data.status","data.version","data.nutrition","error","request_id"]},
+    {"provider":"practice-operations","method":"POST","path":"/api/v1/practice-operations/diet-plans/{plan_id}/review","required_response_fields":["success","data","data.id","data.status","data.version","error","request_id"]},
+    {"provider":"practice-operations","method":"POST","path":"/api/v1/practice-operations/diet-plans/{plan_id}/publish","required_response_fields":["success","data","data.id","data.status","data.version","data.publication_basis","data.already_published","error","request_id"]},
+    {"provider":"fiteatsy","method":"GET","path":"/v1/internal/external-consultant-access/{userId}/health-context","required_response_fields":["connectionId","profile","foodPreferences","assessment","measurements","reports","biomarkers","wearables","generatedAt"]},
+    {"provider":"fiteatsy","method":"GET","path":"/v1/platform/nutrition-plan","required_response_fields":["plan","version","today"]}
+  ]
+}

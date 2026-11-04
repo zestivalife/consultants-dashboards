@@ -1,68 +1,30 @@
-# API contract registry and compatibility rules
+# Executable API contract registry
 
-Authoritative machine-readable file:
+Machine-readable authorities:
 
-`nuetra-frontend/contracts/external-consultant-api-registry.json`
+- `nuetra-frontend/contracts/external-consultant-api-registry.json` — consumer requirements for the ten critical workflows.
+- `nuetra-frontend/contracts/provider-route-inventory.json` — versioned provider operations, Gateway prefixes and required response fields.
 
-Initial scope covers the ten production-critical External Consultant workflows and the delegated health-context dependency. This is the first increment, not a claim that every platform route is registered.
+The cross-repository portion is pinned to Fiteatsy `f7762c1eed4c3026913028742655d6c3f5a6e38e`. The Consultant provider inventory is pinned to the reliability baseline and verified against the imported FastAPI application at test time.
 
-## Required contract fields
+## Mandatory checks
 
-Every registry entry identifies:
+`nuetra-frontend/tests/api-contract-registry.test.mjs` performs deterministic compatibility comparison. It fails for an absent provider operation, HTTP method mismatch, missing required response field, absent Gateway mapping or absent registered consumer operation. Independent negative mutation fixtures prove that route removal, method change and response-field removal are rejected.
 
-- frontend workflow and component;
-- API client wrapper;
-- browser-facing method and endpoint;
-- Gateway or proxy boundary;
-- owning service and service endpoint;
-- authentication and authorization boundary;
-- database or downstream dependency;
-- request and response schema authority;
-- expected status codes;
-- source markers used by automated compatibility checks.
+`services/practice-operations-service/tests/test_critical_api_contract_inventory.py` obtains the real registered FastAPI routes from `app.routes` and compares canonical path plus method against the inventory. It also checks the real Gateway configuration contains every required prefix and that the Fiteatsy equivalent contract snapshot is bound to the verified SHA.
 
-The registry references existing source schemas and handlers. It does not create new request or response contracts.
+The existing database-backed client-directory and diet-plan lifecycle suites exercise response envelopes and lifecycle fields against PostgreSQL. The versioned inventory makes consumed response fields explicit so removal is a compatibility failure rather than an undocumented implementation change.
 
-## Enforced compatibility rules
+## Actual discovery result
 
-`nuetra-frontend/tests/api-contract-registry.test.mjs` fails when:
+The earlier marker registry incorrectly listed `/v1/external/clients` and `/v1/external/clients/{clientId}/360` as registered Fiteatsy endpoints. Fiteatsy `f7762c1…` registers neither route. The active connected-client flow is:
 
-1. a required contract field is missing;
-2. a contract ID or browser operation is duplicated;
-3. an unsupported HTTP method or invalid status code is registered;
-4. a registered frontend component or API client disappears;
-5. a registered route/function marker is removed or renamed;
-6. any of the ten critical workflows loses coverage;
-7. the policy preserving legitimate 400, 401, 403 and 404 responses changes silently.
+`ExternalClient360` → Gateway `/api/v1/practice-operations` → Practice Operations connection health-context → delegated Fiteatsy `/v1/internal/external-consultant-access/{userId}/health-context`.
 
-Because the test is included by `node --test tests/*.test.mjs`, it runs in exact-SHA CI.
+The unconnected legacy fallback remains recorded under `known_incompatible_consumers`; it is not counted as covered. Repairing or removing that fallback requires a separate behavior decision because no verified provider contract exists for it.
 
-## Compatibility workflow
+## Change policy and remaining boundary
 
-For a deliberate breaking change:
+Any deliberate breaking change must update provider implementation, consumer, inventory and positive/negative tests together. Editing only the snapshot to hide drift is prohibited. Production deployment, database migration and schema stamping are outside this increment.
 
-1. identify every registered consumer;
-2. add backward-compatible server handling or a versioned endpoint;
-3. add provider and consumer contract tests;
-4. update the registry and migration strategy in the same reviewable commit;
-5. pass exact-SHA CI and integrated staging before production approval.
-
-Removing a marker merely to make the registry test pass is prohibited. The source endpoint, consumer and compatibility strategy must agree.
-
-## Confirmed gaps requiring later increments
-
-- Full route discovery and registration for non-critical Consultant modules remains incomplete.
-- Python service OpenAPI documents are generated at runtime but are not yet snapshotted and diffed in CI.
-- Fiteatsy Express routes do not publish one consolidated OpenAPI document.
-- Gateway rewrite/upstream compatibility is not yet generated from the same registry.
-- Response schemas for several legacy endpoints are implicit in handlers rather than named schemas.
-- Real cross-service provider/consumer tests require an isolated staging environment and synthetic identities.
-- Timeout, 502 and 504 behavior is registered for delegated dependencies but not yet executed in integrated staging.
-
-## Next safe increments
-
-1. Generate a discovered route inventory for Gateway and every Python service, then fail on unreviewed registry drift.
-2. Add OpenAPI snapshots and compatibility diffing for schema-bearing services.
-3. Register the remaining frontend modules in bounded domain batches.
-4. Execute provider/consumer contracts against isolated databases and real service processes.
-5. Add immutable build provenance and Docker-context validation before any release image is produced.
+Fiteatsy Express does not expose consolidated OpenAPI. Its two critical provider operations are represented by an equivalent versioned contract pinned to the verified Fiteatsy SHA. A future cross-repository CI job should regenerate it from the Fiteatsy route tree when repository credentials are available; this increment does not claim all Fiteatsy routes are covered.
