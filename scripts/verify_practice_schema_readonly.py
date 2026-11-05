@@ -15,6 +15,23 @@ EXPECTED_TABLES = {
     "external_practice_clients",
 }
 EXPECTED_COLUMNS = {
+    "fiteatsy_client_directory": {
+        "id", "fiteatsy_user_id", "fiteatsy_client_id", "display_name",
+        "mobile_number_normalized", "email_normalized", "account_status",
+        "mobile_verified", "registration_status", "registered_at",
+        "source_updated_at", "source_version", "last_synced_at", "sync_status",
+        "deleted_at", "created_at", "updated_at",
+    },
+    "fiteatsy_client_directory_events": {
+        "event_id", "event_type", "fiteatsy_user_id", "source_version",
+        "schema_version", "payload_sha256", "occurred_at", "processed_at",
+        "disposition",
+    },
+    "fiteatsy_client_directory_reconciliation_runs": {
+        "id", "started_at", "completed_at", "source_count", "destination_count",
+        "missing_count", "stale_count", "duplicate_count", "status",
+        "checkpoint_user_id", "error_code",
+    },
     "external_profession_plans": {"idempotency_key"},
     "external_practice_clients": {
         "id", "tenant_id", "client_id", "first_name", "last_name", "email",
@@ -27,6 +44,14 @@ EXPECTED_INDEXES = {
     "ix_fit_directory_status", "ix_fit_directory_sync",
     "ix_fit_directory_event_user", "uq_external_diet_plan_creation_idempotency",
     "uq_external_practice_client_email", "uq_external_practice_client_mobile",
+}
+EXPECTED_CONSTRAINTS = {
+    "ck_fit_directory_version", "ck_fit_directory_sync",
+    "ck_fit_directory_registration", "ck_fit_directory_event_disposition",
+    "ck_fit_directory_reconcile_status", "external_practice_clients_pkey",
+    "external_practice_clients_tenant_id_client_id_key",
+    "external_practice_clients_tenant_id_idempotency_key_key",
+    "external_practice_clients_check", "external_practice_clients_status_check",
 }
 
 
@@ -92,6 +117,8 @@ def main() -> int:
         if names - columns.get(table, {}).keys()
     }
     missing_indexes = sorted(EXPECTED_INDEXES - indexes.keys())
+    constraint_names = {item["name"] for item in constraints}
+    missing_constraints = sorted(EXPECTED_CONSTRAINTS - constraint_names)
     relevant_owners = {t: table_owners[t] for t in sorted(EXPECTED_TABLES) if t in table_owners}
     owner_mismatch = len(set(relevant_owners.values())) > 1
     result = {
@@ -101,6 +128,7 @@ def main() -> int:
         "missing_tables": missing_tables,
         "missing_columns": missing_columns,
         "missing_indexes": missing_indexes,
+        "missing_constraints": missing_constraints,
         "table_owners": relevant_owners,
         "owner_mismatch": owner_mismatch,
         "relevant_columns": {t: columns.get(t, {}) for t in sorted(EXPECTED_COLUMNS)},
@@ -110,6 +138,7 @@ def main() -> int:
     result["matches_0064_inventory"] = (
         revisions == ["0064_external_practice_clients"]
         and not missing_tables and not missing_columns and not missing_indexes
+        and not missing_constraints
         and not owner_mismatch
     )
     print(json.dumps(result, indent=2, sort_keys=True))
