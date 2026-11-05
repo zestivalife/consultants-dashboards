@@ -1,5 +1,7 @@
 """Persist per-user rate limits for Fiteatsy Connection PIN preview attempts."""
+
 from alembic import op
+
 
 revision = "0060_fit_pin_rate_limit"
 down_revision = "0058_fit_active_plan"
