@@ -6,6 +6,7 @@ on:
       - codex/senior-review-authority-v1
       - codex/p0-role-workspace-routing
       - codex/p0-reliability-framework
+      - codex/p0-migration-lineage-reconcile
   workflow_dispatch:
     inputs:
       commit_sha:
