@@ -145,7 +145,13 @@ export function listExternalClients(filters = {}) {
   Object.entries(filters).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
   });
-  return requestFiteatsy(`/v1/external/clients?${params}`, { method: 'GET' });
+  return apiRequest(`/practice-operations/clients?${params}`, { method: 'GET' }).then((result) => ({
+    ...result,
+    clients: (result?.clients || []).map((client) => ({
+      ...client,
+      displayName: client.displayName || client.name || 'Unnamed client',
+    })),
+  }));
 }
 
 export function createExternalClient(payload) {
@@ -158,10 +164,6 @@ export function getExternalClient(clientId) {
 
 export function updateExternalClient(clientId, payload) {
   return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}`, { method: 'PATCH', body: payload });
-}
-
-export function getExternalClient360(clientId) {
-  return requestFiteatsy(`/v1/external/clients/${encodeURIComponent(clientId)}/360`, { method: 'GET' });
 }
 
 export async function downloadExternalDietPlan(clientId) {
