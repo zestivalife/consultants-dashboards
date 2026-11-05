@@ -92,3 +92,40 @@ test('active Client 360 mount uses authorised Practice Operations contracts only
   assert.match(activeComponent, /loadAuthorizedClient360\(client,getFiteatsyConnectionHealthContext\)/);
   assert.match(activeComponent, /usesProfessionIntakeApi=usesProfessionWorkspace\|\|professionConfig\?\.profession==='DIETITIAN'/);
 });
+
+test('Client 360 profile card safely uses the authorised overview when legacy basicProfile is absent or malformed', async () => {
+  const source = await readFile(new URL('../components/external/ExternalClient360.jsx', import.meta.url), 'utf8');
+  const activeComponent = source.split('function LegacyExternalDietPlan')[0];
+  const helperSource = activeComponent.match(/function basicProfileCard\(data,overview\)\{.*?\n\}/s)?.[0];
+  assert.ok(helperSource, 'basicProfileCard helper must remain executable and focused');
+  const projectProfileCard = Function(`return (${helperSource})`)();
+  const overview = { name: 'Rest fit', email: 'test@fit.com', primaryContact: '9876533333', dateOfBirth: '1988-04-10', age: 38, gender: 'Male' };
+
+  assert.match(activeComponent, /data\?\.basicProfile&&typeof data\.basicProfile==='object'&&!Array\.isArray\(data\.basicProfile\)/);
+  assert.match(activeComponent, /name:field\(overview\?\.name/);
+  assert.match(activeComponent, /email:field\(overview\?\.email/);
+  assert.match(activeComponent, /primaryContact:field\(overview\?\.primaryContact/);
+  assert.match(activeComponent, /dateOfBirth:field\(overview\?\.dateOfBirth/);
+  assert.match(activeComponent, /values=\{profileCard\.values\} provenance=\{profileCard\.provenance\}/);
+  assert.doesNotMatch(activeComponent, /Object\.entries\(data\.basicProfile\)/);
+  for (const basicProfile of [undefined, null, [], 'invalid', { name: null, email: 'invalid' }]) {
+    assert.deepEqual(projectProfileCard({ basicProfile }, overview).values, overview);
+  }
+  assert.deepEqual(projectProfileCard({ basicProfile: { name: { value: 'Legacy name', sourceLabel: 'Legacy' }, mobile: { value: '9000000000' } } }, { ...overview, name: null, primaryContact: null }).values, { ...overview, name: 'Legacy name', primaryContact: '9000000000' });
+});
+
+test('Rest fit authorised projection retains profile, assessment, preferences, measurements and biomarkers', async () => {
+  const client360 = await loadAuthorizedClient360({ id: 'client-rest-fit', displayName: 'Rest fit', connectionId: 'connection-rest-fit', connectionState: 'ACTIVE' }, async () => ({
+    ...healthContext,
+    assessment: { id: 'assessment-rest-fit', status: 'COMPLETED' },
+    measurements: { heightCm: 175, weightKg: 80 },
+  }));
+
+  assert.deepEqual({ name: client360.overview.name, email: client360.overview.email, primaryContact: client360.overview.primaryContact, dateOfBirth: client360.overview.dateOfBirth }, { name: 'Rest fit', email: 'test@fit.com', primaryContact: '9876533333', dateOfBirth: '1988-04-10' });
+  assert.equal(client360.overview.fiteatsyAssessment.status, 'COMPLETED');
+  assert.equal(client360.sections.nutrition.dietPreference, 'Non-Vegetarian');
+  assert.deepEqual(client360.sections.nutrition.proteins, ['Eggs', 'Chicken']);
+  assert.equal(client360.sections.measurements.heightCm, 175);
+  assert.equal(client360.sections.measurements.weightKg, 80);
+  assert.deepEqual(client360.biomarkers.latest.map((item) => item.name), ['HbA1c', 'LDL']);
+});

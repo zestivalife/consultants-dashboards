@@ -168,7 +168,25 @@ export function ExternalClient360({ client, practiceName, onBack, onStatus, init
   </section>;
 }
 function CommandMetric({label,value,icon:Icon}){return <div className="flex min-h-28 flex-col justify-between rounded-2xl border border-white/80 bg-white/80 p-4 shadow-sm"><Icon size={17} className="text-slate-500"/><div><p className="text-2xl font-semibold tracking-[-0.04em] text-slate-950">{value}</p><p className="mt-1 text-xs font-medium text-slate-500">{label}</p></div></div>}
+function basicProfileCard(data,overview){
+  const legacy=data?.basicProfile&&typeof data.basicProfile==='object'&&!Array.isArray(data.basicProfile)?data.basicProfile:{};
+  const legacyItem=(...keys)=>keys.map(key=>legacy[key]).find(item=>item&&typeof item==='object'&&!Array.isArray(item));
+  const field=(overviewValue,...legacyKeys)=>{const item=legacyItem(...legacyKeys);return {value:overviewValue??item?.value,item:overviewValue==null?item:null};};
+  const fields={
+    name:field(overview?.name,'name','displayName'),
+    email:field(overview?.email,'email'),
+    primaryContact:field(overview?.primaryContact,'primaryContact','mobile','phone'),
+    dateOfBirth:field(overview?.dateOfBirth,'dateOfBirth','dob'),
+    age:field(overview?.age,'age'),
+    gender:field(overview?.gender,'gender'),
+  };
+  return {
+    values:Object.fromEntries(Object.entries(fields).map(([key,field])=>[key,field.value])),
+    provenance:Object.fromEntries(Object.entries(fields).filter(([,field])=>field.item).map(([key,field])=>[key,field.item])),
+  };
+}
 function ClientCommandCentre({data,client,overview,biomarkers,invitation,shareUrl,timeline,showNutritionWorkspace,onTab,onInvite,onRevoke}){
+  const profileCard=basicProfileCard(data,overview);
   const attention=[
     ...(overview.missingRequiredFields?.length?[{label:`${overview.missingRequiredFields.length} required profile field${overview.missingRequiredFields.length===1?'':'s'} missing`,action:'Health Profile'}]:[]),
     ...(biomarkers.pendingReviewCount?[{label:`${biomarkers.pendingReviewCount} biomarker result${biomarkers.pendingReviewCount===1?'':'s'} need review`,action:'Biomarkers'}]:[]),
@@ -180,7 +198,7 @@ function ClientCommandCentre({data,client,overview,biomarkers,invitation,shareUr
       <div className={`grid gap-4 ${showNutritionWorkspace ? 'lg:grid-cols-2' : ''}`}>{showNutritionWorkspace&&<section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Current plan</p><h3 className="mt-1 text-lg font-semibold">Nutrition workspace</h3></div><Sparkles size={19} className="text-amber-500"/></div><p className="mt-4 text-sm text-slate-600">{client.dietPlanLabel || 'Plan status is available in the Diet Plan workspace.'}</p><button onClick={()=>onTab('Diet Plan')} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 px-4 text-sm font-semibold">Open Diet Plan <ArrowUpRight size={15}/></button></section>}<section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-2"><CalendarClock size={18} className="text-slate-500"/><h3 className="font-semibold">Upcoming care</h3></div><p className="mt-4 text-sm font-medium text-slate-700">No upcoming-care source is loaded here.</p><p className="mt-1 text-xs leading-5 text-slate-500">This is an unavailable state, not a confirmed zero.</p></section></div>
     </div>
     <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm xl:col-span-7"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">What changed</p><h3 className="mt-1 text-lg font-semibold">Recent client activity</h3></div><button onClick={()=>onTab('Timeline')} className="min-h-11 rounded-xl px-3 text-sm font-semibold text-slate-600">Full timeline</button></div>{timeline.length?<div className="mt-4 divide-y divide-slate-100">{timeline.slice(0,4).map(event=><div key={event.id} className="flex gap-3 py-3"><span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-400"/><div className="min-w-0"><p className="truncate text-sm font-semibold">{event.summary}</p><p className="mt-1 text-xs text-slate-500">{new Date(event.occurred_at).toLocaleString()}</p></div></div>)}</div>:<p className="mt-5 text-sm text-slate-500">No activity is available in the loaded timeline.</p>}</section>
-    <div className="xl:col-span-5"><SectionCard section="basicProfile" values={Object.fromEntries(Object.entries(data.basicProfile).map(([key,item])=>[key,item.value]))} provenance={Object.fromEntries(Object.entries(data.basicProfile).map(([key,item])=>[key,item]))}/><section className="mt-4 rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm"><h3 className="font-semibold">Health-profile invitation</h3><p className="mt-2 text-sm text-slate-500">{invitation?friendly(invitation.status):'Not invited'}</p><div className="mt-4 flex flex-wrap gap-2"><button onClick={onInvite} className="min-h-11 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white">{invitation?'Regenerate':'Invite client'}</button>{invitation&&['PENDING','OPENED'].includes(invitation.status)&&<button onClick={onRevoke} className="min-h-11 rounded-xl border border-red-200 px-4 text-sm font-semibold text-red-700">Revoke</button>}{shareUrl&&<button onClick={()=>navigator.clipboard.writeText(shareUrl)} className="min-h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold">Copy secure link</button>}</div></section></div>
+    <div className="xl:col-span-5"><SectionCard section="basicProfile" values={profileCard.values} provenance={profileCard.provenance}/><section className="mt-4 rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm"><h3 className="font-semibold">Health-profile invitation</h3><p className="mt-2 text-sm text-slate-500">{invitation?friendly(invitation.status):'Not invited'}</p><div className="mt-4 flex flex-wrap gap-2"><button onClick={onInvite} className="min-h-11 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white">{invitation?'Regenerate':'Invite client'}</button>{invitation&&['PENDING','OPENED'].includes(invitation.status)&&<button onClick={onRevoke} className="min-h-11 rounded-xl border border-red-200 px-4 text-sm font-semibold text-red-700">Revoke</button>}{shareUrl&&<button onClick={()=>navigator.clipboard.writeText(shareUrl)} className="min-h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold">Copy secure link</button>}</div></section></div>
   </div>;
 }
 function Snapshot({label,value}){return <div className="rounded-2xl bg-[#f7f5ef] p-4"><p className="text-xs font-medium text-slate-500">{label}</p><p className="mt-2 truncate font-semibold text-slate-950">{show(value)}</p></div>}
