@@ -6,6 +6,7 @@ const health=readFileSync(new URL('../components/external/ExternalHealthRecords.
 const client360=readFileSync(new URL('../components/external/ExternalClient360.jsx',import.meta.url),'utf8');
 const api=readFileSync(new URL('../lib/externalTransientReportApi.js',import.meta.url),'utf8');
 const communication=readFileSync(new URL('../lib/practiceOperationsApi.js',import.meta.url),'utf8');
+const communicationWorkspace=readFileSync(new URL('../components/external/ExternalCommunicationWorkspace.jsx',import.meta.url),'utf8');
 
 test('Client360 exposes additive Health Records without replacing Biomarkers or frozen Diet Plan',()=>{
   assert.match(client360,/Health Records/);
@@ -41,6 +42,9 @@ test('published plan sharing is fail-closed for drafts and records open rather t
   assert.match(dietPlan,/Publish approved version/);
   assert.match(dietPlan,/selected\.status==='APPROVED'/);
   assert.doesNotMatch(dietPlan,/event_type\s*:\s*['"](?:MESSAGE_SENT|DELIVERED|READ)['"]/);
+  assert.match(communicationWorkspace,/templateCode==='DIET_PLAN_READY'\?'SHARE_PUBLISHED_PLAN'/);
+  assert.match(communicationWorkspace,/shareable_type:'PUBLISHED_DIET_PLAN'/);
+  assert.doesNotMatch(client360,/event_type\s*:\s*['"](?:MESSAGE_SENT|DELIVERED|READ)['"]/);
 });
 
 test('profile completeness remains separate from optional evidence coverage',()=>{

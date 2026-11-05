@@ -21,14 +21,14 @@ test('health records distinguish failed, loading, confirmed-empty, and data stat
 });
 
 test('biomarker projection never converts a total request failure to an empty list', () => {
-  for (const contract of ["status:'failed'", 'No empty state has been inferred', 'One biomarker source is unavailable', 'getExternalTransientBiomarkers', 'getExternalClientBiomarkers']) {
+  for (const contract of ["status:'failed'", 'No empty state has been inferred', 'loadAuthorizedClient360(client,getFiteatsyConnectionHealthContext)', "setBiomarkerState({status:'failed'"]) {
     assert.ok(client360.includes(contract), contract);
   }
 });
 
 test('diet-plan action is capability-gated, state-aware, and opens existing authoring', () => {
   assert.match(client360, /capabilityState\.dietPlan&&<button/);
-  assert.match(client360, /Open Diet Plans/);
+  for (const label of ['Open Diet Plans', 'Create Diet Plan', 'View Published Plan']) assert.ok(client360.includes(label), label);
   assert.match(client360, /setActive\('Diet Plan'\)/);
   assert.match(client360, /ExternalMultiDietPlan/);
   assert.match(dietPlan, /CommonFoodPlanEditor/);
