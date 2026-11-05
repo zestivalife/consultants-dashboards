@@ -11,7 +11,7 @@
 
 `CONFIG_CHECK` validates the nine-service dependency graph, dedicated data identities, staging-only environment markers, sink notifications, synthetic recipients, storage policy and release SHA syntax. Build artifacts may be absent.
 
-`BUILD_ATTESTATION` additionally requires exactly nine registry-resolved immutable images. For every digest it independently retrieves the registry digest and OCI configuration, verifies the source-revision label, verifies a keyless Sigstore signature, verifies SLSA provenance binding the digest to source SHA/Dockerfile/context hashes, verifies a passing vulnerability-scan attestation, and retrieves successful consumer and provider CI runs from GitHub. Manifest booleans are not evidence.
+`BUILD_ATTESTATION` additionally requires exactly nine registry-resolved immutable images. For every digest it independently retrieves the registry digest and OCI configuration, verifies the source-revision label, verifies a keyless Sigstore signature, verifies SLSA provenance binding the digest to source SHA/Dockerfile/context hashes, verifies digest-bound passing test and vulnerability-scan attestations, and retrieves successful consumer and provider CI runs from GitHub. Manifest booleans are not evidence.
 
 `DEPLOY_GATE` includes both prior modes and additionally requires `deployment_enabled: true`, a short-lived signed authorization scoped only to `integrated-staging`, a manifest hash match, and a signed effective-runtime fingerprint snapshot. The authorization signature must originate from the protected `staging-deployment-authorize.yml` workflow on `main`; it never authorizes production.
 

@@ -94,6 +94,7 @@ def attestation_errors(manifest, verifier):
             verifier.verify_image_signature(immutable)
             provenance = verifier.verify_attestation(immutable, "slsaprovenance")
             scans = verifier.verify_attestation(immutable, "vuln")
+            tests = verifier.verify_attestation(immutable, "https://zestivalife.dev/attestations/test/v1")
             def subject_matches(record):
                 return any(x.get("digest", {}).get("sha256") == digest.removeprefix("sha256:") for x in record.get("subject", []))
             def build_matches(record):
@@ -101,6 +102,7 @@ def attestation_errors(manifest, verifier):
                 return subject_matches(record) and params.get("source_sha") == expected and params.get("dockerfile_sha256") == item.get("dockerfile_sha256") and params.get("context_sha256") == item.get("context_sha256")
             if not any(build_matches(x) for x in provenance): errors.append(f"{service}: missing or mismatched image provenance")
             if not any(subject_matches(x) and x.get("predicate", {}).get("result") == "pass" for x in scans): errors.append(f"{service}: image is unscanned or scan did not pass")
+            if not any(subject_matches(x) and x.get("predicate", {}).get("result") == "pass" for x in tests): errors.append(f"{service}: exact image is untested or tests did not pass")
         except VerificationError as exc: errors.append(f"{service}: {exc}")
     expected_ci = {"consumer": manifest.get("consumer_sha"), "provider": manifest.get("provider_sha")}
     ci_entries = manifest.get("ci", [])

@@ -30,7 +30,7 @@ def runtime():
     }
 
 class Verifier:
-    def __init__(self, value, *, ci=True, provenance=True, scan=True): self.value=value; self.ci=ci; self.provenance=provenance; self.scan=scan
+    def __init__(self, value, *, ci=True, provenance=True, scan=True, tested=True): self.value=value; self.ci=ci; self.provenance=provenance; self.scan=scan; self.tested=tested
     def registry_digest(self, reference):
         repository=reference.rsplit("@",1)[0]
         return next(x["digest"] for x in self.value["images"] if x["registry_reference"].rsplit("@",1)[0] == repository)
@@ -46,7 +46,8 @@ class Verifier:
         if kind == "slsaprovenance":
             if not self.provenance: return []
             return [{"subject": subject, "predicate": {"buildDefinition": {"externalParameters": {"source_sha": item["source_sha"], "dockerfile_sha256": item["dockerfile_sha256"], "context_sha256": item["context_sha256"]}}}}]
-        return [{"subject": subject, "predicate": {"result": "pass"}}] if self.scan else []
+        passed = self.scan if kind == "vuln" else self.tested
+        return [{"subject": subject, "predicate": {"result": "pass"}}] if passed else []
     def ci_run(self, repository, run_id):
         sha = self.value["provider_sha"] if repository.endswith("Fiteatsy-mobile") else self.value["consumer_sha"]
         return {"head_sha": sha, "status": "completed", "conclusion": "success" if self.ci else "failure"}
@@ -98,6 +99,9 @@ def test_rejects_missing_service_image():
 
 def test_rejects_unscanned_image():
     value=manifest(); assert any("image is unscanned" in x for x in errors(value, verifier=Verifier(value, scan=False)))
+
+def test_rejects_image_without_digest_bound_passing_tests():
+    value=manifest(); assert any("exact image is untested" in x for x in errors(value, verifier=Verifier(value, tested=False)))
 
 def test_rejects_real_provider_and_public_unallowlisted_database():
     topology=copy.deepcopy(TOPOLOGY); topology["notifications"]["provider"]="twilio"; topology["data_services"]["postgres"]["public"]=True
