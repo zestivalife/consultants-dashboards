@@ -1,6 +1,7 @@
 import {getToken,refreshAccessToken} from './api';
 import {closeReservedWhatsAppWindow,navigateReservedWhatsAppWindow,reserveWhatsAppWindow} from './whatsappLaunch.mjs';
 import {contentDispositionFilename} from './contentDisposition.mjs';
+import {loadConnectedClientDirectory} from './connectedClientDirectory.mjs';
 
 const BASE='/api/gateway/api/v1/practice-operations';
 
@@ -46,6 +47,9 @@ export function createPracticeResource(resource,payload){return request(`/${reso
 export function updatePracticeResource(resource,id,payload){return request(`/${resource}/${id}`,{method:'PATCH',body:JSON.stringify(payload)});}
 export function getPracticeConfiguration(){return request('/configuration');}
 export function listFiteatsyConnections(){return request('/fiteatsy-connections');}
+export async function listConnectedFiteatsyClients(filters={}){
+  return loadConnectedClientDirectory({listConnections:listFiteatsyConnections,getHealthContext:getFiteatsyConnectionHealthContext},filters);
+}
 export function createFiteatsyConnectionInvitation(payload){return request('/fiteatsy-connections/invitations',{method:'POST',body:JSON.stringify(payload)});}
 export function revokeFiteatsyConnectionInvitation(id,reason='Replaced by consultant'){return request(`/fiteatsy-connections/invitations/${encodeURIComponent(id)}/revoke`,{method:'POST',body:JSON.stringify({reason})});}
 export function revokeFiteatsyConnection(id,reason='Revoked by consultant'){return request(`/fiteatsy-connections/${encodeURIComponent(id)}/revoke`,{method:'POST',body:JSON.stringify({reason})});}
