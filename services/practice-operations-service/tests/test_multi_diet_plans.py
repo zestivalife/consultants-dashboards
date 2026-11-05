@@ -34,3 +34,7 @@ def test_frontend_uses_practice_operations_for_plan_writes_and_catalogue_read_on
     assert "publishExternalDietPlanById" not in component
     assert "searchExternalCommonFoods" in component
     assert "GOVERNED_CATALOGUE" in component
+    assert "Submit for review" not in component
+    assert "Approve exact version" in component
+    assert "Publish approved version" in component
+    assert "expected_version: refreshed.plan.current_version" in component
