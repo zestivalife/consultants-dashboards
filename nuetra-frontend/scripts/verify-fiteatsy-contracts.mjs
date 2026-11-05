@@ -10,10 +10,11 @@ const inventory = JSON.parse(readFileSync(path.join(frontendRoot, 'contracts/pro
 const providerRoot = path.resolve(process.env.FITEATSY_ROOT || process.argv[2] || '');
 assert.notEqual(providerRoot, path.parse(providerRoot).root, 'FITEATSY_ROOT must identify an explicit checkout');
 
-const expectedSha = registry.provider_baselines.fiteatsy;
+const baselineSha = registry.provider_baselines.fiteatsy;
+const expectedSha = process.env.FITEATSY_CANDIDATE_SHA || baselineSha;
 const actualSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: providerRoot, encoding: 'utf8' }).trim();
-assert.equal(actualSha, expectedSha, `Fiteatsy checkout must be the pinned provider SHA ${expectedSha}`);
-assert.equal(inventory.generated_from.fiteatsy, expectedSha, 'route inventory and registry must use the same Fiteatsy SHA');
+assert.equal(actualSha, expectedSha, `Fiteatsy checkout must match the requested provider SHA ${expectedSha}`);
+assert.equal(inventory.generated_from.fiteatsy, baselineSha, 'route inventory and registry must use the same baseline Fiteatsy SHA');
 
 const read = (relative) => readFileSync(path.join(providerRoot, relative), 'utf8');
 const server = read('backend/src/server.ts');
@@ -43,4 +44,4 @@ for (const field of ['plan', 'version', 'today']) {
   assert.match(mobileTypes, new RegExp(`export type PublishedNutritionPlan = \\{[\\s\\S]*?\\n  ${field}:`), `mobile response type is missing ${field}`);
 }
 
-console.log(JSON.stringify({ provider: 'fiteatsy', sha: actualSha, operations: operations.length, status: 'compatible' }));
+console.log(JSON.stringify({ provider: 'fiteatsy', sha: actualSha, baselineSha, operations: operations.length, status: 'compatible' }));
