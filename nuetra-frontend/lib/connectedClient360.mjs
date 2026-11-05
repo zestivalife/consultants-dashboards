@@ -48,6 +48,7 @@ export function projectAuthorizedHealthContext(client, healthContext = {}) {
   const history = onboarding.healthHistory || {};
   const measurements = healthContext.measurements || {};
   const reports = list(healthContext.reports);
+  const biomarkers = list(healthContext.biomarkers);
   const missingRequiredFields = [
     !person.dob && 'dateOfBirth',
     onboarding.height == null && 'height',
@@ -113,6 +114,10 @@ export function projectAuthorizedHealthContext(client, healthContext = {}) {
       providerName: report.labName || null,
       notes: null,
     })),
+    biomarkers: {
+      latest: biomarkers,
+      pendingReviewCount: biomarkers.filter((item) => String(item.reviewStatus || item.review_status || '').toUpperCase() === 'REVIEW_REQUIRED').length,
+    },
     timeline: [],
     derived: { bmi: profile.healthMetrics?.bmi || healthContext.healthMetrics?.bmi || { status: 'NOT_AVAILABLE', value: null } },
   };

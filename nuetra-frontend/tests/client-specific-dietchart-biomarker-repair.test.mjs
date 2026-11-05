@@ -32,9 +32,8 @@ test('nutrition capabilities expose Biomarkers and Diet Plan for the open client
   });
   assert.ok(tabs.includes('Biomarkers'));
   assert.ok(tabs.includes('Diet Plan'));
-  assert.match(client360, /getExternalClientBiomarkers\(client\.id\)/);
-  assert.match(client360, /getExternalTransientBiomarkers\(client\.id\)/);
-  assert.match(client360, /getExternalDietPlan\(client\.id\)/);
+  assert.match(client360, /loadAuthorizedClient360\(client,getFiteatsyConnectionHealthContext\)/);
+  assert.doesNotMatch(client360.split('function LegacyExternalDietPlan')[0], /getExternal(?:Client|Transient)Biomarkers\(client\.id\)|getExternalDietPlan\(client\.id\)/);
   assert.match(client360, /clientId=\{dietPlanClientId\}/);
 });
 

@@ -7,16 +7,14 @@ const intake=fs.readFileSync(new URL('../components/external/ExternalClientHealt
 const entry=fs.readFileSync(new URL('../pages/intake/[token].js',import.meta.url),'utf8');
 const api=fs.readFileSync(new URL('../lib/fiteatsyConsultantsApi.js',import.meta.url),'utf8');
 
-test('Consultant sees a focused missing-information editor rather than full onboarding',()=>{
-  assert.match(client360,/Complete Missing Information/);
-  assert.match(client360,/Only missing important information is shown/);
-  assert.match(client360,/Save &amp; Recheck/);
+test('Consultant is directed to the governed profile and measurements workspace for missing information',()=>{
+  assert.match(client360,/Review profile and measurements/);
+  assert.match(client360,/setActive\('Measurements'\)/);
   assert.match(client360,/missingRequiredFields/);
   assert.doesNotMatch(client360,/onboarding\/consultant/);
 });
 
-test('focused editor reuses canonical intake controls and persists through one eligibility contract',()=>{
-  assert.match(client360,/FocusedRequiredFieldControl/);
+test('canonical intake controls remain available to the client intake flow',()=>{
   assert.match(intake,/PILL_SINGLE|FocusedRequiredFieldControl/);
   assert.match(intake,/STRUCTURED_NUMBER|CURRENT_WEIGHT/);
   assert.match(api,/diet-eligibility/);
