@@ -1,5 +1,6 @@
 import {getToken,refreshAccessToken} from './api';
 import {closeReservedWhatsAppWindow,navigateReservedWhatsAppWindow,reserveWhatsAppWindow} from './whatsappLaunch.mjs';
+import {normalizePracticeClientDirectory} from './practiceClientDirectory.mjs';
 
 const BASE='/api/gateway/api/v1/practice-operations';
 
@@ -44,6 +45,12 @@ export function createPracticeResource(resource,payload){return request(`/${reso
 export function updatePracticeResource(resource,id,payload){return request(`/${resource}/${id}`,{method:'PATCH',body:JSON.stringify(payload)});}
 export function getPracticeConfiguration(){return request('/configuration');}
 export function listFiteatsyConnections(){return request('/fiteatsy-connections');}
+export async function listPracticeClients({q,status,limit=100,offset=0}={}){
+  const query=new URLSearchParams({limit:String(limit),offset:String(offset)});
+  if(q)query.set('q',String(q));
+  if(status)query.set('status',String(status));
+  return normalizePracticeClientDirectory(await request(`/clients?${query}`));
+}
 export async function listConnectedFiteatsyClients(filters={}){
   const ledger=await listFiteatsyConnections();
   const connections=Array.isArray(ledger?.connections)?ledger.connections:[];

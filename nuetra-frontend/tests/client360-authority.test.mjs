@@ -2,6 +2,42 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import {loadAuthorizedClient360,projectAssignedClient360,projectConnectedClient360} from '../lib/connectedClient360.mjs';
+import {normalizePracticeClientDirectory} from '../lib/practiceClientDirectory.mjs';
+
+const directoryFixture=JSON.parse(fs.readFileSync(new URL('./fixtures/practice-client-directory.json',import.meta.url),'utf8'));
+
+test('deployed Practice Operations directory envelope preserves pagination and real connection state', () => {
+  const directory=normalizePracticeClientDirectory(directoryFixture);
+  assert.deepEqual(directory.pagination,{total:3,limit:100,offset:0});
+  assert.equal(directory.practiceWide,false);
+  assert.equal(directory.clients[0].connectionId,'connection-active');
+  assert.equal(directory.clients[0].displayName,'Connected Client');
+  assert.equal(directory.clients[1].connectionId,null);
+  assert.equal(directory.clients[1].status,'ASSIGNED_CONNECTION_PENDING');
+  assert.equal(directory.clients[2].connectionId,'connection-revoked');
+  assert.equal(directory.clients[2].healthDataAuthorized,false);
+});
+
+test('directory normalization fails closed for missing collections and pagination fields', () => {
+  assert.throws(()=>normalizePracticeClientDirectory({pagination:{total:0,limit:100,offset:0}}),/clients collection/);
+  assert.throws(()=>normalizePracticeClientDirectory({clients:[],pagination:{total:0,limit:100}}),/pagination.offset/);
+});
+
+test('actual Clients screen selection keeps unconnected directory data out of health-context calls', async () => {
+  const directory=normalizePracticeClientDirectory(directoryFixture);
+  const calls=[];
+  const assigned=await loadAuthorizedClient360(directory.clients[1],async(id)=>{calls.push(id);});
+  assert.deepEqual(calls,[]);
+  assert.equal(assigned.overview.name,'Assigned Client');
+  assert.deepEqual(assigned.overview.dietPlanWarnings,['CONSENT_PENDING']);
+
+  const connected=await loadAuthorizedClient360(directory.clients[0],async(id)=>{
+    calls.push(id);
+    return {profile:{client:{name:'Connected Client'},onboarding:{}},reports:[]};
+  });
+  assert.deepEqual(calls,['connection-active']);
+  assert.equal(connected.overview.name,'Connected Client');
+});
 
 test('assigned unconnected client exposes directory identity but no health data', async () => {
   let calls=0;
@@ -43,9 +79,13 @@ test('valid projections preserve known health data and never fabricate unavailab
 
 test('frontend cannot silently restore the unsupported Fiteatsy Client 360 route', () => {
   const component=fs.readFileSync(new URL('../components/external/ExternalClient360.jsx',import.meta.url),'utf8');
+  const workspace=fs.readFileSync(new URL('../components/external/ExternalSaaSWorkspace.jsx',import.meta.url),'utf8');
+  const practiceApi=fs.readFileSync(new URL('../lib/practiceOperationsApi.js',import.meta.url),'utf8');
   const clientApi=fs.readFileSync(new URL('../lib/fiteatsyConsultantsApi.js',import.meta.url),'utf8');
   assert.doesNotMatch(component,/getExternalClient360/);
   assert.doesNotMatch(clientApi,/external\/clients\/\$\{encodeURIComponent\(clientId\)\}\/360/);
   assert.match(component,/getFiteatsyConnectionHealthContext/);
-  assert.match(clientApi,/practice-operations\/clients/);
+  assert.match(workspace,/listPracticeClients/);
+  assert.doesNotMatch(workspace,/listConnectedFiteatsyClients/);
+  assert.match(practiceApi,/request\(`\/clients\?\$\{query\}`\)/);
 });

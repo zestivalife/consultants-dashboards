@@ -1,0 +1,59 @@
+{
+  "success": true,
+  "data": {
+    "clients": [
+      {
+        "id": "client-connected",
+        "clientId": "client-connected",
+        "connectionId": "connection-active",
+        "name": "Connected Client",
+        "email": "connected@example.test",
+        "mobile": "+910000000001",
+        "status": "CONNECTED_CONSENT_ACTIVE",
+        "relationshipStatus": "CONNECTED_CONSENT_ACTIVE",
+        "assignmentStatus": "ACTIVE",
+        "connectionState": "ACTIVE",
+        "healthDataAuthorized": true,
+        "consentedScopes": ["PROFILE", "ASSESSMENTS"],
+        "connectedAt": "2026-11-01T09:00:00Z",
+        "lastActiveAt": "2026-11-04T09:00:00Z"
+      },
+      {
+        "id": "client-unconnected",
+        "clientId": "client-unconnected",
+        "connectionId": null,
+        "name": "Assigned Client",
+        "email": "assigned@example.test",
+        "mobile": "+910000000002",
+        "status": "ASSIGNED_CONNECTION_PENDING",
+        "relationshipStatus": "ASSIGNED_CONNECTION_PENDING",
+        "assignmentStatus": "ACTIVE",
+        "connectionState": null,
+        "healthDataAuthorized": false,
+        "consentedScopes": [],
+        "connectedAt": null,
+        "lastActiveAt": null
+      },
+      {
+        "id": "client-revoked",
+        "clientId": "client-revoked",
+        "connectionId": "connection-revoked",
+        "name": "Revoked Client",
+        "email": "revoked@example.test",
+        "mobile": "+910000000003",
+        "status": "CONSENT_REVOKED",
+        "relationshipStatus": "CONSENT_REVOKED",
+        "assignmentStatus": "ACTIVE",
+        "connectionState": "REVOKED",
+        "healthDataAuthorized": false,
+        "consentedScopes": [],
+        "connectedAt": "2026-10-01T09:00:00Z",
+        "lastActiveAt": "2026-11-02T09:00:00Z"
+      }
+    ],
+    "pagination": { "total": 3, "limit": 100, "offset": 0 },
+    "practiceWide": false
+  },
+  "error": null,
+  "request_id": "fixture-request-id"
+}
