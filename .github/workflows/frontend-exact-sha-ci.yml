@@ -176,6 +176,11 @@ jobs:
         working-directory: api-gateway
         run: python -m pytest -q
 
+      - name: Enforce integrated-staging release safety
+        run: |
+          python -m pytest -q tests/test_staging_release_safety.py
+          python scripts/validate_staging_release.py --allow-build-pending --check-no-production-dns
+
       - name: Install locked dependencies
         working-directory: nuetra-frontend
         run: npm ci
@@ -252,6 +257,7 @@ jobs:
           echo "- PostgreSQL integration contracts: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Auth workspace-authority contract: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Gateway regression: **PASS**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Integrated-staging release safeguards: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Executable API compatibility contracts: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Assessment/Nutrition/Scoring configuration contracts: **PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Production build: **PASS**" >> "$GITHUB_STEP_SUMMARY"

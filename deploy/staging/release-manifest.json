@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "environment": "integrated-staging",
+  "deployment_enabled": false,
+  "consumer_sha": "b888da3c63c2595b35cb653d428109aa72bf2422",
+  "provider_sha": "f7762c1eed4c3026913028742655d6c3f5a6e38e",
+  "ci": {"run_id": 41983599424, "conclusion": "success"},
+  "images": []
+}
