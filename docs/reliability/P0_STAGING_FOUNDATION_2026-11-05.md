@@ -1,48 +1,52 @@
-# P0 integrated-staging foundation
+# P0 integrated-staging release gates
 
 ## Release boundary
 
-- Consultant consumer: `b888da3c63c2595b35cb653d428109aa72bf2422`
-- Fiteatsy provider: `f7762c1eed4c3026913028742655d6c3f5a6e38e`
-- Existing successful consumer CI: run `41983599424`
-- The checked-in manifest is deliberately build-pending and therefore cannot deploy. Each of the nine image entries must contain the expected source SHA, immutable registry digest and `tested: true` evidence before the fail-closed validator passes.
+- Consumer baseline: `d4c9c5ace1a8ffd8dda37fe21fc7e94db886425b`
+- Provider baseline: `f7762c1eed4c3026913028742655d6c3f5a6e38e`
+- Target: nine application services plus dedicated PostgreSQL and Redis.
+- The checked-in manifest has `deployment_enabled: false` and no images. It is intentionally non-deployable.
 
-## Topology and reuse decision
+## Operating-mode contracts
 
-The isolated environment contains nine application services: Consultant frontend, Gateway, Auth, Profile, Practice Operations, Assessment, Nutrition, Scoring and Fiteatsy backend. PostgreSQL and Redis are dedicated staging resources, not shared with production.
+`CONFIG_CHECK` validates the nine-service dependency graph, dedicated data identities, staging-only environment markers, sink notifications, synthetic recipients, storage policy and release SHA syntax. Build artifacts may be absent.
 
-Read-only Railway inventory found reusable service definitions but no currently verified integrated environment spanning both projects. The Consultant project's recovery environments and the Fiteatsy project's QA environments must not be reused until their database targets, provider SHA and isolation are independently verified. No resource was created or changed.
+`BUILD_ATTESTATION` additionally requires exactly nine registry-resolved immutable images. For every digest it independently retrieves the registry digest and OCI configuration, verifies the source-revision label, verifies a keyless Sigstore signature, verifies SLSA provenance binding the digest to source SHA/Dockerfile/context hashes, verifies a passing vulnerability-scan attestation, and retrieves successful consumer and provider CI runs from GitHub. Manifest booleans are not evidence.
 
-## Immutable workflow
+`DEPLOY_GATE` includes both prior modes and additionally requires `deployment_enabled: true`, a short-lived signed authorization scoped only to `integrated-staging`, a manifest hash match, and a signed effective-runtime fingerprint snapshot. The authorization signature must originate from the protected `staging-deployment-authorize.yml` workflow on `main`; it never authorizes production.
 
-1. Build every image from the manifest SHA with OCI labels for revision and repository.
-2. Scan and test that exact digest; never rebuild during promotion.
-3. Record the registry digest and successful test result in the manifest.
-4. Run `python scripts/validate_staging_release.py --check-no-production-dns`.
-5. Deployment automation accepts only `image@sha256:...`; tags are informational only.
-6. After deployment, compare runtime image digest and `/version` SHA with the manifest. Any mismatch blocks acceptance.
+## Trusted build and promotion mechanism
 
-## Synthetic acceptance identities
+Each source repository must build its own service images from a full SHA in a manually approved `integrated-staging-build` GitHub environment. Images must use OCI revision labels and be pushed once. The workflow then obtains the registry digest, runs the security scan, emits an in-toto/SLSA statement containing `source_sha`, `dockerfile_sha256`, and `context_sha256`, and signs the image, provenance, and vulnerability result using GitHub OIDC keyless Cosign.
 
-- Two consultant tenants (`consultant-a@example.test`, `consultant-b@example.test`).
-- One unconnected client, one connected/consented client, one revoked-consent client and one expired-consent client per tenant.
-- Cross-tenant negative fixtures, expired sessions and dependency-unavailable cases.
-- Email, SMS and WhatsApp are routed only to local sinks; no real addresses or provider credentials are allowed.
+The gate trusts only certificates from `https://token.actions.githubusercontent.com` and the exact `staging-image-build.yml` workflow identity. Promotion uses `registry/repository@sha256:...`; rebuilding during promotion is forbidden. `crane` and `cosign` must be installed from pinned, checksum-verified releases in the gate runner.
 
-## Resource and idle policy
+The Fiteatsy provider must supply the same evidence from `zestivalife/Fiteatsy-mobile`; consumer CI cannot self-assert provider success. Until that workflow and its real run ID exist, `BUILD_ATTESTATION` and `DEPLOY_GATE` remain blocked.
 
-Start application services at 0.25 vCPU/256 MiB, PostgreSQL at 0.5 vCPU/512 MiB with 2 GB volume, and Redis at 0.25 vCPU/256 MiB with 1 GB. Enable sleep for stateless applications when inactive; retain databases at their minimum safe allocation. Raise limits only from observed staging telemetry.
+## Effective isolation verification
 
-At Railway's published usage rates ($20/vCPU-month, $10/GB RAM-month, $0.15/GB volume-month), continuously allocated maxima are approximately $7.50 per application service, $15.00 PostgreSQL, $7.50 Redis and $0.45 storage: **$90.45/month** before egress for nine applications plus data services. Usage-based sleep can reduce this materially; it is not a guaranteed bill. Any Pro workspace minimum and egress are additional.
+`fingerprint_runtime_config.py` reads rendered runtime values directly from process environment and outputs only keyed HMAC-SHA256 fingerprints. The HMAC key is held by the protected gate environment; raw URLs, credentials and signing keys are never printed or persisted. The signed snapshot includes dedicated database/Redis resource IDs and is compared with protected production fingerprints.
 
-## Deployment-readiness checklist
+Run the same `DEPLOY_GATE` twice:
 
-- [x] Production Practice schema inspected in a PostgreSQL-enforced read-only session.
-- [x] Production revision is `0064_external_practice_clients`; expected 0061/0063/0064 tables, columns, constraints, indexes and common ownership are present.
-- [x] Nine-service topology and isolated data hosts specified.
-- [x] Production hosts and live notification mode rejected by tests.
-- [x] SHA/digest mismatch and untested/mutable image evidence rejected by tests.
-- [ ] Create resources and secrets (requires explicit cost/provisioning approval).
-- [ ] Build, scan and test nine exact-SHA images; populate immutable digests.
-- [ ] Verify QA environment database isolation and provider SHA before any reuse.
-- [ ] Deploy staging, verify runtime provenance, migration revisions and authenticated E2E.
+1. Before deployment against the platform-rendered configuration.
+2. After deployment from a restricted verification job using the actual running-service configuration.
+
+Both invocations reject production database, Redis, service, signing-key, notification and storage fingerprints; public data targets require explicit staging resource allowlisting. Runtime acceptance is incomplete until the post-deployment check passes.
+
+## Negative guarantees
+
+Regression fixtures prove rejection of formatted-but-invented digests, falsified CI, disabled deployment, wrong source SHA, missing provenance, production data/service targets, production notification credentials, expired or mismatched authorization, missing images, unscanned images, real notification providers, public unallowlisted databases and shared data identities.
+
+## Resource estimate
+
+Proposed limits remain 0.25 vCPU/256 MiB per application, 0.5 vCPU/512 MiB PostgreSQL with 2 GB storage, and 0.25 vCPU/256 MiB Redis with 1 GB storage. At the currently documented Railway usage rates this is approximately **$90.45/month before egress and plan minimums** if continuously allocated. Sleep for stateless services should reduce usage but is not a billing guarantee.
+
+## Provisioning readiness
+
+- Gate implementation and negative controls: ready.
+- Real build attestations and registry digests: not created; publishing requires approval.
+- Provider build workflow/run: required.
+- Staging resource IDs and secret-safe production fingerprint baseline: require provisioning approval.
+- Signed short-lived deployment authorization: required only after artifacts and resources exist.
+- Infrastructure provisioning and deployment: not performed.

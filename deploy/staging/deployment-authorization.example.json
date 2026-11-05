@@ -1,0 +1,6 @@
+{
+  "scope": "integrated-staging",
+  "production_authorized": false,
+  "manifest_sha256": "REPLACE_WITH_CANONICAL_MANIFEST_SHA256",
+  "expires_at": "REPLACE_WITH_SHORT_LIVED_UTC_TIMESTAMP"
+}

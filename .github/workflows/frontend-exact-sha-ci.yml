@@ -179,7 +179,7 @@ jobs:
       - name: Enforce integrated-staging release safety
         run: |
           python -m pytest -q tests/test_staging_release_safety.py
-          python scripts/validate_staging_release.py --allow-build-pending --check-no-production-dns
+          python scripts/validate_staging_release.py --mode CONFIG_CHECK
 
       - name: Install locked dependencies
         working-directory: nuetra-frontend

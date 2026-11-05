@@ -1,0 +1,13 @@
+{
+  "database_identity": "staging-postgres-pending",
+  "redis_identity": "staging-redis-pending",
+  "production_fingerprints": [],
+  "environment_variables": {
+    "database": ["DATABASE_URL"],
+    "redis": ["REDIS_URL"],
+    "signing_key": ["JWT_SIGNING_KEY"],
+    "service_endpoints": ["AUTH_SERVICE_URL", "PRACTICE_OPERATIONS_URL", "FITEATSY_API_URL"],
+    "storage": ["DOCUMENT_STORAGE_URL"],
+    "notifications": ["NOTIFICATION_SINK_URL"]
+  }
+}

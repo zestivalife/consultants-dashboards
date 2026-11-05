@@ -1,26 +1,23 @@
 {
-  "environment": "integrated-staging",
-  "production_access": false,
-  "services": [
-    "consultant-frontend", "api-gateway", "auth-service", "profile-service",
-    "practice-operations-service", "assessment-service", "nutrition-service",
-    "scoring-engine-service", "fiteatsy-backend"
-  ],
+  "environment": "integrated-staging", "production_access": false,
+  "services": {
+    "consultant-frontend": {"environment": "integrated-staging", "dependencies": ["api-gateway"]},
+    "api-gateway": {"environment": "integrated-staging", "dependencies": ["auth-service", "profile-service", "practice-operations-service", "assessment-service", "nutrition-service", "scoring-engine-service"]},
+    "auth-service": {"environment": "integrated-staging", "dependencies": ["postgres", "redis"]},
+    "profile-service": {"environment": "integrated-staging", "dependencies": ["postgres"]},
+    "practice-operations-service": {"environment": "integrated-staging", "dependencies": ["postgres", "fiteatsy-backend"]},
+    "assessment-service": {"environment": "integrated-staging", "dependencies": ["postgres", "auth-service"]},
+    "nutrition-service": {"environment": "integrated-staging", "dependencies": ["postgres", "auth-service"]},
+    "scoring-engine-service": {"environment": "integrated-staging", "dependencies": ["postgres", "auth-service"]},
+    "fiteatsy-backend": {"environment": "integrated-staging", "dependencies": ["postgres", "redis"]}
+  },
   "data_services": {
-    "postgres": {"host": "postgres-integrated-staging.railway.internal", "database": "consultant_staging", "storage_gb": 2},
-    "redis": {"host": "redis-integrated-staging.railway.internal", "storage_gb": 1}
+    "postgres": {"resource_id": "staging-postgres-pending", "environment": "integrated-staging", "shared_with_production": false, "public": false, "storage_gb": 2},
+    "redis": {"resource_id": "staging-redis-pending", "environment": "integrated-staging", "shared_with_production": false, "public": false, "storage_gb": 1}
   },
-  "safety": {
-    "database_environment": "staging",
-    "notification_mode": "sink",
-    "allowed_email_domains": ["example.test"],
-    "deny_production_credentials": true,
-    "deny_production_hosts": true
-  },
-  "resource_limits": {
-    "application_service": {"vcpu": 0.25, "memory_mb": 256},
-    "postgres": {"vcpu": 0.5, "memory_mb": 512},
-    "redis": {"vcpu": 0.25, "memory_mb": 256}
-  },
+  "allowed_public_staging_resources": [],
+  "notifications": {"mode": "sink", "provider": "local-sink", "recipient_domains": ["example.test"]},
+  "storage": {"provider": "staging-isolated", "resource_id": "staging-storage-pending"},
+  "resource_limits": {"application_service": {"vcpu": 0.25, "memory_mb": 256}, "postgres": {"vcpu": 0.5, "memory_mb": 512}, "redis": {"vcpu": 0.25, "memory_mb": 256}},
   "idle_policy": {"application_services": "sleep_when_inactive", "databases": "retain_and_scale_to_minimum"}
 }
