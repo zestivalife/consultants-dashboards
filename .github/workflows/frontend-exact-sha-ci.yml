@@ -7,6 +7,7 @@ on:
       - codex/p0-role-workspace-routing
       - codex/p0-reliability-framework
       - codex/p0-migration-lineage-reconcile
+      - codex/p0-staging-release-gates
   workflow_dispatch:
     inputs:
       commit_sha:
