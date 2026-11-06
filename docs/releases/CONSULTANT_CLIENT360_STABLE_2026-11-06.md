@@ -52,6 +52,8 @@ The following production checks passed on the tagged frontend and must remain re
 
 Exact-SHA CI: [run 42106578770](https://github.com/zestivalife/consultants-dashboards/actions/runs/42106578770), `success`, exact SHA `77d52cc733cf878516f99dae74e52f964efd7ac4`.
 
+Focused frozen-baseline regression: 76 passed, 0 failed. This set covers roster failure semantics, Client 360 access/consent states, profile projections, Diet Plan capability/readiness, seven Common Food meal heads, exact-version self-approval, publication controls, Super Admin food authorisation and workspace authority.
+
 ## Known unfinished work
 
 - Health Profile evidence-review call returns HTTP 404 for `GET /api/fiteatsy/v1/external/clients/{client_id}/profile-evidence-reviews`; this is not an Idempotency-Key failure and does not invalidate the loaded Client 360 projection.
