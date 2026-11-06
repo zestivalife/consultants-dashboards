@@ -5,13 +5,23 @@ import test from 'node:test';
 const workspace=readFileSync(new URL('../components/external/ExternalClient360.jsx',import.meta.url),'utf8');
 const shell=readFileSync(new URL('../components/external/ExternalSaaSWorkspace.jsx',import.meta.url),'utf8');
 const api=readFileSync(new URL('../lib/fiteatsyConsultantsApi.js',import.meta.url),'utf8');
+const multi=readFileSync(new URL('../components/external/ExternalMultiDietPlan.jsx',import.meta.url),'utf8');
+const practiceApi=readFileSync(new URL('../lib/practiceOperationsApi.js',import.meta.url),'utf8');
 
 test('Client 360 exposes the Practice Operations Diet Plan action and dedicated tab',()=>{const active=workspace.split('function LegacyExternalDietPlan')[0];assert.match(active,/Open Diet Plans/);assert.match(active,/active === 'Diet Plan'/);assert.match(active,/ExternalMultiDietPlan/);assert.doesNotMatch(active,/getExternalDietPlan\(client\.id\)/);});
 test('Diet Plans landing page exposes a primary creation action even when no plan exists',()=>{assert.match(shell,/function PlanHistory/);assert.match(shell,/Create Diet Plan/);assert.match(shell,/label="Generate Diet Plan"/);assert.match(shell,/action=\{firstClient\?\(\)=>onOpen\(firstClient\):undefined\}/);});
 test('external authoring uses seven-head Common Food result and exact 35-option persistence',()=>{assert.match(workspace,/snapshot\.meals\.map/);assert.match(workspace,/meal\.options\.map/);assert.match(workspace,/flatMap\(meal=>meal\.options\)/);assert.match(api,/diet-plan\/generate/);assert.match(api,/diet-plan\/draft/);});
 test('external cards and DOCX use real governed snapshot fields without placeholder fallbacks',()=>{assert.match(workspace,/validateExternalDietOption/);assert.doesNotMatch(workspace,/Governed food option/);assert.doesNotMatch(workspace,/option\.totals/);assert.doesNotMatch(workspace,/option\.items/);});
 test('publication is explicit and does not expose a Senior approval action',()=>{assert.match(workspace,/Publish this exact Diet Plan version to the client/);assert.match(workspace,/External Consultant self-publish workflow/);assert.doesNotMatch(workspace,/Submit for Senior|Request Senior/);});
-test('consultant-owned plan uses exact-version self-approval before publication',()=>{const multi=readFileSync(new URL('../components/external/ExternalMultiDietPlan.jsx',import.meta.url),'utf8');assert.doesNotMatch(multi,/Submit for review|Senior Consultant review/);assert.match(multi,/Approve exact version/);assert.match(multi,/Publish approved version/);assert.match(multi,/expected_version: refreshed\.plan\.current_version/);});
+test('consultant-owned plan uses exact-version self-approval before publication',()=>{assert.doesNotMatch(multi,/Submit for review|Senior Consultant review/);assert.match(multi,/Approve exact version/);assert.match(multi,/Publish approved version/);assert.match(multi,/expected_version: refreshed\.plan\.current_version/);});
+test('Diet Plan creation forwards one stable Idempotency-Key across retries',()=>{
+  assert.match(practiceApi,/createConsultantDietPlan\(payload,idempotencyKey\)/);
+  assert.match(practiceApi,/headers:\{'Idempotency-Key':idempotencyKey\}/);
+  assert.match(multi,/creationKeyRef\.current \|\| globalThis\.crypto\.randomUUID\(\)/);
+  assert.match(multi,/creationKeyRef\.current = idempotencyKey/);
+  assert.match(multi,/createConsultantDietPlan\([^;]+, idempotencyKey\)/);
+  assert.match(multi,/creationKeyRef\.current = ''/);
+});
 test('DOCX export uses the governed backend template rather than a browser-built approximation',()=>{assert.match(workspace,/downloadExternalDietPlan/);assert.match(workspace,/Export DOCX/);assert.match(api,/external\/clients\/\$\{encodeURIComponent\(clientId\)\}\/diet-plan\/download/);assert.doesNotMatch(workspace,/Packer\.toBlob|new Document/);});
 test('completed intake optional sections are not presented as missing requirements',()=>{assert.match(workspace,/Optional information not provided/);assert.match(workspace,/Missing required information/);});
 test('external Diet Plan reuses the full Internal Common Food editor through an injected adapter',()=>{

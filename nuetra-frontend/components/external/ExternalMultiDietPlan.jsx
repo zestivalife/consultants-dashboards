@@ -49,6 +49,7 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
   const [readiness, setReadiness] = useState({ outcome: 'LOADING' });
   const [healthContext, setHealthContext] = useState(null);
   const editorRef = useRef(null);
+  const creationKeyRef = useRef('');
   const selected = useMemo(() => plans.find((plan) => plan.id === selectedId) || plans[0] || null, [plans, selectedId]);
   const valid = form.name.trim().length >= 2 && Number(form.dailyCalories) >= 800 && Number(form.dailyCalories) <= 6000 && Number(form.dailyProtein) >= 20 && Number(form.dailyProtein) <= 400;
 
@@ -82,7 +83,10 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
     if (!valid || busy) return;
     setBusy('create'); setMessage(''); onError('');
     try {
-      const result = await createConsultantDietPlan({ client_id: clientId, name: form.name.trim(), daily_calories_target: Number(form.dailyCalories), daily_protein_target_g: Number(form.dailyProtein), health_goals: valueList(context?.goals).slice(0, 3) });
+      const idempotencyKey = creationKeyRef.current || globalThis.crypto.randomUUID();
+      creationKeyRef.current = idempotencyKey;
+      const result = await createConsultantDietPlan({ client_id: clientId, name: form.name.trim(), daily_calories_target: Number(form.dailyCalories), daily_protein_target_g: Number(form.dailyProtein), health_goals: valueList(context?.goals).slice(0, 3) }, idempotencyKey);
+      creationKeyRef.current = '';
       setForm(initialForm);
       await load(result.id);
       setMessage('A new independent Diet Plan draft was created and reloaded.');
