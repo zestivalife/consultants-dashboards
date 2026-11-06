@@ -14,6 +14,25 @@ test('external authoring uses seven governed meal heads and versioned Practice O
 test('external plan history renders backend snapshot fields without placeholder nutrition',()=>{assert.match(multi,/nutrition_snapshot\?\.option_count/);assert.doesNotMatch(multi,/Governed food option/);assert.doesNotMatch(multi,/option\.totals/);});
 test('consultant can approve the exact version directly before publication',()=>{assert.doesNotMatch(multi,/Submit for review|Senior Consultant review/);assert.match(multi,/Approve exact version/);assert.match(multi,/Publish approved version/);assert.match(multi,/expected_version:refreshed\.plan\.current_version/);});
 test('DOCX export uses the governed Practice Operations endpoint rather than a browser-built approximation',()=>{assert.match(multi,/downloadConsultantDietPlan/);assert.match(multi,/Download DOCX/);assert.match(practiceApi,/diet-plans\/\$\{encodeURIComponent\(planId\)\}\/download/);assert.doesNotMatch(multi,/Packer\.toBlob|new Document/);});
+test('Diet Requirements uses an accessible consolidated modal and existing scoped questionnaire contracts',()=>{
+  assert.match(multi,/Open Diet Requirements/);
+  assert.match(multi,/role="dialog"/);
+  assert.match(multi,/aria-modal="true"/);
+  assert.match(multi,/aria-labelledby="diet-requirements-title"/);
+  assert.match(multi,/event\.key === 'Escape'/);
+  assert.match(multi,/getClientInformationCompleteness\(clientId\)/);
+  assert.match(multi,/createClientInformationRequest\(clientId/);
+  assert.match(multi,/field_ids:requestedFields/);
+  assert.match(multi,/expires_in_hours:168/);
+  assert.match(multi,/Request Missing Information/);
+});
+test('Diet Requirements keeps clinical context read-only and does not derive professional targets',()=>{
+  for(const label of ['Client nutrition context','Measurements and evidence','Meals per day','Typical food intake','Medical conditions','Supplements'])assert.match(multi,new RegExp(label));
+  assert.match(multi,/Calories and protein are never prescribed from BMI alone/);
+  assert.doesNotMatch(multi,/setForm\([^\n]+bmi/i);
+  assert.match(multi,/Draft creation permitted/);
+  assert.match(multi,/Publication still requires the existing readiness, confirmation and safety checks/);
+});
 test('completed intake optional sections are not presented as missing requirements',()=>{assert.match(workspace,/Optional information not provided/);assert.match(workspace,/Missing required information/);});
 test('external Diet Plan reuses the full Internal Common Food editor through an injected adapter',()=>{
   assert.match(multi,/CommonFoodPlanEditor/);

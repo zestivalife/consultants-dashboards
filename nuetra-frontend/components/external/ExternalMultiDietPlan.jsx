@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   searchExternalCommonFoods,
 } from '../../lib/fiteatsyConsultantsApi';
-import { bindDietPlanAssessment, createConsultantDietPlan, downloadConsultantDietPlan, getConsultantDietPlan, getDietPlanHealthContext, getNutritionAssessment, listConsultantDietPlans, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan } from '../../lib/practiceOperationsApi';
+import { bindDietPlanAssessment, createClientInformationRequest, createConsultantDietPlan, downloadConsultantDietPlan, getClientInformationCompleteness, getConsultantDietPlan, getDietPlanHealthContext, getNutritionAssessment, listConsultantDietPlans, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan } from '../../lib/practiceOperationsApi';
 import { createdDraftPresentation, loadDietPlanWorkspace } from '../../lib/dietPlanWorkspaceState.mjs';
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import CommonFoodPlanEditor from '../platform/CommonFoodPlanEditor';
@@ -51,9 +51,15 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
   const [loadError, setLoadError] = useState('');
   const [readiness, setReadiness] = useState({ outcome: 'LOADING' });
   const [healthContext, setHealthContext] = useState(null);
+  const [requirementsOpen, setRequirementsOpen] = useState(false);
+  const [completeness, setCompleteness] = useState(null);
+  const [requestedFields, setRequestedFields] = useState([]);
+  const [questionnaireLink, setQuestionnaireLink] = useState('');
   const editorRef = useRef(null);
   const selectedIdRef = useRef('');
   const creationKeyRef = useRef('');
+  const generateButtonRef = useRef(null);
+  const firstFieldRef = useRef(null);
   const selected = useMemo(() => plans.find((plan) => plan.id === selectedId) || plans[0] || null, [plans, selectedId]);
   const valid = form.name.trim().length >= 2 && Number(form.dailyCalories) >= 800 && Number(form.dailyCalories) <= 6000 && Number(form.dailyProtein) >= 20 && Number(form.dailyProtein) <= 400;
   const canCreate=valid&&!busy&&plansStatus!=='error'&&!['ERROR','UNAVAILABLE'].includes(readiness.outcome);
@@ -77,6 +83,47 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (!requirementsOpen) return undefined;
+    firstFieldRef.current?.focus();
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') {
+        setRequirementsOpen(false);
+        requestAnimationFrame(() => generateButtonRef.current?.focus());
+      }
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [requirementsOpen]);
+
+  const openRequirements = async () => {
+    setRequirementsOpen(true);
+    setQuestionnaireLink('');
+    try {
+      const value = await getClientInformationCompleteness(clientId);
+      setCompleteness(value);
+      setRequestedFields((value.fields || []).filter((item) => item.client_can_provide && ['MISSING','INVALID','REQUIRES_CONFIRMATION'].includes(item.status)).map((item) => item.field_id));
+    } catch (error) {
+      setCompleteness(null);
+      onError(error.message || 'Client information completeness could not be loaded.');
+    }
+  };
+
+  const requestMissingInformation = async () => {
+    if (!requestedFields.length || busy) return;
+    setBusy('questionnaire');
+    try {
+      const result = await createClientInformationRequest(clientId, { field_ids: requestedFields, delivery_channel: 'COPY_LINK', expires_in_hours: 168 });
+      const url = `${window.location.origin}/client-information/${encodeURIComponent(result.token)}`;
+      setQuestionnaireLink(url);
+      await navigator.clipboard?.writeText(url);
+    } catch (error) {
+      onError(error.message || 'The secure questionnaire link could not be created.');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const create = async (event) => {
     event.preventDefault();
     if (!valid || busy) return;
@@ -86,6 +133,7 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
       const result = await createConsultantDietPlan({ client_id: clientId, name: form.name.trim(), daily_calories_target: Number(form.dailyCalories), daily_protein_target_g: Number(form.dailyProtein), health_goals: valueList(context?.goals).slice(0, 3) },idempotencyKey);
       creationKeyRef.current='';
       setForm(initialForm);
+      setRequirementsOpen(false);
       const loaded=await load(result.id);const presentation=createdDraftPresentation(result.id,loaded);setCreationState(presentation);setMessage(presentation.message);
     } catch (error) { setCreationState({state:'failed',createdId:''});onError(error.message || 'Unable to create Diet Plan.'); }
     finally { setBusy(''); }
@@ -123,6 +171,7 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
 
   const resolved=healthContext?.measurement_context||{};const latest=resolved.latest||{};const calculations=resolved.calculations||{};
   const fields = [['Health & wellness goals', healthContext?.profile?.weight_management_goals?.length?healthContext.profile.weight_management_goals:context?.goals], ['Diet preference', healthContext?.profile?.dietary_preference||context?.dietPreference], ['Allergies', healthContext?.profile?.allergies_intolerances?.length?healthContext.profile.allergies_intolerances:context?.allergies], ['Food restrictions', healthContext?.profile?.food_restrictions?.length?healthContext.profile.food_restrictions:context?.restrictions], ['Current weight', latest.WEIGHT_KG?`${latest.WEIGHT_KG.value} ${latest.WEIGHT_KG.unit}`:'Not provided'], ['Current height', latest.HEIGHT_CM?`${latest.HEIGHT_CM.value} ${latest.HEIGHT_CM.unit}`:'Not provided'], ['BMI', calculations.bmi?.value??'Not available']];
+  const nutritionContext = [['Health goals', healthContext?.profile?.weight_management_goals?.length?healthContext.profile.weight_management_goals:context?.goals],['Diet preference',healthContext?.profile?.dietary_preference||context?.dietPreference],['Allergies',healthContext?.profile?.allergies_intolerances?.length?healthContext.profile.allergies_intolerances:context?.allergies],['Food restrictions',healthContext?.profile?.food_restrictions?.length?healthContext.profile.food_restrictions:context?.restrictions],['Meals per day',healthContext?.profile?.meal_timing_frequency],['Typical food intake',healthContext?.profile?.typical_dietary_intake],['Appetite and eating patterns',healthContext?.profile?.appetite_eating_patterns],['Hydration',healthContext?.profile?.water_intake],['Medical conditions',healthContext?.profile?.nutrition_medical_conditions||context?.conditions],['Medications',healthContext?.profile?.relevant_medications||context?.medications],['Supplements',healthContext?.profile?.relevant_supplements]];
   const confirmedBiomarkers=(context?.biomarkers||[]).filter(item=>!item.reviewStatus||item.reviewStatus==='CONFIRMED'||item.review_status==='CONFIRMED');
   if (loading) return <div className="rounded-2xl bg-white p-12 text-center text-sm text-slate-500">Loading all Diet Plans…</div>;
 
@@ -135,10 +184,8 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
     </section>
     <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
       <p className="text-xs font-bold uppercase tracking-wider text-blue-700">Health Context for Diet Planning</p>
-      <h3 className="mt-1 text-lg font-semibold text-blue-950">Review the server-authoritative inputs before authoring</h3>
-      <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{fields.map(([label, value]) => <div key={label} className="rounded-xl bg-white p-3"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 text-sm font-semibold">{show(value)}</dd></div>)}</dl>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">Measurement freshness and sources</p><p className="mt-1 text-sm font-semibold">{Object.values(latest).filter(item=>item.eligibility==='ELIGIBLE').length} eligible dated measurements</p><p className="mt-1 text-xs text-slate-500">{Object.values(latest).map(item=>`${String(item.measurement_type).replaceAll('_',' ')} · ${item.measured_at?new Date(item.measured_at).toLocaleDateString():'date unavailable'} · ${String(item.source||'unknown').replaceAll('_',' ')}`).join(' | ')||'No governed measurement context'}</p></div><div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">Target methodology</p><p className="mt-1 text-sm font-semibold">Professional judgement required</p><p className="mt-1 text-xs text-slate-500">Calories and protein are never prescribed from BMI alone. Existing approved targets are not overwritten.</p></div></div>
-      <div className="mt-3 rounded-xl bg-white p-3"><p className="text-xs text-slate-500">Confirmed biomarkers for consultant review</p><p className="mt-1 text-sm font-semibold">{confirmedBiomarkers.length ? `${confirmedBiomarkers.length} confirmed result${confirmedBiomarkers.length===1?'':'s'} available` : 'No confirmed biomarkers available'}</p>{confirmedBiomarkers.length>0&&<div className="mt-2 flex flex-wrap gap-2">{confirmedBiomarkers.slice(0,8).map(item=><span key={item.canonicalBiomarkerId||item.id} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold">{item.name}: {show(item.value)} {item.unit||''}</span>)}</div>}<p className="mt-2 text-xs text-slate-500">These results are displayed as evidence for professional review. They are not automatically interpreted as a diagnosis and do not silently prescribe foods or targets.</p></div>
+      <h3 className="mt-1 text-lg font-semibold text-blue-950">Server-authoritative context is ready for review</h3>
+      <p className="mt-2 text-sm text-blue-900">Open Diet Requirements to review nutrition, measurements and confirmed evidence without duplicating Client 360 data.</p>
       {(resolved.requires_professional_confirmation||healthContext?.assessment?.measurement_context_changed)&&<div role="alert" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{healthContext?.assessment?.measurement_context_changed?'Measurements changed after the current assessment. Re-review the Nutrition Assessment before saving or publishing a plan.':'Legacy self-reported measurements require professional confirmation before they can influence Diet Plan calculations.'}</div>}
       <button type="button" onClick={onReviewMeasurements} className="mt-4 min-h-11 rounded-xl border border-blue-300 bg-white px-4 text-sm font-semibold text-blue-900">Review measurements in Client360</button>
     </section>
@@ -176,7 +223,14 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
       </section>
     </>}
 
-    <form onSubmit={create} className="rounded-2xl border border-slate-200 bg-white p-5"><h3 className="text-lg font-semibold">Generate Diet Chart</h3><p className="mt-1 text-sm text-slate-500">Create an independent plan with its own targets, draft and publication history.</p>{readiness.outcome!=='READY'&&!['ERROR','UNAVAILABLE'].includes(readiness.outcome)&&<div role="note" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><strong>Based on available information.</strong> You can generate this draft now. A completed Nutrition Assessment helps produce a more accurate, personalised Diet Chart before publication.</div>}<div className="mt-4 grid gap-3 md:grid-cols-3"><label className="text-sm font-semibold">Plan name<input required minLength={2} maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label><label className="text-sm font-semibold">Calories (800–6000)<input required type="number" min="800" max="6000" value={form.dailyCalories} onChange={(event) => setForm({ ...form, dailyCalories: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label><label className="text-sm font-semibold">Protein (20–400 g)<input required type="number" min="20" max="400" step="0.1" value={form.dailyProtein} onChange={(event) => setForm({ ...form, dailyProtein: event.target.value })} className="mt-2 w-full rounded-xl border p-3" /></label></div><button disabled={!canCreate} className="mt-4 min-h-11 rounded-xl bg-slate-950 px-5 font-semibold text-white disabled:opacity-40">{busy === 'create' ? 'Generating…' : 'Generate Diet Chart'}</button></form>
+    <section className="rounded-2xl border border-slate-200 bg-white p-5"><h3 className="text-lg font-semibold">Generate Diet Chart</h3><p className="mt-1 text-sm text-slate-500">Review existing information and confirm professional plan targets.</p><button ref={generateButtonRef} type="button" onClick={openRequirements} className="mt-4 min-h-11 rounded-xl bg-slate-950 px-5 font-semibold text-white">Open Diet Requirements</button></section>
+    {requirementsOpen&&<div className="fixed inset-0 z-[80] overflow-y-auto bg-slate-950/60 p-3 sm:p-6" role="presentation" onMouseDown={(event)=>{if(event.target===event.currentTarget){setRequirementsOpen(false);requestAnimationFrame(()=>generateButtonRef.current?.focus());}}}><section role="dialog" aria-modal="true" aria-labelledby="diet-requirements-title" className="mx-auto w-full max-w-5xl rounded-3xl bg-slate-50 p-5 shadow-2xl sm:p-7"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-wider text-blue-700">Diet planning</p><h2 id="diet-requirements-title" className="mt-1 text-2xl font-semibold">Diet Requirements</h2><p className="mt-1 text-sm text-slate-600">Existing information remains governed by Nutrition Assessment and Client 360.</p></div><button type="button" aria-label="Close Diet Requirements" onClick={()=>{setRequirementsOpen(false);requestAnimationFrame(()=>generateButtonRef.current?.focus());}} className="grid min-h-11 min-w-11 place-items-center rounded-xl border bg-white text-xl">×</button></div>
+      <section className={`mt-5 rounded-2xl border p-4 ${readiness.outcome==='READY'?'border-emerald-200 bg-emerald-50':'border-amber-200 bg-amber-50'}`}><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-wider">Planning readiness</p><p className="mt-1 font-semibold">{String(readiness.outcome||'NOT_STARTED').replaceAll('_',' ')}</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold">Draft creation permitted</span></div><p className="mt-2 text-sm">{readiness.outcome==='READY'?'The current assessment can be bound for publication checks.':'Based on available information, a draft may be created now. Publication still requires the existing readiness, confirmation and safety checks.'}</p>{(resolved.requires_professional_confirmation||healthContext?.assessment?.measurement_context_changed)&&<p role="alert" className="mt-2 text-sm font-semibold">{healthContext?.assessment?.measurement_context_changed?'Measurements changed after the current assessment and require review.':'One or more legacy measurements require professional confirmation.'}</p>}</section>
+      <form onSubmit={create} className="mt-5 rounded-2xl border border-slate-200 bg-white p-4"><h3 className="font-semibold">Professional plan inputs</h3><p className="mt-1 text-xs text-slate-500"><strong>Target methodology:</strong> these bounds validate the API contract; they are not clinical recommendations. Calories and protein are never prescribed from BMI alone.</p><div className="mt-4 grid gap-3 md:grid-cols-3"><label className="text-sm font-semibold">Plan name<input ref={firstFieldRef} required minLength={2} maxLength={120} value={form.name} onChange={(event)=>setForm({...form,name:event.target.value})} className="mt-2 w-full rounded-xl border p-3"/></label><label className="text-sm font-semibold">Calories (800–6000)<input required type="number" min="800" max="6000" value={form.dailyCalories} onChange={(event)=>setForm({...form,dailyCalories:event.target.value})} className="mt-2 w-full rounded-xl border p-3"/></label><label className="text-sm font-semibold">Protein (20–400 g)<input required type="number" min="20" max="400" step="0.1" value={form.dailyProtein} onChange={(event)=>setForm({...form,dailyProtein:event.target.value})} className="mt-2 w-full rounded-xl border p-3"/></label></div><button disabled={!valid||busy} className="mt-4 min-h-11 rounded-xl bg-slate-950 px-5 font-semibold text-white disabled:opacity-40">{busy==='create'?'Generating…':'Generate Diet Chart'}</button></form>
+      <details className="mt-5 rounded-2xl border border-slate-200 bg-white p-4"><summary className="cursor-pointer font-semibold">Client nutrition context</summary><p className="mt-2 text-xs text-slate-500">Use Nutrition Assessment to edit or confirm these values.</p><dl className="mt-4 grid gap-3 sm:grid-cols-2">{nutritionContext.map(([label,value])=><div key={label} className="rounded-xl bg-slate-50 p-3"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 text-sm font-semibold">{show(value)}</dd></div>)}</dl></details>
+      <details className="mt-4 rounded-2xl border border-slate-200 bg-white p-4"><summary className="cursor-pointer font-semibold">Measurements and evidence</summary><p className="mt-2 text-xs text-slate-500">Read-only values remain governed by Client 360.</p><dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{fields.map(([label,value])=><div key={label} className="rounded-xl bg-slate-50 p-3"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 text-sm font-semibold">{show(value)}</dd></div>)}</dl><p className="mt-3 text-xs text-slate-500">Confirmed biomarkers for consultant review</p><p className="mt-1 text-sm font-semibold">{confirmedBiomarkers.length?`${confirmedBiomarkers.length} confirmed biomarker result${confirmedBiomarkers.length===1?'':'s'} available`:'No confirmed biomarkers available'}</p><p className="mt-1 text-xs text-slate-500">These results remain evidence for professional review. They do not automatically diagnose conditions and do not silently prescribe foods or targets.</p><button type="button" onClick={onReviewMeasurements} className="mt-4 min-h-11 rounded-xl border px-4 text-sm font-semibold">Review measurements in Client 360</button></details>
+      <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4"><h3 className="font-semibold">Missing information</h3>{completeness?<><p className="mt-2 text-sm text-slate-600">{requestedFields.length?`${requestedFields.length} missing or confirmation-required field${requestedFields.length===1?'':'s'} can be requested securely.`:'No requestable missing information was reported.'}</p>{(completeness.fields||[]).filter((item)=>item.client_can_provide&&['MISSING','INVALID','REQUIRES_CONFIRMATION'].includes(item.status)).map((item)=><label key={item.field_id} className="mt-2 flex min-h-11 items-start gap-3 rounded-xl bg-slate-50 p-3"><input type="checkbox" className="mt-1" checked={requestedFields.includes(item.field_id)} onChange={()=>setRequestedFields((current)=>current.includes(item.field_id)?current.filter((id)=>id!==item.field_id):[...current,item.field_id])}/><span><strong className="text-sm">{item.label}</strong><span className="block text-xs text-slate-500">{String(item.status).replaceAll('_',' ')} · {item.reason||item.source||'Client information'}</span></span></label>)}<button type="button" disabled={!requestedFields.length||busy} onClick={requestMissingInformation} className="mt-4 min-h-11 rounded-xl bg-violet-700 px-4 text-sm font-semibold text-white disabled:opacity-40">{busy==='questionnaire'?'Creating secure link…':'Request Missing Information'}</button>{questionnaireLink&&<div role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800"><p>The scoped link is ready and expires automatically.</p><button type="button" onClick={()=>navigator.clipboard?.writeText(questionnaireLink)} className="mt-2 min-h-10 rounded-lg border border-emerald-300 bg-white px-3 font-semibold">Copy secure link</button></div>}</>:<p className="mt-2 text-sm text-slate-500">Completeness is unavailable. No empty state has been inferred.</p>}</section>
+    </section></div>}
     {message && <p role="status" className={`rounded-xl p-3 text-sm font-semibold ${creationState.state==='reload_failed'?'border border-amber-300 bg-amber-50 text-amber-900':'bg-emerald-50 text-emerald-800'}`}>{message}</p>}
   </div>;
 }
