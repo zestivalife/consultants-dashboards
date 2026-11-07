@@ -82,6 +82,7 @@ async def test_governed_option_is_atomic_immutable_idempotent_and_authoritative(
         await session.commit()
 
     calls = []
+    browser_client = httpx.AsyncClient
     class ResolverClient:
         def __init__(self, **_kwargs): pass
         async def __aenter__(self): return self
@@ -94,7 +95,7 @@ async def test_governed_option_is_atomic_immutable_idempotent_and_authoritative(
     headers={"X-User-Id":consultant,"X-Tenant-Id":tenant,"X-User-Role":"EXTERNAL_CONSULTANT","X-Tenant-Type":"PRACTICE","Idempotency-Key":"option-operation-1"}
     payload={"expected_version":1,"meal_head":"LUNCH","components":[{"food_id":"food-1","serving_id":"serving-1","multiplier":1}]}
     transport=httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport,base_url="http://test") as browser:
+    async with browser_client(transport=transport,base_url="http://test") as browser:
         first=await browser.put(f"/api/v1/practice-operations/diet-plans/{plan_id}/options/lunch-option-1",headers=headers,json=payload)
         assert first.status_code==200,first.text
         assert first.json()["data"]["version"]==2
