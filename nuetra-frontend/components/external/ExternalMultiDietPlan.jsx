@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   searchExternalCommonFoods,
 } from '../../lib/fiteatsyConsultantsApi';
-import { bindDietPlanAssessment, createClientInformationRequest, createConsultantDietPlan, downloadConsultantDietPlan, getClientInformationCompleteness, getConsultantDietPlan, getDietPlanHealthContext, getNutritionAssessment, listConsultantDietPlans, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan } from '../../lib/practiceOperationsApi';
+import { bindDietPlanAssessment, createClientInformationRequest, createConsultantDietPlan, downloadConsultantDietPlan, getClientInformationCompleteness, getConsultantDietPlan, getDietPlanHealthContext, getNutritionAssessment, listConsultantDietPlans, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan, updateConsultantDietPlanOption } from '../../lib/practiceOperationsApi';
 import { createdDraftPresentation, loadDietPlanWorkspace } from '../../lib/dietPlanWorkspaceState.mjs';
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import CommonFoodPlanEditor from '../platform/CommonFoodPlanEditor';
@@ -12,6 +12,7 @@ const readPlan=async planId=>{const value=await getConsultantDietPlan(planId);re
 const persistOptions=async(planId,options)=>{const {value}=await readPlan(planId);return saveConsultantDietPlan(planId,{expected_version:value.plan.current_version,options})};
 const generatedOptionsByPlan=new Map();
 const editorVersionAliases = new Map();
+const governedOptionOperationKeys=new Map();
 const mergePersistedOptions=(currentOptions,requestedOptions,candidates=[])=>{
   const available=[...(currentOptions||[]),...(candidates||[])];
   return(requestedOptions||[]).map(requested=>{const current=available.find(option=>option.combinationId===requested.optionId);return{...(current||{}),combinationId:requested.optionId,mealHead:requested.mealHead,selected:true,components:(requested.components||[]).map(component=>{const prior=current?.components?.find(item=>item.foodId===component.foodId);return{...(prior||{}),...component,nutrition:prior?.nutrition||{},provenance:prior?.provenance||{source:'FITEATSY_GOVERNED_CATALOGUE'}}}),nutrition:current?.nutrition||{}}});
@@ -20,14 +21,28 @@ const authoringApi = {
   generate: async(clientId,planId,mealHeads=COMMON_FOOD_MEALS.map(([head])=>head))=>{const meals=[];for(const mealHead of mealHeads){const response=await searchExternalCommonFoods(clientId,{scope:'RECOMMENDED',mealHead,limit:5});const foods=(response.items||response.foods||[]).filter(food=>food.primaryActionEnabled!==false).slice(0,5);meals.push({mealHead,options:foods.map((food,index)=>normalOption(food,mealHead,index))})}generatedOptionsByPlan.set(planId,meals.flatMap(meal=>meal.options));return{meals,generationSnapshot:{source:'FITEATSY_GOVERNED_CATALOGUE',readOnly:true}}},
   read: async(_clientId,planId)=>{const result=await readPlan(planId);return{options:result.options,planVersionId:editorVersionAliases.get(planId)||result.planVersionId}},
   replaceSelection: async(_clientId,planId,payload)=>{const result=await readPlan(planId);const options=mergePersistedOptions(result.options,payload.options,generatedOptionsByPlan.get(planId));await persistOptions(planId,options);generatedOptionsByPlan.set(planId,options);editorVersionAliases.set(planId,payload.expectedPlanVersionId);return{planVersionId:payload.expectedPlanVersionId}},
-  replaceComponent: async()=>{throw new Error('Replace the complete governed meal option and save a new version.');},
-  addComponent: async()=>{throw new Error('Create a governed meal option and save a new version.');},
-  removeComponent: async()=>{throw new Error('Remove the complete meal option and save a new version.');},
-  updateServing: async()=>{throw new Error('Serving changes are persisted with the complete plan version.');},
+  replaceComponent: async(_clientId,planId,optionId,componentId,payload)=>mutateGovernedOption(planId,optionId,option=>({...option,components:payload.draft.components.map(component=>component.foodId===componentId?payload.component:component)})),
+  addComponent: async(_clientId,planId,optionId,payload)=>mutateGovernedOption(planId,optionId,option=>({...option,components:[...payload.draft.components,payload.component]})),
+  removeComponent: async(_clientId,planId,optionId,componentId)=>mutateGovernedOption(planId,optionId,option=>({...option,components:option.components.filter(component=>component.foodId!==componentId)})),
+  updateServing: async(_clientId,planId,optionId,componentId,payload)=>mutateGovernedOption(planId,optionId,option=>({...option,components:option.components.map(component=>component.foodId===componentId?{...component,servingId:payload.servingId,multiplier:payload.multiplier}:component)})),
   search: searchExternalCommonFoods,
-  saveOption: async(_clientId,planId,payload)=>{const result=await readPlan(planId);const option={combinationId:crypto.randomUUID(),mealHead:payload.mealHead,selected:true,sourceType:'MANUAL',components:payload.components,nutrition:payload.components.reduce((sum,item)=>({kcal:(sum.kcal||0)+Number(item.nutrition?.kcal||0),protein:(sum.protein||0)+Number(item.nutrition?.protein||0),carbohydrate:(sum.carbohydrate||0)+Number(item.nutrition?.carbohydrate||0),fat:(sum.fat||0)+Number(item.nutrition?.fat||0),fibre:(sum.fibre||0)+Number(item.nutrition?.fibre||0)}),{})};await persistOptions(planId,[...result.options,option]);return option},
+  saveOption: async(_clientId,planId,payload)=>mutateGovernedOption(planId,crypto.randomUUID(),()=>({mealHead:payload.mealHead,components:payload.components})),
   autoBalance: async () => { throw new Error('Use Edit quantity to select a governed serving.'); },
 };
+
+async function mutateGovernedOption(planId,optionId,mutator){
+  const current=await getConsultantDietPlan(planId);
+  const existing=(current.options||[]).find(option=>option.combinationId===optionId)||{mealHead:null,components:[]};
+  const desired=mutator(existing);
+  if(!desired.mealHead||!desired.components?.length)throw new Error('A governed meal option must contain at least one component.');
+  const payload={expected_version:current.plan.current_version,meal_head:desired.mealHead,components:desired.components.map(({foodId,servingId,multiplier})=>({food_id:foodId,serving_id:servingId,multiplier:Number(multiplier)}))};
+  const fingerprint=JSON.stringify({planId,optionId,payload});
+  const key=governedOptionOperationKeys.get(fingerprint)||crypto.randomUUID();
+  governedOptionOperationKeys.set(fingerprint,key);
+  const result=await updateConsultantDietPlanOption(planId,optionId,payload,key);
+  editorVersionAliases.set(planId,result.plan_version_id);
+  return result.option;
+}
 
 const initialForm = { name: '', dailyCalories: '', dailyProtein: '' };
 const displayValue = (value) => {
