@@ -1,4 +1,5 @@
 """Atomic governed-option acceptance against isolated PostgreSQL in exact-SHA CI."""
+import asyncio
 from datetime import datetime, timezone
 import json
 import os
@@ -107,16 +108,45 @@ async def test_governed_option_is_atomic_immutable_idempotent_and_authoritative(
         stale=await browser.put(f"/api/v1/practice-operations/diet-plans/{plan_id}/options/lunch-option-1",headers=stale_headers,json=payload)
         assert stale.status_code==409
         assert stale.json()["error"]["code"]=="STALE_WRITE"
+        tampered={
+            "expected_version":2,
+            "options":[{
+                "combinationId":"lunch-option-1","mealHead":"LUNCH","selected":True,
+                "nutrition":{"kcal":999999,"protein":999999},
+                "components":[{"foodId":"food-1","servingId":"serving-1","multiplier":1,"nutrition":{"kcal":999999}}],
+            }],
+        }
+        competing=await asyncio.gather(
+            browser.put(f"/api/v1/practice-operations/diet-plans/{plan_id}/draft",headers=headers,json=tampered),
+            browser.put(f"/api/v1/practice-operations/diet-plans/{plan_id}/draft",headers=headers,json=tampered),
+        )
+        assert sorted(response.status_code for response in competing)==[200,409]
+        saved=next(response for response in competing if response.status_code==200)
+        assert saved.status_code==200,saved.text
+        assert saved.json()["data"]["version"]==3
+        assert saved.json()["data"]["nutrition"]["actual_calories"]==210
+        reopened=await browser.get(f"/api/v1/practice-operations/diet-plans/{plan_id}",headers=headers)
+        assert reopened.status_code==200,reopened.text
+        assert reopened.json()["data"]["options"][0]["nutrition"]["kcal"]==210
+        assert reopened.json()["data"]["options"][0]["calculationStatus"]=="AUTHORITATIVELY_RESOLVED"
+        other_tenant=await browser.get(f"/api/v1/practice-operations/diet-plans/{plan_id}",headers={**headers,"X-Tenant-Id":f"other-{tenant}"})
+        assert other_tenant.status_code==404
+        async with sessions() as session:
+            await session.execute(text("UPDATE external_fiteatsy_connections SET state='REVOKED' WHERE id=:id"),{"id":connection_id})
+            await session.commit()
+        revoked=await browser.put(f"/api/v1/practice-operations/diet-plans/{plan_id}/draft",headers=headers,json={**tampered,"expected_version":3})
+        assert revoked.status_code==403
+        assert revoked.json()["error"]["code"]=="DIET_PLAN_CONSENT_REQUIRED"
 
     async with sessions() as session:
         versions=(await session.execute(text("SELECT version,status FROM external_profession_plan_versions WHERE plan_id=:plan ORDER BY version"),{"plan":plan_id})).all()
         item=(await session.execute(text("""SELECT i.content FROM external_profession_plan_items i
           JOIN external_profession_plan_sections s ON s.id=i.plan_section_id
           JOIN external_profession_plan_versions v ON v.id=s.plan_version_id
-          WHERE v.plan_id=:plan AND v.version=2"""),{"plan":plan_id})).scalar_one()
+          WHERE v.plan_id=:plan AND v.version=3"""),{"plan":plan_id})).scalar_one()
         events=(await session.execute(text("SELECT COUNT(*) FROM external_profession_plan_audit_events WHERE plan_id=:plan AND event_type='OPTION_UPDATED'"),{"plan":plan_id})).scalar_one()
-        assert versions==[(1,"DRAFT"),(2,"SAVED")]
+        assert versions==[(1,"DRAFT"),(2,"SAVED"),(3,"SAVED")]
         assert item["nutrition"]["kcal"]==210 and item["calculationStatus"]=="AUTHORITATIVELY_RESOLVED"
         assert events==1
-    assert len(calls)==2  # First write and stale new operation; replay is served locally.
+    assert len(calls)==4  # First write, stale operation, and both concurrent authoritative draft attempts.
     app.dependency_overrides.clear();get_settings.cache_clear();await engine.dispose()

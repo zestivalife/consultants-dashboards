@@ -9,6 +9,7 @@ import secrets
 import structlog
 import httpx
 import phonenumbers
+from pydantic import ValidationError
 from urllib.parse import urlparse
 from cryptography.fernet import Fernet
 from fastapi import Depends, FastAPI, Header, Query, Request
@@ -31,7 +32,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            AssessmentAnswerSave, AssessmentComplete,
                            ProfessionPlanCreate, ProfessionPlanSave,
                            DietPlanCreate, DietPlanSave, DietPlanReviewAction,
-                           GovernedDietOptionUpdate)
+                           GovernedDietComponent, GovernedDietOptionUpdate)
 from app.contracts import PracticeClientCreate
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
 from app.contracts import ProgressMetricCreate, ProgressObservationCreate, ProgressTargetCreate, ProgressMilestoneCreate
@@ -1929,6 +1930,48 @@ async def _diet_options_for_version(db, tenant_id, plan_id, version):
 def _governed_option_request(body):
     return {"mealHead":body.meal_head,"components":[{"foodId":item.food_id,"servingId":item.serving_id,"multiplier":item.multiplier} for item in body.components]}
 
+async def _active_diet_connection(db,ctx,client_id):
+    return (await db.execute(text("""SELECT id::text,tenant_id,consultant_id,fiteatsy_user_id,consented_scopes
+      FROM external_fiteatsy_connections WHERE tenant_id=:tenant AND consultant_id=:consultant
+      AND consultant_client_id=:client AND state='ACTIVE' AND consented_scopes ? 'DIET_PLANS'
+      ORDER BY connected_at DESC LIMIT 1"""),{"tenant":ctx["tenant_id"],"consultant":ctx["user_id"],"client":client_id})).mappings().first()
+
+async def _resolve_governed_option(request,connection,plan,resolver_body,purpose="external_consultant_diet_option"):
+    settings=get_settings()
+    if not all((settings.external_fiteatsy_backend_url,settings.external_fiteatsy_outbound_private_key,settings.external_fiteatsy_outbound_key_id)):
+        return None,error(request,503,"FITEATSY_RESOLVER_UNAVAILABLE","The governed food resolver is not configured",True)
+    delegated=create_fiteatsy_delegation(connection,"fiteatsy.external.diet.resolve",purpose)
+    payload={**resolver_body,"target":{"kcal":float(plan["daily_calories_target"]),"protein":float(plan["daily_protein_target_g"] or 0),"kcalTolerance":float(plan["daily_calories_target"]),"proteinTolerance":max(1.0,float(plan["daily_protein_target_g"] or 0))}}
+    url=f"{settings.external_fiteatsy_backend_url.rstrip('/')}/v1/internal/external-consultant-access/{connection['fiteatsy_user_id']}/common-food/resolve-option"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            upstream=await client.post(url,headers={"x-zestiva-delegation":delegated},json=payload)
+    except httpx.RequestError:
+        return None,error(request,503,"FITEATSY_RESOLVER_UNAVAILABLE","The governed food resolver is temporarily unavailable",True)
+    upstream_data=upstream.json() if upstream.headers.get("content-type","").startswith("application/json") else {}
+    if upstream.status_code!=200:
+        return None,error(request,upstream.status_code,upstream_data.get("error","FITEATSY_OPTION_REJECTED"),upstream_data.get("message","Fiteatsy rejected this governed food option"),upstream.status_code>=500)
+    if str(upstream_data.get("connectionId"))!=str(connection["id"]) or not isinstance(upstream_data.get("option"),dict):
+        return None,error(request,502,"FITEATSY_RESOLVER_CONTRACT_INVALID","The governed food resolver returned an invalid authority response",True)
+    resolved=dict(upstream_data["option"])
+    if resolved.get("calculationStatus")!="AUTHORITATIVELY_RESOLVED" or resolved.get("mealHead")!=resolver_body["mealHead"]:
+        return None,error(request,502,"FITEATSY_RESOLVER_CONTRACT_INVALID","The governed food resolver did not return an authoritative option",True)
+    return resolved,None
+
+def _legacy_governed_option(item):
+    if not isinstance(item,dict):raise ValueError("Diet Plan options must be objects")
+    option_id=str(item.get("combinationId") or "").strip()
+    meal_head=str(item.get("mealHead") or "").strip()
+    if not option_id or len(option_id)>200:raise ValueError("Every Diet Plan option requires a valid combinationId")
+    if meal_head not in {"EARLY_MORNING","BREAKFAST","MID_MORNING","LUNCH","EVENING_SNACK","DINNER","BEDTIME"}:raise ValueError("Every Diet Plan option requires a supported mealHead")
+    raw_components=item.get("components")
+    if not isinstance(raw_components,list) or not 1<=len(raw_components)<=12:raise ValueError("Every Diet Plan option requires between one and twelve governed components")
+    components=[]
+    for raw in raw_components:
+        if not isinstance(raw,dict):raise ValueError("Governed components must be objects")
+        components.append(GovernedDietComponent(food_id=raw.get("foodId"),serving_id=raw.get("servingId"),multiplier=raw.get("multiplier")))
+    return option_id,{"mealHead":meal_head,"components":[{"foodId":value.food_id,"servingId":value.serving_id,"multiplier":value.multiplier} for value in components]}
+
 @app.get("/api/v1/practice-operations/clients/{client_id}/diet-plans")
 async def list_diet_plans(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied,_=await _team_guard(request,db,ctx,"PLAN_VIEW",client_id)
@@ -2010,32 +2053,12 @@ async def update_governed_diet_option(request:Request,plan_id:UUID,option_id:str
     if prior:
         if prior.get("request_fingerprint")!=fingerprint:return error(request,409,"IDEMPOTENCY_KEY_REUSED","This Idempotency-Key was already used for a different option update")
         return {"success":True,"data":prior["response"],"error":None,"request_id":request.state.correlation_id}
-    connection=(await db.execute(text("""SELECT id::text,tenant_id,consultant_id,fiteatsy_user_id,consented_scopes
-      FROM external_fiteatsy_connections WHERE tenant_id=:tenant AND consultant_id=:consultant
-      AND consultant_client_id=:client AND state='ACTIVE' AND consented_scopes ? 'DIET_PLANS'
-      ORDER BY connected_at DESC LIMIT 1"""),{"tenant":ctx["tenant_id"],"consultant":ctx["user_id"],"client":plan["client_id"]})).mappings().first()
+    connection=await _active_diet_connection(db,ctx,plan["client_id"])
     if not connection:return error(request,403,"DIET_PLAN_CONSENT_REQUIRED","An active assigned Fiteatsy connection with Diet Plans consent is required")
-    settings=get_settings()
-    if not all((settings.external_fiteatsy_backend_url,settings.external_fiteatsy_outbound_private_key,settings.external_fiteatsy_outbound_key_id)):
-        return error(request,503,"FITEATSY_RESOLVER_UNAVAILABLE","The governed food resolver is not configured",True)
     # End the read transaction before the remote calculation. The final write uses a locked CAS transaction.
     await db.rollback()
-    delegated=create_fiteatsy_delegation(connection,"fiteatsy.external.diet.resolve","external_consultant_diet_option")
-    resolver_body={**_governed_option_request(body),"target":{"kcal":float(plan["daily_calories_target"]),"protein":float(plan["daily_protein_target_g"] or 0),"kcalTolerance":float(plan["daily_calories_target"]),"proteinTolerance":max(1.0,float(plan["daily_protein_target_g"] or 0))}}
-    url=f"{settings.external_fiteatsy_backend_url.rstrip('/')}/v1/internal/external-consultant-access/{connection['fiteatsy_user_id']}/common-food/resolve-option"
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            upstream=await client.post(url,headers={"x-zestiva-delegation":delegated},json=resolver_body)
-    except httpx.RequestError:
-        return error(request,503,"FITEATSY_RESOLVER_UNAVAILABLE","The governed food resolver is temporarily unavailable",True)
-    upstream_data=upstream.json() if upstream.headers.get("content-type","").startswith("application/json") else {}
-    if upstream.status_code!=200:
-        return error(request,upstream.status_code,upstream_data.get("error","FITEATSY_OPTION_REJECTED"),upstream_data.get("message","Fiteatsy rejected this governed food option"),upstream.status_code>=500)
-    if str(upstream_data.get("connectionId"))!=str(connection["id"]) or not isinstance(upstream_data.get("option"),dict):
-        return error(request,502,"FITEATSY_RESOLVER_CONTRACT_INVALID","The governed food resolver returned an invalid authority response",True)
-    resolved=dict(upstream_data["option"])
-    if resolved.get("calculationStatus")!="AUTHORITATIVELY_RESOLVED" or resolved.get("mealHead")!=body.meal_head:
-        return error(request,502,"FITEATSY_RESOLVER_CONTRACT_INVALID","The governed food resolver did not return an authoritative option",True)
+    resolved,resolver_error=await _resolve_governed_option(request,connection,plan,_governed_option_request(body))
+    if resolver_error:return resolver_error
     try:
         await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:scope))"),{"scope":f"diet-option:{ctx['tenant_id']}:{plan_id}:{idempotency_key}"})
         prior=await _diet_option_idempotency(db,ctx["tenant_id"],plan_id,idempotency_key)
@@ -2093,36 +2116,68 @@ async def save_diet_plan(request:Request,plan_id:UUID,body:DietPlanSave,ctx=Depe
     if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
     if plan["status"] in {"APPROVED","PUBLISHED","ARCHIVED"}:return error(request,409,"DIET_PLAN_VERSION_IMMUTABLE","Approved, published, and archived Diet Plan versions cannot be changed")
     if plan["current_version"]!=body.expected_version:return error(request,409,"STALE_WRITE","This Diet Plan changed. Refresh and retry")
-    readiness=await _current_diet_plan_readiness(db,ctx,plan["client_id"])
-    health_context=await _diet_plan_health_context(db,ctx,plan["client_id"])
-    now=datetime.now(timezone.utc);next_version=plan["current_version"]+1;version_id=uuid4()
-    actual_calories=sum(float((item.get("nutrition") or {}).get("kcal") or 0) for item in body.options if item.get("selected",True))
-    actual_protein=sum(float((item.get("nutrition") or {}).get("protein") or 0) for item in body.options if item.get("selected",True))
-    measurement=health_context["measurement_context"]
-    snapshot={"daily_calories_target":plan["daily_calories_target"],"daily_protein_target_g":float(plan["daily_protein_target_g"] or 0),"actual_calories":round(actual_calories,2),"actual_protein_g":round(actual_protein,2),"option_count":len(body.options),
-      "target_methodology":"PROFESSIONAL_JUDGEMENT","target_reviewed_by":ctx["user_id"],
-      "measurement_context_fingerprint":measurement["measurement_context_fingerprint"],
-      "measurement_source_ids":measurement["source_measurement_ids"],"measurement_snapshot":measurement["eligible_latest"],
-      "measurement_calculations":measurement["calculations"],"assessment_id":readiness["assessment_id"],
-      "assessment_version":readiness["assessment_version"]}
-    await db.execute(text("""INSERT INTO external_profession_plan_versions
-      (id,plan_id,tenant_id,client_id,version,status,title,nutrition_snapshot,created_by,created_at)
-      VALUES (:id,:plan,:tenant,:client,:version,'SAVED',:title,CAST(:snapshot AS jsonb),:actor,:now)"""),
-      {"id":version_id,"plan":plan_id,"tenant":ctx["tenant_id"],"client":plan["client_id"],"version":next_version,"title":plan["title"],"snapshot":json.dumps(snapshot),"actor":ctx["user_id"],"now":now})
-    section_id=uuid4();await db.execute(text("""INSERT INTO external_profession_plan_sections
-      (id,plan_version_id,tenant_id,section_key,title,content,sort_order) VALUES (:id,:version,:tenant,'meal_options','Meal options',CAST(:content AS jsonb),1)"""),
-      {"id":section_id,"version":version_id,"tenant":ctx["tenant_id"],"content":json.dumps(snapshot)})
-    for index,item in enumerate(body.options):
-        await db.execute(text("""INSERT INTO external_profession_plan_items
-          (id,plan_section_id,tenant_id,item_key,label,content,sort_order) VALUES (:id,:section,:tenant,:key,:label,CAST(:content AS jsonb),:sort)"""),
-          {"id":uuid4(),"section":section_id,"tenant":ctx["tenant_id"],"key":f"option_{index+1}","label":str(item.get("mealHead") or "Meal option"),"content":json.dumps(item),"sort":index+1})
-    await db.execute(text("UPDATE external_profession_plans SET status='SAVED',current_version=:version,updated_at=:now WHERE id=:plan AND tenant_id=:tenant"),{"version":next_version,"now":now,"plan":plan_id,"tenant":ctx["tenant_id"]})
-    await db.execute(text("""INSERT INTO external_profession_plan_audit_events
-      (id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,metadata,created_at)
-      VALUES (:id,:plan,:version,:tenant,:client,'SAVED',:actor,CAST(:metadata AS jsonb),:now)"""),
-      {"id":uuid4(),"plan":plan_id,"version":version_id,"tenant":ctx["tenant_id"],"client":plan["client_id"],"actor":ctx["user_id"],"metadata":json.dumps(snapshot),"now":now})
-    await db.commit()
-    return {"success":True,"data":{"id":str(plan_id),"version_id":str(version_id),"status":"SAVED","version":next_version,"nutrition":snapshot},"error":None,"request_id":request.state.correlation_id}
+    submitted=[];seen=set();meal_counts={}
+    try:
+        for item in body.options:
+            option_id,resolver_body=_legacy_governed_option(item)
+            if option_id in seen:raise ValueError("Diet Plan option identifiers must be unique")
+            seen.add(option_id);meal_counts[resolver_body["mealHead"]]=meal_counts.get(resolver_body["mealHead"],0)+1
+            if meal_counts[resolver_body["mealHead"]]>5:raise ValueError("A meal can contain at most five options")
+            submitted.append((option_id,resolver_body))
+    except (TypeError,ValueError,ValidationError) as exc:
+        return error(request,422,"INVALID_GOVERNED_DIET_OPTION",str(exc))
+    connection=None
+    if submitted:
+        connection=await _active_diet_connection(db,ctx,plan["client_id"])
+        if not connection:return error(request,403,"DIET_PLAN_CONSENT_REQUIRED","An active assigned Fiteatsy connection with Diet Plans consent is required")
+    # Resolve every submitted option before opening the write transaction. No caller-supplied nutrition is persisted.
+    await db.rollback();options=[]
+    for option_id,resolver_body in submitted:
+        resolved,resolver_error=await _resolve_governed_option(request,connection,plan,resolver_body,"external_consultant_diet_draft")
+        if resolver_error:return resolver_error
+        options.append({**resolved,"combinationId":option_id,"mealHead":resolver_body["mealHead"],"selected":True,"sourceType":"GOVERNED_CATALOGUE"})
+    try:
+        locked=(await db.execute(text("""SELECT id,tenant_id,client_id,title,status,current_version,daily_calories_target,daily_protein_target_g
+          FROM external_profession_plans WHERE id=:id AND tenant_id=:tenant AND plan_type='DIET_PLAN'
+          AND authorised_consultant_id=:actor FOR UPDATE"""),{"id":plan_id,"tenant":ctx["tenant_id"],"actor":ctx["user_id"]})).mappings().first()
+        if not locked:await db.rollback();return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+        if locked["status"] in {"APPROVED","PUBLISHED","ARCHIVED"}:await db.rollback();return error(request,409,"DIET_PLAN_IMMUTABLE","Approved and published Diet Plans are immutable")
+        if locked["current_version"]!=body.expected_version:await db.rollback();return error(request,409,"STALE_WRITE","This Diet Plan changed. Refresh and retry")
+        readiness=await _current_diet_plan_readiness(db,ctx,locked["client_id"])
+        health_context=await _diet_plan_health_context(db,ctx,locked["client_id"])
+        now=datetime.now(timezone.utc);next_version=locked["current_version"]+1;version_id=uuid4()
+        actual_calories=sum(float((item.get("nutrition") or {}).get("kcal") or 0) for item in options)
+        actual_protein=sum(float((item.get("nutrition") or {}).get("protein") or 0) for item in options)
+        measurement=health_context["measurement_context"]
+        snapshot={"daily_calories_target":locked["daily_calories_target"],"daily_protein_target_g":float(locked["daily_protein_target_g"] or 0),"actual_calories":round(actual_calories,2),"actual_protein_g":round(actual_protein,2),"option_count":len(options),"calculation_authority":"FITEATSY_GOVERNED_COMMON_FOOD",
+          "target_methodology":"PROFESSIONAL_JUDGEMENT","target_reviewed_by":ctx["user_id"],
+          "measurement_context_fingerprint":measurement["measurement_context_fingerprint"],
+          "measurement_source_ids":measurement["source_measurement_ids"],"measurement_snapshot":measurement["eligible_latest"],
+          "measurement_calculations":measurement["calculations"],"assessment_id":readiness["assessment_id"],
+          "assessment_version":readiness["assessment_version"]}
+        await db.execute(text("""INSERT INTO external_profession_plan_versions
+          (id,plan_id,tenant_id,client_id,version,status,title,nutrition_snapshot,created_by,created_at)
+          VALUES (:id,:plan,:tenant,:client,:version,'SAVED',:title,CAST(:snapshot AS jsonb),:actor,:now)"""),
+          {"id":version_id,"plan":plan_id,"tenant":ctx["tenant_id"],"client":locked["client_id"],"version":next_version,"title":locked["title"],"snapshot":json.dumps(snapshot),"actor":ctx["user_id"],"now":now})
+        section_id=uuid4();await db.execute(text("""INSERT INTO external_profession_plan_sections
+          (id,plan_version_id,tenant_id,section_key,title,content,sort_order) VALUES (:id,:version,:tenant,'meal_options','Meal options',CAST(:content AS jsonb),1)"""),
+          {"id":section_id,"version":version_id,"tenant":ctx["tenant_id"],"content":json.dumps(snapshot)})
+        for index,item in enumerate(options):
+            await db.execute(text("""INSERT INTO external_profession_plan_items
+              (id,plan_section_id,tenant_id,item_key,label,content,sort_order) VALUES (:id,:section,:tenant,:key,:label,CAST(:content AS jsonb),:sort)"""),
+              {"id":uuid4(),"section":section_id,"tenant":ctx["tenant_id"],"key":f"option_{index+1}","label":str(item.get("mealHead") or "Meal option"),"content":json.dumps(item),"sort":index+1})
+        changed=(await db.execute(text("""UPDATE external_profession_plans SET status='SAVED',current_version=:version,updated_at=:now
+          WHERE id=:plan AND tenant_id=:tenant AND current_version=:expected RETURNING id"""),{"version":next_version,"now":now,"plan":plan_id,"tenant":ctx["tenant_id"],"expected":body.expected_version})).first()
+        if not changed:await db.rollback();return error(request,409,"STALE_WRITE","This Diet Plan changed. Refresh and retry")
+        await db.execute(text("""INSERT INTO external_profession_plan_audit_events
+          (id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,metadata,created_at)
+          VALUES (:id,:plan,:version,:tenant,:client,'SAVED',:actor,CAST(:metadata AS jsonb),:now)"""),
+          {"id":uuid4(),"plan":plan_id,"version":version_id,"tenant":ctx["tenant_id"],"client":locked["client_id"],"actor":ctx["user_id"],"metadata":json.dumps(snapshot),"now":now})
+        await db.commit()
+        return {"success":True,"data":{"id":str(plan_id),"version_id":str(version_id),"status":"SAVED","version":next_version,"nutrition":snapshot,"options":options},"error":None,"request_id":request.state.correlation_id}
+    except Exception:
+        await db.rollback()
+        raise
 
 @app.post("/api/v1/practice-operations/diet-plans/{plan_id}/review")
 async def review_diet_plan(request:Request,plan_id:UUID,body:DietPlanReviewAction,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
