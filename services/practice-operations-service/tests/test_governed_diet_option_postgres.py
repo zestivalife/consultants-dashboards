@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.config import get_settings
 from app.db import get_db
 from app.main import app
+from external_migrations.runner import MIGRATIONS
 
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
@@ -68,6 +69,13 @@ async def test_governed_option_is_atomic_immutable_idempotent_and_authoritative(
 
     app.dependency_overrides[get_db] = database
     async with sessions() as session:
+        # CI applies the canonical Alembic history. The measurements table is
+        # owned by the separately versioned External schema, so install that
+        # existing repository definition as an isolated-test fixture without
+        # writing either migration ledger or relaxing its baseline guard.
+        measurement_migration = next(item for item in MIGRATIONS if item.migration_id == "external_0055_client_measurements")
+        for statement in measurement_migration.statements:
+            await session.execute(text(statement))
         await session.execute(text("""INSERT INTO external_profession_plans
           (id,tenant_id,client_id,profession_code,plan_type,title,status,current_version,created_by,authorised_consultant_id,daily_calories_target,daily_protein_target_g,created_at,updated_at)
           VALUES (:id,:tenant,:client,'DIETITIAN','DIET_PLAN','CI governed plan','DRAFT',1,:actor,:actor,1800,90,:now,:now)"""),
