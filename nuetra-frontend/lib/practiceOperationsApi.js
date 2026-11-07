@@ -88,6 +88,7 @@ export function getDietPlanHealthContext(clientId){return request(`/clients/${en
 export function createConsultantDietPlan(payload,idempotencyKey){return request('/diet-plans',{method:'POST',headers:{'Idempotency-Key':idempotencyKey},body:JSON.stringify(payload)});}
 export function getConsultantDietPlan(planId){return request(`/diet-plans/${encodeURIComponent(planId)}`);}
 export function saveConsultantDietPlan(planId,payload){return request(`/diet-plans/${encodeURIComponent(planId)}/draft`,{method:'PUT',body:JSON.stringify(payload)});}
+export function updateConsultantDietPlanOption(planId,optionId,payload,idempotencyKey){return request(`/diet-plans/${encodeURIComponent(planId)}/options/${encodeURIComponent(optionId)}`,{method:'PUT',headers:{'Idempotency-Key':idempotencyKey},body:JSON.stringify(payload)});}
 export function reviewConsultantDietPlan(planId,payload){return request(`/diet-plans/${encodeURIComponent(planId)}/review`,{method:'POST',body:JSON.stringify(payload)});}
 export function publishConsultantDietPlan(planId){return request(`/diet-plans/${encodeURIComponent(planId)}/publish`,{method:'POST'});}
 export function getNutritionAssessment(clientId){return request(`/clients/${encodeURIComponent(clientId)}/nutrition-assessment`);}
