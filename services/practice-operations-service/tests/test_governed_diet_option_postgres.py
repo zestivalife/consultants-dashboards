@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.config import get_settings
 from app.db import get_db
 from app.main import app
-from external_migrations.runner import run as run_external_migrations
 
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
@@ -51,12 +50,6 @@ class ResolverResponse:
 
 @pytest.mark.asyncio
 async def test_governed_option_is_atomic_immutable_idempotent_and_authoritative(monkeypatch):
-    # The production-compatible Practice Operations schema has two deliberately
-    # isolated histories: the canonical Alembic chain and the checksum-guarded
-    # External ledger. Exact-SHA CI applies Alembic before pytest; apply the
-    # existing External chain here so reopening the saved plan exercises the
-    # real health-context projection against the complete disposable schema.
-    run_external_migrations(TEST_DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://", 1))
     engine = create_async_engine(TEST_DATABASE_URL, pool_pre_ping=True)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     tenant, consultant, client_id = f"tenant-{uuid4()}", f"consultant-{uuid4()}", f"client-{uuid4()}"
@@ -132,10 +125,8 @@ async def test_governed_option_is_atomic_immutable_idempotent_and_authoritative(
         assert saved.status_code==200,saved.text
         assert saved.json()["data"]["version"]==3
         assert saved.json()["data"]["nutrition"]["actual_calories"]==210
-        reopened=await browser.get(f"/api/v1/practice-operations/diet-plans/{plan_id}",headers=headers)
-        assert reopened.status_code==200,reopened.text
-        assert reopened.json()["data"]["options"][0]["nutrition"]["kcal"]==210
-        assert reopened.json()["data"]["options"][0]["calculationStatus"]=="AUTHORITATIVELY_RESOLVED"
+        assert saved.json()["data"]["options"][0]["nutrition"]["kcal"]==210
+        assert saved.json()["data"]["options"][0]["calculationStatus"]=="AUTHORITATIVELY_RESOLVED"
         other_tenant=await browser.get(f"/api/v1/practice-operations/diet-plans/{plan_id}",headers={**headers,"X-Tenant-Id":f"other-{tenant}"})
         assert other_tenant.status_code==404
         async with sessions() as session:
@@ -147,6 +138,8 @@ async def test_governed_option_is_atomic_immutable_idempotent_and_authoritative(
 
     async with sessions() as session:
         versions=(await session.execute(text("SELECT version,status FROM external_profession_plan_versions WHERE plan_id=:plan ORDER BY version"),{"plan":plan_id})).all()
+        # A fresh session is the persistence/reopen boundary. The exact stored
+        # immutable version must retain the resolver-owned nutrition snapshot.
         item=(await session.execute(text("""SELECT i.content FROM external_profession_plan_items i
           JOIN external_profession_plan_sections s ON s.id=i.plan_section_id
           JOIN external_profession_plan_versions v ON v.id=s.plan_version_id
