@@ -141,6 +141,7 @@ async def test_mobile_publication_is_exact_active_version_and_revocation_safe(mo
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     public_pem = key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
     monkeypatch.setenv("EXTERNAL_FITEATSY_CONNECTION_ENABLED", "true")
+    monkeypatch.setenv("EXTERNAL_FITEATSY_PIN_PEPPER", "ci-pepper")
     monkeypatch.setenv("EXTERNAL_FITEATSY_INBOUND_PUBLIC_KEY", public_pem)
     monkeypatch.setenv("EXTERNAL_FITEATSY_INBOUND_ISSUER", "fiteatsy-ci")
     monkeypatch.setenv("EXTERNAL_FITEATSY_INBOUND_AUDIENCE", "practice-operations-ci")
