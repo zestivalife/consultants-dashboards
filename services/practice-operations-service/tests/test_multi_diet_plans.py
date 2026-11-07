@@ -63,3 +63,21 @@ def test_client_360_uses_only_the_multi_plan_authoring_workspace():
         "ExternalDietPlanHistory",
     ):
         assert legacy_token not in component
+
+
+def test_governed_option_updates_are_atomic_authoritative_and_consent_scoped():
+    source = (ROOT / "app/main.py").read_text()
+    contracts = (ROOT / "app/contracts.py").read_text()
+    frontend = (ROOT.parents[1] / "nuetra-frontend/components/external/ExternalMultiDietPlan.jsx").read_text()
+    api = (ROOT.parents[1] / "nuetra-frontend/lib/practiceOperationsApi.js").read_text()
+    for invariant in (
+        "Idempotency-Key", "expected_version", "pg_advisory_xact_lock", "FOR UPDATE",
+        "state='ACTIVE'", "consented_scopes ? 'DIET_PLANS'", "fiteatsy.external.diet.resolve",
+        "external_consultant_diet_option", "AUTHORITATIVELY_RESOLVED", "OPTION_UPDATED",
+        "calculation_authority", "FITEATSY_GOVERNED_COMMON_FOOD",
+    ):
+        assert invariant in source
+    assert "class GovernedDietOptionUpdate" in contracts
+    assert "updateConsultantDietPlanOption" in api and "updateConsultantDietPlanOption" in frontend
+    assert "payload.components.reduce" not in frontend
+    assert "nutrition:payload.components.reduce" not in frontend
