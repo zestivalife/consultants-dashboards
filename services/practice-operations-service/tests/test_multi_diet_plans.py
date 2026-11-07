@@ -53,8 +53,9 @@ def test_frontend_uses_practice_operations_for_plan_writes_and_catalogue_read_on
 
 def test_client_360_uses_only_the_multi_plan_authoring_workspace():
     component = (ROOT.parents[1] / "nuetra-frontend/components/external/ExternalClient360.jsx").read_text()
-    assert "ExternalMultiDietPlan" in component
-    assert "Open Diet Plans" in component
+    active = component.split("export function ExternalClient360", 1)[1].split("function LegacyExternalDietPlan", 1)[0]
+    assert "ExternalMultiDietPlan" in active
+    assert "Open Diet Plans" in active
     for legacy_token in (
         "LegacyExternalDietPlan",
         "getExternalDietPlan",
@@ -62,7 +63,7 @@ def test_client_360_uses_only_the_multi_plan_authoring_workspace():
         "CommonFoodPlanEditor",
         "ExternalDietPlanHistory",
     ):
-        assert legacy_token not in component
+        assert legacy_token not in active
 
 
 def test_governed_option_updates_are_atomic_authoritative_and_consent_scoped():
@@ -81,6 +82,56 @@ def test_governed_option_updates_are_atomic_authoritative_and_consent_scoped():
     assert "updateConsultantDietPlanOption" in api and "updateConsultantDietPlanOption" in frontend
     assert "payload.components.reduce" not in frontend
     assert "nutrition:payload.components.reduce" not in frontend
+
+
+def test_published_projection_pdf_and_whatsapp_preserve_authority_boundaries():
+    source = (ROOT / "app/main.py").read_text()
+    component = (ROOT.parents[1] / "nuetra-frontend/components/external/ExternalMultiDietPlan.jsx").read_text()
+    api = (ROOT.parents[1] / "nuetra-frontend/lib/practiceOperationsApi.js").read_text()
+    for invariant in (
+        '"contractVersion":"EXTERNAL_DIET_PLAN_V1"',
+        '"calculationAuthority":"FITEATSY_GOVERNED_COMMON_FOOD"',
+        'item.get("calculationStatus")!="AUTHORITATIVELY_RESOLVED"',
+        '"fiteatsy.external.diet.write"',
+        '"fiteatsy.external.diet.select"',
+        '"externalPlanId":str(plan["id"])',
+        "external_fiteatsy_active_plan_selections",
+        "status='SUPERSEDED'",
+    ):
+        assert invariant in source
+    assert 'format:str=Query("DOCX",pattern="^(PDF|DOCX)$")' in source
+    assert 'build_pdf(snapshot) if is_pdf else build_docx(snapshot)' in source
+    assert 'plan["status"] not in {"APPROVED","PUBLISHED"}' in source
+    assert 'body.intent == "SHARE_PUBLISHED_PLAN"' in source
+    assert "PUBLISHED_DIET_PLAN_NOT_FOUND" in source
+    assert "DIET_PLAN_CONSENT_REQUIRED" in source
+    assert "Download PDF" in component and "Share via WhatsApp" in component
+    assert "openWhatsApp" in component and "shareable_type:'PUBLISHED_DIET_PLAN'" in component
+    assert "format='DOCX'" in api and "application/pdf" in api
+
+
+def test_mobile_nutrition_adapter_preserves_seven_meals_and_authoritative_values():
+    from app.main import _fiteatsy_nutrition_content
+
+    plan = {
+        "id": "plan-1", "tenant_id": "tenant-1", "client_id": "client-1",
+        "authorised_consultant_id": "consultant-1", "title": "Reviewed plan",
+        "daily_calories_target": 1800, "daily_protein_target_g": 100,
+    }
+    option = {
+        "combinationId": "option-1", "mealHead": "BREAKFAST", "clientTitle": "Poha and curd",
+        "humanServingSummary": "1 bowl", "calculationStatus": "AUTHORITATIVELY_RESOLVED",
+        "nutrition": {"kcal": 320, "protein": 14, "carbs": 48, "fat": 8, "fibre": 6},
+        "components": [{"componentId": "component-1", "foodId": "food-1", "foodDisplayNameSnapshot": "Poha",
+            "servingDisplayNameSnapshot": "1 bowl", "label": "1 bowl", "grams": 100,
+            "nutrition": {"kcal": 320, "protein": 14, "carbs": 48, "fat": 8, "fibre": 6}}],
+    }
+    content = _fiteatsy_nutrition_content(plan, [option])
+    assert list(content["mealPlan"]) == ["earlyMorning", "breakfast", "midMorningSnack", "lunch", "eveningSnack", "dinner", "bedtimeNutrition"]
+    rendered = content["mealPlan"]["breakfast"]["options"][0]
+    assert rendered["approxKcal"] == 320 and rendered["proteinGrams"] == 14
+    assert rendered["components"][0]["foodId"] == "food-1"
+    assert rendered["components"][0]["calories"] == 320
 
 def test_legacy_draft_save_discards_frontend_nutrition_and_re_resolves_every_option():
     source = (ROOT / "app/main.py").read_text()

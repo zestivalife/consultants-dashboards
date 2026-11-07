@@ -93,12 +93,14 @@ export function saveConsultantDietPlan(planId,payload){return request(`/diet-pla
 export function updateConsultantDietPlanOption(planId,optionId,payload,idempotencyKey){return request(`/diet-plans/${encodeURIComponent(planId)}/options/${encodeURIComponent(optionId)}`,{method:'PUT',headers:{'Idempotency-Key':idempotencyKey},body:JSON.stringify(payload)});}
 export function reviewConsultantDietPlan(planId,payload){return request(`/diet-plans/${encodeURIComponent(planId)}/review`,{method:'POST',body:JSON.stringify(payload)});}
 export function publishConsultantDietPlan(planId){return request(`/diet-plans/${encodeURIComponent(planId)}/publish`,{method:'POST'});}
-export async function downloadConsultantDietPlan(planId){
-  const path=`/diet-plans/${encodeURIComponent(planId)}/download`;
-  const send=token=>fetch(`${BASE}${path}`,{credentials:'include',headers:{Accept:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',...(token?{'X-Nuetra-Authorization':`Bearer ${token}`}:{})}});
+export async function downloadConsultantDietPlan(planId,format='DOCX'){
+  const safeFormat=format==='PDF'?'PDF':'DOCX';
+  const path=`/diet-plans/${encodeURIComponent(planId)}/download?format=${safeFormat}`;
+  const accept=safeFormat==='PDF'?'application/pdf':'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  const send=token=>fetch(`${BASE}${path}`,{credentials:'include',headers:{Accept:accept,...(token?{'X-Nuetra-Authorization':`Bearer ${token}`}:{})}});
   let response=await send(getToken());if(response.status===401){const refreshed=await refreshAccessToken().catch(()=>null);if(refreshed)response=await send(refreshed);}
   if(!response.ok)throw new Error(fallbackMessage(response.status));
-  const disposition=response.headers.get('content-disposition')||'';return{blob:await response.blob(),filename:/filename="?([^";]+)"?/i.exec(disposition)?.[1]||'diet-plan.docx'};
+  const disposition=response.headers.get('content-disposition')||'';return{blob:await response.blob(),filename:/filename="?([^";]+)"?/i.exec(disposition)?.[1]||`diet-plan.${safeFormat.toLowerCase()}`};
 }
 export function getNutritionAssessment(clientId){return request(`/clients/${encodeURIComponent(clientId)}/nutrition-assessment`);}
 export function saveNutritionAssessment(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/nutrition-assessment`,{method:'PUT',body:JSON.stringify(payload)});}

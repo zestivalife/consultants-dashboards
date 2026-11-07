@@ -37,6 +37,10 @@ def test_idempotency_migration_is_forward_scoped_and_reversible():
 
 def test_publication_keeps_consent_and_exact_state_enforcement():
     section = MAIN[MAIN.index('async def publish_diet_plan('):MAIN.index('@app.get("/api/v1/practice-operations/diet-plans/{plan_id}/download")')]
+    connection_guard = MAIN[MAIN.index('async def _active_diet_connection('):MAIN.index('async def _resolve_governed_option(')]
     assert "plan[\"status\"]!=\"APPROVED\"" in section
-    assert "consented_scopes ? 'DIET_PLANS'" in section
+    assert "consented_scopes ? 'DIET_PLANS'" in connection_guard
+    assert "tenant_id=:tenant AND consultant_id=:consultant" in connection_guard
+    assert "consultant_client_id=:client AND state='ACTIVE'" in connection_guard
+    assert "_active_diet_connection(db,ctx,plan[\"client_id\"])" in section
     assert 'DIET_PLAN_CONSENT_REQUIRED' in section

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   searchExternalCommonFoods,
 } from '../../lib/fiteatsyConsultantsApi';
-import { bindDietPlanAssessment, createClientInformationRequest, createConsultantDietPlan, downloadConsultantDietPlan, getClientInformationCompleteness, getConsultantDietPlan, getDietPlanHealthContext, getNutritionAssessment, listConsultantDietPlans, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan, updateConsultantDietPlanOption } from '../../lib/practiceOperationsApi';
+import { bindDietPlanAssessment, createClientInformationRequest, createConsultantDietPlan, downloadConsultantDietPlan, getClientInformationCompleteness, getConsultantDietPlan, getDietPlanHealthContext, getNutritionAssessment, listConsultantDietPlans, openWhatsApp, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan, updateConsultantDietPlanOption } from '../../lib/practiceOperationsApi';
 import { createdDraftPresentation, loadDietPlanWorkspace } from '../../lib/dietPlanWorkspaceState.mjs';
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import CommonFoodPlanEditor from '../platform/CommonFoodPlanEditor';
@@ -54,7 +54,7 @@ const valueList = (value) => (Array.isArray(value) ? value : value == null ? [] 
 const show = (value) => valueList(value).join(', ') || 'Not provided';
 const projectDetail=(detail)=>({id:detail.plan.id,name:detail.plan.title,status:detail.plan.status,updatedAt:detail.plan.updated_at,version:{id:detail.current_version?.id,number:detail.plan.current_version,plan:{dailyTargets:{calories:detail.plan.daily_calories_target,protein:Number(detail.plan.daily_protein_target_g)},meals:COMMON_FOOD_MEALS.map(([mealHead])=>({mealHead,options:(detail.options||[]).filter(item=>item.mealHead===mealHead)}))}},versions:detail.versions});
 
-export default function ExternalMultiDietPlan({ clientId, context, onError, onReviewMeasurements }) {
+export default function ExternalMultiDietPlan({ clientId, clientPhone='', clientCountryIso2='IN', context, onError, onReviewMeasurements }) {
   const [plans, setPlans] = useState([]);
   const [plansStatus, setPlansStatus] = useState('loading');
   const [selectedId, setSelectedId] = useState('');
@@ -182,7 +182,8 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
     } catch (error) { onError(error.message || 'Unable to update Diet Plan.'); }
     finally { setBusy(''); }
   };
-  const download=async()=>{if(!selected||busy)return;setBusy('download');try{const file=await downloadConsultantDietPlan(selected.id);const href=URL.createObjectURL(file.blob);const anchor=document.createElement('a');anchor.href=href;anchor.download=file.filename;anchor.click();URL.revokeObjectURL(href);}catch(error){onError(error.message||'Unable to download Diet Plan.');}finally{setBusy('');}};
+  const download=async(format='DOCX')=>{if(!selected||busy)return;setBusy(`download-${format}`);try{const file=await downloadConsultantDietPlan(selected.id,format);const href=URL.createObjectURL(file.blob);const anchor=document.createElement('a');anchor.href=href;anchor.download=file.filename;anchor.click();URL.revokeObjectURL(href);}catch(error){onError(error.message||'Unable to download Diet Plan.');}finally{setBusy('');}};
+  const sharePublishedPlan=async()=>{if(!selected||selected.status!=='PUBLISHED'||busy)return;setBusy('share');try{await openWhatsApp({client_id:clientId,intent:'SHARE_PUBLISHED_PLAN',purpose:'Share published Diet Plan availability',phone:clientPhone,country_iso2:clientCountryIso2,message:`Your consultant has published “${selected.name}” version ${selected.version.number}. Sign in to Fiteatsy and open Nutrition to view the secure plan.`,shareable_type:'PUBLISHED_DIET_PLAN',shareable_id:selected.id});setMessage('WhatsApp opened with a secure availability notice. You must press Send yourself.');}catch(error){onError(error.message||'WhatsApp could not be opened.');}finally{setBusy('');}};
 
   const resolved=healthContext?.measurement_context||{};const latest=resolved.latest||{};const calculations=resolved.calculations||{};
   const fields = [['Health & wellness goals', healthContext?.profile?.weight_management_goals?.length?healthContext.profile.weight_management_goals:context?.goals], ['Diet preference', healthContext?.profile?.dietary_preference||context?.dietPreference], ['Allergies', healthContext?.profile?.allergies_intolerances?.length?healthContext.profile.allergies_intolerances:context?.allergies], ['Food restrictions', healthContext?.profile?.food_restrictions?.length?healthContext.profile.food_restrictions:context?.restrictions], ['Current weight', latest.WEIGHT_KG?`${latest.WEIGHT_KG.value} ${latest.WEIGHT_KG.unit}`:'Not provided'], ['Current height', latest.HEIGHT_CM?`${latest.HEIGHT_CM.value} ${latest.HEIGHT_CM.unit}`:'Not provided'], ['BMI', calculations.bmi?.value??'Not available']];
@@ -221,7 +222,9 @@ export default function ExternalMultiDietPlan({ clientId, context, onError, onRe
             <p className="mt-1 text-xs text-slate-500">Published versions are immutable. Editing a published plan and saving creates the next version.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button disabled={busy} onClick={download} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy==='download'?'Preparing…':'Download DOCX'}</button>
+            <button disabled={busy} onClick={()=>download('DOCX')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy==='download-DOCX'?'Preparing…':'Download DOCX'}</button>
+            {['APPROVED','PUBLISHED'].includes(selected.status)&&<button disabled={busy} onClick={()=>download('PDF')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy==='download-PDF'?'Preparing…':'Download PDF'}</button>}
+            {selected.status==='PUBLISHED'&&<button disabled={busy||!clientPhone} onClick={sharePublishedPlan} className="min-h-11 rounded-xl bg-emerald-700 px-4 font-semibold text-white disabled:opacity-40">{busy==='share'?'Opening…':'Share via WhatsApp'}</button>}
             {!['APPROVED','PUBLISHED','ARCHIVED'].includes(selected.status) && <button disabled={busy} onClick={() => persist('save')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save version'}</button>}
             {['DRAFT','SAVED','CHANGES_REQUESTED','SUBMITTED','UNDER_REVIEW'].includes(selected.status)&&<button disabled={busy} onClick={()=>persist('approve')} className="min-h-11 rounded-xl bg-emerald-700 px-4 font-semibold text-white disabled:opacity-40">{busy==='approve'?'Approving…':'Approve exact version'}</button>}
             {selected.status==='APPROVED'&&<button disabled={busy || readiness.outcome!=='READY'} onClick={() => persist('publish')} className="min-h-11 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">{readiness.outcome!=='READY'?'Complete assessment to publish':busy==='publish'?'Publishing…':'Publish approved version'}</button>}

@@ -1430,6 +1430,16 @@ async def whatsapp_opened(request: Request, body: WhatsAppOpenCreate, ctx=Depend
     if denied: return denied
     capability_denied = await require_capability(request, db, ctx, "WHATSAPP_SHARING")
     if capability_denied: return capability_denied
+    if body.intent == "SHARE_PUBLISHED_PLAN":
+        if body.shareable_type != "PUBLISHED_DIET_PLAN" or not body.shareable_id:
+            return error(request,409,"DRAFT_NOT_SHAREABLE","Publish the plan before sharing")
+        published=(await db.execute(text("""SELECT p.id FROM external_profession_plans p
+          WHERE p.id=CAST(:plan AS uuid) AND p.tenant_id=:tenant AND p.authorised_consultant_id=:consultant
+            AND p.client_id=:client AND p.status='PUBLISHED'"""),
+          {"plan":body.shareable_id,"tenant":ctx["tenant_id"],"consultant":ctx["user_id"],"client":body.client_id})).scalar_one_or_none()
+        if not published:return error(request,404,"PUBLISHED_DIET_PLAN_NOT_FOUND","The published Diet Plan is not available to share")
+        connection=await _active_diet_connection(db,ctx,body.client_id)
+        if not connection:return error(request,409,"DIET_PLAN_CONSENT_REQUIRED","Active Diet Plan consent is required before sharing")
     try:e164,digits=normalize_phone(body.phone,body.country_iso2)
     except InvalidPhone as exc:return error(request,400,"INVALID_PHONE",str(exc))
     if body.shareable_type == "DIET_PLAN_DRAFT" or (body.intent == "SHARE_PUBLISHED_PLAN" and body.shareable_type != "PUBLISHED_DIET_PLAN"): return error(request, 409, "DRAFT_NOT_SHAREABLE", "Publish the plan before sharing")
@@ -1927,6 +1937,95 @@ async def _diet_options_for_version(db, tenant_id, plan_id, version):
       WHERE v.plan_id=:plan AND v.tenant_id=:tenant AND v.version=:version ORDER BY i.sort_order"""),
       {"tenant":tenant_id,"plan":plan_id,"version":version})).scalars().all()]
 
+def _mobile_diet_publication(plan, version, options, published_at):
+    """Project governed immutable snapshots into the mobile read contract."""
+    return {
+      "contractVersion":"EXTERNAL_DIET_PLAN_V1",
+      "plan":{"id":str(plan["id"]),"version":version,"title":plan["title"],
+        "status":"PUBLISHED","publishedAt":published_at.isoformat()},
+      "targets":{"calories":float(plan["daily_calories_target"]),
+        "protein":float(plan["daily_protein_target_g"] or 0)},
+      "mealOptions":[{
+        "id":str(item.get("combinationId") or ""),"mealHead":item.get("mealHead"),
+        "title":item.get("clientTitle") or item.get("humanServingSummary") or item.get("mealHead"),
+        "serving":item.get("humanServingSummary") or "",
+        "components":item.get("components") or [],"nutrition":item.get("nutrition") or {},
+        "calculationStatus":item.get("calculationStatus"),"optionHash":item.get("optionHash"),
+      } for item in options],
+      "instructions":[],"calculationAuthority":"FITEATSY_GOVERNED_COMMON_FOOD",
+    }
+
+def _fiteatsy_nutrition_content(plan, options):
+    meal_keys={
+      "EARLY_MORNING":"earlyMorning","BREAKFAST":"breakfast","MID_MORNING":"midMorningSnack",
+      "LUNCH":"lunch","EVENING_SNACK":"eveningSnack","DINNER":"dinner","BEDTIME":"bedtimeNutrition",
+    }
+    grouped={key:[] for key in meal_keys.values()}
+    for item in options:
+        meal_key=meal_keys.get(item.get("mealHead"))
+        if not meal_key:continue
+        nutrition=item.get("nutrition") or {}
+        components=[]
+        for component in item.get("components") or []:
+            component_nutrition=component.get("nutrition") or {}
+            components.append({
+              **({"id":component.get("componentId")} if component.get("componentId") else {}),
+              "foodId":component.get("foodId"),
+              "componentName":component.get("foodDisplayNameSnapshot") or component.get("label") or "",
+              "quantity":component.get("grams"),"quantityUnit":"g",
+              "householdLabel":component.get("label") or component.get("servingDisplayNameSnapshot"),
+              "canonicalGrams":component.get("grams"),"calories":component_nutrition.get("kcal"),
+              "proteinGrams":component_nutrition.get("protein"),"carbsGrams":component_nutrition.get("carbs"),
+              "fatGrams":component_nutrition.get("fat"),"fibreGrams":component_nutrition.get("fibre"),"locked":True,
+            })
+        grouped[meal_key].append({
+          "id":str(item.get("combinationId") or item.get("optionHash") or ""),
+          "slot":len(grouped[meal_key])+1,
+          "meal":item.get("clientTitle") or item.get("humanServingSummary") or item.get("mealHead"),
+          "portion":item.get("humanServingSummary") or "",
+          "prepNote":"","approxKcal":nutrition.get("kcal"),"proteinGrams":nutrition.get("protein"),
+          "carbsGrams":nutrition.get("carbs"),"fatGrams":nutrition.get("fat"),"fibreGrams":nutrition.get("fibre"),
+          "sourceType":"verified_library","isApproved":True,"components":components,
+        })
+    meal_plan={key:{"window":"","focus":"","options":grouped[key]} for key in grouped}
+    return {
+      "nutritionSnapshot":{"client":str(plan["client_id"]),"age":None,"gender":None,"goals":[],
+        "healthConditions":[],"dietPreference":None,"allergies":[],"lifestyleSummary":"",
+        "personalisedPlanFocus":"","programmeName":plan["title"],"preparedBy":str(plan["authorised_consultant_id"])},
+      "dailyTargets":{"calories":float(plan["daily_calories_target"]),
+        "protein":float(plan["daily_protein_target_g"] or 0),"carbohydrates":None,"fat":None,"fibre":None,
+        "hydration":None,"movement":""},
+      "mealPlan":meal_plan,"hydrationRhythm":[],"weeklySuccessGuide":[],"smartSubstitutions":[],
+      "supplementsAndClinicalNotes":[],
+    }
+
+async def _deliver_diet_plan_to_fiteatsy(request,connection,plan,options,published_at):
+    settings=get_settings()
+    if not all((settings.external_fiteatsy_backend_url,settings.external_fiteatsy_outbound_private_key,settings.external_fiteatsy_outbound_key_id)):
+        return None,error(request,503,"FITEATSY_DIET_DELIVERY_UNAVAILABLE","Fiteatsy Diet Plan delivery is not configured",True)
+    base=f"{settings.external_fiteatsy_backend_url.rstrip('/')}/v1/internal/external-consultant-access/{connection['fiteatsy_user_id']}/diet-plans"
+    payload={
+      "externalPlanId":str(plan["id"]),"externalVersion":str(plan["current_version"]),
+      "consultantId":str(plan["authorised_consultant_id"]),"consultantName":str(plan["authorised_consultant_id"]),
+      "practiceName":str(plan["tenant_id"]),"publishedAtISO":published_at.isoformat(),
+      "content":_fiteatsy_nutrition_content(plan,options),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            write_token=create_fiteatsy_delegation(connection,"fiteatsy.external.diet.write","external_consultant_diet_plan")
+            upstream=await client.post(base,headers={"x-zestiva-delegation":write_token},json=payload)
+            upstream_data=upstream.json() if upstream.headers.get("content-type","").startswith("application/json") else {}
+            if upstream.status_code not in {200,201}:
+                return None,error(request,upstream.status_code,upstream_data.get("error","FITEATSY_DIET_DELIVERY_REJECTED"),upstream_data.get("message","Fiteatsy rejected this published Diet Plan"),upstream.status_code>=500)
+            select_token=create_fiteatsy_delegation(connection,"fiteatsy.external.diet.select","external_consultant_diet_plan_selection")
+            selected=await client.put(f"{base}/active",headers={"x-zestiva-delegation":select_token},json={"externalPlanId":str(plan["id"])})
+            selected_data=selected.json() if selected.headers.get("content-type","").startswith("application/json") else {}
+            if selected.status_code!=200:
+                return None,error(request,selected.status_code,selected_data.get("error","FITEATSY_DIET_SELECTION_REJECTED"),selected_data.get("message","Fiteatsy could not activate the published Diet Plan"),selected.status_code>=500)
+            return {"ingestion":upstream_data,"selection":selected_data},None
+    except httpx.RequestError:
+        return None,error(request,503,"FITEATSY_DIET_DELIVERY_UNAVAILABLE","Fiteatsy Diet Plan delivery is temporarily unavailable",True)
+
 def _governed_option_request(body):
     return {"mealHead":body.meal_head,"components":[{"foodId":item.food_id,"servingId":item.serving_id,"multiplier":item.multiplier} for item in body.components]}
 
@@ -2213,9 +2312,7 @@ async def publish_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db
         return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"],"publication_basis":"CONSULTANT_AUTHORED_VALIDATED","already_published":True},"error":None,"request_id":request.state.correlation_id}
     if plan["status"]!="APPROVED":return error(request,409,"DIET_PLAN_APPROVAL_REQUIRED","Consultant approval of this exact Diet Plan version is required before publication")
     if not get_settings().external_fiteatsy_diet_publish_enabled:return error(request,409,"FITEATSY_DELIVERY_DISABLED","Fiteatsy Diet Plan delivery is not enabled")
-    connection=(await db.execute(text("""SELECT id FROM external_fiteatsy_connections
-      WHERE tenant_id=:tenant AND consultant_id=:consultant AND consultant_client_id=:client
-        AND state='ACTIVE' AND consented_scopes ? 'DIET_PLANS'"""),{"tenant":ctx["tenant_id"],"consultant":plan["authorised_consultant_id"],"client":plan["client_id"]})).scalar_one_or_none()
+    connection=await _active_diet_connection(db,ctx,plan["client_id"])
     if not connection:return error(request,409,"DIET_PLAN_CONSENT_REQUIRED","An active Fiteatsy connection with Diet Plan consent is required before publication")
     readiness=await _current_diet_plan_readiness(db,ctx,plan["client_id"])
     if readiness["outcome"]!="READY":return _diet_plan_readiness_error(request,readiness)
@@ -2230,24 +2327,40 @@ async def publish_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db
       WHERE tenant_id=:tenant AND client_id=:client AND external_plan_id=:plan AND external_plan_version=:version
       AND legacy_lineage_state='LINKED'"""),{"tenant":ctx["tenant_id"],"client":plan["client_id"],"plan":str(plan_id),"version":str(plan["current_version"])})).mappings().first()
     if not lineage:return error(request,409,"NUTRITION_ASSESSMENT_REQUIRED","Bind the current completed Nutrition Assessment before publication")
-    now=datetime.now(timezone.utc);version_id=(await db.execute(text("UPDATE external_profession_plan_versions SET status='PUBLISHED',published_at=:now WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version RETURNING id"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).scalar_one()
+    options=await _diet_options_for_version(db,ctx["tenant_id"],plan_id,plan["current_version"])
+    if len(options)!=option_count or any(item.get("calculationStatus")!="AUTHORITATIVELY_RESOLVED" for item in options):
+        return error(request,409,"DIET_PLAN_GOVERNANCE_INVALID","Every published option must retain an authoritative governed snapshot")
+    now=datetime.now(timezone.utc)
+    delivery,delivery_error=await _deliver_diet_plan_to_fiteatsy(request,connection,plan,options,now)
+    if delivery_error:return delivery_error
+    version_id=(await db.execute(text("UPDATE external_profession_plan_versions SET status='PUBLISHED',published_at=:now WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version RETURNING id"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).scalar_one()
     await db.execute(text("UPDATE external_profession_plans SET status='PUBLISHED',updated_at=:now WHERE id=:plan AND tenant_id=:tenant"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"]})
-    published_projection=await _diet_plan_projection(db,{**dict(plan),"status":"PUBLISHED"})
-    published_content={"plan":published_projection["plan"],"version":plan["current_version"],"options":published_projection["options"],"nutrition_snapshot":dict(version_row["nutrition_snapshot"] or {})}
-    await db.execute(text("""INSERT INTO external_fiteatsy_plan_publications
+    published_content=_mobile_diet_publication(plan,plan["current_version"],options,now)
+    publication_id=(await db.execute(text("""INSERT INTO external_fiteatsy_plan_publications
       (id,connection_id,tenant_id,consultant_id,plan_id,plan_version,title,content,idempotency_key,status,published_at)
       VALUES(:id,:connection,:tenant,:consultant,:plan,:version,:title,CAST(:content AS jsonb),:key,'PUBLISHED',:now)
-      ON CONFLICT(connection_id,idempotency_key) DO NOTHING"""),{"id":uuid4(),"connection":connection,"tenant":ctx["tenant_id"],"consultant":plan["authorised_consultant_id"],"plan":str(plan_id),"version":plan["current_version"],"title":plan["title"],"content":json.dumps(published_content,default=str),"key":f"diet-plan:{plan_id}:v{plan['current_version']}","now":now})
-    publication_metadata={"publication_basis":"CONSULTANT_AUTHORED_VALIDATED","version":plan["current_version"],"assessment_id":str(lineage["assessment_id"]),"assessment_version":lineage["assessment_version"],"readiness":"READY"}
+      ON CONFLICT(connection_id,idempotency_key) DO UPDATE SET title=EXCLUDED.title,content=EXCLUDED.content,
+        status='PUBLISHED',published_at=EXCLUDED.published_at RETURNING id"""),{"id":uuid4(),"connection":connection["id"],"tenant":ctx["tenant_id"],"consultant":plan["authorised_consultant_id"],"plan":str(plan_id),"version":plan["current_version"],"title":plan["title"],"content":json.dumps(published_content,default=str),"key":f"diet-plan:{plan_id}:v{plan['current_version']}","now":now})).scalar_one()
+    await db.execute(text("""UPDATE external_fiteatsy_plan_publications SET status='SUPERSEDED'
+      WHERE connection_id=:connection AND plan_id=:plan AND id<>:publication AND status='PUBLISHED'"""),
+      {"connection":connection["id"],"plan":str(plan_id),"publication":publication_id})
+    await db.execute(text("""INSERT INTO external_fiteatsy_active_plan_selections
+      (fiteatsy_user_id,publication_id,selected_at,updated_at) VALUES(:user,:publication,:now,:now)
+      ON CONFLICT(fiteatsy_user_id) DO UPDATE SET publication_id=EXCLUDED.publication_id,
+        selected_at=EXCLUDED.selected_at,updated_at=EXCLUDED.updated_at"""),
+      {"user":connection["fiteatsy_user_id"],"publication":publication_id,"now":now})
+    publication_metadata={"publication_basis":"CONSULTANT_AUTHORED_VALIDATED","version":plan["current_version"],"assessment_id":str(lineage["assessment_id"]),"assessment_version":lineage["assessment_version"],"readiness":"READY","fiteatsy_plan_id":delivery["ingestion"].get("planId"),"fiteatsy_version_id":delivery["ingestion"].get("versionId")}
     await db.execute(text("INSERT INTO external_profession_plan_audit_events(id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,metadata,created_at) VALUES (:id,:plan,:version,:tenant,:client,'PUBLISHED',:actor,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"plan":plan_id,"version":version_id,"tenant":ctx["tenant_id"],"client":plan["client_id"],"actor":ctx["user_id"],"metadata":json.dumps(publication_metadata),"now":now});await db.commit()
-    return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"],"publication_basis":"CONSULTANT_AUTHORED_VALIDATED","already_published":False},"error":None,"request_id":request.state.correlation_id}
+    return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"],"publication_id":str(publication_id),"publication_basis":"CONSULTANT_AUTHORED_VALIDATED","already_published":False},"error":None,"request_id":request.state.correlation_id}
 
 @app.get("/api/v1/practice-operations/diet-plans/{plan_id}/download")
-async def download_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+async def download_diet_plan(request:Request,plan_id:UUID,format:str=Query("DOCX",pattern="^(PDF|DOCX)$"),ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=external_only(request,ctx)
     if denied:return denied
     plan=await _diet_plan_row(request,db,ctx,plan_id)
     if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    if format=="PDF" and plan["status"] not in {"APPROVED","PUBLISHED"}:
+        return error(request,409,"DIET_PLAN_APPROVAL_REQUIRED","Approve the exact Diet Plan version before downloading its PDF")
     projection=await _diet_plan_projection(db,plan)
     current=projection["current_version"] or {}
     options=projection["options"]
@@ -2257,9 +2370,12 @@ async def download_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),d
         {"label":"Calories","value":plan["daily_calories_target"],"provenance":"PRACTITIONER_ENTERED"},
         {"label":"Protein (g)","value":float(plan["daily_protein_target_g"] or 0),"provenance":"PRACTITIONER_ENTERED"}]},
         {"title":"Meal options","items":[{"label":str(item.get("mealHead") or "Meal"),"value":str(item.get("clientTitle") or item.get("label") or item.get("combinationId") or "Structured meal"),"provenance":"PRACTITIONER_ENTERED"} for item in options]}]}
-    content=build_docx(snapshot);safe_name="".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in plan["title"]).strip("-") or "diet-plan"
-    return Response(content=content,media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      headers={"Content-Disposition":f'attachment; filename="{safe_name}-v{plan["current_version"]}.docx"',"X-Diet-Plan-Version":str(plan["current_version"]),"X-Diet-Plan-Status":str(current.get("status") or plan["status"])})
+    safe_name="".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in plan["title"]).strip("-") or "diet-plan"
+    is_pdf=format=="PDF";content=build_pdf(snapshot) if is_pdf else build_docx(snapshot)
+    media_type="application/pdf" if is_pdf else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    extension="pdf" if is_pdf else "docx"
+    return Response(content=content,media_type=media_type,
+      headers={"Content-Disposition":f'attachment; filename="{safe_name}-v{plan["current_version"]}.{extension}"',"X-Diet-Plan-Version":str(plan["current_version"]),"X-Diet-Plan-Status":str(current.get("status") or plan["status"])})
 
 async def _write_note_sections(db,tenant,version_id,sections):
     for order,section in enumerate(sections,1):

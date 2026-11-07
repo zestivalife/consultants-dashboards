@@ -22,8 +22,8 @@ test('Diet Requirements uses an accessible consolidated modal and existing scope
   assert.match(multi,/event\.key === 'Escape'/);
   assert.match(multi,/getClientInformationCompleteness\(clientId\)/);
   assert.match(multi,/createClientInformationRequest\(clientId/);
-  assert.match(multi,/field_ids:requestedFields/);
-  assert.match(multi,/expires_in_hours:168/);
+  assert.match(multi,/field_ids:\s*requestedFields/);
+  assert.match(multi,/expires_in_hours:\s*168/);
   assert.match(multi,/Request Missing Information/);
 });
 test('Diet Requirements keeps clinical context read-only and does not derive professional targets',()=>{

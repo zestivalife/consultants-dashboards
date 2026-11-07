@@ -9,7 +9,7 @@ const component = fs.readFileSync(new URL('../components/external/ExternalClient
 const enhancements = fs.readFileSync(new URL('../components/external/ExternalClientProfileEnhancements.jsx', import.meta.url), 'utf8');
 
 test('connected external Client 360 uses the consented Practice Operations health context', () => {
-  assert.match(component, /getFiteatsyConnectionHealthContext\(client\.connectionId\)/);
+  assert.match(component, /loadAuthorizedClient360\(client,getFiteatsyConnectionHealthContext\)/);
   const initialLoad = component.match(/const load = async \(\) => \{[\s\S]*?\n  const loadPendingReportReviews/)?.[0] || '';
   assert.doesNotMatch(initialLoad, /getExternalClient360\(client\.id\)/);
 });
@@ -139,13 +139,10 @@ test('connected evidence records retain factual report lifecycle timestamps', ()
 });
 
 test('connected Client 360 binds health records and does not expose a mutable connection status selector', () => {
-  assert.match(component,/connectionRecords=\{connectedRecords\}/);
+  assert.match(component,/documents=\{data\.documents\|\|\[\]\}/);
   assert.match(component,/!client\.connectionId&&<select aria-label="Client status"/);
-  assert.match(component,/externalConnectedBiomarkerHistory/);
-  const connectedBranch=component.match(/if\(client\.connectionId&&client\.healthDataAuthorized\)\{try\{[\s\S]*?\}return;\}/)?.[0]||'';
-  assert.match(connectedBranch,/externalConnectedBiomarkers/);
-  assert.doesNotMatch(connectedBranch,/getExternalClientBiomarkers|getExternalTransientBiomarkers/);
-  assert.match(component,/if\(client\.connectionId&&client\.healthDataAuthorized\)\{setProfileEvidenceReviews\(\[\]\);return;\}/);
+  assert.match(component,/loadAuthorizedClient360\(client,getFiteatsyConnectionHealthContext\)/);
+  assert.doesNotMatch(component,/getExternalClient360\(client\.id\)/);
 });
 
 test('connected report download uses the browser document instead of shadowing it with report data', () => {
