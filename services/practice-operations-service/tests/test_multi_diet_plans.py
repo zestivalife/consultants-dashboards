@@ -7,7 +7,7 @@ def test_consultant_multi_diet_plan_api_is_external_only_and_versioned():
     for route in (
         'clients/{client_id}/diet-plans', 'diet-plans/{plan_id}',
         'diet-plans/{plan_id}/draft', 'diet-plans/{plan_id}/review',
-        'diet-plans/{plan_id}/publish',
+        'diet-plans/{plan_id}/publish', 'diet-plans/{plan_id}/options/{option_id}',
     ):
         assert route in source
     for token in (
@@ -38,3 +38,20 @@ def test_frontend_uses_practice_operations_for_plan_writes_and_catalogue_read_on
     assert "Approve exact version" in component
     assert "Publish approved version" in component
     assert "expected_version: refreshed.plan.current_version" in component
+
+def test_governed_option_updates_are_atomic_authoritative_and_consent_scoped():
+    source = (ROOT / "app/main.py").read_text()
+    contracts = (ROOT / "app/contracts.py").read_text()
+    frontend = (ROOT.parents[1] / "nuetra-frontend/components/external/ExternalMultiDietPlan.jsx").read_text()
+    api = (ROOT.parents[1] / "nuetra-frontend/lib/practiceOperationsApi.js").read_text()
+    for invariant in (
+        "Idempotency-Key", "expected_version", "pg_advisory_xact_lock", "FOR UPDATE",
+        "state='ACTIVE'", "consented_scopes ? 'DIET_PLANS'", "fiteatsy.external.diet.resolve",
+        "external_consultant_diet_option", "AUTHORITATIVELY_RESOLVED", "OPTION_UPDATED",
+        "calculation_authority", "FITEATSY_GOVERNED_COMMON_FOOD",
+    ):
+        assert invariant in source
+    assert "class GovernedDietOptionUpdate" in contracts
+    assert "updateConsultantDietPlanOption" in api and "updateConsultantDietPlanOption" in frontend
+    assert "payload.components.reduce" not in frontend
+    assert "nutrition:payload.components.reduce" not in frontend

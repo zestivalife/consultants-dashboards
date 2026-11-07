@@ -215,6 +215,16 @@ class DietPlanSave(BaseModel):
     expected_version: int = Field(ge=1)
     options: list[dict[str, Any]] = Field(default_factory=list, max_length=35)
 
+class GovernedDietComponent(BaseModel):
+    food_id: str = Field(min_length=1, max_length=160)
+    serving_id: str = Field(min_length=1, max_length=160)
+    multiplier: float = Field(gt=0, le=20)
+
+class GovernedDietOptionUpdate(BaseModel):
+    expected_version: int = Field(ge=1)
+    meal_head: Literal["EARLY_MORNING","BREAKFAST","MID_MORNING","LUNCH","EVENING_SNACK","DINNER","BEDTIME"]
+    components: list[GovernedDietComponent] = Field(min_length=1, max_length=12)
+
 class DietPlanReviewAction(BaseModel):
     action: Literal["SUBMIT","START_REVIEW","REQUEST_CHANGES","APPROVE"]
     expected_version: int = Field(ge=1)
