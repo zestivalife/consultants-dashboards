@@ -1794,6 +1794,24 @@ async def _diet_options_for_version(db, tenant_id, plan_id, version):
       WHERE v.plan_id=:plan AND v.tenant_id=:tenant AND v.version=:version ORDER BY i.sort_order"""),
       {"tenant":tenant_id,"plan":plan_id,"version":version})).scalars().all()]
 
+def _mobile_diet_publication(plan, version, options, published_at):
+    """Build the immutable mobile projection from already-governed option snapshots."""
+    return {
+      "contractVersion":"EXTERNAL_DIET_PLAN_V1",
+      "plan":{"id":str(plan["id"]),"version":version,"title":plan["title"],
+        "status":"PUBLISHED","publishedAt":published_at.isoformat()},
+      "targets":{"calories":float(plan["daily_calories_target"]),
+        "protein":float(plan["daily_protein_target_g"] or 0)},
+      "mealOptions":[{
+        "id":str(item.get("combinationId") or ""),"mealHead":item.get("mealHead"),
+        "title":item.get("clientTitle") or item.get("humanServingSummary") or item.get("mealHead"),
+        "serving":item.get("humanServingSummary") or "",
+        "components":item.get("components") or [],"nutrition":item.get("nutrition") or {},
+        "calculationStatus":item.get("calculationStatus"),"optionHash":item.get("optionHash"),
+      } for item in options],
+      "instructions":[],"calculationAuthority":"FITEATSY_GOVERNED_COMMON_FOOD",
+    }
+
 def _governed_option_request(body):
     return {"mealHead":body.meal_head,"components":[{"foodId":item.food_id,"servingId":item.serving_id,"multiplier":item.multiplier} for item in body.components]}
 
@@ -2082,10 +2100,36 @@ async def publish_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db
       WHERE tenant_id=:tenant AND client_id=:client AND external_plan_id=:plan AND external_plan_version=:version
       AND legacy_lineage_state='LINKED'"""),{"tenant":ctx["tenant_id"],"client":plan["client_id"],"plan":str(plan_id),"version":str(plan["current_version"])})).mappings().first()
     if not lineage:return error(request,409,"NUTRITION_ASSESSMENT_REQUIRED","Bind an approved current Nutrition Assessment before publication")
+    settings=get_settings()
+    if not settings.external_fiteatsy_diet_publish_enabled:
+        return error(request,503,"FITEATSY_DIET_DELIVERY_UNAVAILABLE","Fiteatsy Diet Plan delivery is not enabled",True)
+    connection=await _active_diet_connection(db,ctx,plan["client_id"])
+    if not connection:return error(request,409,"FITEATSY_DIET_CONSENT_REQUIRED","An active Fiteatsy connection with Diet Plan consent is required")
+    options=await _diet_options_for_version(db,ctx["tenant_id"],plan_id,plan["current_version"])
+    if len(options)!=option_count or any(item.get("calculationStatus")!="AUTHORITATIVELY_RESOLVED" for item in options):
+        return error(request,409,"DIET_PLAN_GOVERNANCE_INVALID","Every published option must retain an authoritative governed snapshot")
     now=datetime.now(timezone.utc);version_id=(await db.execute(text("UPDATE external_profession_plan_versions SET status='PUBLISHED',published_at=:now WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version RETURNING id"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).scalar_one()
     await db.execute(text("UPDATE external_profession_plans SET status='PUBLISHED',updated_at=:now WHERE id=:plan AND tenant_id=:tenant"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"]})
+    publication_content=_mobile_diet_publication(plan,plan["current_version"],options,now)
+    publication_key=f"external-plan:{plan_id}:version:{plan['current_version']}"
+    publication_id=(await db.execute(text("""INSERT INTO external_fiteatsy_plan_publications
+      (id,connection_id,tenant_id,consultant_id,plan_id,plan_version,title,content,idempotency_key,status,published_at)
+      VALUES(:id,:connection,:tenant,:consultant,:plan,:version,:title,CAST(:content AS jsonb),:key,'PUBLISHED',:now)
+      ON CONFLICT(connection_id,idempotency_key) DO UPDATE SET title=EXCLUDED.title,content=EXCLUDED.content,
+        status='PUBLISHED',published_at=EXCLUDED.published_at RETURNING id"""),
+      {"id":uuid4(),"connection":connection["id"],"tenant":ctx["tenant_id"],"consultant":ctx["user_id"],
+       "plan":str(plan_id),"version":plan["current_version"],"title":plan["title"],
+       "content":json.dumps(publication_content),"key":publication_key,"now":now})).scalar_one()
+    await db.execute(text("""UPDATE external_fiteatsy_plan_publications SET status='SUPERSEDED'
+      WHERE connection_id=:connection AND plan_id=:plan AND id<>:publication AND status='PUBLISHED'"""),
+      {"connection":connection["id"],"plan":str(plan_id),"publication":publication_id})
+    await db.execute(text("""INSERT INTO external_fiteatsy_active_plan_selections
+      (fiteatsy_user_id,publication_id,selected_at,updated_at) VALUES(:user,:publication,:now,:now)
+      ON CONFLICT(fiteatsy_user_id) DO UPDATE SET publication_id=EXCLUDED.publication_id,
+        selected_at=EXCLUDED.selected_at,updated_at=EXCLUDED.updated_at"""),
+      {"user":connection["fiteatsy_user_id"],"publication":publication_id,"now":now})
     await db.execute(text("INSERT INTO external_profession_plan_audit_events(id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,created_at) VALUES (:id,:plan,:version,:tenant,:client,'PUBLISHED',:actor,:now)"),{"id":uuid4(),"plan":plan_id,"version":version_id,"tenant":ctx["tenant_id"],"client":plan["client_id"],"actor":ctx["user_id"],"now":now});await db.commit()
-    return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"],"publication_basis":"INDEPENDENT_VERIFIED_EXPERIENCE" if independently_publishable else "SENIOR_APPROVED"},"error":None,"request_id":request.state.correlation_id}
+    return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"],"publication_id":str(publication_id),"publication_basis":"INDEPENDENT_VERIFIED_EXPERIENCE" if independently_publishable else "SENIOR_APPROVED"},"error":None,"request_id":request.state.correlation_id}
 
 async def _write_note_sections(db,tenant,version_id,sections):
     for order,section in enumerate(sections,1):

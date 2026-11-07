@@ -67,3 +67,17 @@ def test_legacy_draft_save_discards_frontend_nutrition_and_re_resolves_every_opt
     assert 'for item in body.options if item.get("selected",True)' not in save
     assert "FOR UPDATE" in save and "current_version=:expected" in save
     assert '"calculation_authority":"FITEATSY_GOVERNED_COMMON_FOOD"' in save
+
+def test_publication_atomically_delivers_exact_governed_version_to_mobile():
+    source = (ROOT / "app/main.py").read_text()
+    publish = source[source.index("async def publish_diet_plan"):source.index("async def _write_note_sections")]
+    for invariant in (
+        "_active_diet_connection", "FITEATSY_DIET_CONSENT_REQUIRED",
+        "AUTHORITATIVELY_RESOLVED", "_mobile_diet_publication",
+        "external_fiteatsy_plan_publications", "external_fiteatsy_active_plan_selections",
+        "EXTERNAL_DIET_PLAN_V1", "FITEATSY_GOVERNED_COMMON_FOOD",
+        "SUPERSEDED", "publication_id",
+    ):
+        assert invariant in publish or invariant in source
+    assert publish.index("external_fiteatsy_plan_publications") < publish.index("await db.commit()")
+    assert publish.index("external_fiteatsy_active_plan_selections") < publish.index("await db.commit()")

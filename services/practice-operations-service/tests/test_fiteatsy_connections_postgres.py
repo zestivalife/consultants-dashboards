@@ -132,3 +132,67 @@ async def test_redeem_is_atomic_replay_safe_and_user_bound(monkeypatch):
 
     get_settings.cache_clear()
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_mobile_publication_is_exact_active_version_and_revocation_safe(monkeypatch):
+    engine = create_async_engine(TEST_DATABASE_URL, pool_pre_ping=True)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_pem = key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    monkeypatch.setenv("EXTERNAL_FITEATSY_CONNECTION_ENABLED", "true")
+    monkeypatch.setenv("EXTERNAL_FITEATSY_INBOUND_PUBLIC_KEY", public_pem)
+    monkeypatch.setenv("EXTERNAL_FITEATSY_INBOUND_ISSUER", "fiteatsy-ci")
+    monkeypatch.setenv("EXTERNAL_FITEATSY_INBOUND_AUDIENCE", "practice-operations-ci")
+    get_settings.cache_clear()
+
+    async def database():
+        async with sessions() as session:
+            yield session
+
+    app = FastAPI()
+    app.include_router(build_router(_context, _external_only, _error))
+    app.dependency_overrides[get_db] = database
+    connection_id, old_id, active_id = uuid4(), uuid4(), uuid4()
+    now = datetime.now(timezone.utc)
+    content = {"contractVersion": "EXTERNAL_DIET_PLAN_V1", "calculationAuthority": "FITEATSY_GOVERNED_COMMON_FOOD",
+               "plan": {"id": "plan-1", "version": 2}, "mealOptions": []}
+    async with sessions() as session:
+        await session.execute(text("DELETE FROM external_fiteatsy_active_plan_selections"))
+        await session.execute(text("DELETE FROM external_fiteatsy_plan_publications"))
+        await session.execute(text("DELETE FROM external_fiteatsy_consents"))
+        await session.execute(text("DELETE FROM external_fiteatsy_connections"))
+        await session.execute(text("""INSERT INTO external_fiteatsy_connections
+          (id,tenant_id,consultant_id,fiteatsy_user_id,consultant_client_id,state,consent_version,consented_scopes,programme_status,connected_at,updated_at)
+          VALUES(:id,'tenant-1','consultant-1','fiteatsy-user-1','synthetic-client','ACTIVE','external-consultant-v1',CAST(:scopes AS JSONB),'ACTIVE',:now,:now)"""),
+          {"id": connection_id, "scopes": json.dumps(["DIET_PLANS"]), "now": now})
+        for publication_id, version, status in ((old_id, 1, "SUPERSEDED"), (active_id, 2, "PUBLISHED")):
+            await session.execute(text("""INSERT INTO external_fiteatsy_plan_publications
+              (id,connection_id,tenant_id,consultant_id,plan_id,plan_version,title,content,idempotency_key,status,published_at)
+              VALUES(:id,:connection,'tenant-1','consultant-1','plan-1',:version,'Synthetic plan',CAST(:content AS JSONB),:key,:status,:now)"""),
+              {"id": publication_id, "connection": connection_id, "version": version, "content": json.dumps(content),
+               "key": f"plan-1:{version}", "status": status, "now": now + timedelta(seconds=version)})
+        await session.execute(text("""INSERT INTO external_fiteatsy_active_plan_selections
+          (fiteatsy_user_id,publication_id,selected_at,updated_at) VALUES('fiteatsy-user-1',:publication,:now,:now)"""),
+          {"publication": active_id, "now": now})
+        await session.commit()
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        authorised = {"Authorization": f"Bearer {_assertion(key, 'fiteatsy-user-1')}"}
+        response = await client.get(f"/api/v1/fiteatsy-connections/{connection_id}/diet-plans", headers=authorised)
+        assert response.status_code == 200
+        plans = response.json()["data"]["plans"]
+        assert [(item["plan_version"], item["status"], item["is_active"]) for item in plans] == [
+            (2, "PUBLISHED", True), (1, "SUPERSEDED", False)]
+        other = await client.get(f"/api/v1/fiteatsy-connections/{connection_id}/diet-plans",
+                                 headers={"Authorization": f"Bearer {_assertion(key, 'other-user')}"})
+        assert other.json()["data"]["plans"] == []
+        async with sessions() as session:
+            await session.execute(text("UPDATE external_fiteatsy_connections SET state='REVOKED' WHERE id=:id"), {"id": connection_id})
+            await session.commit()
+        revoked = await client.get(f"/api/v1/fiteatsy-connections/{connection_id}/diet-plans", headers=authorised)
+        assert revoked.json()["data"]["plans"] == []
+
+    get_settings.cache_clear()
+    await engine.dispose()
