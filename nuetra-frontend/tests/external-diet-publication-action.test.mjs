@@ -27,7 +27,8 @@ test('publication confirms the assigned client and exact refreshed version', () 
 test('unsaved edits cannot be published and backend remains publication authority', () => {
   assert.match(plan, /onDirtyChange=\{setEditorDirty\}/);
   assert.match(plan, /if \(editorDirty\) throw new Error\('Save the current Diet Plan changes before publishing/);
-  assert.match(plan, /selected\.status!=='APPROVED'\|\|editorDirty/);
+  assert.match(plan, /canPublishExternalDietVersion\(\{ status: selected\?\.status, dirty: editorDirty \}\)/);
+  assert.match(plan, /disabled=\{Boolean\(busy\)\|\|!publishReady\}/);
   assert.match(plan, /publishConsultantDietPlan\(selected\.id\)/);
   assert.match(api, /diet-plans\/\$\{encodeURIComponent\(planId\)\}\/publish/);
   assert.doesNotMatch(plan, /nutrition information.*access denied/i);

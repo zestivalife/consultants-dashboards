@@ -3,7 +3,7 @@ import {
   searchExternalCommonFoods,
 } from '../../lib/fiteatsyConsultantsApi';
 import { bindDietPlanAssessment, createClientInformationRequest, createConsultantDietPlan, downloadConsultantDietPlan, getClientInformationCompleteness, getConsultantDietPlan, getDietPlanHealthContext, getNutritionAssessment, listConsultantDietPlans, openWhatsApp, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan, updateConsultantDietPlanOption } from '../../lib/practiceOperationsApi';
-import { createdDraftPresentation, loadDietPlanWorkspace } from '../../lib/dietPlanWorkspaceState.mjs';
+import { canPublishExternalDietVersion, createdDraftPresentation, externalDietEditorState, loadDietPlanWorkspace } from '../../lib/dietPlanWorkspaceState.mjs';
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import CommonFoodPlanEditor from '../platform/CommonFoodPlanEditor';
 
@@ -77,6 +77,8 @@ export default function ExternalMultiDietPlan({ clientId, clientName='Client', c
   const generateButtonRef = useRef(null);
   const firstFieldRef = useRef(null);
   const selected = useMemo(() => plans.find((plan) => plan.id === selectedId) || plans[0] || null, [plans, selectedId]);
+  const editorState = useMemo(() => externalDietEditorState(selected?.status), [selected?.status]);
+  const publishReady = canPublishExternalDietVersion({ status: selected?.status, dirty: editorDirty });
   const valid = form.name.trim().length >= 2 && Number(form.dailyCalories) >= 1 && Number(form.dailyProtein) >= 0;
 
   const load = useCallback(async (preferredId) => {
@@ -231,13 +233,13 @@ export default function ExternalMultiDietPlan({ clientId, clientName='Client', c
             {selected.status==='PUBLISHED'&&<button disabled={busy||!clientPhone} onClick={sharePublishedPlan} className="min-h-11 rounded-xl bg-emerald-700 px-4 font-semibold text-white disabled:opacity-40">{busy==='share'?'Opening…':'Share via WhatsApp'}</button>}
             {!['APPROVED','PUBLISHED','ARCHIVED'].includes(selected.status) && <button disabled={busy} onClick={() => persist('save')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save version'}</button>}
             {['DRAFT','SAVED','CHANGES_REQUESTED','SUBMITTED','UNDER_REVIEW'].includes(selected.status)&&<button disabled={busy} onClick={()=>persist('approve')} className="min-h-11 rounded-xl bg-emerald-700 px-4 font-semibold text-white disabled:opacity-40">{busy==='approve'?'Approving…':'Approve exact version'}</button>}
-            {selected.status!=='PUBLISHED'&&selected.status!=='ARCHIVED'&&<button aria-describedby="publish-client-app-requirement" disabled={Boolean(busy)||selected.status!=='APPROVED'||editorDirty} onClick={() => persist('publish')} title={editorDirty?'Save the current changes before publishing.':selected.status!=='APPROVED'?'Approve the exact saved version before publishing.':'Publish this exact approved version to the assigned client app.'} className="min-h-11 rounded-xl bg-blue-700 px-5 font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40">{busy==='publish'?'Publishing…':'Publish to Client App'}</button>}
+            {selected.status!=='PUBLISHED'&&selected.status!=='ARCHIVED'&&<button aria-describedby="publish-client-app-requirement" disabled={Boolean(busy)||!publishReady} onClick={() => persist('publish')} title={editorDirty?'Save the current changes before publishing.':selected.status!=='APPROVED'?'Approve the exact saved version before publishing.':'Publish this exact approved version to the assigned client app.'} className="min-h-11 rounded-xl bg-blue-700 px-5 font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40">{busy==='publish'?'Publishing…':'Publish to Client App'}</button>}
           </div>
           {selected.status!=='PUBLISHED'&&selected.status!=='ARCHIVED'&&<p id="publish-client-app-requirement" className={`mt-2 text-xs ${editorDirty?'font-semibold text-amber-700':'text-slate-500'}`}>{editorDirty?'Unsaved changes must be saved before publication.':selected.status==='APPROVED'?'The backend will verify the active Fiteatsy connection and Diet Plan publication consent.':'Save and approve the exact version before publishing it to the client app.'}</p>}
         </div>
       </section>
       <section className="rounded-2xl border border-slate-200 bg-white p-5">
-        <CommonFoodPlanEditor key={`${selected.id}:${selected.version.id}`} ref={editorRef} clientId={clientId} dietPlanId={selected.id} planVersionId={selected.version.id} generationRequestId={1} lifecycle={selected.status === 'ARCHIVED' ? 'published' : 'draft'} initialOptions={selected.version.plan.meals.flatMap((meal) => meal.options)} legacyMealPlan={{}} readOnly={selected.status === 'ARCHIVED'} authoringApi={authoringApi} templatesEnabled={false} proposalsEnabled={false} autoBalanceEnabled={false} onDirtyChange={setEditorDirty} onStale={() => load(selected.id)} />
+        <CommonFoodPlanEditor key={`${selected.id}:${selected.version.id}`} ref={editorRef} clientId={clientId} dietPlanId={selected.id} planVersionId={selected.version.id} generationRequestId={editorState.generationRequestId} generateMissingOnLoad={false} lifecycle={editorState.lifecycle} initialOptions={selected.version.plan.meals.flatMap((meal) => meal.options)} legacyMealPlan={{}} readOnly={editorState.readOnly} authoringApi={authoringApi} templatesEnabled={false} proposalsEnabled={false} autoBalanceEnabled={false} onDirtyChange={setEditorDirty} onStale={() => load(selected.id)} />
       </section>
       <section className="rounded-2xl border bg-white p-5">
         <h4 className="font-semibold">Version history</h4>

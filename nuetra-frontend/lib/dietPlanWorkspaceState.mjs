@@ -79,3 +79,22 @@ export function createdDraftPresentation(createdId, loadResult) {
     message: `Draft ${createdId} was created, but could not be reloaded. Retry loading this draft; do not create another one.`,
   };
 }
+
+const IMMUTABLE_DIET_PLAN_STATUSES = new Set(['APPROVED', 'PUBLISHED', 'ARCHIVED']);
+
+export function externalDietEditorState(status) {
+  const canonicalStatus = String(status || 'DRAFT').toUpperCase();
+  const readOnly = IMMUTABLE_DIET_PLAN_STATUSES.has(canonicalStatus);
+  const lifecycle = canonicalStatus === 'CHANGES_REQUESTED'
+    ? 'changes_requested'
+    : canonicalStatus === 'PUBLISHED' || canonicalStatus === 'ARCHIVED'
+      ? 'published'
+      : canonicalStatus === 'APPROVED'
+        ? 'approved'
+        : 'draft';
+  return { lifecycle, readOnly, generationRequestId: 0 };
+}
+
+export function canPublishExternalDietVersion({ status, dirty }) {
+  return String(status || '').toUpperCase() === 'APPROVED' && dirty === false;
+}

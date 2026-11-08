@@ -168,7 +168,7 @@ function LegacyOptionDetails({ option }) {
   return <div className="mt-3 grid gap-2 border-t pt-3 text-xs text-gray-600 sm:grid-cols-2"><span>Serving: {option.servingLabel}</span><span>Verification: {option.verificationStatus || 'Legacy plan record'}</span>{option.prepNote ? <span className="sm:col-span-2">Preparation: {option.prepNote}</span> : null}</div>;
 }
 
-const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId, dietPlanId, planVersionId, lifecycle, initialOptions = [], legacyMealPlan = {}, generationRequestId = 0, readOnly = false, mode = 'authoring', authoringApi = defaultAuthoringApi, templatesEnabled = true, proposalsEnabled = true, autoBalanceEnabled = true, onStale, onDirtyChange, onProgressChange }, ref) {
+const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId, dietPlanId, planVersionId, lifecycle, initialOptions = [], legacyMealPlan = {}, generationRequestId = 0, generateMissingOnLoad = true, readOnly = false, mode = 'authoring', authoringApi = defaultAuthoringApi, templatesEnabled = true, proposalsEnabled = true, autoBalanceEnabled = true, onStale, onDirtyChange, onProgressChange }, ref) {
   const [meals, setMeals] = useState([]);
   const [options, setOptions] = useState(initialOptions);
   const [selectedIds, setSelectedIds] = useState(() => new Set(initialOptions.map((option) => option.combinationId)));
@@ -253,11 +253,11 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
         && isValidDraftSelection(savedOptions, savedIds, COMMON_FOOD_MEALS.map(([head]) => head));
       setOptions(savedOptions); setSelectedIds(savedIds); setPersistedIds(savedIds); setDirty(false); setSavedVerified(verified);
       setMessage(verified ? `Saved draft verified: ${savedOptions.length} option${savedOptions.length === 1 ? '' : 's'} persisted.` : 'Saved draft could not be verified against the current server version.');
-      if (isCommonFoodCombinationEngineEnabled && savedOptions.length < 35 && ['draft', 'changes_requested'].includes(lifecycle) && !readOnly) {
+      if (generateMissingOnLoad && isCommonFoodCombinationEngineEnabled && savedOptions.length < 35 && ['draft', 'changes_requested'].includes(lifecycle) && !readOnly) {
         await generate({ autoSelect: savedOptions.length === 0, baseOptions: savedOptions, selectedSeed: savedIds });
       }
     } catch (nextError) { setError(commonFoodErrorMessage(nextError, 'Unable to reload Diet Plan options.')); }
-  }, [authoringApi, clientId, dietPlanId, generate, lifecycle, planVersionId, readOnly]);
+  }, [authoringApi, clientId, dietPlanId, generate, generateMissingOnLoad, lifecycle, planVersionId, readOnly]);
   useEffect(() => {
     if (!dietPlanId) return;
     if (readOnly) return;
