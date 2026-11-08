@@ -57,12 +57,27 @@ async def seed_lifecycle() -> tuple[str, str]:
 
 
 @pytest.mark.asyncio
-async def test_real_http_exact_version_review_publication_mobile_and_docx_lifecycle():
+async def test_real_http_exact_version_review_publication_mobile_and_docx_lifecycle(monkeypatch):
     assessment_id, connection_id = await seed_lifecycle()
     from app.config import get_settings
     settings=get_settings();settings.external_fiteatsy_connection_enabled=True;settings.external_fiteatsy_diet_publish_enabled=True
     key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
     settings.external_fiteatsy_inbound_public_key=key.public_key().public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    async def resolve_governed_option(_request, connection, _plan, resolver_body, _purpose="external_consultant_diet_option"):
+        component = resolver_body["components"][0]
+        return {
+            "mealHead": resolver_body["mealHead"],
+            "components": [{
+                "componentId": "governed-component",
+                **component,
+                "nutrition": {"kcal": 420, "protein": 18},
+            }],
+            "nutrition": {"kcal": 420, "protein": 18},
+            "optionHash": "authoritative-breakfast-hash",
+            "calculationStatus": "AUTHORITATIVELY_RESOLVED",
+            "clinicalApproval": False,
+        }, None
+    monkeypatch.setattr("app.main._resolve_governed_option", resolve_governed_option)
     from app.main import app
     transport=httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport,base_url="http://test") as client:
@@ -74,7 +89,7 @@ async def test_real_http_exact_version_review_publication_mobile_and_docx_lifecy
         assert replayed.status_code==201 and replayed.json()["data"]["id"]==plan_id and replayed.json()["data"]["idempotent_replay"] is True
         key_reused=await client.post("/api/v1/practice-operations/diet-plans",headers=create_headers,json={**create_payload,"name":"Different request"})
         assert key_reused.status_code==409 and key_reused.json()["error"]["code"]=="IDEMPOTENCY_KEY_REUSED"
-        options=[{"combinationId":"breakfast-1","mealHead":"BREAKFAST","clientTitle":"Oats and fruit","selected":True,"nutrition":{"kcal":420,"protein":18}}]
+        options=[{"combinationId":"breakfast-1","mealHead":"BREAKFAST","clientTitle":"Oats and fruit","selected":True,"nutrition":{"kcal":999999,"protein":999999},"components":[{"foodId":"food-oats","servingId":"serving-bowl","multiplier":1}]}]
         saved=await client.put(f"/api/v1/practice-operations/diet-plans/{plan_id}/draft",headers=practitioner_headers(),json={"expected_version":1,"options":options})
         assert saved.status_code==200 and saved.json()["data"]["version"]==2
         premature=await client.post(f"/api/v1/practice-operations/diet-plans/{plan_id}/publish",headers=practitioner_headers())
@@ -111,7 +126,10 @@ async def test_real_http_exact_version_review_publication_mobile_and_docx_lifecy
         try:
             publication=await database.fetchrow("SELECT plan_version,content FROM external_fiteatsy_plan_publications WHERE connection_id=$1",connection_id)
             assert publication["plan_version"]==3
-            assert json.loads(publication["content"])["options"]==options
+            published_options=json.loads(publication["content"])["options"]
+            assert published_options[0]["combinationId"]=="breakfast-1"
+            assert published_options[0]["calculationStatus"]=="AUTHORITATIVELY_RESOLVED"
+            assert published_options[0]["nutrition"]=={"kcal":420,"protein":18}
         finally: await database.close()
 
         now=datetime.now(timezone.utc);claims={"iss":settings.external_fiteatsy_inbound_issuer,"aud":settings.external_fiteatsy_inbound_audience,"sub":"mobile-diet-client","actor_type":"FITEATSY_USER","iat":int(now.timestamp()),"exp":int((now+timedelta(minutes=5)).timestamp())}
@@ -119,7 +137,9 @@ async def test_real_http_exact_version_review_publication_mobile_and_docx_lifecy
         mobile=await client.get(f"/api/v1/fiteatsy-connections/{connection_id}/diet-plans",headers={"Authorization":f"Bearer {token}"})
         assert mobile.status_code==200
         assert mobile.json()["data"]["plans"][0]["plan_version"]==3
-        assert mobile.json()["data"]["plans"][0]["content"]["options"]==options
+        mobile_option=mobile.json()["data"]["plans"][0]["content"]["options"][0]
+        assert mobile_option["calculationStatus"]=="AUTHORITATIVELY_RESOLVED"
+        assert mobile_option["nutrition"]=={"kcal":420,"protein":18}
         database=await asyncpg.connect(INTEGRATION_DATABASE_URL)
         try: await database.execute("UPDATE external_fiteatsy_connections SET state='REVOKED',disconnected_at=$2 WHERE id=$1",connection_id,datetime.now(timezone.utc))
         finally: await database.close()
