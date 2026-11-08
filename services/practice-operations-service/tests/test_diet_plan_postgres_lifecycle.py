@@ -78,6 +78,12 @@ async def test_real_http_exact_version_review_publication_mobile_and_docx_lifecy
             "clinicalApproval": False,
         }, None
     monkeypatch.setattr("app.main._resolve_governed_option", resolve_governed_option)
+    async def deliver_published_plan(_request, _connection, plan, _options, _published_at):
+        return {
+            "ingestion": {"planId": str(plan["id"]), "versionId": f'{plan["id"]}:3'},
+            "selection": {"activePlanId": str(plan["id"])},
+        }, None
+    monkeypatch.setattr("app.main._deliver_diet_plan_to_fiteatsy", deliver_published_plan)
     from app.main import app
     transport=httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport,base_url="http://test") as client:
