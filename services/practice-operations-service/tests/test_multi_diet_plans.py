@@ -49,7 +49,7 @@ def test_frontend_uses_practice_operations_for_plan_writes_and_catalogue_read_on
     assert "GOVERNED_CATALOGUE" in component
     assert "reviewConsultantDietPlan" in component
     assert "Submit for review" not in component
-    assert "Publish approved version" in component
+    assert "Publish to Client App" in component
     assert "Approve exact version" in component
     assert "DIET_PLAN_VERSION_IMMUTABLE" in (ROOT / "app/main.py").read_text()
     assert "not a clinical approval" not in component
