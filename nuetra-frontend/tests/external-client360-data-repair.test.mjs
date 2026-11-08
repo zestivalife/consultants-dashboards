@@ -39,7 +39,7 @@ test('diet authoring receives real read-only client and confirmed biomarker cont
     assert.ok(`${client360}\n${dietPlan}`.includes(contract), contract);
   }
   assert.match(dietPlan, /Approve exact version/);
-  assert.match(dietPlan, /Publish approved version/);
+  assert.match(dietPlan, /Publish to Client App/);
   assert.doesNotMatch(dietPlan, /Submit for review|Senior Consultant review|canReview/);
 });
 

@@ -54,7 +54,7 @@ const valueList = (value) => (Array.isArray(value) ? value : value == null ? [] 
 const show = (value) => valueList(value).join(', ') || 'Not provided';
 const projectDetail=(detail)=>({id:detail.plan.id,name:detail.plan.title,status:detail.plan.status,updatedAt:detail.plan.updated_at,version:{id:detail.current_version?.id,number:detail.plan.current_version,plan:{dailyTargets:{calories:detail.plan.daily_calories_target,protein:Number(detail.plan.daily_protein_target_g)},meals:COMMON_FOOD_MEALS.map(([mealHead])=>({mealHead,options:(detail.options||[]).filter(item=>item.mealHead===mealHead)}))}},versions:detail.versions});
 
-export default function ExternalMultiDietPlan({ clientId, clientPhone='', clientCountryIso2='IN', context, onError, onReviewMeasurements }) {
+export default function ExternalMultiDietPlan({ clientId, clientName='Client', clientPhone='', clientCountryIso2='IN', context, onError, onReviewMeasurements }) {
   const [plans, setPlans] = useState([]);
   const [plansStatus, setPlansStatus] = useState('loading');
   const [selectedId, setSelectedId] = useState('');
@@ -70,6 +70,7 @@ export default function ExternalMultiDietPlan({ clientId, clientPhone='', client
   const [completeness, setCompleteness] = useState(null);
   const [requestedFields, setRequestedFields] = useState([]);
   const [questionnaireLink, setQuestionnaireLink] = useState('');
+  const [editorDirty, setEditorDirty] = useState(false);
   const editorRef = useRef(null);
   const selectedIdRef = useRef('');
   const creationKeyRef = useRef('');
@@ -161,17 +162,19 @@ export default function ExternalMultiDietPlan({ clientId, clientPhone='', client
         await editorRef.current?.save();
         setMessage('A new immutable Diet Plan version was saved.');
       } else if (action === 'publish') {
-        if (!window.confirm(`Publish the approved version of “${selected.name}” to this client?`)) return;
+        if (editorDirty) throw new Error('Save the current Diet Plan changes before publishing to the client app.');
         const refreshed = await getConsultantDietPlan(selected.id);
         const currentPlan = refreshed?.plan;
         const currentOptions = refreshed?.options || [];
         if (!currentPlan || currentOptions.length < 1) throw new Error('Add and save at least one governed meal option before publishing.');
+        if (currentPlan.status !== 'APPROVED') throw new Error('Approve the exact saved Diet Plan version before publishing to the client app.');
+        if (!window.confirm(`Publish “${selected.name}” version ${currentPlan.current_version} to ${clientName}'s Fiteatsy Nutrition screen?`)) return;
         if(readiness.assessmentId&&readiness.assessmentVersion){
           try { await bindDietPlanAssessment(clientId, { external_plan_id: selected.id, external_plan_version: String(currentPlan.current_version), assessment_id: readiness.assessmentId, assessment_version: readiness.assessmentVersion, plan_state: currentPlan.status }); }
           catch (bindingError) { if (bindingError.code !== 'PLAN_ASSESSMENT_LINK_EXISTS') throw bindingError; }
         }
-        await publishConsultantDietPlan(selected.id);
-        setMessage('The exact consultant-approved Diet Plan version was published to the client.');
+        const publication = await publishConsultantDietPlan(selected.id);
+        setMessage(`Version ${publication.version} was published to ${clientName}'s Fiteatsy Nutrition screen${publication.publication_id ? ` (publication ${publication.publication_id})` : ''}.`);
       } else {
         if(action==='submit') await editorRef.current?.save();
         const refreshed=await getConsultantDietPlan(selected.id);
@@ -222,18 +225,19 @@ export default function ExternalMultiDietPlan({ clientId, clientPhone='', client
             <p className="mt-1 text-sm text-slate-600">{selected.version.plan.dailyTargets.calories} kcal · {selected.version.plan.dailyTargets.protein} g protein</p>
             <p className="mt-1 text-xs text-slate-500">Published versions are immutable. Editing a published plan and saving creates the next version.</p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button disabled={busy} onClick={()=>download('DOCX')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy==='download-DOCX'?'Preparing…':'Download DOCX'}</button>
             {['APPROVED','PUBLISHED'].includes(selected.status)&&<button disabled={busy} onClick={()=>download('PDF')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy==='download-PDF'?'Preparing…':'Download PDF'}</button>}
             {selected.status==='PUBLISHED'&&<button disabled={busy||!clientPhone} onClick={sharePublishedPlan} className="min-h-11 rounded-xl bg-emerald-700 px-4 font-semibold text-white disabled:opacity-40">{busy==='share'?'Opening…':'Share via WhatsApp'}</button>}
             {!['APPROVED','PUBLISHED','ARCHIVED'].includes(selected.status) && <button disabled={busy} onClick={() => persist('save')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save version'}</button>}
             {['DRAFT','SAVED','CHANGES_REQUESTED','SUBMITTED','UNDER_REVIEW'].includes(selected.status)&&<button disabled={busy} onClick={()=>persist('approve')} className="min-h-11 rounded-xl bg-emerald-700 px-4 font-semibold text-white disabled:opacity-40">{busy==='approve'?'Approving…':'Approve exact version'}</button>}
-            {selected.status==='APPROVED'&&<button disabled={busy} onClick={() => persist('publish')} className="min-h-11 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">{busy==='publish'?'Publishing…':'Publish approved version'}</button>}
+            {selected.status!=='PUBLISHED'&&selected.status!=='ARCHIVED'&&<button aria-describedby="publish-client-app-requirement" disabled={Boolean(busy)||selected.status!=='APPROVED'||editorDirty} onClick={() => persist('publish')} title={editorDirty?'Save the current changes before publishing.':selected.status!=='APPROVED'?'Approve the exact saved version before publishing.':'Publish this exact approved version to the assigned client app.'} className="min-h-11 rounded-xl bg-blue-700 px-5 font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40">{busy==='publish'?'Publishing…':'Publish to Client App'}</button>}
           </div>
+          {selected.status!=='PUBLISHED'&&selected.status!=='ARCHIVED'&&<p id="publish-client-app-requirement" className={`mt-2 text-xs ${editorDirty?'font-semibold text-amber-700':'text-slate-500'}`}>{editorDirty?'Unsaved changes must be saved before publication.':selected.status==='APPROVED'?'The backend will verify the active Fiteatsy connection and Diet Plan publication consent.':'Save and approve the exact version before publishing it to the client app.'}</p>}
         </div>
       </section>
       <section className="rounded-2xl border border-slate-200 bg-white p-5">
-        <CommonFoodPlanEditor key={`${selected.id}:${selected.version.id}`} ref={editorRef} clientId={clientId} dietPlanId={selected.id} planVersionId={selected.version.id} generationRequestId={1} lifecycle={selected.status === 'ARCHIVED' ? 'published' : 'draft'} initialOptions={selected.version.plan.meals.flatMap((meal) => meal.options)} legacyMealPlan={{}} readOnly={selected.status === 'ARCHIVED'} authoringApi={authoringApi} templatesEnabled={false} proposalsEnabled={false} autoBalanceEnabled={false} onStale={() => load(selected.id)} />
+        <CommonFoodPlanEditor key={`${selected.id}:${selected.version.id}`} ref={editorRef} clientId={clientId} dietPlanId={selected.id} planVersionId={selected.version.id} generationRequestId={1} lifecycle={selected.status === 'ARCHIVED' ? 'published' : 'draft'} initialOptions={selected.version.plan.meals.flatMap((meal) => meal.options)} legacyMealPlan={{}} readOnly={selected.status === 'ARCHIVED'} authoringApi={authoringApi} templatesEnabled={false} proposalsEnabled={false} autoBalanceEnabled={false} onDirtyChange={setEditorDirty} onStale={() => load(selected.id)} />
       </section>
       <section className="rounded-2xl border bg-white p-5">
         <h4 className="font-semibold">Version history</h4>

@@ -39,7 +39,7 @@ test('generic WhatsApp is independent from onboarding-link authority',()=>{
 
 test('published plan sharing is fail-closed for drafts and records open rather than sent',()=>{
   const dietPlan=readFileSync(new URL('../components/external/ExternalMultiDietPlan.jsx',import.meta.url),'utf8');
-  assert.match(dietPlan,/Publish approved version/);
+  assert.match(dietPlan,/Publish to Client App/);
   assert.match(dietPlan,/selected\.status==='APPROVED'/);
   assert.doesNotMatch(dietPlan,/event_type\s*:\s*['"](?:MESSAGE_SENT|DELIVERED|READ)['"]/);
   assert.match(communicationWorkspace,/templateCode==='DIET_PLAN_READY'\?'SHARE_PUBLISHED_PLAN'/);
