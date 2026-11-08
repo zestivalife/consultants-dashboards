@@ -64,6 +64,7 @@ async def test_real_http_exact_version_review_publication_mobile_and_docx_lifecy
     key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
     settings.external_fiteatsy_inbound_public_key=key.public_key().public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo).decode()
     async def resolve_governed_option(_request, connection, _plan, resolver_body, _purpose="external_consultant_diet_option"):
+        assert _purpose == "external_consultant_diet_option"
         component = resolver_body["components"][0]
         return {
             "mealHead": resolver_body["mealHead"],

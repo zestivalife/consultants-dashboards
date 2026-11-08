@@ -32,7 +32,12 @@ async function request(path,options={}){
   let response=await send(getToken());
   if(response.status===401){const refreshedToken=await refreshAccessToken().catch(()=>null);if(refreshedToken)response=await send(refreshedToken);}
   const body=await response.json().catch(()=>null);
-  if(!response.ok){const error=new Error(body?.error?.safe_message||fallbackMessage(response.status,path));error.code=body?.error?.code||'PRACTICE_OPERATION_FAILED';error.retryable=body?.error?.retryable===undefined?response.status>=500:Boolean(body.error.retryable);error.correlationId=body?.error?.correlation_id||response.headers.get('x-correlation-id')||undefined;error.status=response.status;throw error;}
+  if(!response.ok){
+    const detail=body?.error&&typeof body.error==='object'?body.error:null;
+    const message=detail?.safe_message||body?.message||(typeof body?.error==='string'?body.error:null)||fallbackMessage(response.status,path);
+    const code=detail?.code||(typeof body?.error==='string'&&/^[A-Z][A-Z0-9_]+$/.test(body.error)?body.error:null)||(response.status===401?'AUTHENTICATION_REQUIRED':'PRACTICE_OPERATION_FAILED');
+    const error=new Error(message);error.code=code;error.data=body;error.retryable=detail?.retryable===undefined?response.status>=500:Boolean(detail.retryable);error.correlationId=detail?.correlation_id||body?.request_id||response.headers.get('x-correlation-id')||response.headers.get('x-request-id')||undefined;error.status=response.status;throw error;
+  }
   return body?.data;
 }
 

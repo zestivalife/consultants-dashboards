@@ -2230,7 +2230,11 @@ async def save_diet_plan(request:Request,plan_id:UUID,body:DietPlanSave,ctx=Depe
     # Resolve every submitted option before opening the write transaction. No caller-supplied nutrition is persisted.
     await db.rollback();options=[]
     for option_id,resolver_body in submitted:
-        resolved,resolver_error=await _resolve_governed_option(request,connection,plan,resolver_body,"external_consultant_diet_draft")
+        # The Fiteatsy resolver validates the delegation purpose as part of its
+        # signed authority contract. Draft persistence is still an option
+        # resolution operation; using a draft-only purpose makes an otherwise
+        # valid delegation fail closed with 401.
+        resolved,resolver_error=await _resolve_governed_option(request,connection,plan,resolver_body,"external_consultant_diet_option")
         if resolver_error:return resolver_error
         options.append({**resolved,"combinationId":option_id,"mealHead":resolver_body["mealHead"],"selected":True,"sourceType":"GOVERNED_CATALOGUE"})
     try:

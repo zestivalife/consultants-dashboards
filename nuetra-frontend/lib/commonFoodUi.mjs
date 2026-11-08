@@ -4,6 +4,11 @@ export const COMMON_FOOD_MEALS = [
 ];
 
 export const COMMON_FOOD_ERROR_MESSAGES = {
+  AUTHENTICATION_REQUIRED: 'Your session could not be verified. Sign in again, then retry this Diet Plan action.',
+  EXTERNAL_PRACTICE_SCOPE_REQUIRED: 'Your active External Practice workspace could not be verified. Reload the workspace before retrying.',
+  ACTIVE_EXTERNAL_PRACTICE_MEMBERSHIP_REQUIRED: 'An active External Practice membership is required for this workspace.',
+  CLIENT_ASSIGNMENT_REQUIRED: 'This client is not actively assigned to your practice account.',
+  DIET_PLAN_CONSENT_REQUIRED: 'Draft generation remains available, but publishing requires an active Fiteatsy connection with Diet Plans consent.',
   ALLERGY_CONFLICT: 'This food conflicts with a recorded allergy.',
   INTOLERANCE_CONFLICT: 'This food conflicts with a recorded intolerance.',
   HARD_AVOID_CONFLICT: 'This food is on the client’s avoid list.',
@@ -23,10 +28,13 @@ export const COMMON_FOOD_ERROR_MESSAGES = {
 };
 
 export function commonFoodErrorMessage(error, fallback = 'The common-food action could not be completed.') {
-  const code = error?.data?.error || error?.data?.code || error?.code;
-  if (error?.status === 401 || error?.status === 403) return 'You do not have access to generate or edit a Diet Plan for this client.';
+  const responseError = error?.data?.error;
+  const code = (responseError && typeof responseError === 'object' ? responseError.code : responseError) || error?.data?.code || error?.code;
+  if (COMMON_FOOD_ERROR_MESSAGES[code]) return COMMON_FOOD_ERROR_MESSAGES[code];
+  if (error?.status === 401) return COMMON_FOOD_ERROR_MESSAGES.AUTHENTICATION_REQUIRED;
+  if (error?.status === 403) return error?.message || 'Your current practice or client assignment does not authorise this Diet Plan action.';
   if (error?.status >= 500) return 'Diet Plan generation is temporarily unavailable. Try again.';
-  return COMMON_FOOD_ERROR_MESSAGES[code] || error?.data?.message || error?.message || fallback;
+  return error?.data?.message || error?.message || fallback;
 }
 
 export function formatNutrient(value, unit = 'g') {

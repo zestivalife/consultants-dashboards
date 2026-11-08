@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { COMMON_FOOD_ERROR_MESSAGES, COMMON_FOOD_MEALS, commonFoodOptionType, formatNutrient, legacyOptionsForUnifiedPlan, optionSummary, optionTitle } from '../lib/commonFoodUi.mjs';
+import { COMMON_FOOD_ERROR_MESSAGES, COMMON_FOOD_MEALS, commonFoodErrorMessage, commonFoodOptionType, formatNutrient, legacyOptionsForUnifiedPlan, optionSummary, optionTitle } from '../lib/commonFoodUi.mjs';
 
 const api = await readFile(new URL('../lib/fiteatsyConsultantsApi.js', import.meta.url), 'utf8');
 const featureFlags = await readFile(new URL('../lib/dietFeatureFlags.js', import.meta.url), 'utf8');
@@ -26,6 +26,15 @@ test('summarises a component-rich option without calling it a recipe', () => {
 
 test('maps safety, vegan and stale errors', () => {
   for (const code of ['ALLERGY_CONFLICT', 'INTOLERANCE_CONFLICT', 'HARD_AVOID_CONFLICT', 'DIET_PATTERN_CONFLICT', 'SERVING_INVALID', 'SERVING_NOT_FOUND', 'UNSAFE_OR_INELIGIBLE_FOOD', 'STALE_PLAN_VERSION', 'VEGAN_COMMON_FOOD_ENGINE_V1_NOT_SUPPORTED']) assert.ok(COMMON_FOOD_ERROR_MESSAGES[code]);
+});
+
+test('does not mislabel session, workspace or consent failures as Diet Plan authoring denial', () => {
+  assert.match(commonFoodErrorMessage({ status: 401, code: 'AUTHENTICATION_REQUIRED' }), /session/i);
+  assert.match(commonFoodErrorMessage({ status: 403, code: 'EXTERNAL_PRACTICE_SCOPE_REQUIRED' }), /External Practice workspace/i);
+  assert.match(commonFoodErrorMessage({ status: 403, code: 'CLIENT_ASSIGNMENT_REQUIRED' }), /assigned/i);
+  assert.match(commonFoodErrorMessage({ status: 409, code: 'DIET_PLAN_CONSENT_REQUIRED' }), /publishing requires/i);
+  assert.match(commonFoodErrorMessage({ status: 403, data: { error: { code: 'EXTERNAL_PRACTICE_SCOPE_REQUIRED' } } }), /External Practice workspace/i);
+  assert.doesNotMatch(commonFoodErrorMessage({ status: 401, code: 'AUTHENTICATION_REQUIRED' }), /do not have access to generate or edit/i);
 });
 
 test('API client uses every accepted backend common-food route', () => {

@@ -141,7 +141,8 @@ def test_legacy_draft_save_discards_frontend_nutrition_and_re_resolves_every_opt
     save = source[source.index("async def save_diet_plan"):source.index('@app.post("/api/v1/practice-operations/diet-plans/{plan_id}/review")')]
     assert "_legacy_governed_option(item)" in save
     assert "await _resolve_governed_option" in save
-    assert '"external_consultant_diet_draft"' in save
+    assert '"external_consultant_diet_option"' in save
+    assert '"external_consultant_diet_draft"' not in save
     assert 'options.append({**resolved' in save
     assert 'actual_calories=sum(float((item.get("nutrition") or {}).get("kcal") or 0) for item in options)' in save
     assert 'for item in body.options if item.get("selected",True)' not in save
