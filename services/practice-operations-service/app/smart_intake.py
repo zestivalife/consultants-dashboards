@@ -32,7 +32,7 @@ FIELD_REGISTRY: dict[str, dict[str, Any]] = {
     "appetite_eating_patterns": {"label": "Appetite and eating patterns", "section": "Nutrition", "path": ("nutrition", "skipMeals"), "assessment": "appetite_eating_patterns", "required": True, "kind": "list", "options": ["NORMAL_APPETITE", "LOW_APPETITE", "HIGH_APPETITE", "IRREGULAR_HUNGER", "SKIPS_MEALS", "LATE_NIGHT_EATING", "FREQUENT_SNACKING", "EMOTIONAL_EATING", "NONE", "OTHER"]},
     "water_intake": {"label": "Daily water intake", "section": "Lifestyle", "path": ("activityHydration", "waterIntakeMl"), "assessment": "water_intake", "required": True, "kind": "water", "options": list(range(1000, 6001, 500))},
     "medical_conditions": {"label": "Medical conditions", "section": "Medical history", "path": ("conditionsSymptoms", "conditions"), "assessment": "nutrition_medical_conditions", "required": True, "kind": "list", "options": ["DIABETES", "PRE_DIABETES", "THYROID_CONDITION", "PCOS", "HYPERTENSION", "HIGH_CHOLESTEROL", "HEART_CONDITION", "STROKE_HISTORY", "ANAEMIA", "ASTHMA", "ARTHRITIS", "KIDNEY_CONDITION", "LIVER_CONDITION", "DIGESTIVE_CONDITION", "OTHER", "NONE", "NOT_SURE"]},
-    "medications": {"label": "Current medications", "section": "Medical history", "path": ("medicationsSupplements", "medications"), "assessment": "relevant_medications", "required": False, "kind": "list"},
+    "medications": {"label": "Current medications", "section": "Medical history", "path": ("medicationsSupplements", "medications"), "assessment": "relevant_medications", "required": False, "kind": "list", "options": ["NONE", "UNKNOWN"], "free_text_list": True},
     "supplements": {"label": "Current supplements", "section": "Medical history", "path": ("medicationsSupplements", "supplementTypes"), "assessment": "relevant_supplements", "required": False, "kind": "list", "options": ["VITAMIN_D", "VITAMIN_B12", "CALCIUM", "IRON", "MULTIVITAMIN", "OMEGA_3", "PROTEIN", "PROBIOTIC", "OTHER", "NONE"]},
     "health_goals": {"label": "Health goals", "section": "Goals", "path": ("goals", "goals"), "assessment": "weight_management_goals", "required": True, "kind": "list", "options": ["LOSE_WEIGHT", "GAIN_WEIGHT", "GAIN_MUSCLE", "MAINTAIN_WEIGHT", "BLOOD_SUGAR", "PCOS", "THYROID", "CHOLESTEROL", "BLOOD_PRESSURE", "DIGESTIVE_HEALTH", "MORE_ENERGY", "BETTER_SLEEP", "BETTER_FITNESS", "BETTER_EATING_HABITS", "GENERAL_WELLNESS"]},
 }
@@ -199,6 +199,12 @@ def validate_field_value(field_id: str, value: Any) -> None:
         raise ValueError(f"{rule['label']} has an unsupported value")
     if rule["kind"] == "list" and not isinstance(value, list):
         raise ValueError(f"{rule['label']} must be a list")
+    if rule.get("free_text_list") and isinstance(value, list):
+        if not value or len(value) > 100 or any(not isinstance(item, str) or not item.strip() or len(item.strip()) > 300 for item in value):
+            raise ValueError(f"{rule['label']} must contain between one and one hundred valid entries")
+        normalised = {item.strip().upper() for item in value}
+        if normalised & {"NONE", "UNKNOWN"} and len(normalised) > 1:
+            raise ValueError(f"{rule['label']} cannot combine None or Unknown with named medicines")
     if rule["kind"] == "water" and (not isinstance(value, (int, float)) or value not in rule["options"]):
         raise ValueError(f"{rule['label']} must be selected in 0.5 litre increments from 1 to 6 litres")
     if isinstance(value, str) and len(value) > 8000:
@@ -259,3 +265,18 @@ def scoped_patch(existing: dict[str, Any], submitted: dict[str, Any], allowed: s
         section, key = FIELD_REGISTRY[field_id]["path"]
         result.setdefault(section, {})[key] = value
     return result
+
+
+def unresolved_required_fields(completeness_by_id: dict[str, dict[str, Any]], requested: set[str]) -> set[str]:
+    """Return only requested required fields that remain unresolved.
+
+    Optional questions may be omitted from a selective update without clearing
+    existing data or preventing submission.
+    """
+    resolved = {"CAPTURED", "CONFIRMED", "NOT_APPLICABLE"}
+    return {
+        field_id
+        for field_id in requested
+        if FIELD_REGISTRY[field_id]["required"]
+        and completeness_by_id[field_id]["status"] not in resolved
+    }

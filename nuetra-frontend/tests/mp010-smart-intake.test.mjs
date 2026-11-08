@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import {canonicalAssessmentFromOnboarding,reconcileCompleteness,resolveNutritionAssessment} from '../lib/nutritionAssessmentSync.mjs';
+import {buildInformationSubmission,canSubmitInformationUpdate,freeTextListValue,parseFreeTextList} from '../lib/clientInformationUpdate.mjs';
 
 const assessment=fs.readFileSync(new URL('../components/external/ExternalNutritionAssessment.jsx',import.meta.url),'utf8');
 const page=fs.readFileSync(new URL('../pages/client-information/[token].js',import.meta.url),'utf8');
@@ -50,6 +51,29 @@ test('structured client goal values are normalised before assessment and Diet Ch
 
 test('selective client form uses governed choices rather than comma-separated entry',()=>{
   assert.match(page,/role=\{field\.kind==='list'\?'checkbox':'radio'\}/);assert.doesNotMatch(page,/Separate items with commas/);assert.match(page,/completed health profile is not restarted/);
+});
+
+test('optional medications provide free entry plus explicit None and Unknown answers',()=>{
+  assert.match(page,/field\.free_text_list/);
+  assert.match(page,/One medicine per line/);
+  assert.match(page,/None or Unknown/);
+  assert.deepEqual(parseFreeTextList('Metformin 500 mg\nVitamin D'),['Metformin 500 mg','Vitamin D']);
+  assert.equal(freeTextListValue(['NONE']),'');
+});
+
+test('partial submission requires requested required fields but not optional fields',()=>{
+  const fields=[{field_id:'dietary_preference',requirement_level:'REQUIRED'},{field_id:'medications',requirement_level:'OPTIONAL'}];
+  assert.equal(canSubmitInformationUpdate(fields,{dietary_preference:'VEGETARIAN'}),true);
+  assert.deepEqual(buildInformationSubmission(fields,{dietary_preference:'VEGETARIAN'}),{dietary_preference:'VEGETARIAN'});
+  assert.equal(canSubmitInformationUpdate(fields,{medications:['NONE']}),false);
+  assert.equal(canSubmitInformationUpdate([{field_id:'medications',requirement_level:'OPTIONAL'}],{medications:['UNKNOWN']}),true);
+});
+
+test('diet generation remains advisory and independent of assessment readiness',()=>{
+  const dietPlan=fs.readFileSync(new URL('../components/external/ExternalMultiDietPlan.jsx',import.meta.url),'utf8');
+  assert.match(dietPlan,/Authoring permitted/);
+  assert.match(dietPlan,/Missing information is advisory/);
+  assert.doesNotMatch(dietPlan,/readiness\.outcome\s*!==\s*['"]READY['"].*disabled/);
 });
 
 test('selective flow communicates privacy, expiry and professional review',()=>{

@@ -4,7 +4,8 @@ import pytest
 
 from app.smart_intake import (FIELD_REGISTRY, InformationRequestCreate,
                               InformationRequestPatch, resolve_completeness,
-                              resolve_assessment, scoped_patch)
+                              resolve_assessment, scoped_patch,
+                              unresolved_required_fields)
 
 ROOT=Path(__file__).parents[1]
 
@@ -117,3 +118,27 @@ def test_selective_request_patch_updates_only_authorised_fields():
     assert updated["allergiesFamilyHistory"]["hasAllergies"]=="NO"
     assert updated["nutrition"]["mealsPerDay"]=="4"
     assert updated["nutrition"]["dietPreference"]==original["nutrition"]["dietPreference"]
+
+
+def test_optional_medications_support_named_none_and_unknown_values():
+    assert FIELD_REGISTRY["medications"]["required"] is False
+    assert FIELD_REGISTRY["medications"]["free_text_list"] is True
+    assert InformationRequestPatch(expected_version=1, values={"medications": ["Metformin 500 mg"]})
+    assert InformationRequestPatch(expected_version=1, values={"medications": ["NONE"]})
+    assert InformationRequestPatch(expected_version=1, values={"medications": ["UNKNOWN"]})
+    with pytest.raises(ValueError):
+        InformationRequestPatch(expected_version=1, values={"medications": ["NONE", "Metformin"]})
+
+
+def test_optional_missing_fields_never_block_readiness():
+    rows={row["field_id"]:row for row in resolve_completeness(complete())["fields"]}
+    assert rows["medications"]["status"] == "MISSING"
+    assert rows["medications"]["requirement_level"] == "OPTIONAL"
+    assert rows["medications"]["blocks_readiness"] is False
+
+
+def test_partial_submission_requires_only_requested_required_fields():
+    rows={row["field_id"]:row for row in resolve_completeness(complete())["fields"]}
+    assert unresolved_required_fields(rows,{"dietary_preference","medications"}) == set()
+    missing={row["field_id"]:row for row in resolve_completeness({})["fields"]}
+    assert unresolved_required_fields(missing,{"dietary_preference","medications"}) == {"dietary_preference"}

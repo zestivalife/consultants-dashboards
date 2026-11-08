@@ -83,7 +83,8 @@ from app.nutrition_foundation import (AssessmentReview, AssessmentSource, Assess
                                       CALCULATION_VERSIONS)
 from app.smart_intake import (FIELD_REGISTRY, FIELD_SCHEMA_VERSION, InformationRequestCreate,
                               InformationRequestPatch, InformationRequestReview,
-                              resolve_assessment, resolve_completeness, scoped_patch)
+                              resolve_assessment, resolve_completeness, scoped_patch,
+                              unresolved_required_fields)
 from app.document_storage import (StorageUnavailable, InvalidDocument, new_object_key, new_credential_evidence_key,
                                   signed_upload, signed_download, signed_view, validate_document,
                                   upload_object, verify_uploaded_object, verify_jpeg_object)
@@ -581,7 +582,7 @@ async def open_client_information_request(request:Request,token:str,db:AsyncSess
     if not row:return error(request,404,"INFORMATION_REQUEST_INVALID","This secure update link is invalid")
     if state:return error(request,410,f"INFORMATION_REQUEST_{state}","This secure update link is no longer active")
     values,_=await _canonical_intake(db,row["tenant_id"],row["client_id"]);by_id={item["field_id"]:item for item in resolve_completeness(values)["fields"]}
-    fields=[{**by_id[field],"kind":FIELD_REGISTRY[field]["kind"],"options":FIELD_REGISTRY[field].get("options",[])} for field in row["field_ids"] if by_id[field]["status"] not in {"CAPTURED","CONFIRMED","NOT_APPLICABLE"}]
+    fields=[{**by_id[field],"kind":FIELD_REGISTRY[field]["kind"],"options":FIELD_REGISTRY[field].get("options",[]),"free_text_list":FIELD_REGISTRY[field].get("free_text_list",False)} for field in row["field_ids"] if by_id[field]["status"] not in {"CAPTURED","CONFIRMED","NOT_APPLICABLE"}]
     draft=(await db.execute(text("""SELECT patch FROM external_client_information_request_submissions
       WHERE request_id=:id AND status='DRAFT' ORDER BY version DESC LIMIT 1"""),{"id":row["id"]})).scalar_one_or_none() or {}
     now=datetime.now(timezone.utc)
@@ -622,12 +623,12 @@ async def submit_client_information_request(request:Request,token:str,body:Infor
     draft=(await db.execute(text("""SELECT patch FROM external_client_information_request_submissions
       WHERE request_id=:id AND status='DRAFT' ORDER BY version DESC LIMIT 1"""),{"id":row["id"]})).scalar_one_or_none() or {}
     submitted={**dict(draft),**body.values}
-    if not submitted or not set(submitted)<=set(row["field_ids"]):return error(request,422,"INFORMATION_REQUEST_INCOMPLETE","Submit every applicable field still requested")
+    if not submitted or not set(submitted)<=set(row["field_ids"]):return error(request,422,"INFORMATION_REQUEST_INCOMPLETE","Submit at least one requested field")
     try:merged=scoped_patch(values,submitted,set(row["field_ids"]))
     except ValueError as exc:return error(request,422,"INVALID_INFORMATION_RESPONSE",str(exc))
     after={item["field_id"]:item for item in resolve_completeness(merged)["fields"]}
-    unresolved={field for field in row["field_ids"] if after[field]["status"] not in {"CAPTURED","CONFIRMED","NOT_APPLICABLE"}}
-    if unresolved:return error(request,422,"INFORMATION_REQUEST_INCOMPLETE","Submit every applicable field still requested")
+    unresolved=unresolved_required_fields(after,set(row["field_ids"]))
+    if unresolved:return error(request,422,"INFORMATION_REQUEST_INCOMPLETE","Submit every required field still requested")
     now=datetime.now(timezone.utc);version=int(row["version"])+1;audit={"event":"CLIENT_INFORMATION_SUBMITTED","request_id":str(row["id"]),"fields":sorted(submitted),"at":now.isoformat()}
     exists=(await db.execute(text("SELECT version FROM external_client_profile_enrichments WHERE tenant_id=:tenant AND client_id=:client FOR UPDATE"),{"tenant":row["tenant_id"],"client":row["client_id"]})).scalar_one_or_none()
     if exists:
