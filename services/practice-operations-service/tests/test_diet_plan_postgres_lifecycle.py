@@ -132,7 +132,7 @@ async def test_real_http_exact_version_review_publication_mobile_and_docx_lifecy
         try:
             publication=await database.fetchrow("SELECT plan_version,content FROM external_fiteatsy_plan_publications WHERE connection_id=$1",connection_id)
             assert publication["plan_version"]==3
-            published_options=json.loads(publication["content"])["options"]
+            published_options=json.loads(publication["content"])["mealOptions"]
             assert published_options[0]["combinationId"]=="breakfast-1"
             assert published_options[0]["calculationStatus"]=="AUTHORITATIVELY_RESOLVED"
             assert published_options[0]["nutrition"]=={"kcal":420,"protein":18}
@@ -143,7 +143,7 @@ async def test_real_http_exact_version_review_publication_mobile_and_docx_lifecy
         mobile=await client.get(f"/api/v1/fiteatsy-connections/{connection_id}/diet-plans",headers={"Authorization":f"Bearer {token}"})
         assert mobile.status_code==200
         assert mobile.json()["data"]["plans"][0]["plan_version"]==3
-        mobile_option=mobile.json()["data"]["plans"][0]["content"]["options"][0]
+        mobile_option=mobile.json()["data"]["plans"][0]["content"]["mealOptions"][0]
         assert mobile_option["calculationStatus"]=="AUTHORITATIVELY_RESOLVED"
         assert mobile_option["nutrition"]=={"kcal":420,"protein":18}
         database=await asyncpg.connect(INTEGRATION_DATABASE_URL)
