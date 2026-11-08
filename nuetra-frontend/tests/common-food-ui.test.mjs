@@ -143,7 +143,7 @@ test('v17.23 explorer separates scope, uses serving nutrition and sends a govern
   assert.match(editor, /food\.defaultServing\?\.nutrition/);
   assert.doesNotMatch(editor, /prefix="Per 100 g/);
   assert.match(editor, /const draft = \{ mealHead: explorer\.option\.mealHead/);
-  assert.match(editor, /expectedPlanVersionId: planVersionId, draft, component/);
+  assert.match(editor, /expectedPlanVersionId: currentPlanVersionId, draft, component/);
   assert.match(editor, /\['PULSE', 'Dal & pulses'\]/);
 });
 

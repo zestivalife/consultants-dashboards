@@ -9,9 +9,8 @@ import CommonFoodPlanEditor from '../platform/CommonFoodPlanEditor';
 
 const normalOption=(food,mealHead,index)=>({combinationId:`${mealHead}-${food.catalogEntityId||food.id}-${index}`,mealHead,selected:true,sourceType:'GOVERNED_CATALOGUE',nutrition:food.defaultServing?.nutrition||{},components:[{componentId:food.catalogEntityId||food.id,foodId:food.catalogEntityId||food.id,foodDisplayNameSnapshot:food.displayName,servingId:food.defaultServing?.id||food.servings?.[0]?.id,servingDisplayNameSnapshot:food.defaultServing?.label||food.servingDisplay||'Governed serving',multiplier:1,nutrition:food.defaultServing?.nutrition||{},provenance:{source:food.source||food.referenceSource||'FITEATSY_GOVERNED_CATALOGUE',nutritionStatus:food.nutritionStatus||food.displayStatus}}]});
 const readPlan=async planId=>{const value=await getConsultantDietPlan(planId);return{value,options:value.options||[],planVersionId:value.current_version?.id}};
-const persistOptions=async(planId,options)=>{const {value}=await readPlan(planId);return saveConsultantDietPlan(planId,{expected_version:value.plan.current_version,options})};
+const persistOptions=async(planId,expectedPlanVersionId,options)=>{const current=await readPlan(planId);if(current.planVersionId!==expectedPlanVersionId)throw Object.assign(new Error('STALE_PLAN_VERSION'),{status:409});return saveConsultantDietPlan(planId,{expected_version:current.value.plan.current_version,options})};
 const generatedOptionsByPlan=new Map();
-const editorVersionAliases = new Map();
 const governedOptionOperationKeys=new Map();
 const mergePersistedOptions=(currentOptions,requestedOptions,candidates=[])=>{
   const available=[...(currentOptions||[]),...(candidates||[])];
@@ -19,19 +18,20 @@ const mergePersistedOptions=(currentOptions,requestedOptions,candidates=[])=>{
 };
 const authoringApi = {
   generate: async(clientId,planId,mealHeads=COMMON_FOOD_MEALS.map(([head])=>head))=>{const meals=[];for(const mealHead of mealHeads){const response=await searchExternalCommonFoods(clientId,{scope:'RECOMMENDED',mealHead,limit:5});const foods=(response.items||response.foods||[]).filter(food=>food.primaryActionEnabled!==false).slice(0,5);meals.push({mealHead,options:foods.map((food,index)=>normalOption(food,mealHead,index))})}generatedOptionsByPlan.set(planId,meals.flatMap(meal=>meal.options));return{meals,generationSnapshot:{source:'FITEATSY_GOVERNED_CATALOGUE',readOnly:true}}},
-  read: async(_clientId,planId)=>{const result=await readPlan(planId);return{options:result.options,planVersionId:editorVersionAliases.get(planId)||result.planVersionId}},
-  replaceSelection: async(_clientId,planId,payload)=>{const result=await readPlan(planId);const options=mergePersistedOptions(result.options,payload.options,generatedOptionsByPlan.get(planId));await persistOptions(planId,options);generatedOptionsByPlan.set(planId,options);editorVersionAliases.set(planId,payload.expectedPlanVersionId);return{planVersionId:payload.expectedPlanVersionId}},
-  replaceComponent: async(_clientId,planId,optionId,componentId,payload)=>mutateGovernedOption(planId,optionId,option=>({...option,components:payload.draft.components.map(component=>component.foodId===componentId?payload.component:component)})),
-  addComponent: async(_clientId,planId,optionId,payload)=>mutateGovernedOption(planId,optionId,option=>({...option,components:[...payload.draft.components,payload.component]})),
-  removeComponent: async(_clientId,planId,optionId,componentId)=>mutateGovernedOption(planId,optionId,option=>({...option,components:option.components.filter(component=>component.foodId!==componentId)})),
-  updateServing: async(_clientId,planId,optionId,componentId,payload)=>mutateGovernedOption(planId,optionId,option=>({...option,components:option.components.map(component=>component.foodId===componentId?{...component,servingId:payload.servingId,multiplier:payload.multiplier}:component)})),
+  read: async(_clientId,planId)=>{const result=await readPlan(planId);return{options:result.options,planVersionId:result.planVersionId}},
+  replaceSelection: async(_clientId,planId,payload)=>{const result=await readPlan(planId);if(result.planVersionId!==payload.expectedPlanVersionId)throw Object.assign(new Error('STALE_PLAN_VERSION'),{status:409});const options=mergePersistedOptions(result.options,payload.options,generatedOptionsByPlan.get(planId));const saved=await persistOptions(planId,payload.expectedPlanVersionId,options);generatedOptionsByPlan.set(planId,saved.options||[]);return{planVersionId:saved.version_id,planVersion:saved.version,options:saved.options||[]}},
+  replaceComponent: async(_clientId,planId,optionId,componentId,payload)=>mutateGovernedOption(planId,optionId,payload.expectedPlanVersionId,option=>({...option,components:payload.draft.components.map(component=>component.foodId===componentId?payload.component:component)})),
+  addComponent: async(_clientId,planId,optionId,payload)=>mutateGovernedOption(planId,optionId,payload.expectedPlanVersionId,option=>({...option,components:[...payload.draft.components,payload.component]})),
+  removeComponent: async(_clientId,planId,optionId,componentId,expectedPlanVersionId)=>mutateGovernedOption(planId,optionId,expectedPlanVersionId,option=>({...option,components:option.components.filter(component=>component.foodId!==componentId)})),
+  updateServing: async(_clientId,planId,optionId,componentId,payload)=>mutateGovernedOption(planId,optionId,payload.expectedPlanVersionId,option=>({...option,components:option.components.map(component=>component.foodId===componentId?{...component,servingId:payload.servingId,multiplier:payload.multiplier}:component)})),
   search: searchExternalCommonFoods,
-  saveOption: async(_clientId,planId,payload)=>mutateGovernedOption(planId,crypto.randomUUID(),()=>({mealHead:payload.mealHead,components:payload.components})),
+  saveOption: async(_clientId,planId,payload)=>mutateGovernedOption(planId,crypto.randomUUID(),payload.expectedPlanVersionId,()=>({mealHead:payload.mealHead,components:payload.components})),
   autoBalance: async () => { throw new Error('Use Edit quantity to select a governed serving.'); },
 };
 
-async function mutateGovernedOption(planId,optionId,mutator){
+async function mutateGovernedOption(planId,optionId,expectedPlanVersionId,mutator){
   const current=await getConsultantDietPlan(planId);
+  if(current.current_version?.id!==expectedPlanVersionId)throw Object.assign(new Error('STALE_PLAN_VERSION'),{status:409});
   const existing=(current.options||[]).find(option=>option.combinationId===optionId)||{mealHead:null,components:[]};
   const desired=mutator(existing);
   if(!desired.mealHead||!desired.components?.length)throw new Error('A governed meal option must contain at least one component.');
@@ -40,8 +40,7 @@ async function mutateGovernedOption(planId,optionId,mutator){
   const key=governedOptionOperationKeys.get(fingerprint)||crypto.randomUUID();
   governedOptionOperationKeys.set(fingerprint,key);
   const result=await updateConsultantDietPlanOption(planId,optionId,payload,key);
-  editorVersionAliases.set(planId,result.plan_version_id);
-  return result.option;
+  return {...result.option,planVersionId:result.plan_version_id,planVersion:result.version};
 }
 
 const initialForm = { name: '', dailyCalories: '', dailyProtein: '' };
@@ -71,6 +70,7 @@ export default function ExternalMultiDietPlan({ clientId, clientName='Client', c
   const [requestedFields, setRequestedFields] = useState([]);
   const [questionnaireLink, setQuestionnaireLink] = useState('');
   const [editorDirty, setEditorDirty] = useState(false);
+  const [editorProgress, setEditorProgress] = useState({selected:0,busy:false,canSave:false});
   const editorRef = useRef(null);
   const selectedIdRef = useRef('');
   const creationKeyRef = useRef('');
@@ -86,7 +86,7 @@ export default function ExternalMultiDietPlan({ clientId, clientName='Client', c
     try {
       const result=await loadDietPlanWorkspace({clientId,preferredId,currentId:selectedIdRef.current,projectDetail,api:{list:listConsultantDietPlans,assessment:getNutritionAssessment,context:getDietPlanHealthContext,detail:getConsultantDietPlan}});
       setReadiness(result.readiness);setHealthContext(result.healthContext);setLoadError(result.loadError);setPlansStatus(result.plansStatus);
-      if(result.plans!==null){result.plans.forEach((plan)=>editorVersionAliases.delete(plan.id));setPlans(result.plans);selectedIdRef.current=result.selectedId;setSelectedId(result.selectedId);}
+      if(result.plans!==null){setPlans(result.plans);selectedIdRef.current=result.selectedId;setSelectedId(result.selectedId);}
       if(result.errors.length)onError(result.errors[0]?.message||result.loadError||'One or more Diet Plan requests failed.');
       return result;
     } catch (error) {
@@ -179,7 +179,9 @@ export default function ExternalMultiDietPlan({ clientId, clientName='Client', c
         setMessage(`Version ${publication.version} was published to ${clientName}'s Fiteatsy Nutrition screen${publication.publication_id ? ` (publication ${publication.publication_id})` : ''}.`);
       } else {
         if(action==='submit') await editorRef.current?.save();
+        if(action==='approve'&&editorDirty) throw new Error('Save the current Diet Plan changes before approving this version.');
         const refreshed=await getConsultantDietPlan(selected.id);
+        if(action==='approve'&&!(refreshed?.options||[]).length) throw new Error('Add and save at least one governed meal option before approval.');
         const actionMap={submit:'SUBMIT',startReview:'START_REVIEW',approve:'APPROVE',requestChanges:'REQUEST_CHANGES'};
         await reviewConsultantDietPlan(selected.id,{action:actionMap[action],expected_version:refreshed.plan.current_version,reason:action==='requestChanges'?'Changes requested by reviewer':undefined});
         setMessage(action==='approve'?'This exact Diet Plan version was approved and is ready to publish.':action==='submit'?'Diet Plan submitted for review.':action==='requestChanges'?'Changes were requested for this version.':'Review started.');
@@ -231,15 +233,15 @@ export default function ExternalMultiDietPlan({ clientId, clientName='Client', c
             <button disabled={busy} onClick={()=>download('DOCX')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy==='download-DOCX'?'Preparing…':'Download DOCX'}</button>
             {['APPROVED','PUBLISHED'].includes(selected.status)&&<button disabled={busy} onClick={()=>download('PDF')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy==='download-PDF'?'Preparing…':'Download PDF'}</button>}
             {selected.status==='PUBLISHED'&&<button disabled={busy||!clientPhone} onClick={sharePublishedPlan} className="min-h-11 rounded-xl bg-emerald-700 px-4 font-semibold text-white disabled:opacity-40">{busy==='share'?'Opening…':'Share via WhatsApp'}</button>}
-            {!['APPROVED','PUBLISHED','ARCHIVED'].includes(selected.status) && <button disabled={busy} onClick={() => persist('save')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save version'}</button>}
-            {['DRAFT','SAVED','CHANGES_REQUESTED','SUBMITTED','UNDER_REVIEW'].includes(selected.status)&&<button disabled={busy} onClick={()=>persist('approve')} className="min-h-11 rounded-xl bg-emerald-700 px-4 font-semibold text-white disabled:opacity-40">{busy==='approve'?'Approving…':'Approve exact version'}</button>}
+            {!['APPROVED','PUBLISHED','ARCHIVED'].includes(selected.status) && <button disabled={Boolean(busy)||!editorProgress.canSave} onClick={() => persist('save')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy === 'save' ? 'Saving…' : editorProgress.busy ? 'Resolving…' : 'Save version'}</button>}
+            {['DRAFT','SAVED','CHANGES_REQUESTED','SUBMITTED','UNDER_REVIEW'].includes(selected.status)&&<button disabled={Boolean(busy)||editorDirty} onClick={()=>persist('approve')} title={editorDirty?'Save the current changes before approving this exact version.':'Approve the exact saved version.'} className="min-h-11 rounded-xl bg-emerald-700 px-4 font-semibold text-white disabled:opacity-40">{busy==='approve'?'Approving…':'Approve exact version'}</button>}
             {selected.status!=='PUBLISHED'&&selected.status!=='ARCHIVED'&&<button aria-describedby="publish-client-app-requirement" disabled={Boolean(busy)||!publishReady} onClick={() => persist('publish')} title={editorDirty?'Save the current changes before publishing.':selected.status!=='APPROVED'?'Approve the exact saved version before publishing.':'Publish this exact approved version to the assigned client app.'} className="min-h-11 rounded-xl bg-blue-700 px-5 font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40">{busy==='publish'?'Publishing…':'Publish to Client App'}</button>}
           </div>
           {selected.status!=='PUBLISHED'&&selected.status!=='ARCHIVED'&&<p id="publish-client-app-requirement" className={`mt-2 text-xs ${editorDirty?'font-semibold text-amber-700':'text-slate-500'}`}>{editorDirty?'Unsaved changes must be saved before publication.':selected.status==='APPROVED'?'The backend will verify the active Fiteatsy connection and Diet Plan publication consent.':'Save and approve the exact version before publishing it to the client app.'}</p>}
         </div>
       </section>
       <section className="rounded-2xl border border-slate-200 bg-white p-5">
-        <CommonFoodPlanEditor key={`${selected.id}:${selected.version.id}`} ref={editorRef} clientId={clientId} dietPlanId={selected.id} planVersionId={selected.version.id} generationRequestId={editorState.generationRequestId} generateMissingOnLoad={false} lifecycle={editorState.lifecycle} initialOptions={selected.version.plan.meals.flatMap((meal) => meal.options)} legacyMealPlan={{}} readOnly={editorState.readOnly} authoringApi={authoringApi} templatesEnabled={false} proposalsEnabled={false} autoBalanceEnabled={false} onDirtyChange={setEditorDirty} onStale={() => load(selected.id)} />
+        <CommonFoodPlanEditor key={`${selected.id}:${selected.version.id}`} ref={editorRef} clientId={clientId} dietPlanId={selected.id} planVersionId={selected.version.id} generationRequestId={editorState.generationRequestId} generateMissingOnLoad={false} lifecycle={editorState.lifecycle} initialOptions={selected.version.plan.meals.flatMap((meal) => meal.options)} legacyMealPlan={{}} readOnly={editorState.readOnly} authoringApi={authoringApi} templatesEnabled={false} proposalsEnabled={false} autoBalanceEnabled={false} onDirtyChange={setEditorDirty} onProgressChange={setEditorProgress} onStale={() => load(selected.id)} />
       </section>
       <section className="rounded-2xl border bg-white p-5">
         <h4 className="font-semibold">Version history</h4>

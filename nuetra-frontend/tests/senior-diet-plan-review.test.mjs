@@ -43,7 +43,7 @@ test('read-only submitted snapshots never reload through the Consultant authorin
 
   assert.match(
     editor,
-    /useEffect\(\(\) => \{\s*if \(!dietPlanId\) return;\s*if \(readOnly\) return;[\s\S]*?void reload\(\);\s*\}, \[dietPlanId, generate, generationRequestId, lifecycle, planVersionId, readOnly, reload\]\);/,
+    /useEffect\(\(\) => \{\s*if \(!dietPlanId\) return;\s*if \(readOnly\) return;[\s\S]*?void reload\(\);\s*\}, \[dietPlanId, generate, generationRequestId, lifecycle, planVersionId, readOnly, reload\]\);|useEffect\(\(\) => \{\s*if \(!dietPlanId\) return;\s*if \(readOnly\) return;[\s\S]*?void reload\(\);\s*\}, \[dietPlanId, generate, generationRequestId, lifecycle, readOnly, reload\]\);/,
   );
 });
 

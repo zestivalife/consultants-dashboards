@@ -176,8 +176,10 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
   const [expanded, setExpanded] = useState({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [savedVerified, setSavedVerified] = useState(false);
+  const [currentPlanVersionId, setCurrentPlanVersionId] = useState(planVersionId);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [explorer, setExplorer] = useState(null);
@@ -191,6 +193,8 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
   const [buildOptionIds, setBuildOptionIds] = useState(new Set());
   const handledGenerationRequest = useRef(0);
   const isSeniorReview = mode === 'senior-review';
+
+  useEffect(() => { setCurrentPlanVersionId(planVersionId); }, [planVersionId]);
 
   useEffect(() => {
     if (!readOnly) return;
@@ -249,15 +253,16 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
       const response = await authoringApi.read(clientId, dietPlanId);
       const savedOptions = response?.options || [];
       const savedIds = new Set(savedOptions.map((option) => option.combinationId));
-      const verified = response?.planVersionId === planVersionId
+      const verified = Boolean(response?.planVersionId)
         && isValidDraftSelection(savedOptions, savedIds, COMMON_FOOD_MEALS.map(([head]) => head));
+      if (response?.planVersionId) setCurrentPlanVersionId(response.planVersionId);
       setOptions(savedOptions); setSelectedIds(savedIds); setPersistedIds(savedIds); setDirty(false); setSavedVerified(verified);
       setMessage(verified ? `Saved draft verified: ${savedOptions.length} option${savedOptions.length === 1 ? '' : 's'} persisted.` : 'Saved draft could not be verified against the current server version.');
       if (generateMissingOnLoad && isCommonFoodCombinationEngineEnabled && savedOptions.length < 35 && ['draft', 'changes_requested'].includes(lifecycle) && !readOnly) {
         await generate({ autoSelect: savedOptions.length === 0, baseOptions: savedOptions, selectedSeed: savedIds });
       }
     } catch (nextError) { setError(commonFoodErrorMessage(nextError, 'Unable to reload Diet Plan options.')); }
-  }, [authoringApi, clientId, dietPlanId, generate, generateMissingOnLoad, lifecycle, planVersionId, readOnly]);
+  }, [authoringApi, clientId, dietPlanId, generate, generateMissingOnLoad, lifecycle, readOnly]);
   useEffect(() => {
     if (!dietPlanId) return;
     if (readOnly) return;
@@ -271,8 +276,18 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => { const warn = (event) => { if (dirty) { event.preventDefault(); event.returnValue = ''; } }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn); }, [dirty]);
 
-  const saveAll = async (expectedPlanVersionId = planVersionId) => {
+  const saveAll = async (expectedPlanVersionId = currentPlanVersionId) => {
     const selected = options.filter((option) => selectedIds.has(option.combinationId));
+    if (loading || resolving || saving) {
+      const nextError = 'Wait for governed food generation and nutrition resolution to finish before saving.';
+      setError(nextError);
+      throw new Error(nextError);
+    }
+    if (!selected.length) {
+      const nextError = 'Select at least one governed meal option before saving the Diet Plan.';
+      setError(nextError);
+      throw new Error(nextError);
+    }
     const overflow = COMMON_FOOD_MEALS.filter(([head]) => selected.filter((option) => option.mealHead === head).length > 5);
     if (overflow.length) {
       const nextError = `Each meal supports at most five draft options. Review: ${overflow.map(([, label]) => label).join(', ')}.`;
@@ -282,28 +297,31 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
     setSaving(true); setError('');
     try {
       const response = await authoringApi.replaceSelection(clientId, dietPlanId, { expectedPlanVersionId, options: selected.map((option) => ({ optionId: option.combinationId, mealHead: option.mealHead, components: option.components.map(({ foodId, servingId, multiplier }) => ({ foodId, servingId, multiplier })) })) });
-      if (response?.planVersionId !== expectedPlanVersionId) throw Object.assign(new Error('STALE_PLAN_VERSION'), { status: 409 });
+      const persistedPlanVersionId = response?.planVersionId;
+      if (!persistedPlanVersionId) throw new Error('The saved Diet Plan version identity was not returned by the server.');
       const fresh = await authoringApi.read(clientId, dietPlanId);
-      if (!verifyPersistedSelection({ requestedIds: selectedIds, responseOptions: fresh?.options || [], expectedPlanVersionId, responsePlanVersionId: fresh?.planVersionId, mealHeads: COMMON_FOOD_MEALS.map(([head]) => head) })) {
+      if (!verifyPersistedSelection({ requestedIds: selectedIds, responseOptions: fresh?.options || [], expectedPlanVersionId: persistedPlanVersionId, responsePlanVersionId: fresh?.planVersionId, mealHeads: COMMON_FOOD_MEALS.map(([head]) => head) })) {
         throw new Error('Saved selection verification failed. Your local choices were preserved; retry save.');
       }
       const persisted = fresh.options;
       const nextIds = new Set(persisted.map((option) => option.combinationId));
+      setCurrentPlanVersionId(persistedPlanVersionId);
       setOptions((current) => mergeCandidateOptions(persisted, current)); setSelectedIds(nextIds); setPersistedIds(nextIds); setDirty(false); setSavedVerified(true); setMessage(`Saved and reloaded ${persisted.length} server-verified options.`);
     } catch (nextError) { setSavedVerified(false); if (nextError?.status === 409) onStale?.(); setError(commonFoodErrorMessage(nextError)); throw nextError; }
     finally { setSaving(false); }
   };
   const verify = useCallback(async () => {
     const fresh = await authoringApi.read(clientId, dietPlanId);
-    const valid = savedVerified && verifyPersistedSelection({ requestedIds: selectedIds, responseOptions: fresh?.options || [], expectedPlanVersionId: planVersionId, responsePlanVersionId: fresh?.planVersionId, mealHeads: COMMON_FOOD_MEALS.map(([head]) => head) });
+    const valid = savedVerified && verifyPersistedSelection({ requestedIds: selectedIds, responseOptions: fresh?.options || [], expectedPlanVersionId: currentPlanVersionId, responsePlanVersionId: fresh?.planVersionId, mealHeads: COMMON_FOOD_MEALS.map(([head]) => head) });
     if (!valid) setSavedVerified(false);
     return valid;
-  }, [authoringApi, clientId, dietPlanId, planVersionId, savedVerified, selectedIds]);
-  useImperativeHandle(ref, () => ({ save: saveAll, verify, reload: () => reload(), generate }), [generate, planVersionId, reload, selectedIds, verify]);
+  }, [authoringApi, clientId, currentPlanVersionId, dietPlanId, savedVerified, selectedIds]);
+  useImperativeHandle(ref, () => ({ save: saveAll, verify, reload: () => reload(), generate }), [currentPlanVersionId, generate, reload, selectedIds, verify]);
   const mutate = async (action) => {
-    setError('');
-    try { const next = await action(); setOptions((current) => current.map((item) => item.combinationId === next.combinationId ? next : item)); setDirty(true); setSavedVerified(false); setExplorer(null); setMessage('Option updated and recalculated by Fiteatsy. Save the Diet Plan to persist the complete selection.'); }
+    setError(''); setResolving(true);
+    try { const next = await action(); if (next?.planVersionId) setCurrentPlanVersionId(next.planVersionId); setOptions((current) => current.map((item) => item.combinationId === next.combinationId ? next : item)); setDirty(true); setSavedVerified(false); setExplorer(null); setMessage('Option updated and recalculated by Fiteatsy. Save the Diet Plan to persist the complete selection.'); }
     catch (nextError) { if (nextError?.status === 409) onStale?.(); setError(commonFoodErrorMessage(nextError)); }
+    finally { setResolving(false); }
   };
   const openExplorer = (mode, option, component, mealLabel, targetRole = '', extra = {}) => setExplorer({ mode, option, component, mealHead: option?.mealHead || extra.mealHead, mealLabel, targetRole, ...extra });
   const toggleSelection = (option) => {
@@ -322,7 +340,8 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
     if (explorer.mode === 'create') {
       setError('');
       try {
-        const created = await authoringApi.saveOption(clientId, dietPlanId, { expectedPlanVersionId: planVersionId, mealHead: explorer.mealHead, components: [foodComponent] });
+        const created = await authoringApi.saveOption(clientId, dietPlanId, { expectedPlanVersionId: currentPlanVersionId, mealHead: explorer.mealHead, components: [foodComponent] });
+        if (created?.planVersionId) setCurrentPlanVersionId(created.planVersionId);
         const next = { ...created, sourceType: explorer.authoringSource || 'MANUAL' };
         setOptions((current) => [...current.filter((item) => item.combinationId !== next.combinationId), next]);
         setSelectedIds((current) => new Set([...current, next.combinationId]));
@@ -335,31 +354,36 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
       setError('');
       try {
         const updated = [];
+        let expectedVersionId = currentPlanVersionId;
         for (const optionId of targets) {
           const option = options.find((item) => item.combinationId === optionId);
           if (!option) continue;
           const draft = { mealHead: option.mealHead, components: option.components.map(({ foodId, servingId, multiplier }) => ({ foodId, servingId, multiplier })) };
-          updated.push(await authoringApi.addComponent(clientId, dietPlanId, optionId, { expectedPlanVersionId: planVersionId, draft, component: foodComponent }));
+          const updatedOption = await authoringApi.addComponent(clientId, dietPlanId, optionId, { expectedPlanVersionId: expectedVersionId, draft, component: foodComponent });
+          updated.push(updatedOption);
+          if (updatedOption?.planVersionId) expectedVersionId = updatedOption.planVersionId;
         }
+        setCurrentPlanVersionId(expectedVersionId);
         setOptions((current) => current.map((item) => updated.find((next) => next.combinationId === item.combinationId) || item));
         setDirty(true); setExplorer(null); setMessage(`Component added independently to ${updated.length} meal options. Save the Diet Plan to persist the complete selection.`);
       } catch (nextError) { if (nextError?.status === 409) onStale?.(); setError(commonFoodErrorMessage(nextError)); }
       return;
     }
     const draft = { mealHead: explorer.option.mealHead, components: explorer.option.components.map(({ foodId, servingId, multiplier }) => ({ foodId, servingId, multiplier })) }; return mutate(() => explorer.mode === 'replace'
-    ? authoringApi.replaceComponent(clientId, dietPlanId, explorer.option.combinationId, explorer.component.foodId, { expectedPlanVersionId: planVersionId, draft, component: foodComponent })
+    ? authoringApi.replaceComponent(clientId, dietPlanId, explorer.option.combinationId, explorer.component.foodId, { expectedPlanVersionId: currentPlanVersionId, draft, component: foodComponent })
     : explorer.mode === 'serving'
-      ? authoringApi.updateServing(clientId, dietPlanId, explorer.option.combinationId, explorer.component.foodId, { expectedPlanVersionId: planVersionId, servingId: component.servingId, multiplier: component.multiplier })
-      : authoringApi.addComponent(clientId, dietPlanId, explorer.option.combinationId, { expectedPlanVersionId: planVersionId, draft, component: foodComponent })); };
+      ? authoringApi.updateServing(clientId, dietPlanId, explorer.option.combinationId, explorer.component.foodId, { expectedPlanVersionId: currentPlanVersionId, servingId: component.servingId, multiplier: component.multiplier })
+      : authoringApi.addComponent(clientId, dietPlanId, explorer.option.combinationId, { expectedPlanVersionId: currentPlanVersionId, draft, component: foodComponent })); };
   const toggleServingLock = (optionId, foodId) => setLockedServings((current) => { const next = new Set(current[optionId] || []); if (next.has(foodId)) next.delete(foodId); else next.add(foodId); return { ...current, [optionId]: next }; });
-  const autoBalance = (option) => mutate(() => authoringApi.autoBalance(clientId, dietPlanId, option.combinationId, { expectedPlanVersionId: planVersionId, lockedFoodIds: [...(lockedServings[option.combinationId] || [])] }));
+  const autoBalance = (option) => mutate(() => authoringApi.autoBalance(clientId, dietPlanId, option.combinationId, { expectedPlanVersionId: currentPlanVersionId, lockedFoodIds: [...(lockedServings[option.combinationId] || [])] }));
   const acceptAppliedTemplate = (option) => { setOptions((current) => [...current.filter((item) => item.combinationId !== option.combinationId), option]); setSelectedIds((current) => new Set([...current, option.combinationId])); setDirty(true); setMessage('Template revalidated for this client. Review it, then save the Diet Plan.'); };
   const reusePreviousOption = async (option) => {
     const reuse = previousOptionReuseState(option);
     if (!reuse.reusable) { setError(reuse.reason); return; }
     setLoading(true); setError('');
     try {
-      const created = await authoringApi.saveOption(clientId, dietPlanId, { expectedPlanVersionId: planVersionId, mealHead: option.mealHead, components: option.components.map(({ foodId, servingId, multiplier }) => ({ foodId, servingId, multiplier: Number(multiplier) })) });
+      const created = await authoringApi.saveOption(clientId, dietPlanId, { expectedPlanVersionId: currentPlanVersionId, mealHead: option.mealHead, components: option.components.map(({ foodId, servingId, multiplier }) => ({ foodId, servingId, multiplier: Number(multiplier) })) });
+      if (created?.planVersionId) setCurrentPlanVersionId(created.planVersionId);
       const next = { ...created, sourceType: 'PREVIOUS_PLAN' };
       setOptions((current) => [...current.filter((item) => item.combinationId !== next.combinationId), next]);
       setSelectedIds((current) => new Set([...current, next.combinationId]));
@@ -373,7 +397,7 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
   const persistedTotal = typedOptions.filter((option) => persistedIds.has(option.combinationId)).length;
   const remainingTotal = Math.max(0, 35 - selectedTotal);
   const persistedByMeal = Object.fromEntries(COMMON_FOOD_MEALS.map(([head]) => [head, typedOptions.filter((option) => option.mealHead === head && persistedIds.has(option.combinationId)).length]));
-  useEffect(() => { onProgressChange?.({ selected: selectedTotal, persisted: persistedTotal, persistedByMeal, remaining: remainingTotal, ready: selectedTotal === 35, persistedReady: persistedTotal === 35, savedVerified, dirty }); }, [dirty, onProgressChange, persistedTotal, remainingTotal, savedVerified, selectedTotal]);
+  useEffect(() => { onProgressChange?.({ selected: selectedTotal, persisted: persistedTotal, persistedByMeal, remaining: remainingTotal, ready: selectedTotal === 35, persistedReady: persistedTotal === 35, savedVerified, dirty, busy: loading || saving || resolving, canSave: dirty && selectedTotal > 0 && !(loading || saving || resolving) }); }, [dirty, loading, onProgressChange, persistedTotal, remainingTotal, resolving, savedVerified, saving, selectedTotal]);
   return <section aria-label="Diet Plan" className="space-y-4">
     {!readOnly && templatesEnabled ? <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setTemplateLibrary(true)} className="inline-flex items-center gap-1 rounded-full border px-3 py-2 text-xs font-semibold"><Copy size={14} /> Template Library</button><button type="button" disabled={dirty || !typedOptions.find((option) => selectedIds.has(option.combinationId))} title={dirty ? 'Save the Diet Plan before creating a reusable template.' : 'Save a complete selected meal as a reusable template.'} onClick={() => setTemplateMeal(typedOptions.find((option) => selectedIds.has(option.combinationId)))} className="rounded-full border px-3 py-2 text-xs font-semibold disabled:opacity-40">Save selected meal as Template</button></div> : null}
     {generationSnapshot?<details className="rounded-[14px] border bg-[var(--fluent-color-neutral-background-2)] px-4 py-3"><summary className="cursor-pointer text-sm font-semibold">Plan Context · Generated using current client profile, food preferences and available biomarkers</summary><div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><p className="text-xs text-gray-500">Diet preference</p><p className="font-semibold">{generationSnapshot.dietPreference||'Not provided'}</p></div><div><p className="text-xs text-gray-500">Calorie target</p><p className="font-semibold">{generationSnapshot.dailyTargets?.calories!=null?`${generationSnapshot.dailyTargets.calories} kcal`:'Not calculated'}</p></div><div><p className="text-xs text-gray-500">Biomarkers available</p><p className="font-semibold">{generationSnapshot.biomarkers?.length||0}</p></div><div><p className="text-xs text-gray-500">Biomarkers affecting ranking</p><p className="font-semibold">{generationSnapshot.biomarkers?.filter((item)=>item.generationEffect==='RANKING').map((item)=>item.canonicalMarkerName).join(', ')||'No governed generation rule'}</p></div></div></details>:null}
@@ -390,7 +414,7 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
       const targetStatus = mealCalorieStatus(mealTarget, mealTarget);
       return <div key={head} className="rounded-[18px] border bg-white p-4"><div className="flex flex-wrap justify-between gap-3"><div><h5 className="text-lg font-semibold">{label}</h5><p className="mt-1 text-xs text-gray-600">{authoringPool.length} available · {selectedCount} included · {persistedByMeal[head]} persisted</p><p className="mt-1 text-xs text-gray-600">Target {formatNutrient(mealTarget, 'kcal')}{targetStatus ? ` · Acceptable range ${formatNutrient(targetStatus.minimum, 'kcal')}–${formatNutrient(targetStatus.maximum, 'kcal')}` : ''}</p></div><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-3 py-1 text-xs font-semibold ${selectedCount === 5 ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-800'}`}>{selectedCount}/5 included</span>{!readOnly ? <><button type="button" onClick={()=>setMealSelection(head,true)} className="text-xs font-semibold text-blue-700">Select all</button><button type="button" onClick={()=>setMealSelection(head,false)} className="text-xs font-semibold text-gray-600">Clear</button><button type="button" disabled={selectedCount >= 5} onClick={()=>openExplorer('create',null,null,label,'',{mealHead:head,authoringSource:'MANUAL'})} className="rounded-full border px-3 py-1.5 text-xs font-semibold disabled:opacity-40">+ Add Food</button><button type="button" disabled={selectedCount >= 5} onClick={()=>{if(mealOptions.length){setBuildMealHead(buildMealHead===head?'':head);setBuildOptionIds(new Set(mealOptions.filter((option)=>selectedIds.has(option.combinationId)).map((option)=>option.combinationId)))}else openExplorer('create',null,null,label,'STARCH',{mealHead:head,authoringSource:'BUILD_MEAL'})}} className="rounded-full border px-3 py-1.5 text-xs font-semibold disabled:opacity-40">+ Build Meal</button><button type="button" onClick={()=>void generate()} disabled={loading} className="rounded-full border px-3 py-1.5 text-xs font-semibold disabled:opacity-40">Generate alternatives</button></> : null}</div></div>
         {buildMealHead===head && mealOptions.length ? <section className="mt-3 rounded-[14px] bg-[var(--fluent-color-neutral-background-2)] p-3" aria-label={`Build ${label} meal`}><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold">Build Meal · choose options to update</p><button type="button" onClick={()=>setBuildMealHead('')} aria-label="Close Build Meal"><X size={16}/></button></div><div className="mt-2 flex flex-wrap gap-2">{mealOptions.slice(0,5).map((option,index)=><label key={option.combinationId} className="flex items-center gap-1 rounded-full border bg-white px-2.5 py-1.5 text-xs"><input type="checkbox" checked={buildOptionIds.has(option.combinationId)} onChange={()=>setBuildOptionIds((current)=>{const next=new Set(current);if(next.has(option.combinationId))next.delete(option.combinationId);else next.add(option.combinationId);return next})}/>Option {index+1}</label>)}</div><div className="mt-2 flex flex-wrap gap-2">{BUILD_MEAL_ROLES.map(([role,labelText])=><button key={role} type="button" disabled={!buildOptionIds.size} onClick={() => {const option=mealOptions.find((item)=>buildOptionIds.has(item.combinationId))||mealOptions[0];openExplorer('add',option,null,label,role,{optionIds:mealOptions.slice(0,5).map((item)=>item.combinationId),selectedOptionIds:[...buildOptionIds],defaultApplyScope:buildOptionIds.size>1?'SELECTED_OPTIONS':'THIS_OPTION'})}} className="rounded-full border bg-white px-3 py-1.5 text-xs font-semibold disabled:opacity-40">+ {labelText}</button>)}</div></section> : null}
-        <div className="mt-3 space-y-2">{mealOptions.map((option, index) => { const key = option.combinationId || `${head}-${index}`; const selected = selectedIds.has(option.combinationId); const state = persistedIds.has(option.combinationId) ? 'SAVED' : selected ? 'SELECTED' : 'AVAILABLE'; const calorie=mealCalorieStatus(option.nutrition?.kcal,mealTarget); const calorieLabel=calorie?.state==='WITHIN_TARGET'?'Within target':calorie?.state==='BELOW_TARGET'?'Below target':'Above target'; return <article key={key} data-option-type={option.sourceType} data-selection-state={state} className={`rounded-[12px] border px-3 py-2.5 ${selected ? 'border-[var(--fluent-color-brand-stroke-1)] bg-[var(--fluent-color-brand-background-2)]' : 'bg-[var(--fluent-color-neutral-background-2)]'}`}><div className="flex items-start gap-3">{!readOnly && ['draft', 'changes_requested'].includes(lifecycle) ? <input type="checkbox" checked={selected} onChange={() => toggleSelection(option)} aria-label={`${selected ? 'Exclude' : 'Include'} ${optionTitle(option)}`} className="mt-1 h-4 w-4 accent-[var(--fluent-color-brand-background)]" /> : null}<div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><p className="truncate text-sm font-semibold">Option {index+1} · {optionTitle(option)}</p><div className="flex items-center gap-2"><span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">{option.sourceType === 'PREVIOUS_PLAN' ? 'Previous Plan' : option.sourceType === 'MANUAL' ? 'Manual' : option.sourceType === 'BUILD_MEAL' ? 'Build Meal' : 'Generated'}</span><span className={`text-[11px] font-semibold ${calorie?.state==='WITHIN_TARGET'?'text-green-700':'text-amber-800'}`}>{calorie ? `${calorie.variancePercent>=0?'+':''}${calorie.variancePercent.toFixed(1)}% · ${calorieLabel}${calorie.state==='WITHIN_TARGET'?' ✓':''}` : 'Calorie target unavailable'}</span></div></div><p className="mt-0.5 text-xs text-gray-600">{servingSummary(option)}</p><p className="mt-1 text-xs font-medium text-gray-700">{compactNutrition(option.nutrition)}</p><p className="mt-1 text-[11px] text-gray-500">Target {formatNutrient(mealTarget,'kcal')}{calorie ? ` · Current ${formatNutrient(calorie.current,'kcal')} · ${calorie.remaining>=0?'Remaining':'Over'} ${formatNutrient(Math.abs(calorie.remaining),'kcal')}` : ''}</p><div className="mt-2 flex flex-wrap gap-3 text-xs font-semibold">{!readOnly?<><button type="button" onClick={()=>setExpanded((current)=>({...current,[key]:true}))} className="text-blue-700">Edit</button><button type="button" onClick={()=>openExplorer('replace',option,option.components?.[0],label)} className="text-blue-700">Replace</button><button type="button" onClick={()=>{if(selected)toggleSelection(option)}} disabled={!selected} className="text-red-700 disabled:opacity-40">Remove</button></>:null}<button type="button" aria-expanded={Boolean(expanded[key])} onClick={()=>setExpanded((current)=>({...current,[key]:!current[key]}))} className="text-blue-700">{expanded[key]?'Hide composition':'Details'}</button></div>{expanded[key]?<><ComponentTable option={option} readOnly={readOnly || !['draft','changes_requested'].includes(lifecycle)} locked={lockedServings[option.combinationId]} onLock={(foodId)=>toggleServingLock(option.combinationId,foodId)} onExplore={(mode,component)=>openExplorer(mode,option,component,label)} onRemove={(component)=>mutate(()=>authoringApi.removeComponent(clientId,dietPlanId,option.combinationId,component.foodId,planVersionId))} onServing={(component)=>openExplorer('serving',option,component,label)}/>{!readOnly && autoBalanceEnabled?<button type="button" onClick={()=>autoBalance(option)} className="mt-2 rounded-full border px-3 py-1.5 text-xs font-semibold">Balance to target</button>:null}</>:null}</div></div></article>; })}{Array.from({length:Math.max(0,5-mealOptions.length)},(_,slot)=><article key={`empty-${head}-${slot}`} data-slot-state="EMPTY" className="rounded-[12px] border border-dashed px-3 py-3"><p className="text-sm font-semibold">Option {mealOptions.length+slot+1} · Empty slot</p><p className="mt-1 text-xs text-gray-500">Fill with a reusable previous option, an approved food, or Build Meal.</p></article>)}{mealOptions.length < 5 ? <div className="rounded-[12px] border border-dashed p-4 text-sm text-gray-600"><p>{loading ? 'Generating personalised options…' : `No new generated options fill the remaining ${5 - Math.min(5, mealOptions.length)} slot${mealOptions.length === 4 ? '' : 's'} for ${label}.`}</p><p className="mt-1 text-xs">Reuse a current-safe previous option, add an approved food, or build a meal. Generator ranking is not a manual-authoring block.</p></div> : null}</div>
+        <div className="mt-3 space-y-2">{mealOptions.map((option, index) => { const key = option.combinationId || `${head}-${index}`; const selected = selectedIds.has(option.combinationId); const state = persistedIds.has(option.combinationId) ? 'SAVED' : selected ? 'SELECTED' : 'AVAILABLE'; const calorie=mealCalorieStatus(option.nutrition?.kcal,mealTarget); const calorieLabel=calorie?.state==='WITHIN_TARGET'?'Within target':calorie?.state==='BELOW_TARGET'?'Below target':'Above target'; return <article key={key} data-option-type={option.sourceType} data-selection-state={state} className={`rounded-[12px] border px-3 py-2.5 ${selected ? 'border-[var(--fluent-color-brand-stroke-1)] bg-[var(--fluent-color-brand-background-2)]' : 'bg-[var(--fluent-color-neutral-background-2)]'}`}><div className="flex items-start gap-3">{!readOnly && ['draft', 'changes_requested'].includes(lifecycle) ? <input type="checkbox" checked={selected} onChange={() => toggleSelection(option)} aria-label={`${selected ? 'Exclude' : 'Include'} ${optionTitle(option)}`} className="mt-1 h-4 w-4 accent-[var(--fluent-color-brand-background)]" /> : null}<div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><p className="truncate text-sm font-semibold">Option {index+1} · {optionTitle(option)}</p><div className="flex items-center gap-2"><span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">{option.sourceType === 'PREVIOUS_PLAN' ? 'Previous Plan' : option.sourceType === 'MANUAL' ? 'Manual' : option.sourceType === 'BUILD_MEAL' ? 'Build Meal' : 'Generated'}</span><span className={`text-[11px] font-semibold ${calorie?.state==='WITHIN_TARGET'?'text-green-700':'text-amber-800'}`}>{calorie ? `${calorie.variancePercent>=0?'+':''}${calorie.variancePercent.toFixed(1)}% · ${calorieLabel}${calorie.state==='WITHIN_TARGET'?' ✓':''}` : 'Calorie target unavailable'}</span></div></div><p className="mt-0.5 text-xs text-gray-600">{servingSummary(option)}</p><p className="mt-1 text-xs font-medium text-gray-700">{compactNutrition(option.nutrition)}</p><p className="mt-1 text-[11px] text-gray-500">Target {formatNutrient(mealTarget,'kcal')}{calorie ? ` · Current ${formatNutrient(calorie.current,'kcal')} · ${calorie.remaining>=0?'Remaining':'Over'} ${formatNutrient(Math.abs(calorie.remaining),'kcal')}` : ''}</p><div className="mt-2 flex flex-wrap gap-3 text-xs font-semibold">{!readOnly?<><button type="button" onClick={()=>setExpanded((current)=>({...current,[key]:true}))} className="text-blue-700">Edit</button><button type="button" onClick={()=>openExplorer('replace',option,option.components?.[0],label)} className="text-blue-700">Replace</button><button type="button" onClick={()=>{if(selected)toggleSelection(option)}} disabled={!selected} className="text-red-700 disabled:opacity-40">Remove</button></>:null}<button type="button" aria-expanded={Boolean(expanded[key])} onClick={()=>setExpanded((current)=>({...current,[key]:!current[key]}))} className="text-blue-700">{expanded[key]?'Hide composition':'Details'}</button></div>{expanded[key]?<><ComponentTable option={option} readOnly={readOnly || !['draft','changes_requested'].includes(lifecycle)} locked={lockedServings[option.combinationId]} onLock={(foodId)=>toggleServingLock(option.combinationId,foodId)} onExplore={(mode,component)=>openExplorer(mode,option,component,label)} onRemove={(component)=>mutate(()=>authoringApi.removeComponent(clientId,dietPlanId,option.combinationId,component.foodId,currentPlanVersionId))} onServing={(component)=>openExplorer('serving',option,component,label)}/>{!readOnly && autoBalanceEnabled?<button type="button" onClick={()=>autoBalance(option)} className="mt-2 rounded-full border px-3 py-1.5 text-xs font-semibold">Balance to target</button>:null}</>:null}</div></div></article>; })}{Array.from({length:Math.max(0,5-mealOptions.length)},(_,slot)=><article key={`empty-${head}-${slot}`} data-slot-state="EMPTY" className="rounded-[12px] border border-dashed px-3 py-3"><p className="text-sm font-semibold">Option {mealOptions.length+slot+1} · Empty slot</p><p className="mt-1 text-xs text-gray-500">Fill with a reusable previous option, an approved food, or Build Meal.</p></article>)}{mealOptions.length < 5 ? <div className="rounded-[12px] border border-dashed p-4 text-sm text-gray-600"><p>{loading ? 'Generating personalised options…' : `No new generated options fill the remaining ${5 - Math.min(5, mealOptions.length)} slot${mealOptions.length === 4 ? '' : 's'} for ${label}.`}</p><p className="mt-1 text-xs">Reuse a current-safe previous option, add an approved food, or build a meal. Generator ranking is not a manual-authoring block.</p></div> : null}</div>
         {reusablePrevious.length ? <section className="mt-4 rounded-[14px] border border-dashed p-3" aria-label={`Reusable previous ${label} options`}><p className="text-xs font-semibold">Previous plan options available now · {reusablePrevious.length}</p><div className="mt-3 space-y-2">{reusablePrevious.map((option) => <article key={option.combinationId} data-option-type="PREVIOUS_PLAN" className="rounded-[12px] bg-[var(--fluent-color-neutral-background-2)] p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold">{option.displayName}</p><p className="mt-1 text-xs text-gray-600">{option.servingLabel} · {compactNutrition(option.nutrition)}</p></div>{!readOnly?<button type="button" disabled={loading || selectedCount >= 5} onClick={()=>void reusePreviousOption(option)} className="rounded-full border px-3 py-1.5 text-xs font-semibold disabled:opacity-40">Reuse</button>:null}</div><LegacyOptionDetails option={option} /></article>)}</div></section> : null}
         {previousMealOptions.filter((option)=>!previousOptionReuseState(option).reusable).length ? <details className="mt-3 rounded-[14px] border border-dashed p-3"><summary className="cursor-pointer text-xs font-semibold">Unavailable historical choices · {previousMealOptions.filter((option)=>!previousOptionReuseState(option).reusable).length}</summary><div className="mt-2 space-y-2">{previousMealOptions.filter((option)=>!previousOptionReuseState(option).reusable).map((option)=><p key={option.combinationId} className="text-xs text-gray-600">{option.displayName}: {previousOptionReuseState(option).reason}</p>)}</div></details> : null}
       </div>;

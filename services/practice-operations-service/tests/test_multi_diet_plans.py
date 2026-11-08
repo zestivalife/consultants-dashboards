@@ -30,6 +30,7 @@ def test_consultant_multi_diet_plan_api_is_external_only_and_versioned():
 
     save = source.split('async def save_diet_plan', 1)[1].split('async def review_diet_plan', 1)[0]
     assert 'plan["status"] in {"APPROVED","PUBLISHED","ARCHIVED"}' in save
+    assert 'if not body.options:return error(request,422,"DIET_PLAN_CONTENT_REQUIRED"' in save
 
 def test_multi_plan_migration_is_consultant_owned_and_does_not_touch_fiteatsy():
     source = (ROOT / "alembic/versions/0051_consultant_multi_diet_plans.py").read_text()
@@ -135,6 +136,13 @@ def test_mobile_nutrition_adapter_preserves_seven_meals_and_authoritative_values
     assert rendered["approxKcal"] == 320 and rendered["proteinGrams"] == 14
     assert rendered["components"][0]["foodId"] == "food-1"
     assert rendered["components"][0]["calories"] == 320
+
+
+def test_fiteatsy_publication_uses_canonical_utc_z_timestamp():
+    source = (ROOT / "app/main.py").read_text()
+    delivery = source[source.index("async def _deliver_diet_plan_to_fiteatsy"):source.index("async def _active_diet_connection")]
+    assert 'published_at.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00","Z")' in delivery
+    assert '"publishedAtISO":published_at.isoformat()' not in delivery
 
 def test_legacy_draft_save_discards_frontend_nutrition_and_re_resolves_every_option():
     source = (ROOT / "app/main.py").read_text()

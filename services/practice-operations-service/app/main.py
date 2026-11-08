@@ -2003,7 +2003,7 @@ async def _deliver_diet_plan_to_fiteatsy(request,connection,plan,options,publish
     payload={
       "externalPlanId":str(plan["id"]),"externalVersion":str(plan["current_version"]),
       "consultantId":str(plan["authorised_consultant_id"]),"consultantName":str(plan["authorised_consultant_id"]),
-      "practiceName":str(plan["tenant_id"]),"publishedAtISO":published_at.isoformat(),
+      "practiceName":str(plan["tenant_id"]),"publishedAtISO":published_at.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00","Z"),
       "content":_fiteatsy_nutrition_content(plan,options),
     }
     try:
@@ -2213,6 +2213,7 @@ async def save_diet_plan(request:Request,plan_id:UUID,body:DietPlanSave,ctx=Depe
     if denied:return denied
     if plan["status"] in {"APPROVED","PUBLISHED","ARCHIVED"}:return error(request,409,"DIET_PLAN_VERSION_IMMUTABLE","Approved, published, and archived Diet Plan versions cannot be changed")
     if plan["current_version"]!=body.expected_version:return error(request,409,"STALE_WRITE","This Diet Plan changed. Refresh and retry")
+    if not body.options:return error(request,422,"DIET_PLAN_CONTENT_REQUIRED","Select at least one governed meal option before saving the Diet Plan")
     submitted=[];seen=set();meal_counts={}
     try:
         for item in body.options:

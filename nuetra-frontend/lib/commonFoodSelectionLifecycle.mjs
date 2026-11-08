@@ -17,7 +17,8 @@ export const isExactSelection = (options, selectedIds, mealHeads) => {
 export const isValidDraftSelection = (options, selectedIds, mealHeads) => {
   const optionIds = new Set(options.map((option) => String(option.combinationId)));
   const counts = countSelections(options, selectedIds, mealHeads);
-  return selectedIds.size <= mealHeads.length * 5
+  return selectedIds.size > 0
+    && selectedIds.size <= mealHeads.length * 5
     && [...selectedIds].every((id) => optionIds.has(String(id)))
     && mealHeads.every((head) => counts[head] >= 0 && counts[head] <= 5);
 };

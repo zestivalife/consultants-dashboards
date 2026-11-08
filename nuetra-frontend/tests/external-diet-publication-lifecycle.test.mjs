@@ -30,4 +30,14 @@ test('external editor disables both generation-on-mount paths while preserving e
   assert.doesNotMatch(workspace, /generationRequestId=\{1\}/);
   assert.match(editor, /generateMissingOnLoad && isCommonFoodCombinationEngineEnabled/);
   assert.match(editor, /Generate alternatives/);
+  assert.match(editor, /Select at least one governed meal option before saving the Diet Plan/);
+  assert.match(editor, /persistedPlanVersionId = response\?\.planVersionId/);
+  assert.match(editor, /expectedPlanVersionId: persistedPlanVersionId/);
+  assert.match(workspace, /onProgressChange=\{setEditorProgress\}/);
+  assert.match(workspace, /!editorProgress\.canSave/);
+  assert.match(editor, /currentPlanVersionId/);
+  assert.match(editor, /setCurrentPlanVersionId\(persistedPlanVersionId\)/);
+  assert.match(editor, /canSave: dirty && selectedTotal > 0/);
+  assert.match(workspace, /action==='approve'&&editorDirty/);
+  assert.match(workspace, /Add and save at least one governed meal option before approval/);
 });

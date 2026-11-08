@@ -60,6 +60,17 @@ test("generated governed food snapshots survive first draft persistence", () => 
   assert.match(multi, /nutrition:current\?\.nutrition\|\|\{\}/);
 });
 
+test("draft persistence uses the real immutable server version without aliases", () => {
+  assert.doesNotMatch(multi, /editorVersionAliases/);
+  assert.match(multi, /result\.planVersionId!==payload\.expectedPlanVersionId/);
+  assert.match(multi, /planVersionId:saved\.version_id/);
+  assert.match(multi, /planVersion:saved\.version/);
+  assert.match(multi, /generatedOptionsByPlan\.set\(planId,saved\.options\|\|\[\]\)/);
+  assert.match(multi, /current\.current_version\?\.id!==expectedPlanVersionId/);
+  assert.match(multi, /planVersionId:result\.plan_version_id/);
+  assert.match(multi, /status:409/);
+});
+
 test("marketplace contact and photo forms use persistent APIs and reload after success", () => {
   for (const term of [
     "saveMarketplaceContact",
