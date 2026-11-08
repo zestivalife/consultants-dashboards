@@ -32,6 +32,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            AssessmentAnswerSave, AssessmentComplete,
                            ProfessionPlanCreate, ProfessionPlanSave,
                            DietPlanCreate, DietPlanSave, DietPlanReviewAction,
+                           DietEnergyEstimateRequest,
                            GovernedDietComponent, GovernedDietOptionUpdate)
 from app.contracts import PracticeClientCreate
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
@@ -1909,6 +1910,9 @@ async def _diet_plan_projection(db, plan):
               {"section":section,"tenant":plan["tenant_id"]})).scalars().all()
             options=[dict(item or {}) for item in items]
     value=dict(plan);value["id"]=str(value["id"]);value["daily_protein_target_g"]=float(value["daily_protein_target_g"] or 0)
+    current_snapshot=dict((current or {}).get("nutrition_snapshot") or {})
+    for key in ("daily_carbohydrate_target_g","daily_fat_target_g","daily_fibre_target_g","target_methodology","activity_level","energy_adjustment_kcal","calculation_provenance"):
+        value[key]=current_snapshot.get(key)
     context=await _measurement_projection(db,plan["tenant_id"],plan["client_id"])
     for version in versions:
         version["id"]=str(version["id"])
@@ -2032,6 +2036,36 @@ async def _active_diet_connection(db,ctx,client_id):
       AND consultant_client_id=:client AND state='ACTIVE' AND consented_scopes ? 'DIET_PLANS'
       ORDER BY connected_at DESC LIMIT 1"""),{"tenant":ctx["tenant_id"],"consultant":ctx["user_id"],"client":client_id})).mappings().first()
 
+async def _active_health_calculation_connection(db,ctx,client_id):
+    return (await db.execute(text("""SELECT id::text,tenant_id,consultant_id,fiteatsy_user_id,consented_scopes
+      FROM external_fiteatsy_connections WHERE tenant_id=:tenant AND consultant_id=:consultant
+      AND consultant_client_id=:client AND state='ACTIVE'
+      AND consented_scopes ? 'PROFILE' AND consented_scopes ? 'MEASUREMENTS'
+      ORDER BY connected_at DESC LIMIT 1"""),{"tenant":ctx["tenant_id"],"consultant":ctx["user_id"],"client":client_id})).mappings().first()
+
+@app.post("/api/v1/practice-operations/clients/{client_id}/diet-plan-energy-estimate")
+async def estimate_diet_plan_energy(request:Request,client_id:str,body:DietEnergyEstimateRequest,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied,_=await _team_guard(request,db,ctx,"PLAN_CREATE",client_id)
+    if denied:return denied
+    connection=await _active_health_calculation_connection(db,ctx,client_id)
+    if not connection:return error(request,409,"HEALTH_CALCULATION_CONSENT_REQUIRED","An active Fiteatsy connection with Profile and Measurements consent is required for automatic estimation")
+    settings=get_settings()
+    if not all((settings.external_fiteatsy_backend_url,settings.external_fiteatsy_outbound_private_key,settings.external_fiteatsy_outbound_key_id)):
+        return error(request,503,"FITEATSY_HEALTH_CALCULATION_UNAVAILABLE","The Fiteatsy health calculator is not configured",True)
+    delegated=create_fiteatsy_delegation(connection,"fiteatsy.external.health.calculate","external_consultant_health_calculation")
+    url=f"{settings.external_fiteatsy_backend_url.rstrip('/')}/v1/internal/external-consultant-access/{connection['fiteatsy_user_id']}/health-calculations/energy-estimate"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            upstream=await client.post(url,headers={"x-zestiva-delegation":delegated},json={"activityLevel":body.activity_level,"energyAdjustmentKcal":body.energy_adjustment_kcal})
+    except httpx.RequestError:
+        return error(request,503,"FITEATSY_HEALTH_CALCULATION_UNAVAILABLE","The Fiteatsy health calculator is temporarily unavailable",True)
+    payload=upstream.json() if upstream.headers.get("content-type","").startswith("application/json") else {}
+    if upstream.status_code!=200:
+        return error(request,upstream.status_code,payload.get("error","FITEATSY_HEALTH_CALCULATION_REJECTED"),payload.get("message","Fiteatsy could not calculate an energy estimate"),upstream.status_code>=500)
+    if str(payload.get("connectionId"))!=str(connection["id"]):
+        return error(request,502,"FITEATSY_HEALTH_CALCULATION_CONTRACT_INVALID","The health calculator returned an invalid authority response",True)
+    return {"success":True,"data":payload,"error":None,"request_id":request.state.correlation_id}
+
 async def _resolve_governed_option(request,connection,plan,resolver_body,purpose="external_consultant_diet_option"):
     settings=get_settings()
     if not all((settings.external_fiteatsy_backend_url,settings.external_fiteatsy_outbound_private_key,settings.external_fiteatsy_outbound_key_id)):
@@ -2092,7 +2126,7 @@ async def create_diet_plan(request:Request,body:DietPlanCreate,idempotency_key:s
       {"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"key":idempotency_key})).mappings().first()
     if existing:
         snapshot=dict(existing["nutrition_snapshot"] or {})
-        same=existing["client_id"]==body.client_id and existing["title"]==body.name and existing["daily_calories_target"]==body.daily_calories_target and float(existing["daily_protein_target_g"] or 0)==float(body.daily_protein_target_g) and list(snapshot.get("health_goals") or [])==list(body.health_goals or [])
+        same=existing["client_id"]==body.client_id and existing["title"]==body.name and existing["daily_calories_target"]==body.daily_calories_target and float(existing["daily_protein_target_g"] or 0)==float(body.daily_protein_target_g) and list(snapshot.get("health_goals") or [])==list(body.health_goals or []) and snapshot.get("daily_carbohydrate_target_g")==body.daily_carbohydrate_target_g and snapshot.get("daily_fat_target_g")==body.daily_fat_target_g and snapshot.get("daily_fibre_target_g")==body.daily_fibre_target_g
         if not same:return error(request,409,"IDEMPOTENCY_KEY_REUSED","This Idempotency-Key was already used for a different Diet Plan request")
         return {"success":True,"data":{"id":str(existing["id"]),"status":existing["status"],"version":existing["current_version"],"idempotent_replay":True},"error":None,"request_id":request.state.correlation_id}
     readiness=await _current_diet_plan_readiness(db,ctx,body.client_id)
@@ -2103,8 +2137,12 @@ async def create_diet_plan(request:Request,body:DietPlanCreate,idempotency_key:s
       VALUES (:id,:tenant,:client,:profession,'DIET_PLAN',:title,'DRAFT',1,:actor,:actor,:calories,:protein,:key,:now,:now)"""),
       {"id":plan_id,"tenant":ctx["tenant_id"],"client":body.client_id,"profession":config["profession"],"title":body.name,"actor":ctx["user_id"],"calories":body.daily_calories_target,"protein":body.daily_protein_target_g,"key":idempotency_key,"now":now})
     measurement=health_context["measurement_context"]
-    snapshot={"daily_calories_target":body.daily_calories_target,"daily_protein_target_g":body.daily_protein_target_g,"health_goals":body.health_goals,"actual_calories":0,"actual_protein_g":0,"source":"CONSULTANT_AUTHORED",
-      "target_methodology":"PROFESSIONAL_JUDGEMENT","target_reviewed_by":ctx["user_id"],
+    snapshot={"daily_calories_target":body.daily_calories_target,"daily_protein_target_g":body.daily_protein_target_g,
+      "daily_carbohydrate_target_g":body.daily_carbohydrate_target_g,"daily_fat_target_g":body.daily_fat_target_g,
+      "daily_fibre_target_g":body.daily_fibre_target_g,"health_goals":body.health_goals,"actual_calories":0,"actual_protein_g":0,"source":"CONSULTANT_AUTHORED",
+      "target_methodology":body.target_methodology,"activity_level":body.activity_level,
+      "energy_adjustment_kcal":body.energy_adjustment_kcal,"calculation_provenance":body.calculation_provenance,
+      "target_reviewed_by":ctx["user_id"],
       "measurement_context_fingerprint":measurement["measurement_context_fingerprint"],
       "measurement_source_ids":measurement["source_measurement_ids"],"measurement_snapshot":measurement["eligible_latest"],
       "measurement_calculations":measurement["calculations"],"assessment_id":readiness["assessment_id"],
@@ -2214,7 +2252,9 @@ async def save_diet_plan(request:Request,plan_id:UUID,body:DietPlanSave,ctx=Depe
     if denied:return denied
     if plan["status"] in {"APPROVED","PUBLISHED","ARCHIVED"}:return error(request,409,"DIET_PLAN_VERSION_IMMUTABLE","Approved, published, and archived Diet Plan versions cannot be changed")
     if plan["current_version"]!=body.expected_version:return error(request,409,"STALE_WRITE","This Diet Plan changed. Refresh and retry")
-    if not body.options:return error(request,422,"DIET_PLAN_CONTENT_REQUIRED","Select at least one governed meal option before saving the Diet Plan")
+    target_fields={"daily_calories_target","daily_protein_target_g","daily_carbohydrate_target_g","daily_fat_target_g","daily_fibre_target_g","target_methodology","activity_level","energy_adjustment_kcal","calculation_provenance"}
+    target_update_requested=bool(target_fields.intersection(body.model_fields_set))
+    if not body.options and not target_update_requested:return error(request,422,"DIET_PLAN_CONTENT_REQUIRED","Select at least one governed meal option before saving the Diet Plan")
     submitted=[];seen=set();meal_counts={}
     try:
         for item in body.options:
@@ -2230,7 +2270,8 @@ async def save_diet_plan(request:Request,plan_id:UUID,body:DietPlanSave,ctx=Depe
         connection=await _active_diet_connection(db,ctx,plan["client_id"])
         if not connection:return error(request,403,"DIET_PLAN_CONSENT_REQUIRED","An active assigned Fiteatsy connection with Diet Plans consent is required")
     # Resolve every submitted option before opening the write transaction. No caller-supplied nutrition is persisted.
-    await db.rollback();options=[]
+    existing_options=[] if submitted else await _diet_options_for_version(db,ctx["tenant_id"],plan_id,plan["current_version"])
+    await db.rollback();options=list(existing_options)
     for option_id,resolver_body in submitted:
         # The Fiteatsy resolver validates the delegation purpose as part of its
         # signed authority contract. Draft persistence is still an option
@@ -2252,8 +2293,24 @@ async def save_diet_plan(request:Request,plan_id:UUID,body:DietPlanSave,ctx=Depe
         actual_calories=sum(float((item.get("nutrition") or {}).get("kcal") or 0) for item in options)
         actual_protein=sum(float((item.get("nutrition") or {}).get("protein") or 0) for item in options)
         measurement=health_context["measurement_context"]
-        snapshot={"daily_calories_target":locked["daily_calories_target"],"daily_protein_target_g":float(locked["daily_protein_target_g"] or 0),"actual_calories":round(actual_calories,2),"actual_protein_g":round(actual_protein,2),"option_count":len(options),"calculation_authority":"FITEATSY_GOVERNED_COMMON_FOOD",
-          "target_methodology":"PROFESSIONAL_JUDGEMENT","target_reviewed_by":ctx["user_id"],
+        previous_snapshot=dict((await db.execute(text("SELECT nutrition_snapshot FROM external_profession_plan_versions WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version"),{"plan":plan_id,"tenant":ctx["tenant_id"],"version":locked["current_version"]})).scalar_one_or_none() or {})
+        supplied=body.model_fields_set
+        def target_value(name,fallback):return getattr(body,name) if name in supplied else fallback
+        daily_calories=target_value("daily_calories_target",locked["daily_calories_target"])
+        daily_protein=target_value("daily_protein_target_g",float(locked["daily_protein_target_g"] or 0))
+        target_methodology=target_value("target_methodology",previous_snapshot.get("target_methodology") or "CONSULTANT_MANUAL")
+        calculation_provenance=target_value("calculation_provenance",previous_snapshot.get("calculation_provenance") or {})
+        if target_methodology=="FITEATSY_ESTIMATE" and not calculation_provenance:
+            await db.rollback();return error(request,422,"TARGET_PROVENANCE_REQUIRED","Applied Fiteatsy estimates must retain their calculation provenance")
+        snapshot={**previous_snapshot,"daily_calories_target":daily_calories,"daily_protein_target_g":daily_protein,
+          "daily_carbohydrate_target_g":target_value("daily_carbohydrate_target_g",previous_snapshot.get("daily_carbohydrate_target_g")),
+          "daily_fat_target_g":target_value("daily_fat_target_g",previous_snapshot.get("daily_fat_target_g")),
+          "daily_fibre_target_g":target_value("daily_fibre_target_g",previous_snapshot.get("daily_fibre_target_g")),
+          "target_methodology":target_methodology,"activity_level":target_value("activity_level",previous_snapshot.get("activity_level")),
+          "energy_adjustment_kcal":target_value("energy_adjustment_kcal",previous_snapshot.get("energy_adjustment_kcal")),
+          "calculation_provenance":calculation_provenance,
+          "actual_calories":round(actual_calories,2),"actual_protein_g":round(actual_protein,2),"option_count":len(options),"calculation_authority":"FITEATSY_GOVERNED_COMMON_FOOD",
+          "target_reviewed_by":ctx["user_id"],
           "measurement_context_fingerprint":measurement["measurement_context_fingerprint"],
           "measurement_source_ids":measurement["source_measurement_ids"],"measurement_snapshot":measurement["eligible_latest"],
           "measurement_calculations":measurement["calculations"],"assessment_id":readiness["assessment_id"],
@@ -2269,8 +2326,9 @@ async def save_diet_plan(request:Request,plan_id:UUID,body:DietPlanSave,ctx=Depe
             await db.execute(text("""INSERT INTO external_profession_plan_items
               (id,plan_section_id,tenant_id,item_key,label,content,sort_order) VALUES (:id,:section,:tenant,:key,:label,CAST(:content AS jsonb),:sort)"""),
               {"id":uuid4(),"section":section_id,"tenant":ctx["tenant_id"],"key":f"option_{index+1}","label":str(item.get("mealHead") or "Meal option"),"content":json.dumps(item),"sort":index+1})
-        changed=(await db.execute(text("""UPDATE external_profession_plans SET status='SAVED',current_version=:version,updated_at=:now
-          WHERE id=:plan AND tenant_id=:tenant AND current_version=:expected RETURNING id"""),{"version":next_version,"now":now,"plan":plan_id,"tenant":ctx["tenant_id"],"expected":body.expected_version})).first()
+        changed=(await db.execute(text("""UPDATE external_profession_plans SET status='SAVED',current_version=:version,
+          daily_calories_target=:calories,daily_protein_target_g=:protein,updated_at=:now
+          WHERE id=:plan AND tenant_id=:tenant AND current_version=:expected RETURNING id"""),{"version":next_version,"calories":daily_calories,"protein":daily_protein,"now":now,"plan":plan_id,"tenant":ctx["tenant_id"],"expected":body.expected_version})).first()
         if not changed:await db.rollback();return error(request,409,"STALE_WRITE","This Diet Plan changed. Refresh and retry")
         await db.execute(text("""INSERT INTO external_profession_plan_audit_events
           (id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,metadata,created_at)

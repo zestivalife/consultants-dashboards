@@ -229,11 +229,31 @@ class DietPlanCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     daily_calories_target: int = Field(ge=1)
     daily_protein_target_g: float = Field(ge=0)
+    daily_carbohydrate_target_g: float | None = Field(default=None, ge=0, le=2000)
+    daily_fat_target_g: float | None = Field(default=None, ge=0, le=1000)
+    daily_fibre_target_g: float | None = Field(default=None, ge=0, le=300)
+    target_methodology: Literal["FITEATSY_ESTIMATE","CONSULTANT_MANUAL"] = "CONSULTANT_MANUAL"
+    activity_level: Literal["sedentary","light","moderate","very_active"] | None = None
+    energy_adjustment_kcal: int | None = Field(default=None, ge=-2000, le=2000)
+    calculation_provenance: dict[str, Any] = Field(default_factory=dict)
     health_goals: list[str] = Field(default_factory=list, max_length=3)
+
+class DietEnergyEstimateRequest(BaseModel):
+    activity_level: Literal["sedentary","light","moderate","very_active"]
+    energy_adjustment_kcal: int = Field(default=0, ge=-2000, le=2000)
 
 class DietPlanSave(BaseModel):
     expected_version: int = Field(ge=1)
     options: list[dict[str, Any]] = Field(default_factory=list, max_length=35)
+    daily_calories_target: int | None = Field(default=None, ge=1, le=10000)
+    daily_protein_target_g: float | None = Field(default=None, ge=0, le=1000)
+    daily_carbohydrate_target_g: float | None = Field(default=None, ge=0, le=2000)
+    daily_fat_target_g: float | None = Field(default=None, ge=0, le=1000)
+    daily_fibre_target_g: float | None = Field(default=None, ge=0, le=300)
+    target_methodology: Literal["FITEATSY_ESTIMATE","CONSULTANT_MANUAL"] | None = None
+    activity_level: Literal["sedentary","light","moderate","very_active"] | None = None
+    energy_adjustment_kcal: int | None = Field(default=None, ge=-2000, le=2000)
+    calculation_provenance: dict[str, Any] | None = None
 
 class GovernedDietComponent(BaseModel):
     food_id: str = Field(min_length=1, max_length=160)

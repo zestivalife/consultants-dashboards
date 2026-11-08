@@ -30,7 +30,8 @@ def test_consultant_multi_diet_plan_api_is_external_only_and_versioned():
 
     save = source.split('async def save_diet_plan', 1)[1].split('async def review_diet_plan', 1)[0]
     assert 'plan["status"] in {"APPROVED","PUBLISHED","ARCHIVED"}' in save
-    assert 'if not body.options:return error(request,422,"DIET_PLAN_CONTENT_REQUIRED"' in save
+    assert 'if not body.options and not target_update_requested:return error(request,422,"DIET_PLAN_CONTENT_REQUIRED"' in save
+    assert 'existing_options=[] if submitted else await _diet_options_for_version' in save
 
 def test_multi_plan_migration_is_consultant_owned_and_does_not_touch_fiteatsy():
     source = (ROOT / "alembic/versions/0051_consultant_multi_diet_plans.py").read_text()
@@ -143,6 +144,25 @@ def test_fiteatsy_publication_uses_canonical_utc_z_timestamp():
     delivery = source[source.index("async def _deliver_diet_plan_to_fiteatsy"):source.index("async def _active_diet_connection")]
     assert 'published_at.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00","Z")' in delivery
     assert '"publishedAtISO":published_at.isoformat()' not in delivery
+
+def test_energy_estimate_delegates_to_fiteatsy_and_targets_are_immutable_snapshot_data():
+    source = (ROOT / "app/main.py").read_text()
+    contracts = (ROOT / "app/contracts.py").read_text()
+    estimate = source[source.index('async def estimate_diet_plan_energy'):source.index('async def _resolve_governed_option')]
+    assert "fiteatsy.external.health.calculate" in estimate
+    assert "external_consultant_health_calculation" in estimate
+    assert "consented_scopes ? 'PROFILE'" in source
+    assert "consented_scopes ? 'MEASUREMENTS'" in source
+    assert "FITEATSY_HEALTH_CALCULATION_CONTRACT_INVALID" in estimate
+    assert "class DietEnergyEstimateRequest" in contracts
+    for field in ("daily_carbohydrate_target_g", "daily_fat_target_g", "daily_fibre_target_g", "target_methodology", "calculation_provenance"):
+        assert field in contracts
+        assert field in source
+    create = source[source.index('async def create_diet_plan'):source.index('@app.get("/api/v1/practice-operations/diet-plans/{plan_id}")')]
+    save = source[source.index('async def save_diet_plan'):source.index('@app.post("/api/v1/practice-operations/diet-plans/{plan_id}/review")')]
+    assert '"target_methodology":body.target_methodology' in create
+    assert "previous_snapshot" in save and "{**previous_snapshot" in save
+    assert "10 *" not in estimate and "activityMultiplier" not in estimate
 
 def test_legacy_draft_save_discards_frontend_nutrition_and_re_resolves_every_option():
     source = (ROOT / "app/main.py").read_text()

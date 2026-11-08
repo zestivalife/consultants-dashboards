@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   searchExternalCommonFoods,
 } from '../../lib/fiteatsyConsultantsApi';
-import { bindDietPlanAssessment, createClientInformationRequest, createConsultantDietPlan, downloadConsultantDietPlan, getClientInformationCompleteness, getConsultantDietPlan, getDietPlanHealthContext, getNutritionAssessment, listConsultantDietPlans, openWhatsApp, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan, updateConsultantDietPlanOption } from '../../lib/practiceOperationsApi';
+import { bindDietPlanAssessment, createClientInformationRequest, createConsultantDietPlan, downloadConsultantDietPlan, estimateConsultantDietPlanEnergy, getClientInformationCompleteness, getConsultantDietPlan, getDietPlanHealthContext, getNutritionAssessment, listConsultantDietPlans, openWhatsApp, publishConsultantDietPlan, reviewConsultantDietPlan, saveConsultantDietPlan, updateConsultantDietPlanOption } from '../../lib/practiceOperationsApi';
 import { canPublishExternalDietVersion, createdDraftPresentation, externalDietEditorState, loadDietPlanWorkspace } from '../../lib/dietPlanWorkspaceState.mjs';
+import { applyEnergyEstimate, macroConsistencyAdvisory, targetPayload } from '../../lib/dietTargetState.mjs';
 import { COMMON_FOOD_MEALS } from '../../lib/commonFoodUi.mjs';
 import CommonFoodPlanEditor from '../platform/CommonFoodPlanEditor';
 
@@ -43,7 +44,7 @@ async function mutateGovernedOption(planId,optionId,expectedPlanVersionId,mutato
   return {...result.option,planVersionId:result.plan_version_id,planVersion:result.version};
 }
 
-const initialForm = { name: '', dailyCalories: '', dailyProtein: '' };
+const initialForm = { name: '', dailyCalories: '', dailyProtein: '', dailyCarbohydrate:'', dailyFat:'', dailyFibre:'', activityLevel:'moderate', energyAdjustment:'0', targetMethodology:'CONSULTANT_MANUAL', calculationProvenance:{} };
 const displayValue = (value) => {
   if (value == null || value === '') return '';
   if (typeof value !== 'object') return String(value);
@@ -51,7 +52,7 @@ const displayValue = (value) => {
 };
 const valueList = (value) => (Array.isArray(value) ? value : value == null ? [] : [value]).map(displayValue).filter(Boolean);
 const show = (value) => valueList(value).join(', ') || 'Not provided';
-const projectDetail=(detail)=>({id:detail.plan.id,name:detail.plan.title,status:detail.plan.status,updatedAt:detail.plan.updated_at,version:{id:detail.current_version?.id,number:detail.plan.current_version,plan:{dailyTargets:{calories:detail.plan.daily_calories_target,protein:Number(detail.plan.daily_protein_target_g)},meals:COMMON_FOOD_MEALS.map(([mealHead])=>({mealHead,options:(detail.options||[]).filter(item=>item.mealHead===mealHead)}))}},versions:detail.versions});
+const projectDetail=(detail)=>({id:detail.plan.id,name:detail.plan.title,status:detail.plan.status,updatedAt:detail.plan.updated_at,version:{id:detail.current_version?.id,number:detail.plan.current_version,plan:{dailyTargets:{calories:detail.plan.daily_calories_target,protein:Number(detail.plan.daily_protein_target_g),carbohydrate:detail.plan.daily_carbohydrate_target_g,fat:detail.plan.daily_fat_target_g,fibre:detail.plan.daily_fibre_target_g,methodology:detail.plan.target_methodology,activityLevel:detail.plan.activity_level,energyAdjustment:detail.plan.energy_adjustment_kcal,provenance:detail.plan.calculation_provenance||{}},meals:COMMON_FOOD_MEALS.map(([mealHead])=>({mealHead,options:(detail.options||[]).filter(item=>item.mealHead===mealHead)}))}},versions:detail.versions});
 
 export default function ExternalMultiDietPlan({ clientId, clientName='Client', clientPhone='', clientCountryIso2='IN', context, onError, onReviewMeasurements }) {
   const [plans, setPlans] = useState([]);
@@ -66,6 +67,8 @@ export default function ExternalMultiDietPlan({ clientId, clientName='Client', c
   const [readiness, setReadiness] = useState({ outcome: 'LOADING' });
   const [healthContext, setHealthContext] = useState(null);
   const [requirementsOpen, setRequirementsOpen] = useState(false);
+  const [targetEditPlanId,setTargetEditPlanId]=useState('');
+  const [energyEstimate,setEnergyEstimate]=useState(null);
   const [completeness, setCompleteness] = useState(null);
   const [requestedFields, setRequestedFields] = useState([]);
   const [questionnaireLink, setQuestionnaireLink] = useState('');
@@ -79,7 +82,8 @@ export default function ExternalMultiDietPlan({ clientId, clientName='Client', c
   const selected = useMemo(() => plans.find((plan) => plan.id === selectedId) || plans[0] || null, [plans, selectedId]);
   const editorState = useMemo(() => externalDietEditorState(selected?.status), [selected?.status]);
   const publishReady = canPublishExternalDietVersion({ status: selected?.status, dirty: editorDirty });
-  const valid = form.name.trim().length >= 2 && Number(form.dailyCalories) >= 1 && Number(form.dailyProtein) >= 0;
+  const valid = (targetEditPlanId||form.name.trim().length >= 2) && Number(form.dailyCalories) >= 1 && Number(form.dailyProtein) >= 0;
+  const macroAdvisory=macroConsistencyAdvisory({calories:form.dailyCalories,protein:form.dailyProtein,carbohydrate:form.dailyCarbohydrate,fat:form.dailyFat});
 
   const load = useCallback(async (preferredId) => {
     setLoading(true); setLoadError('');
@@ -113,7 +117,11 @@ export default function ExternalMultiDietPlan({ clientId, clientName='Client', c
     return () => document.removeEventListener('keydown', closeOnEscape);
   }, [requirementsOpen]);
 
-  const openRequirements = async () => {
+  const openRequirements = async (editPlan=null) => {
+    const targets=editPlan?.version?.plan?.dailyTargets;
+    setTargetEditPlanId(editPlan?.id||'');
+    setEnergyEstimate(null);
+    setForm(editPlan?{name:editPlan.name,dailyCalories:String(targets.calories??''),dailyProtein:String(targets.protein??''),dailyCarbohydrate:String(targets.carbohydrate??''),dailyFat:String(targets.fat??''),dailyFibre:String(targets.fibre??''),activityLevel:targets.activityLevel||'moderate',energyAdjustment:String(targets.energyAdjustment??0),targetMethodology:targets.methodology||'CONSULTANT_MANUAL',calculationProvenance:targets.provenance||{}}:initialForm);
     setRequirementsOpen(true);
     setQuestionnaireLink('');
     try {
@@ -125,6 +133,16 @@ export default function ExternalMultiDietPlan({ clientId, clientName='Client', c
       onError(error.message || 'Client information completeness could not be loaded.');
     }
   };
+
+  const calculateEstimate=async()=>{
+    if(busy)return;
+    setBusy('estimate');onError('');
+    try{const estimate=await estimateConsultantDietPlanEnergy(clientId,{activity_level:form.activityLevel,energy_adjustment_kcal:Number(form.energyAdjustment||0)});setEnergyEstimate(estimate);}
+    catch(error){setEnergyEstimate(null);onError(error.message||'An energy estimate could not be calculated from the authorised client measurements.');}
+    finally{setBusy('');}
+  };
+
+  const editManualTarget=(name,value)=>{setEnergyEstimate(null);setForm((current)=>({...current,[name]:value,targetMethodology:'CONSULTANT_MANUAL',calculationProvenance:{}}));};
 
   const requestMissingInformation = async () => {
     if (!requestedFields.length || busy) return;
@@ -146,11 +164,17 @@ export default function ExternalMultiDietPlan({ clientId, clientName='Client', c
     if (!valid || busy) return;
     setBusy('create'); setMessage(''); setCreationState({state:'creating',createdId:''}); onError('');
     try {
+      const targets=targetPayload(form,new Date().toISOString());
+      if(targetEditPlanId){
+        const current=await getConsultantDietPlan(targetEditPlanId);
+        await saveConsultantDietPlan(targetEditPlanId,{expected_version:current.plan.current_version,options:[],...targets});
+        setRequirementsOpen(false);setTargetEditPlanId('');setEnergyEstimate(null);await load(targetEditPlanId);setMessage('Nutrition targets were saved as a new immutable Diet Plan version.');return;
+      }
       const idempotencyKey=creationKeyRef.current||globalThis.crypto.randomUUID();creationKeyRef.current=idempotencyKey;
-      const result = await createConsultantDietPlan({ client_id: clientId, name: form.name.trim(), daily_calories_target: Number(form.dailyCalories), daily_protein_target_g: Number(form.dailyProtein), health_goals: valueList(context?.goals).slice(0, 3) },idempotencyKey);
+      const result = await createConsultantDietPlan({ client_id: clientId, name: form.name.trim(), ...targets, health_goals: valueList(context?.goals).slice(0, 3) },idempotencyKey);
       creationKeyRef.current='';
       setForm(initialForm);
-      setRequirementsOpen(false);
+      setRequirementsOpen(false);setEnergyEstimate(null);
       const loaded=await load(result.id);const presentation=createdDraftPresentation(result.id,loaded);setCreationState(presentation);setMessage(presentation.message);
     } catch (error) { setCreationState({state:'failed',createdId:''});onError(error.message || 'Unable to create Diet Plan.'); }
     finally { setBusy(''); }
@@ -230,6 +254,7 @@ export default function ExternalMultiDietPlan({ clientId, clientName='Client', c
             <p className="mt-1 text-xs text-slate-500">Published versions are immutable. Editing a published plan and saving creates the next version.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {!['APPROVED','PUBLISHED','ARCHIVED'].includes(selected.status)&&<button disabled={busy} onClick={()=>openRequirements(selected)} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">Edit nutrition targets</button>}
             <button disabled={busy} onClick={()=>download('DOCX')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy==='download-DOCX'?'Preparing…':'Download DOCX'}</button>
             {['APPROVED','PUBLISHED'].includes(selected.status)&&<button disabled={busy} onClick={()=>download('PDF')} className="min-h-11 rounded-xl border px-4 font-semibold disabled:opacity-40">{busy==='download-PDF'?'Preparing…':'Download PDF'}</button>}
             {selected.status==='PUBLISHED'&&<button disabled={busy||!clientPhone} onClick={sharePublishedPlan} className="min-h-11 rounded-xl bg-emerald-700 px-4 font-semibold text-white disabled:opacity-40">{busy==='share'?'Opening…':'Share via WhatsApp'}</button>}
@@ -250,10 +275,30 @@ export default function ExternalMultiDietPlan({ clientId, clientName='Client', c
       </section>
     </>}
 
-    <section className="rounded-2xl border border-slate-200 bg-white p-5"><h3 className="text-lg font-semibold">Generate Diet Chart</h3><p className="mt-1 text-sm text-slate-500">Review existing information and confirm professional plan targets.</p><button ref={generateButtonRef} type="button" onClick={openRequirements} className="mt-4 min-h-11 rounded-xl bg-slate-950 px-5 font-semibold text-white">Open Diet Requirements</button></section>
+    <section className="rounded-2xl border border-slate-200 bg-white p-5"><h3 className="text-lg font-semibold">Generate Diet Chart</h3><p className="mt-1 text-sm text-slate-500">Review existing information and confirm professional plan targets.</p><button ref={generateButtonRef} type="button" onClick={()=>openRequirements()} className="mt-4 min-h-11 rounded-xl bg-slate-950 px-5 font-semibold text-white">Open Diet Requirements</button></section>
     {requirementsOpen&&<div className="fixed inset-0 z-[80] overflow-y-auto bg-slate-950/60 p-3 sm:p-6" role="presentation" onMouseDown={(event)=>{if(event.target===event.currentTarget){setRequirementsOpen(false);requestAnimationFrame(()=>generateButtonRef.current?.focus());}}}><section role="dialog" aria-modal="true" aria-labelledby="diet-requirements-title" className="mx-auto w-full max-w-5xl rounded-3xl bg-slate-50 p-5 shadow-2xl sm:p-7"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-wider text-blue-700">Diet planning</p><h2 id="diet-requirements-title" className="mt-1 text-2xl font-semibold">Diet Requirements</h2><p className="mt-1 text-sm text-slate-600">Existing information remains governed by Nutrition Assessment and Client 360.</p></div><button type="button" aria-label="Close Diet Requirements" onClick={()=>{setRequirementsOpen(false);requestAnimationFrame(()=>generateButtonRef.current?.focus());}} className="grid min-h-11 min-w-11 place-items-center rounded-xl border bg-white text-xl">×</button></div>
       <section className={`mt-5 rounded-2xl border p-4 ${readiness.outcome==='READY'?'border-emerald-200 bg-emerald-50':'border-amber-200 bg-amber-50'}`}><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-wider">Planning information</p><p className="mt-1 font-semibold">{String(readiness.outcome||'NOT_STARTED').replaceAll('_',' ')}</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold">Authoring permitted</span></div><p className="mt-2 text-sm">{readiness.outcome==='READY'?'The current assessment is available as planning context.':'Missing information is advisory. Enter appropriate targets using professional judgement, and request optional client information when useful.'}</p>{(resolved.requires_professional_confirmation||healthContext?.assessment?.measurement_context_changed)&&<p role="status" className="mt-2 text-sm font-semibold">{healthContext?.assessment?.measurement_context_changed?'Measurements changed after the current assessment; review them when relevant.':'One or more legacy measurements may benefit from professional confirmation.'}</p>}</section>
-      <form onSubmit={create} className="mt-5 rounded-2xl border border-slate-200 bg-white p-4"><h3 className="font-semibold">Professional plan inputs</h3><p className="mt-1 text-xs text-slate-500"><strong>Target methodology:</strong> consultant-entered targets use professional judgement and are not prescribed automatically from BMI or assessment completeness.</p><div className="mt-4 grid gap-3 md:grid-cols-3"><label className="text-sm font-semibold">Plan name<input ref={firstFieldRef} required minLength={2} maxLength={120} value={form.name} onChange={(event)=>setForm({...form,name:event.target.value})} className="mt-2 w-full rounded-xl border p-3"/></label><label className="text-sm font-semibold">Calories<input required type="number" min="1" value={form.dailyCalories} onChange={(event)=>setForm({...form,dailyCalories:event.target.value})} className="mt-2 w-full rounded-xl border p-3"/></label><label className="text-sm font-semibold">Protein (g)<input required type="number" min="0" step="0.1" value={form.dailyProtein} onChange={(event)=>setForm({...form,dailyProtein:event.target.value})} className="mt-2 w-full rounded-xl border p-3"/></label></div><button disabled={!valid||busy} className="mt-4 min-h-11 rounded-xl bg-slate-950 px-5 font-semibold text-white disabled:opacity-40">{busy==='create'?'Generating…':'Generate Diet Chart'}</button></form>
+      <form onSubmit={create} className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+        <h3 className="font-semibold">{targetEditPlanId?'Edit nutrition targets':'Professional plan inputs'}</h3>
+        <p className="mt-1 text-xs text-slate-500"><strong>Target methodology:</strong> calculation remains a read-only preview until Apply Estimate is selected. Manual targets use professional judgement and are not prescribed automatically from BMI or assessment completeness.</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <label className="text-sm font-semibold">Plan name<input ref={firstFieldRef} required={!targetEditPlanId} disabled={Boolean(targetEditPlanId)} minLength={2} maxLength={120} value={form.name} onChange={(event)=>setForm({...form,name:event.target.value})} className="mt-2 w-full rounded-xl border p-3 disabled:bg-slate-100"/></label>
+          <label className="text-sm font-semibold">Activity assumption<select value={form.activityLevel} onChange={(event)=>setForm({...form,activityLevel:event.target.value})} className="mt-2 w-full rounded-xl border p-3"><option value="sedentary">Sedentary</option><option value="light">Light</option><option value="moderate">Moderate</option><option value="very_active">Very active</option></select></label>
+          <label className="text-sm font-semibold">Energy adjustment (kcal)<input type="number" min="-2000" max="2000" value={form.energyAdjustment} onChange={(event)=>setForm({...form,energyAdjustment:event.target.value})} className="mt-2 w-full rounded-xl border p-3"/></label>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={Boolean(busy)} onClick={calculateEstimate} className="min-h-11 rounded-xl border border-blue-300 bg-blue-50 px-4 font-semibold text-blue-900 disabled:opacity-40">{busy==='estimate'?'Calculating…':'Calculate TDEE'}</button>{energyEstimate?.adjustedDailyEnergy!=null&&<button type="button" onClick={()=>setForm((current)=>applyEnergyEstimate(current,energyEstimate))} className="min-h-11 rounded-xl bg-blue-700 px-4 font-semibold text-white">Apply Estimate</button>}</div>
+        {energyEstimate&&<section role="status" className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950"><p><strong>Estimated TDEE:</strong> {energyEstimate.tdee?.status==='AVAILABLE'?`${energyEstimate.tdee.value} kcal/day`:'Unavailable'}</p><p><strong>Adjusted target preview:</strong> {energyEstimate.adjustedDailyEnergy??'Unavailable'} {energyEstimate.unit||''}</p><p className="mt-1 text-xs">Method {energyEstimate.methodology||'Unavailable'} · calculated {energyEstimate.calculatedAt?new Date(energyEstimate.calculatedAt).toLocaleString():'time unavailable'} · authoritative inputs: {Object.entries(energyEstimate.inputs||{}).map(([key,value])=>`${key} ${value}`).join(', ')||'incomplete'}</p></section>}
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <label className="text-sm font-semibold">Calories<input required type="number" min="1" max="10000" value={form.dailyCalories} onChange={(event)=>editManualTarget('dailyCalories',event.target.value)} className="mt-2 w-full rounded-xl border p-3"/></label>
+          <label className="text-sm font-semibold">Protein (g)<input required type="number" min="0" max="1000" step="0.1" value={form.dailyProtein} onChange={(event)=>editManualTarget('dailyProtein',event.target.value)} className="mt-2 w-full rounded-xl border p-3"/></label>
+          <label className="text-sm font-semibold">Carbohydrate (g)<input type="number" min="0" max="2000" step="0.1" value={form.dailyCarbohydrate} onChange={(event)=>editManualTarget('dailyCarbohydrate',event.target.value)} className="mt-2 w-full rounded-xl border p-3"/></label>
+          <label className="text-sm font-semibold">Fat (g)<input type="number" min="0" max="1000" step="0.1" value={form.dailyFat} onChange={(event)=>editManualTarget('dailyFat',event.target.value)} className="mt-2 w-full rounded-xl border p-3"/></label>
+          <label className="text-sm font-semibold">Fibre (g)<input type="number" min="0" max="300" step="0.1" value={form.dailyFibre} onChange={(event)=>editManualTarget('dailyFibre',event.target.value)} className="mt-2 w-full rounded-xl border p-3"/></label>
+        </div>
+        {macroAdvisory&&<p role="status" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{macroAdvisory}</p>}
+        <p className="mt-3 text-xs text-slate-500">Selected methodology: <strong>{form.targetMethodology==='FITEATSY_ESTIMATE'?'Applied Fiteatsy estimate':'Consultant manual confirmation'}</strong>. Saving creates a new immutable editable version.</p>
+        <button disabled={!valid||busy} className="mt-4 min-h-11 rounded-xl bg-slate-950 px-5 font-semibold text-white disabled:opacity-40">{busy==='create'?'Saving…':targetEditPlanId?'Save target version':'Generate Diet Chart'}</button>
+      </form>
       <details className="mt-5 rounded-2xl border border-slate-200 bg-white p-4"><summary className="cursor-pointer font-semibold">Client nutrition context</summary><p className="mt-2 text-xs text-slate-500">Use Nutrition Assessment to edit or confirm these values.</p><dl className="mt-4 grid gap-3 sm:grid-cols-2">{nutritionContext.map(([label,value])=><div key={label} className="rounded-xl bg-slate-50 p-3"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 text-sm font-semibold">{show(value)}</dd></div>)}</dl></details>
       <details className="mt-4 rounded-2xl border border-slate-200 bg-white p-4"><summary className="cursor-pointer font-semibold">Measurements and evidence</summary><p className="mt-2 text-xs text-slate-500">Read-only values remain governed by Client 360.</p><dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{fields.map(([label,value])=><div key={label} className="rounded-xl bg-slate-50 p-3"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 text-sm font-semibold">{show(value)}</dd></div>)}</dl><p className="mt-3 text-xs text-slate-500">Confirmed biomarkers for consultant review</p><p className="mt-1 text-sm font-semibold">{confirmedBiomarkers.length?`${confirmedBiomarkers.length} confirmed biomarker result${confirmedBiomarkers.length===1?'':'s'} available`:'No confirmed biomarkers available'}</p><p className="mt-1 text-xs text-slate-500">These results remain evidence for professional review. They do not automatically diagnose conditions and do not silently prescribe foods or targets.</p><button type="button" onClick={onReviewMeasurements} className="mt-4 min-h-11 rounded-xl border px-4 text-sm font-semibold">Review measurements in Client 360</button></details>
       <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4"><h3 className="font-semibold">Missing information</h3>{completeness?<><p className="mt-2 text-sm text-slate-600">{requestedFields.length?`${requestedFields.length} missing or confirmation-required field${requestedFields.length===1?'':'s'} can be requested securely.`:'No requestable missing information was reported.'}</p>{(completeness.fields||[]).filter((item)=>item.client_can_provide&&['MISSING','INVALID','REQUIRES_CONFIRMATION'].includes(item.status)).map((item)=><label key={item.field_id} className="mt-2 flex min-h-11 items-start gap-3 rounded-xl bg-slate-50 p-3"><input type="checkbox" className="mt-1" checked={requestedFields.includes(item.field_id)} onChange={()=>setRequestedFields((current)=>current.includes(item.field_id)?current.filter((id)=>id!==item.field_id):[...current,item.field_id])}/><span><strong className="text-sm">{item.label}</strong><span className="block text-xs text-slate-500">{String(item.status).replaceAll('_',' ')} · {item.reason||item.source||'Client information'}</span></span></label>)}<button type="button" disabled={!requestedFields.length||busy} onClick={requestMissingInformation} className="mt-4 min-h-11 rounded-xl bg-violet-700 px-4 text-sm font-semibold text-white disabled:opacity-40">{busy==='questionnaire'?'Creating secure link…':'Request Missing Information'}</button>{questionnaireLink&&<div role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800"><p>The scoped link is ready and expires automatically.</p><button type="button" onClick={()=>navigator.clipboard?.writeText(questionnaireLink)} className="mt-2 min-h-10 rounded-lg border border-emerald-300 bg-white px-3 font-semibold">Copy secure link</button></div>}</>:<p className="mt-2 text-sm text-slate-500">Completeness is unavailable. No empty state has been inferred.</p>}</section>
