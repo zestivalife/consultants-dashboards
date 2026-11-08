@@ -77,8 +77,10 @@ const STATUS_LABEL = { ACTIVE: 'Active', INACTIVE: 'Inactive', INVITED: 'New', I
 function initials(value=''){ return value.split(/\s+/).filter(Boolean).map(part=>part[0]).join('').slice(0,2).toUpperCase() || 'CL'; }
 function toClientVM(client){
   const onboarding=deriveOnboardingState(client);const intake=onboarding.state==='COMPLETED'?'Complete':onboarding.state==='NOT_STARTED'?'Not started':onboarding.completionPercent===null?'Status unavailable':`${onboarding.completionPercent}% complete`;
+  const displayName=client.displayName||client.name||client.fullName||client.full_name||client.clientName||client.client_name||'Unnamed client';
   return {
     ...client,
+    displayName,
     displayStatus: STATUS_LABEL[client.relationshipStatus] || STATUS_LABEL[client.status] || 'Active',
     intakeLabel: intake,
     goal: client.primaryGoal || 'Not provided',
@@ -107,7 +109,7 @@ export function ExternalSaaSWorkspace(){
   const [clientAuthority,setClientAuthority]=useState({items:[],practice_wide:true,current_user_id:null});
   const practiceName=tenant.tenantName||user?.name||'My practice';
   const professionExperience=useMemo(()=>resolveProfessionExperience(practiceConfig.profession,practiceConfig),[practiceConfig]);
-  const dietPlanEnabled=useMemo(()=>client360CapabilityState(practiceConfig).dietPlan,[practiceConfig]);
+  const dietPlanEnabled=useMemo(()=>client360CapabilityState(practiceConfig,{externalConsultant:true}).dietPlan,[practiceConfig]);
   const load=useCallback(async()=>{setLoading(true);setClientLoadState('loading');setDashboardState('loading');setError('');setDashboardError('');const resourceNames=['consultations','followups','goals','tasks','notifications','profession intelligence','renewals'];const [clientResult,configurationResult,projectionResult,...operations]=await Promise.allSettled([listExternalClients({limit:100}),getPracticeConfiguration(),listProfessionIntakeProjections(),...['consultations','follow-ups','goals','tasks'].map(resource=>listPracticeResources(resource,{limit:100})),listPracticeNotifications(),getProfessionIntelligence(),listRenewalSignals()]);if(clientResult.status==='fulfilled'&&Array.isArray(clientResult.value?.clients)){const projectionByClient=new Map((projectionResult.status==='fulfilled'?projectionResult.value?.items||[]:[]).map(item=>[String(item.client_id),item]));setClients(clientResult.value.clients.map(client=>{const projection=projectionByClient.get(String(client.id));return toClientVM(projection?{...client,intakeState:projection.status,intakeCompletionPercent:projection.completion_percent}:client);}));setClientLoadState('ready');}else{const reason=clientResult.status==='rejected'?clientResult.reason:null;setClientLoadState('error');setError(reason?.message||'Client records could not be loaded. Retry to restore the authoritative client list.');}if(configurationResult.status==='fulfilled')setPracticeConfig(configurationResult.value);const unavailable=resourceNames.filter((_,index)=>operations[index].status==='rejected');const value=index=>operations[index].status==='fulfilled'?operations[index].value:{items:[]};setDashboardData({resources:{consultations:value(0).items||[],followups:value(1).items||[],goals:value(2).items||[],tasks:value(3).items||[]},notifications:value(4).items||[],professionSignals:value(5).items||[],renewalSignals:value(6).items||[],unavailable});setDashboardState('ready');setDashboardError(unavailable.length?`${unavailable.join(', ')} unavailable`:'' );setLoading(false)},[]);
   useEffect(()=>{void load();},[load]);
   useEffect(()=>{if(dashboardState!=='ready')return;let active=true;getDashboardCommandCentre().then(value=>{if(active)setDashboardData(current=>({...current,commandCentre:value}))}).catch(()=>{if(active)setDashboardData(current=>({...current,commandCentre:{state:'FAILED_TO_LOAD',sections:{},daily_brief:{}}}))});return()=>{active=false}},[dashboardState]);

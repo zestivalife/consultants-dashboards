@@ -23,7 +23,10 @@ def test_consultant_multi_diet_plan_api_is_external_only_and_versioned():
     assert "DIET_PLAN_APPROVAL_REQUIRED" in publish
     assert 'plan["status"]!="APPROVED"' in publish
     assert "SENIOR_REVIEW_REQUIRED" not in publish
-    assert "current completed Nutrition Assessment" in publish
+    assert "current completed Nutrition Assessment" not in publish
+    assert "readiness_advisory" in publish
+    assert "DIET_PLAN_CONSENT_REQUIRED" in publish
+    assert "DIET_PLAN_GOVERNANCE_INVALID" in publish
 
     save = source.split('async def save_diet_plan', 1)[1].split('async def review_diet_plan', 1)[0]
     assert 'plan["status"] in {"APPROVED","PUBLISHED","ARCHIVED"}' in save

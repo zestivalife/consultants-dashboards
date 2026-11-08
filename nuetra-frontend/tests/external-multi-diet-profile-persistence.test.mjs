@@ -44,11 +44,11 @@ test("multiple named plans are listed, selected, created and persisted by immuta
   );
 });
 
-test("calorie and protein target boundaries are explicit client and API contract values", () => {
-  assert.match(multi, /Number\(form\.dailyCalories\) >= 800/);
-  assert.match(multi, /Number\(form\.dailyCalories\) <= 6000/);
-  assert.match(multi, /Number\(form\.dailyProtein\) >= 20/);
-  assert.match(multi, /Number\(form\.dailyProtein\) <= 400/);
+test("consultant-entered calorie and protein targets have only structural numeric validation", () => {
+  assert.match(multi, /Number\(form\.dailyCalories\) >= 1/);
+  assert.match(multi, /Number\(form\.dailyProtein\) >= 0/);
+  assert.doesNotMatch(multi, /dailyCalories\) <= 6000/);
+  assert.doesNotMatch(multi, /dailyProtein\) <= 400/);
 });
 
 test("generated governed food snapshots survive first draft persistence", () => {

@@ -57,10 +57,10 @@ test('blood report intake accepts PDF only and uses persisted document contract'
   assert.match(proxy,/body\.includes\('%PDF-'\)/);
 });
 
-test('Diet Plan UI allows available-information drafts while publication stays readiness-governed',()=>{
+test('Diet Plan UI treats assessment readiness as advisory while preserving governed publication',()=>{
   assert.match(plans,/assessment:getNutritionAssessment/);
-  assert.match(plans,/readiness\.outcome\s*!==?\s*'READY'/);
-  assert.match(plans,/Based on available information/);
+  assert.doesNotMatch(plans,/readiness\.outcome\s*!==?\s*'READY'/);
+  assert.match(plans,/Missing information is advisory/);
   assert.doesNotMatch(plans,/disabled=\{!valid \|\| busy \|\| readiness\.outcome!==/);
   assert.match(plans,/bindDietPlanAssessment/);
   assert.doesNotMatch(plans,/Assessment review required/);

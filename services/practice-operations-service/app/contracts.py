@@ -227,8 +227,8 @@ class ProfessionPlanSave(BaseModel):
 class DietPlanCreate(BaseModel):
     client_id: str = Field(min_length=1, max_length=120)
     name: str = Field(min_length=2, max_length=120)
-    daily_calories_target: int = Field(ge=800, le=6000)
-    daily_protein_target_g: float = Field(ge=20, le=400)
+    daily_calories_target: int = Field(ge=1)
+    daily_protein_target_g: float = Field(ge=0)
     health_goals: list[str] = Field(default_factory=list, max_length=3)
 
 class DietPlanSave(BaseModel):

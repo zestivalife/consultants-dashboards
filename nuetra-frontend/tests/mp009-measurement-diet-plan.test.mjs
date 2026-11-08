@@ -15,13 +15,13 @@ test('diet plan loads server-authoritative health context',()=>{
   assert.match(state,/api\.context\(clientId\)/);
   assert.match(plan,/Health Context for Diet Planning/);
   assert.match(plan,/target methodology/i);
-  assert.match(plan,/Calories and protein are never prescribed from BMI alone/);
+  assert.match(plan,/not prescribed automatically from BMI or assessment completeness/);
 });
 
-test('changed and legacy measurement contexts remain visible and review-gated',()=>{
+test('changed and legacy measurement contexts remain visible as non-blocking advisories',()=>{
   assert.match(plan,/measurement_context_changed/);
   assert.match(plan,/requires_professional_confirmation/);
-  assert.match(plan,/Re-review the Nutrition Assessment/);
+  assert.match(plan,/Review them when applying professional judgement/);
   assert.match(plan,/Review measurements in Client360/);
 });
 

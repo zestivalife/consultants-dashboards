@@ -83,13 +83,13 @@ def test_additive_migration_and_external_api_contracts():
         assert route in app
     assert app.count("denied=await _nutrition_scope(request,db,ctx)") >= 7
     assert "ASSESSMENT_INPUTS_UNCHANGED" in app
-    assert "NUTRITION_ASSESSMENT_REQUIRED" in app
+    assert "external_diet_plan_assessment_links" in app
 
 
-def test_mp010_diet_plan_drafts_use_available_information_and_publication_fails_closed():
+def test_mp010_diet_plan_authoring_uses_available_information_and_publication_keeps_security_gates():
     app=(ROOT/"app/main.py").read_text()
     assert "async def _current_diet_plan_readiness" in app
-    assert '"DIET_PLAN_READINESS_REQUIRED"' in app
+    assert '"DIET_PLAN_READINESS_REQUIRED"' not in app
     create=app[app.index("async def create_diet_plan"):app.index("@app.get(\"/api/v1/practice-operations/diet-plans/{plan_id}\")")]
     save=app[app.index("async def save_diet_plan"):app.index("@app.post(\"/api/v1/practice-operations/diet-plans/{plan_id}/review\")")]
     publish=app[app.index("async def publish_diet_plan"):app.index("async def _write_note_sections")]
@@ -97,4 +97,6 @@ def test_mp010_diet_plan_drafts_use_available_information_and_publication_fails_
     assert 'readiness["outcome"]!="READY"' not in save
     assert '"assessment_id":readiness["assessment_id"]' in create
     assert '"assessment_id":readiness["assessment_id"]' in save
-    assert 'readiness["outcome"]!="READY"' in publish
+    assert 'readiness["outcome"]!="READY"' not in publish
+    assert 'DIET_PLAN_CONSENT_REQUIRED' in publish
+    assert 'DIET_PLAN_GOVERNANCE_INVALID' in publish

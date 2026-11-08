@@ -28,10 +28,10 @@ test('Diet Requirements uses an accessible consolidated modal and existing scope
 });
 test('Diet Requirements keeps clinical context read-only and does not derive professional targets',()=>{
   for(const label of ['Client nutrition context','Measurements and evidence','Meals per day','Typical food intake','Medical conditions','Supplements'])assert.match(multi,new RegExp(label));
-  assert.match(multi,/Calories and protein are never prescribed from BMI alone/);
+  assert.match(multi,/not prescribed automatically from BMI or assessment completeness/);
   assert.doesNotMatch(multi,/setForm\([^\n]+bmi/i);
-  assert.match(multi,/Draft creation permitted/);
-  assert.match(multi,/Publication still requires the existing readiness, confirmation and safety checks/);
+  assert.match(multi,/Authoring permitted/);
+  assert.match(multi,/Missing information is advisory/);
 });
 test('completed intake optional sections are not presented as missing requirements',()=>{assert.match(workspace,/Optional information not provided/);assert.match(workspace,/Missing required information/);});
 test('external Diet Plan reuses the full Internal Common Food editor through an injected adapter',()=>{

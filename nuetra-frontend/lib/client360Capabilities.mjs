@@ -16,22 +16,22 @@ export function connectedClient360Configuration(configuration = {}, client = {})
   return { ...configuration, capabilities: [...capabilities] };
 }
 
-export function client360CapabilityState(configuration = {}) {
+export function client360CapabilityState(configuration = {}, { externalConsultant = false } = {}) {
   const capabilities = capabilitySet(configuration);
   const dietPlanEligibility = String(configuration.diet_chart_eligibility || 'UNMAPPED').toUpperCase();
   return {
-    dietPlan: capabilities.has('DIET_PLAN') || capabilities.has('DIET_PLAN_AUTHORING'),
+    dietPlan: externalConsultant || capabilities.has('DIET_PLAN') || capabilities.has('DIET_PLAN_AUTHORING'),
     dietPlanEligibility,
-    dietPlanEntitlementRequired: dietPlanEligibility === 'OPTIONAL' && !capabilities.has('DIET_PLAN') && !capabilities.has('DIET_PLAN_AUTHORING'),
+    dietPlanEntitlementRequired: !externalConsultant && dietPlanEligibility === 'OPTIONAL' && !capabilities.has('DIET_PLAN') && !capabilities.has('DIET_PLAN_AUTHORING'),
     biomarkers: capabilities.has('BIOMARKERS') || capabilities.has('LAB_ANALYSIS'),
     measurements: capabilities.has('MEASUREMENTS'),
   };
 }
 
-export function resolveClient360Navigation(configuration = {}) {
+export function resolveClient360Navigation(configuration = {}, options = {}) {
   const profession = String(configuration.profession || '').toUpperCase();
   const capabilities = capabilitySet(configuration);
-  const state = client360CapabilityState(configuration);
+  const state = client360CapabilityState(configuration, options);
   const nutrition = DIET_PROFESSIONS.has(profession) || state.dietPlan;
   const professionWorkspace = Boolean(configuration.professionWorkspace);
   const progressReports = capabilities.has('PROGRESS_REPORTS') || capabilities.has('GOALS_PROGRESS');

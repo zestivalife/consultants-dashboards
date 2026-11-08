@@ -34,3 +34,12 @@ test('disabled professions are not advertised when backend denies capability', (
     assert.ok(!resolveClient360Navigation(configuration).find(section => section.id === 'care').modules.includes('Diet Plan'), profession);
   }
 });
+
+test('External Consultant assignment authority bypasses only profession eligibility presentation', () => {
+  const configuration = { profession: 'OTHER', diet_chart_eligibility: 'DISABLED', capabilities: [] };
+  assert.equal(client360CapabilityState(configuration).dietPlan, false);
+  const external = client360CapabilityState(configuration, { externalConsultant: true });
+  assert.equal(external.dietPlan, true);
+  assert.equal(external.dietPlanEntitlementRequired, false);
+  assert.ok(resolveClient360Navigation(configuration, { externalConsultant: true }).find(section => section.id === 'care').modules.includes('Diet Plan'));
+});

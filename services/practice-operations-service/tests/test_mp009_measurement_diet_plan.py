@@ -98,6 +98,7 @@ def test_main_wires_measurements_to_assessment_and_immutable_plan_snapshots():
     assert 'clients/{client_id}/diet-plan-context' in source
     assert "assessment_measurement_sources(measurement_context)" in source
     assert "MEASUREMENT_CONTEXT_CHANGED" in source
-    assert "DIET_PLAN_MEASUREMENT_CONTEXT_STALE" in source
+    publish = source[source.index("async def publish_diet_plan"):source.index("async def download_diet_plan")]
+    assert "DIET_PLAN_MEASUREMENT_CONTEXT_STALE" not in publish
     assert '"measurement_snapshot":measurement["eligible_latest"]' in source
     assert "plan[\"status\"] in {\"APPROVED\",\"PUBLISHED\",\"ARCHIVED\"}" in source

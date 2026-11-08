@@ -670,9 +670,7 @@ async def revoke_client_information_request(request:Request,request_id:UUID,ctx=
 
 
 async def _nutrition_scope(request,db,ctx):
-    denied=external_only(request,ctx)
-    if denied:return denied
-    return await require_capability(request,db,ctx,"DIET_PLAN")
+    return external_only(request,ctx)
 
 
 @app.get("/api/v1/practice-operations/clients/{client_id}/nutrition-assessment")
@@ -1892,13 +1890,7 @@ async def _diet_plan_health_context(db,ctx,client_id):
 async def get_diet_plan_health_context(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied,_=await _team_guard(request,db,ctx,"PLAN_VIEW",client_id)
     if denied:return denied
-    capability_denied=await require_capability(request,db,ctx,"DIET_PLAN")
-    if capability_denied:return capability_denied
     return {"success":True,"data":await _diet_plan_health_context(db,ctx,client_id),"error":None,"request_id":request.state.correlation_id}
-
-def _diet_plan_readiness_error(request,readiness):
-    return error(request,409,"DIET_PLAN_READINESS_REQUIRED",
-      f"Nutrition Assessment readiness is {readiness['outcome']}. Complete and review the assessment before authoring or publishing a Diet Plan")
 
 async def _diet_plan_projection(db, plan):
     versions=[dict(row) for row in (await db.execute(text("""SELECT id,version,status,title,nutrition_snapshot,published_at,created_at
@@ -1928,6 +1920,10 @@ async def _diet_option_idempotency(db, tenant_id, plan_id, key):
       WHERE tenant_id=:tenant AND plan_id=:plan AND event_type='OPTION_UPDATED'
       AND metadata->>'idempotency_key'=:key ORDER BY created_at DESC LIMIT 1"""),
       {"tenant":tenant_id,"plan":plan_id,"key":key})).scalar_one_or_none()
+
+async def _diet_plan_assignment_guard(request,db,ctx,plan,permission):
+    denied,_=await _team_guard(request,db,ctx,permission,plan["client_id"])
+    return denied
 
 async def _diet_options_for_version(db, tenant_id, plan_id, version):
     return [dict(item or {}) for item in (await db.execute(text("""SELECT i.content
@@ -2075,8 +2071,6 @@ def _legacy_governed_option(item):
 async def list_diet_plans(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied,_=await _team_guard(request,db,ctx,"PLAN_VIEW",client_id)
     if denied:return denied
-    capability_denied=await require_capability(request,db,ctx,"DIET_PLAN")
-    if capability_denied:return capability_denied
     actor_clause,actor_params=_diet_plan_actor_clause(ctx)
     rows=(await db.execute(text(f"""SELECT id,tenant_id,client_id,profession_code,plan_type,title,status,current_version,
       daily_calories_target,daily_protein_target_g,authorised_consultant_id,created_at,updated_at
@@ -2088,8 +2082,6 @@ async def list_diet_plans(request:Request,client_id:str,ctx=Depends(context),db:
 async def create_diet_plan(request:Request,body:DietPlanCreate,idempotency_key:str|None=Header(None,alias="Idempotency-Key"),ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied,_=await _team_guard(request,db,ctx,"PLAN_CREATE",body.client_id)
     if denied:return denied
-    capability_denied=await require_capability(request,db,ctx,"DIET_PLAN")
-    if capability_denied:return capability_denied
     if not idempotency_key or len(idempotency_key)>160:return error(request,400,"IDEMPOTENCY_KEY_REQUIRED","A valid Idempotency-Key is required")
     await db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:scope,0))"),{"scope":f"diet-plan:{ctx['tenant_id']}:{ctx['user_id']}:{idempotency_key}"})
     existing=(await db.execute(text("""SELECT p.id,p.client_id,p.title,p.daily_calories_target,p.daily_protein_target_g,p.status,p.current_version,v.nutrition_snapshot
@@ -2133,6 +2125,8 @@ async def get_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db:Asy
     if denied:return denied
     plan=await _diet_plan_row(request,db,ctx,plan_id)
     if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    denied=await _diet_plan_assignment_guard(request,db,ctx,plan,"PLAN_VIEW")
+    if denied:return denied
     return {"success":True,"data":await _diet_plan_projection(db,plan),"error":None,"request_id":request.state.correlation_id}
 
 @app.put("/api/v1/practice-operations/diet-plans/{plan_id}/options/{option_id}")
@@ -2145,6 +2139,8 @@ async def update_governed_diet_option(request:Request,plan_id:UUID,option_id:str
         return error(request,400,"IDEMPOTENCY_KEY_REQUIRED","A valid Idempotency-Key is required")
     plan=await _diet_plan_row(request,db,ctx,plan_id)
     if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    denied=await _diet_plan_assignment_guard(request,db,ctx,plan,"PLAN_EDIT")
+    if denied:return denied
     if plan["status"] in {"APPROVED","PUBLISHED","ARCHIVED"}:return error(request,409,"DIET_PLAN_IMMUTABLE","Approved and published Diet Plans are immutable")
     canonical={"option_id":option_id,"expected_version":body.expected_version,**_governed_option_request(body)}
     fingerprint=hashlib.sha256(json.dumps(canonical,sort_keys=True,separators=(",",":")).encode()).hexdigest()
@@ -2213,6 +2209,8 @@ async def save_diet_plan(request:Request,plan_id:UUID,body:DietPlanSave,ctx=Depe
     if denied:return denied
     plan=await _diet_plan_row(request,db,ctx,plan_id)
     if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    denied=await _diet_plan_assignment_guard(request,db,ctx,plan,"PLAN_EDIT")
+    if denied:return denied
     if plan["status"] in {"APPROVED","PUBLISHED","ARCHIVED"}:return error(request,409,"DIET_PLAN_VERSION_IMMUTABLE","Approved, published, and archived Diet Plan versions cannot be changed")
     if plan["current_version"]!=body.expected_version:return error(request,409,"STALE_WRITE","This Diet Plan changed. Refresh and retry")
     submitted=[];seen=set();meal_counts={}
@@ -2284,6 +2282,8 @@ async def review_diet_plan(request:Request,plan_id:UUID,body:DietPlanReviewActio
     if denied:return denied
     plan=await _diet_plan_row(request,db,ctx,plan_id)
     if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    denied=await _diet_plan_assignment_guard(request,db,ctx,plan,"PLAN_EDIT")
+    if denied:return denied
     if plan["current_version"]!=body.expected_version:return error(request,409,"STALE_WRITE","This Diet Plan changed. Refresh and retry")
     transitions={"SUBMIT":({"DRAFT","SAVED","CHANGES_REQUESTED"},"SUBMITTED"),"START_REVIEW":({"SUBMITTED"},"UNDER_REVIEW"),"REQUEST_CHANGES":({"SUBMITTED","UNDER_REVIEW"},"CHANGES_REQUESTED"),"REJECT":({"SUBMITTED","UNDER_REVIEW"},"REJECTED"),"APPROVE":({"DRAFT","SAVED","CHANGES_REQUESTED","SUBMITTED","UNDER_REVIEW"},"APPROVED")}
     allowed,target=transitions[body.action]
@@ -2307,6 +2307,8 @@ async def publish_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db
     if denied:return denied
     plan=await _diet_plan_row(request,db,ctx,plan_id)
     if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    denied=await _diet_plan_assignment_guard(request,db,ctx,plan,"PLAN_PUBLISH")
+    if denied:return denied
     if plan["status"]=="ARCHIVED":return error(request,409,"DIET_PLAN_ARCHIVED","Archived Diet Plans cannot be published")
     if plan["status"]=="PUBLISHED":
         return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"],"publication_basis":"CONSULTANT_AUTHORED_VALIDATED","already_published":True},"error":None,"request_id":request.state.correlation_id}
@@ -2315,18 +2317,13 @@ async def publish_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db
     connection=await _active_diet_connection(db,ctx,plan["client_id"])
     if not connection:return error(request,409,"DIET_PLAN_CONSENT_REQUIRED","An active Fiteatsy connection with Diet Plan consent is required before publication")
     readiness=await _current_diet_plan_readiness(db,ctx,plan["client_id"])
-    if readiness["outcome"]!="READY":return _diet_plan_readiness_error(request,readiness)
     version_row=(await db.execute(text("""SELECT id,nutrition_snapshot FROM external_profession_plan_versions
       WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version"""),{"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).mappings().one()
     option_count=int((version_row["nutrition_snapshot"] or {}).get("option_count") or 0)
     if option_count<1:return error(request,409,"DIET_PLAN_CONTENT_REQUIRED","Add and save governed meal options before publication")
-    current_context=await _measurement_projection(db,ctx["tenant_id"],plan["client_id"])
-    if (version_row["nutrition_snapshot"] or {}).get("measurement_context_fingerprint")!=current_context["measurement_context_fingerprint"]:
-        return error(request,409,"DIET_PLAN_MEASUREMENT_CONTEXT_STALE","Measurements changed after this draft was saved. Review the assessment and save a new plan version")
     lineage=(await db.execute(text("""SELECT assessment_id,assessment_version FROM external_diet_plan_assessment_links
       WHERE tenant_id=:tenant AND client_id=:client AND external_plan_id=:plan AND external_plan_version=:version
       AND legacy_lineage_state='LINKED'"""),{"tenant":ctx["tenant_id"],"client":plan["client_id"],"plan":str(plan_id),"version":str(plan["current_version"])})).mappings().first()
-    if not lineage:return error(request,409,"NUTRITION_ASSESSMENT_REQUIRED","Bind the current completed Nutrition Assessment before publication")
     options=await _diet_options_for_version(db,ctx["tenant_id"],plan_id,plan["current_version"])
     if len(options)!=option_count or any(item.get("calculationStatus")!="AUTHORITATIVELY_RESOLVED" for item in options):
         return error(request,409,"DIET_PLAN_GOVERNANCE_INVALID","Every published option must retain an authoritative governed snapshot")
@@ -2349,7 +2346,7 @@ async def publish_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db
       ON CONFLICT(fiteatsy_user_id) DO UPDATE SET publication_id=EXCLUDED.publication_id,
         selected_at=EXCLUDED.selected_at,updated_at=EXCLUDED.updated_at"""),
       {"user":connection["fiteatsy_user_id"],"publication":publication_id,"now":now})
-    publication_metadata={"publication_basis":"CONSULTANT_AUTHORED_VALIDATED","version":plan["current_version"],"assessment_id":str(lineage["assessment_id"]),"assessment_version":lineage["assessment_version"],"readiness":"READY","fiteatsy_plan_id":delivery["ingestion"].get("planId"),"fiteatsy_version_id":delivery["ingestion"].get("versionId")}
+    publication_metadata={"publication_basis":"CONSULTANT_AUTHORED_VALIDATED","version":plan["current_version"],"assessment_id":str(lineage["assessment_id"]) if lineage else None,"assessment_version":lineage["assessment_version"] if lineage else None,"readiness_advisory":readiness["outcome"],"fiteatsy_plan_id":delivery["ingestion"].get("planId"),"fiteatsy_version_id":delivery["ingestion"].get("versionId")}
     await db.execute(text("INSERT INTO external_profession_plan_audit_events(id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,metadata,created_at) VALUES (:id,:plan,:version,:tenant,:client,'PUBLISHED',:actor,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"plan":plan_id,"version":version_id,"tenant":ctx["tenant_id"],"client":plan["client_id"],"actor":ctx["user_id"],"metadata":json.dumps(publication_metadata),"now":now});await db.commit()
     return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"],"publication_id":str(publication_id),"publication_basis":"CONSULTANT_AUTHORED_VALIDATED","already_published":False},"error":None,"request_id":request.state.correlation_id}
 
@@ -2359,6 +2356,8 @@ async def download_diet_plan(request:Request,plan_id:UUID,format:str=Query("DOCX
     if denied:return denied
     plan=await _diet_plan_row(request,db,ctx,plan_id)
     if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    denied=await _diet_plan_assignment_guard(request,db,ctx,plan,"PLAN_VIEW")
+    if denied:return denied
     if format=="PDF" and plan["status"] not in {"APPROVED","PUBLISHED"}:
         return error(request,409,"DIET_PLAN_APPROVAL_REQUIRED","Approve the exact Diet Plan version before downloading its PDF")
     projection=await _diet_plan_projection(db,plan)
