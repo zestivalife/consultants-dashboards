@@ -133,7 +133,7 @@ async def test_real_http_exact_version_review_publication_mobile_and_docx_lifecy
             publication=await database.fetchrow("SELECT plan_version,content FROM external_fiteatsy_plan_publications WHERE connection_id=$1",connection_id)
             assert publication["plan_version"]==3
             published_options=json.loads(publication["content"])["mealOptions"]
-            assert published_options[0]["combinationId"]=="breakfast-1"
+            assert published_options[0]["id"]=="breakfast-1"
             assert published_options[0]["calculationStatus"]=="AUTHORITATIVELY_RESOLVED"
             assert published_options[0]["nutrition"]=={"kcal":420,"protein":18}
         finally: await database.close()
