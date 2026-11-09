@@ -52,7 +52,8 @@ test("consultant-entered calorie and protein targets have only structural numeri
 });
 
 test("generated governed food snapshots survive first draft persistence", () => {
-  assert.match(multi, /generatedOptionsByPlan\.set\(planId,meals\.flatMap/);
+  assert.match(multi, /const generated=\(response\.meals\|\|\[\]\)\.flatMap/);
+  assert.match(multi, /generatedOptionsByPlan\.set\(planId,generated\)/);
   assert.match(
     multi,
     /mergePersistedOptions\(result\.options,payload\.options,generatedOptionsByPlan\.get\(planId\)\)/,

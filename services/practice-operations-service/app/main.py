@@ -32,7 +32,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            AssessmentAnswerSave, AssessmentComplete,
                            ProfessionPlanCreate, ProfessionPlanSave,
                            DietPlanCreate, DietPlanSave, DietPlanReviewAction,
-                           DietEnergyEstimateRequest,
+                           DietEnergyEstimateRequest, DietOptionGenerationRequest,
                            GovernedDietComponent, GovernedDietOptionUpdate)
 from app.contracts import PracticeClientCreate
 from app.contracts import SessionNoteCreate, SessionNoteSave, SessionNoteAmendment, PrivateNoteCreate
@@ -2087,6 +2087,43 @@ async def _resolve_governed_option(request,connection,plan,resolver_body,purpose
     if resolved.get("calculationStatus")!="AUTHORITATIVELY_RESOLVED" or resolved.get("mealHead")!=resolver_body["mealHead"]:
         return None,error(request,502,"FITEATSY_RESOLVER_CONTRACT_INVALID","The governed food resolver did not return an authoritative option",True)
     return resolved,None
+
+@app.post("/api/v1/practice-operations/diet-plans/{plan_id}/generate-options")
+async def generate_governed_diet_options(request:Request,plan_id:UUID,body:DietOptionGenerationRequest,
+                                         ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    plan=await _diet_plan_row(request,db,ctx,plan_id)
+    if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    denied=await _diet_plan_assignment_guard(request,db,ctx,plan,"PLAN_EDIT")
+    if denied:return denied
+    if plan["status"] in {"APPROVED","PUBLISHED","ARCHIVED"}:return error(request,409,"DIET_PLAN_IMMUTABLE","Approved and published Diet Plans are immutable")
+    connection=await _active_diet_connection(db,ctx,plan["client_id"])
+    if not connection:return error(request,403,"DIET_PLAN_CONSENT_REQUIRED","An active assigned Fiteatsy connection with Diet Plans consent is required")
+    settings=get_settings()
+    if not all((settings.external_fiteatsy_backend_url,settings.external_fiteatsy_outbound_private_key,settings.external_fiteatsy_outbound_key_id)):
+        return error(request,503,"FITEATSY_GENERATOR_UNAVAILABLE","The governed food generator is not configured",True)
+    delegated=create_fiteatsy_delegation(connection,"fiteatsy.external.diet.generate","external_consultant_diet_generation")
+    projection=await _diet_plan_projection(db,plan)
+    projected_plan=projection["plan"]
+    payload={"mealHeads":body.meal_heads,"dailyTargets":{
+        "calories":float(plan["daily_calories_target"]),"protein":float(plan["daily_protein_target_g"] or 0),
+        "carbohydrate":projected_plan["daily_carbohydrate_target_g"],
+        "fat":projected_plan["daily_fat_target_g"],
+        "fibre":projected_plan["daily_fibre_target_g"]}}
+    url=f"{settings.external_fiteatsy_backend_url.rstrip('/')}/v1/internal/external-consultant-access/{connection['fiteatsy_user_id']}/common-food/generate"
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            upstream=await client.post(url,headers={"x-zestiva-delegation":delegated},json=payload)
+    except httpx.RequestError:
+        return error(request,503,"FITEATSY_GENERATOR_UNAVAILABLE","The governed food generator is temporarily unavailable",True)
+    upstream_data=upstream.json() if upstream.headers.get("content-type","").startswith("application/json") else {}
+    if upstream.status_code!=200:
+        return error(request,upstream.status_code,upstream_data.get("error","FITEATSY_GENERATION_REJECTED"),upstream_data.get("message","Fiteatsy could not generate governed food options"),upstream.status_code>=500)
+    if str(upstream_data.get("connectionId"))!=str(connection["id"]) or not isinstance(upstream_data.get("meals"),list):
+        return error(request,502,"FITEATSY_GENERATOR_CONTRACT_INVALID","The governed food generator returned an invalid authority response",True)
+    response={**upstream_data,"planVersionId":str(projection["current_version"]["id"])}
+    return {"success":True,"data":response,"error":None,"request_id":request.state.correlation_id}
 
 def _legacy_governed_option(item):
     if not isinstance(item,dict):raise ValueError("Diet Plan options must be objects")

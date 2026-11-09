@@ -242,6 +242,9 @@ class DietEnergyEstimateRequest(BaseModel):
     activity_level: Literal["sedentary","light","moderate","very_active"]
     energy_adjustment_kcal: int = Field(default=0, ge=-2000, le=2000)
 
+class DietOptionGenerationRequest(BaseModel):
+    meal_heads: list[Literal["EARLY_MORNING","BREAKFAST","MID_MORNING","LUNCH","EVENING_SNACK","DINNER","BEDTIME"]] = Field(min_length=1, max_length=7)
+
 class DietPlanSave(BaseModel):
     expected_version: int = Field(ge=1)
     options: list[dict[str, Any]] = Field(default_factory=list, max_length=35)

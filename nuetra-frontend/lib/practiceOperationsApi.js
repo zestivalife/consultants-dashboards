@@ -95,6 +95,7 @@ export function getDietPlanHealthContext(clientId){return request(`/clients/${en
 export function estimateConsultantDietPlanEnergy(clientId,payload){return request(`/clients/${encodeURIComponent(clientId)}/diet-plan-energy-estimate`,{method:'POST',body:JSON.stringify(payload)});}
 export function createConsultantDietPlan(payload,idempotencyKey){return request('/diet-plans',{method:'POST',headers:{'Idempotency-Key':idempotencyKey},body:JSON.stringify(payload)});}
 export function getConsultantDietPlan(planId){return request(`/diet-plans/${encodeURIComponent(planId)}`);}
+export function generateConsultantDietPlanOptions(planId,mealHeads){return request(`/diet-plans/${encodeURIComponent(planId)}/generate-options`,{method:'POST',body:JSON.stringify({meal_heads:mealHeads})});}
 export function saveConsultantDietPlan(planId,payload){return request(`/diet-plans/${encodeURIComponent(planId)}/draft`,{method:'PUT',body:JSON.stringify(payload)});}
 export function updateConsultantDietPlanOption(planId,optionId,payload,idempotencyKey){return request(`/diet-plans/${encodeURIComponent(planId)}/options/${encodeURIComponent(optionId)}`,{method:'PUT',headers:{'Idempotency-Key':idempotencyKey},body:JSON.stringify(payload)});}
 export function reviewConsultantDietPlan(planId,payload){return request(`/diet-plans/${encodeURIComponent(planId)}/review`,{method:'POST',body:JSON.stringify(payload)});}
