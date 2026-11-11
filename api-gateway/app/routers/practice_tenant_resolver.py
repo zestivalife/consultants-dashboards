@@ -47,23 +47,54 @@ def practice_client_resource_id(path: str) -> str | None:
 async def client_belongs_to_authenticated_tenant(
     client: httpx.AsyncClient,
     *,
-    fiteatsy_service_url: str,
-    authorization: str,
+    practice_operations_service_url: str,
+    authority_headers: Mapping[str, str],
     client_id: str,
 ) -> bool:
-    """Use the canonical tenant-scoped client lookup without an existence probe."""
+    """Resolve client authority from the consultant's canonical connection ledger.
+
+    Practice Operations owns ``consultant_client_id`` values (including the
+    ``fc_`` namespace). The legacy Fiteatsy client route uses a different ID
+    contract and cannot safely authorise these resources.
+    """
+    trusted_headers = {
+        key: value
+        for key, value in authority_headers.items()
+        if key.lower() in {
+            "x-user-id",
+            "x-user-role",
+            "x-user-permissions",
+            "x-tenant-id",
+            "x-tenant-type",
+            "x-profession-code",
+            "x-request-id",
+        }
+    }
     try:
         response = await client.get(
-            f"{fiteatsy_service_url.rstrip('/')}/v1/external/clients/{client_id}",
-            headers={"Authorization": authorization, "Accept": "application/json"},
+            f"{practice_operations_service_url.rstrip('/')}/api/v1/practice-operations/fiteatsy-connections",
+            headers={**trusted_headers, "Accept": "application/json"},
         )
     except (httpx.HTTPError, ValueError) as exc:
         raise PracticeTenantResolutionError("External client authority is unavailable") from exc
-    if response.status_code == 200:
-        return True
     if response.status_code in {403, 404}:
         return False
-    raise PracticeTenantResolutionError("External client authority is unavailable")
+    if response.status_code != 200:
+        raise PracticeTenantResolutionError("External client authority is unavailable")
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise PracticeTenantResolutionError("External client authority is unavailable") from exc
+    data = payload.get("data") if isinstance(payload, Mapping) else None
+    connections = data.get("connections") if isinstance(data, Mapping) else None
+    if not isinstance(connections, list):
+        raise PracticeTenantResolutionError("External client authority is unavailable")
+    return any(
+        isinstance(connection, Mapping)
+        and str(connection.get("consultant_client_id") or "") == client_id
+        and str(connection.get("state") or "").upper() == "ACTIVE"
+        for connection in connections
+    )
 
 
 def _canonical_tenant(payload: Any) -> Mapping[str, Any]:

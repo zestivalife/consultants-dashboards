@@ -219,8 +219,8 @@ async def proxy(request: Request, path: str):
             try:
                 client_visible = await client_belongs_to_authenticated_tenant(
                     client,
-                    fiteatsy_service_url=get_settings().fiteatsy_service_url,
-                    authorization=request.headers.get("Authorization") or "",
+                    practice_operations_service_url=get_settings().practice_operations_service_url,
+                    authority_headers=headers,
                     client_id=addressed_client_id,
                 )
             except PracticeTenantResolutionError:

@@ -151,21 +151,45 @@ def test_only_direct_client_resource_paths_are_class_b():
     assert practice_client_resource_id("/api/v1/practice-operations/clients") is None
 
 
-def test_client_authority_uses_one_tenant_scoped_lookup_without_existence_probe():
-    visible = FakeClient(FakeResponse(status_code=200, payload={}))
+def test_client_authority_uses_practice_connection_identity_and_trusted_headers():
+    visible = FakeClient(FakeResponse(status_code=200, payload={
+        "data": {"connections": [
+            {"consultant_client_id": "fc_client-a", "state": "ACTIVE"},
+            {"consultant_client_id": "fc_disconnected", "state": "REVOKED"},
+        ]}
+    }))
     assert asyncio.run(client_belongs_to_authenticated_tenant(
         visible,
-        fiteatsy_service_url="https://fiteatsy.example",
-        authorization="Bearer signed-token",
-        client_id="client-a",
+        practice_operations_service_url="https://practice.example",
+        authority_headers={
+            "X-User-Id": "consultant-a",
+            "X-Tenant-Id": "tenant-a",
+            "X-Tenant-Type": "PRACTICE",
+            "Authorization": "Bearer browser-token",
+        },
+        client_id="fc_client-a",
     ))
     assert len(visible.calls) == 1
+    assert visible.calls[0][0] == "https://practice.example/api/v1/practice-operations/fiteatsy-connections"
+    assert "Authorization" not in visible.calls[0][1]
 
-    foreign = FakeClient(FakeResponse(status_code=404, payload={}))
+    foreign = FakeClient(FakeResponse(status_code=200, payload={
+        "data": {"connections": [{"consultant_client_id": "fc_client-b", "state": "ACTIVE"}]}
+    }))
     assert not asyncio.run(client_belongs_to_authenticated_tenant(
         foreign,
-        fiteatsy_service_url="https://fiteatsy.example",
-        authorization="Bearer signed-token",
-        client_id="client-b",
+        practice_operations_service_url="https://practice.example",
+        authority_headers={"X-User-Id": "consultant-a", "X-Tenant-Id": "tenant-a"},
+        client_id="fc_foreign",
     ))
     assert len(foreign.calls) == 1
+
+    disconnected = FakeClient(FakeResponse(status_code=200, payload={
+        "data": {"connections": [{"consultant_client_id": "fc_client-a", "state": "REVOKED"}]}
+    }))
+    assert not asyncio.run(client_belongs_to_authenticated_tenant(
+        disconnected,
+        practice_operations_service_url="https://practice.example",
+        authority_headers={"X-User-Id": "consultant-a", "X-Tenant-Id": "tenant-a"},
+        client_id="fc_client-a",
+    ))
