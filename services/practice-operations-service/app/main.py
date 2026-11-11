@@ -1984,6 +1984,10 @@ def _fiteatsy_nutrition_content(plan, options):
             components.append({
               **({"id":component.get("componentId")} if component.get("componentId") else {}),
               "foodId":component.get("foodId"),
+              **({"foodVersion":component.get("foodVersion")} if component.get("foodVersion") is not None else {}),
+              **({"servingId":component.get("servingId")} if component.get("servingId") else {}),
+              **({"servingVersion":component.get("servingVersion")} if component.get("servingVersion") is not None else {}),
+              **({"sourceMappingId":component.get("sourceMappingId")} if component.get("sourceMappingId") else {}),
               "componentName":component.get("foodDisplayNameSnapshot") or component.get("label") or "",
               "quantity":component.get("grams"),"quantityUnit":"g",
               "householdLabel":component.get("label") or component.get("servingDisplayNameSnapshot"),
