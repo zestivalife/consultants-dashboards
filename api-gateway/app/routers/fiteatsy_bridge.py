@@ -24,6 +24,8 @@ OPERATIONS: dict[str, tuple[str, str, str]] = {
     "professional-assignment-create": ("POST", "/v1/internal/delegated/professional-assignments", "fiteatsy.client.assign"),
     "professional-assignment-batch": ("POST", "/v1/internal/delegated/professional-assignments/batch", "fiteatsy.client.assign"),
     "professional-assignment-delete": ("DELETE", "/v1/internal/delegated/professional-assignments/{id}", "fiteatsy.client.assignment.revoke"),
+    "external-practice-professionals": ("GET", "/v1/internal/delegated/external-practice-referrals/professionals", "fiteatsy.client.assignment.read"),
+    "external-practice-referral": ("POST", "/v1/internal/delegated/external-practice-referrals", "fiteatsy.client.assign"),
     "qa-identities-deactivate": ("POST", "/v1/internal/delegated/qa-identities/{id}/deactivate", "fiteatsy.qa.identity.deactivate"),
 }
 
@@ -215,6 +217,18 @@ async def list_professional_assignment_clients(request: Request):
 async def list_professional_assignment_professionals(request: Request):
     operation = OPERATIONS["professional-assignment-professionals"]
     return await _bridge(request, "professional_assignment_professionals", operation[1], operation[2], "client_assignment", method="GET")
+
+
+@router.get("/external-practice-referrals/professionals")
+async def list_external_practice_professionals(request: Request):
+    operation = OPERATIONS["external-practice-professionals"]
+    return await _bridge(request, "external_practice_professionals", operation[1], operation[2], "external_practice_referral", method="GET")
+
+
+@router.post("/external-practice-referrals")
+async def create_external_practice_referral(request: Request, body: dict[str, Any]):
+    operation = OPERATIONS["external-practice-referral"]
+    return await _bridge(request, "external_practice_referral", operation[1], operation[2], "external_practice_referral", body)
 
 
 @router.get("/professional-assignments")

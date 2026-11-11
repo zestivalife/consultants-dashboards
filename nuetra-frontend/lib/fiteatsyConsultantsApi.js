@@ -584,6 +584,11 @@ export async function listFiteatsyAssignmentProfessionals(type) {
   return Array.isArray(body?.professionals) ? body.professionals : [];
 }
 
+export async function listFiteatsyExternalPracticeProfessionals() {
+  const body = await apiRequest('/platform/fiteatsy/external-practice-referrals/professionals', { method: 'GET' });
+  return Array.isArray(body?.professionals) ? body.professionals : [];
+}
+
 export async function listFiteatsySeniorClientAllocationPool({ query = '', assignment = 'all', limit = 50, offset = 0 } = {}) {
   const body = await requestFiteatsyJson(`/v1/professional-assignments/clients/pool?q=${encodeURIComponent(query)}&assignment=${encodeURIComponent(assignment)}&limit=${limit}&offset=${offset}`);
   return Array.isArray(body?.clients) ? body.clients : [];
@@ -608,6 +613,14 @@ export async function listFiteatsyProfessionalAssignments() {
 
 export async function createFiteatsyProfessionalAssignment(payload) {
   return apiRequest('/platform/fiteatsy/professional-assignments', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': globalThis.crypto.randomUUID() },
+    body: payload,
+  });
+}
+
+export async function createFiteatsyExternalPracticeReferral(payload) {
+  return apiRequest('/platform/fiteatsy/external-practice-referrals', {
     method: 'POST',
     headers: { 'Idempotency-Key': globalThis.crypto.randomUUID() },
     body: payload,

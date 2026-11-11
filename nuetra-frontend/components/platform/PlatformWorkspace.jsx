@@ -63,10 +63,12 @@ import {
   issueFiteatsyTemporaryLoginPin,
   searchFiteatsyAssignmentClients,
   listFiteatsyAssignmentProfessionals,
+  listFiteatsyExternalPracticeProfessionals,
   listAllFiteatsySeniorClientAllocationPool,
   listFiteatsySeniorAssignmentProfessionals,
   listFiteatsyProfessionalAssignments,
   createFiteatsyProfessionalAssignment,
+  createFiteatsyExternalPracticeReferral,
   createFiteatsySeniorProfessionalAssignment,
   revokeFiteatsyProfessionalAssignment,
   revokeFiteatsySeniorProfessionalAssignment,
@@ -5781,14 +5783,21 @@ export function FiteatsyLeadAssignmentDrawer({ initialClient, onClose, onSuccess
     setLoading(true);
     setLoadError('');
     try {
-      const [eligibleClients, availableConsultants] = await Promise.all([
+      const [eligibleClients, internalConsultants, externalConsultants] = await Promise.all([
         listAllFiteatsyClientAllocationPool({ assignment: 'all' }),
         listFiteatsyAssignmentProfessionals('CONSULTANT'),
+        listFiteatsyExternalPracticeProfessionals(),
       ]);
       const authoritativeClient = eligibleClients.find((item) => item.userId === initialClient.userId);
       if (!authoritativeClient) throw new Error('This Fiteatsy lead is not currently eligible for consultant assignment.');
       setClient(authoritativeClient);
-      setConsultants(availableConsultants.filter((item) => String(item.status).toUpperCase() === 'ACTIVE'));
+      const seniorConsultants = internalConsultants
+        .filter((item) => String(item.status).toUpperCase() === 'ACTIVE' && String(item.role).toLowerCase() === 'senior_consultant')
+        .map((item) => ({ ...item, assignmentAuthority: 'INTERNAL_CARE' }));
+      const activeExternalConsultants = externalConsultants
+        .filter((item) => String(item.status).toUpperCase() === 'ACTIVE')
+        .map((item) => ({ ...item, assignmentAuthority: 'EXTERNAL_PRACTICE' }));
+      setConsultants([...seniorConsultants, ...activeExternalConsultants]);
       setConsultantId(authoritativeClient.assignedProfessional?.userId || '');
     } catch (reason) {
       setLoadError(reason?.message || 'Assignment details could not be loaded.');
@@ -5808,14 +5817,21 @@ export function FiteatsyLeadAssignmentDrawer({ initialClient, onClose, onSuccess
     setSubmitting(true);
     setSubmitError('');
     try {
-      await createFiteatsyProfessionalAssignment({
+      const commonAssignment = {
         clientUserId: client.userId,
         professionalUserId: consultantId,
-        professionalType: 'CONSULTANT',
-        relationshipType: 'CLIENT_CARE',
         reason: isReassignment ? 'Platform Owner confirmed consultant reassignment' : 'Platform Owner assigned Fiteatsy lead',
         allowReassignment: isReassignment,
-      });
+      };
+      if (consultant.assignmentAuthority === 'EXTERNAL_PRACTICE') {
+        await createFiteatsyExternalPracticeReferral(commonAssignment);
+      } else {
+        await createFiteatsyProfessionalAssignment({
+          ...commonAssignment,
+          professionalType: 'CONSULTANT',
+          relationshipType: 'CLIENT_CARE',
+        });
+      }
       onSuccess?.({ client, consultant });
     } catch (reason) {
       setSubmitError(reason?.message || 'Client assignment failed. No success was recorded.');
@@ -5830,7 +5846,7 @@ export function FiteatsyLeadAssignmentDrawer({ initialClient, onClose, onSuccess
       <div className="flex-1 overflow-y-auto p-5">
         {loading ? <div role="status" className="rounded-xl border p-8 text-center text-sm text-slate-500">Loading eligible consultants…</div> : null}
         {loadError ? <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p className="font-semibold">Assignment unavailable</p><p className="mt-1">{loadError}</p><button type="button" onClick={() => void load()} className="mt-2 font-bold underline">Retry</button></div> : null}
-        {!loading && !loadError ? <><div className="rounded-xl border bg-slate-50 p-4"><p className="font-semibold">{client.name}</p><p className="mt-1 text-xs text-slate-500">{[client.maskedMobileNumber, client.maskedEmail].filter(Boolean).join(' · ') || client.clientId}</p><p className="mt-2 text-xs font-semibold text-slate-700">{client.assignmentStatus === 'ASSIGNED' ? `Currently assigned to ${client.assignedProfessional?.name || 'a consultant'}` : 'Currently unassigned'}</p></div><label className="mt-5 block text-sm font-semibold">Consultant<select value={consultantId} onChange={(event) => { setConsultantId(event.target.value); setSubmitError(''); }} className="mt-2 min-h-12 w-full rounded-xl border px-3"><option value="">Select consultant</option>{consultants.map((item) => <option key={item.userId} value={item.userId}>{item.name} · {item.email || item.userId}</option>)}</select></label>{consultants.length === 0 ? <p className="mt-3 text-sm text-amber-800">No active consultants are currently eligible for assignment.</p> : null}</> : null}
+        {!loading && !loadError ? <><div className="rounded-xl border bg-slate-50 p-4"><p className="font-semibold">{client.name}</p><p className="mt-1 text-xs text-slate-500">{[client.maskedMobileNumber, client.maskedEmail].filter(Boolean).join(' · ') || client.clientId}</p><p className="mt-2 text-xs font-semibold text-slate-700">{client.assignmentStatus === 'ASSIGNED' ? `Currently assigned to ${client.assignedProfessional?.name || 'a consultant'}` : 'Currently unassigned'}</p></div><label className="mt-5 block text-sm font-semibold">Care route<select value={consultantId} onChange={(event) => { setConsultantId(event.target.value); setSubmitError(''); }} className="mt-2 min-h-12 w-full rounded-xl border px-3"><option value="">Select Senior or External Consultant</option>{consultants.map((item) => <option key={`${item.assignmentAuthority}:${item.userId}`} value={item.userId}>{item.assignmentAuthority === 'EXTERNAL_PRACTICE' ? `${item.practiceName} · ${item.name}` : `Internal care · ${item.name}`} · {item.email || item.userId}</option>)}</select></label>{consultants.length === 0 ? <p className="mt-3 text-sm text-amber-800">No active Senior or External Consultants are currently eligible for assignment.</p> : null}{consultants.find((item) => item.userId === consultantId)?.assignmentAuthority === 'EXTERNAL_PRACTICE' ? <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">This routes the lead to the external practice. Health access remains unavailable until the client completes the existing Connection PIN and consent flow.</p> : null}</> : null}
         {submitError ? <div role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{submitError}</div> : null}
       </div>
       <footer className="border-t p-5"><div className="flex gap-3"><button type="button" onClick={onClose} className="min-h-12 flex-1 rounded-xl border font-semibold">Cancel</button><button type="button" disabled={loading || Boolean(loadError) || !consultantId || submitting || client?.assignedProfessional?.userId === consultantId} onClick={() => void submit()} className="min-h-12 flex-1 rounded-xl bg-slate-950 font-semibold text-white disabled:opacity-40">{submitting ? 'Assigning…' : client?.assignmentStatus === 'ASSIGNED' ? 'Confirm reassignment' : 'Assign client'}</button></div></footer>
