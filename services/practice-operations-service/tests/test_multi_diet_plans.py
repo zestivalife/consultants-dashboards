@@ -105,7 +105,7 @@ def test_published_projection_pdf_and_whatsapp_preserve_authority_boundaries():
     ):
         assert invariant in source
     assert 'format:str=Query("DOCX",pattern="^(PDF|DOCX)$")' in source
-    assert 'build_pdf(snapshot) if is_pdf else build_docx(snapshot)' in source
+    assert 'build_diet_pdf(snapshot,logo_path) if is_pdf else build_diet_docx(snapshot,logo_path)' in source
     assert 'plan["status"] not in {"APPROVED","PUBLISHED"}' in source
     assert 'body.intent == "SHARE_PUBLISHED_PLAN"' in source
     assert "PUBLISHED_DIET_PLAN_NOT_FOUND" in source
