@@ -20,7 +20,7 @@ test('platform owner exposes the governed client assignment workflow on a canoni
   assert.match(api, /apiRequest\(`?\/platform\/fiteatsy\/professional-assignments\/clients\/pool/);
   assert.match(api, /apiRequest\(`?\/platform\/fiteatsy\/professional-assignments\/professionals/);
   assert.match(api, /apiRequest\('\/platform\/fiteatsy\/professional-assignments'/);
-  assert.doesNotMatch(api, /requestFiteatsy(?:Json)?\(`?\/v1\/professional-assignments/);
+  assert.match(api, /export async function listFiteatsySeniorClientAllocationPool[\s\S]+requestFiteatsyJson\(`\/v1\/professional-assignments/);
   assert.match(roles, /match\(\/\^\\\/workspace\\\/\(\[\^\/\]\+\)\//);
   assert.match(roles, /isCanonicalWorkspaceAllowed\(user, workspaceMatch\[1\], tenant \|\| null\)/);
 });

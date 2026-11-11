@@ -63,9 +63,13 @@ import {
   issueFiteatsyTemporaryLoginPin,
   searchFiteatsyAssignmentClients,
   listFiteatsyAssignmentProfessionals,
+  listAllFiteatsySeniorClientAllocationPool,
+  listFiteatsySeniorAssignmentProfessionals,
   listFiteatsyProfessionalAssignments,
   createFiteatsyProfessionalAssignment,
+  createFiteatsySeniorProfessionalAssignment,
   revokeFiteatsyProfessionalAssignment,
+  revokeFiteatsySeniorProfessionalAssignment,
   publishFiteatsyConsultantDietPlan,
   requestFiteatsyConsultantDietPlanChanges,
   requestFiteatsySeniorDietPlanReviewChanges,
@@ -5929,9 +5933,9 @@ function SeniorConsultantClientAllocationPage({ currentUserId, currentUserName =
     setError('');
     try {
       const [nextClients, allClients, nextProfessionals] = await Promise.all([
-        listAllFiteatsyClientAllocationPool({ query, assignment: view }),
-        listAllFiteatsyClientAllocationPool({ query, assignment: 'all' }),
-        listFiteatsyAssignmentProfessionals('CONSULTANT'),
+        listAllFiteatsySeniorClientAllocationPool({ query, assignment: view }),
+        listAllFiteatsySeniorClientAllocationPool({ query, assignment: 'all' }),
+        listFiteatsySeniorAssignmentProfessionals('CONSULTANT'),
       ]);
       setClients(nextClients);
       setCounts({
@@ -5956,7 +5960,7 @@ function SeniorConsultantClientAllocationPage({ currentUserId, currentUserName =
     if (!selectedClient?.userId || !professionalUserId) return;
     try {
       setError('');
-      await createFiteatsyProfessionalAssignment({ clientUserId: selectedClient.userId, professionalUserId, professionalType: 'CONSULTANT', relationshipType: 'CLIENT_CARE', reason: selectedClient.assignmentStatus === 'ASSIGNED' ? 'Senior Consultant reassigned client' : 'Senior Consultant client allocation' });
+      await createFiteatsySeniorProfessionalAssignment({ clientUserId: selectedClient.userId, professionalUserId, professionalType: 'CONSULTANT', relationshipType: 'CLIENT_CARE', reason: selectedClient.assignmentStatus === 'ASSIGNED' ? 'Senior Consultant reassigned client' : 'Senior Consultant client allocation' });
       setMessage('Client assigned successfully.');
       setProfessionalUserId('');
       setAssignmentMode('me');
@@ -5968,7 +5972,7 @@ function SeniorConsultantClientAllocationPage({ currentUserId, currentUserName =
     if (!client?.assignmentId) return;
     try {
       setError('');
-      await revokeFiteatsyProfessionalAssignment(client.assignmentId, 'Senior Consultant returned client to pool');
+      await revokeFiteatsySeniorProfessionalAssignment(client.assignmentId, 'Senior Consultant returned client to pool');
       setMessage('Client returned to the Client Pool.');
       await refresh();
     } catch (nextError) { setError(nextError.message || 'Unable to end the assignment.'); }

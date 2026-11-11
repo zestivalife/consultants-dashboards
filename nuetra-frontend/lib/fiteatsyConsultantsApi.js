@@ -584,6 +584,23 @@ export async function listFiteatsyAssignmentProfessionals(type) {
   return Array.isArray(body?.professionals) ? body.professionals : [];
 }
 
+export async function listFiteatsySeniorClientAllocationPool({ query = '', assignment = 'all', limit = 50, offset = 0 } = {}) {
+  const body = await requestFiteatsyJson(`/v1/professional-assignments/clients/pool?q=${encodeURIComponent(query)}&assignment=${encodeURIComponent(assignment)}&limit=${limit}&offset=${offset}`);
+  return Array.isArray(body?.clients) ? body.clients : [];
+}
+
+export async function listAllFiteatsySeniorClientAllocationPool({ query = '', assignment = 'all' } = {}) {
+  return collectAllClientAllocationPages(
+    ({ limit, offset }) => listFiteatsySeniorClientAllocationPool({ query, assignment, limit, offset }),
+  );
+}
+
+export async function listFiteatsySeniorAssignmentProfessionals(type) {
+  const suffix = type ? `?type=${encodeURIComponent(type)}` : '';
+  const body = await requestFiteatsyJson(`/v1/professional-assignments/professionals${suffix}`);
+  return Array.isArray(body?.professionals) ? body.professionals : [];
+}
+
 export async function listFiteatsyProfessionalAssignments() {
   const body = await apiRequest('/platform/fiteatsy/professional-assignments', { method: 'GET' });
   return Array.isArray(body?.assignments) ? body.assignments : [];
@@ -591,6 +608,14 @@ export async function listFiteatsyProfessionalAssignments() {
 
 export async function createFiteatsyProfessionalAssignment(payload) {
   return apiRequest('/platform/fiteatsy/professional-assignments', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': globalThis.crypto.randomUUID() },
+    body: payload,
+  });
+}
+
+export async function createFiteatsySeniorProfessionalAssignment(payload) {
+  return requestFiteatsy('/v1/professional-assignments', {
     method: 'POST',
     headers: { 'Idempotency-Key': globalThis.crypto.randomUUID() },
     body: payload,
@@ -607,6 +632,14 @@ export async function createFiteatsyProfessionalAssignmentsBatch(payload) {
 
 export async function revokeFiteatsyProfessionalAssignment(assignmentId, reason) {
   return apiRequest(`/platform/fiteatsy/professional-assignments/${encodeURIComponent(assignmentId)}`, {
+    method: 'DELETE',
+    headers: { 'Idempotency-Key': globalThis.crypto.randomUUID() },
+    body: { reason },
+  });
+}
+
+export async function revokeFiteatsySeniorProfessionalAssignment(assignmentId, reason) {
+  return requestFiteatsy(`/v1/professional-assignments/${encodeURIComponent(assignmentId)}`, {
     method: 'DELETE',
     headers: { 'Idempotency-Key': globalThis.crypto.randomUUID() },
     body: { reason },
