@@ -13,7 +13,17 @@ test('Diet Plans landing page exposes a primary creation action even when no pla
 test('external authoring uses seven governed meal heads and versioned Practice Operations persistence',()=>{assert.match(multi,/COMMON_FOOD_MEALS/);assert.match(multi,/flatMap\(\(meal\) => meal\.options\)/);assert.match(practiceApi,/saveConsultantDietPlan/);assert.match(practiceApi,/\/diet-plans\/\$\{encodeURIComponent\(planId\)\}\/draft/);});
 test('external plan history renders backend snapshot fields without placeholder nutrition',()=>{assert.match(multi,/nutrition_snapshot\?\.option_count/);assert.doesNotMatch(multi,/Governed food option/);assert.doesNotMatch(multi,/option\.totals/);});
 test('consultant can approve the exact version directly before publication',()=>{assert.doesNotMatch(multi,/Submit for review|Senior Consultant review/);assert.match(multi,/Approve exact version/);assert.match(multi,/Publish to Client App/);assert.match(multi,/expected_version:refreshed\.plan\.current_version/);});
-test('DOCX export uses the governed Practice Operations endpoint rather than a browser-built approximation',()=>{assert.match(multi,/downloadConsultantDietPlan/);assert.match(multi,/Download DOCX/);assert.match(practiceApi,/diet-plans\/\$\{encodeURIComponent\(planId\)\}\/download/);assert.doesNotMatch(multi,/Packer\.toBlob|new Document/);});
+test('PDF and DOCX exports use the governed Practice Operations endpoint rather than a browser-built approximation',()=>{assert.match(multi,/downloadConsultantDietPlan/);assert.match(multi,/Download PDF/);assert.match(multi,/Download DOCX/);assert.match(practiceApi,/diet-plans\/\$\{encodeURIComponent\(planId\)\}\/download/);assert.doesNotMatch(multi,/Packer\.toBlob|new Document/);});
+test('plan management exposes safe rename, duplicate, archive and soft-delete operations',()=>{
+  for(const operation of ['renameConsultantDietPlan','duplicateConsultantDietPlan','archiveConsultantDietPlan','deleteConsultantDietPlan'])assert.match(practiceApi,new RegExp(`export function ${operation}`));
+  for(const label of ['Rename','Duplicate','Archive','Delete'])assert.match(multi,new RegExp(label));
+  assert.match(multi,/Published versions are immutable/);
+});
+test('nutrition target methodology remains visible without silently changing the saved target',()=>{
+  assert.match(multi,/Selected methodology:/);
+  assert.match(multi,/Consultant manual confirmation/);
+  assert.match(multi,/Saving creates a new immutable editable version/);
+});
 test('Diet Requirements uses an accessible consolidated modal and existing scoped questionnaire contracts',()=>{
   assert.match(multi,/Open Diet Requirements/);
   assert.match(multi,/role="dialog"/);

@@ -100,6 +100,10 @@ export function saveConsultantDietPlan(planId,payload){return request(`/diet-pla
 export function updateConsultantDietPlanOption(planId,optionId,payload,idempotencyKey){return request(`/diet-plans/${encodeURIComponent(planId)}/options/${encodeURIComponent(optionId)}`,{method:'PUT',headers:{'Idempotency-Key':idempotencyKey},body:JSON.stringify(payload)});}
 export function reviewConsultantDietPlan(planId,payload){return request(`/diet-plans/${encodeURIComponent(planId)}/review`,{method:'POST',body:JSON.stringify(payload)});}
 export function publishConsultantDietPlan(planId){return request(`/diet-plans/${encodeURIComponent(planId)}/publish`,{method:'POST'});}
+export function renameConsultantDietPlan(planId,name){return request(`/diet-plans/${encodeURIComponent(planId)}/name`,{method:'PATCH',body:JSON.stringify({name})});}
+export function duplicateConsultantDietPlan(planId,name,idempotencyKey){return request(`/diet-plans/${encodeURIComponent(planId)}/duplicate`,{method:'POST',headers:{'Idempotency-Key':idempotencyKey},body:JSON.stringify({name:name||null})});}
+export function archiveConsultantDietPlan(planId,reason){return request(`/diet-plans/${encodeURIComponent(planId)}/archive`,{method:'POST',body:JSON.stringify({reason})});}
+export function deleteConsultantDietPlan(planId,reason='Deleted by consultant'){return request(`/diet-plans/${encodeURIComponent(planId)}?reason=${encodeURIComponent(reason)}`,{method:'DELETE'});}
 export async function downloadConsultantDietPlan(planId,format='DOCX'){
   const safeFormat=format==='PDF'?'PDF':'DOCX';
   const path=`/diet-plans/${encodeURIComponent(planId)}/download?format=${safeFormat}`;

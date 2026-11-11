@@ -11,6 +11,7 @@ import httpx
 import phonenumbers
 from pydantic import ValidationError
 from urllib.parse import urlparse
+from pathlib import Path
 from cryptography.fernet import Fernet
 from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
@@ -32,6 +33,7 @@ from app.contracts import (ConsultationTransition, GoalProgressCreate,
                            AssessmentAnswerSave, AssessmentComplete,
                            ProfessionPlanCreate, ProfessionPlanSave,
                            DietPlanCreate, DietPlanSave, DietPlanReviewAction,
+                           DietPlanRename, DietPlanArchive, DietPlanDuplicate,
                            DietEnergyEstimateRequest, DietOptionGenerationRequest,
                            GovernedDietComponent, GovernedDietOptionUpdate)
 from app.contracts import PracticeClientCreate
@@ -97,6 +99,7 @@ from app.p17 import PERMISSIONS, ROLE_PERMISSIONS, can_manage_role, resolve_perm
 from app.p18 import MIN_COHORT_SIZE, analytics_window, cohort_result, rate
 from app.p19 import ALLOWED_SCOPES, referral_transition, validate_scopes
 from app.p20 import build_docx, build_pdf, checksum
+from app.diet_documents import build_diet_docx, build_diet_pdf
 from app.p24 import assert_transition as assert_lead_transition, normal_email, normal_phone
 from app.p26 import validate_resource_type
 from app.p28 import PaymentProviderNotConfigured, canonical_payload_hash, verify_razorpay_payment, verify_razorpay_webhook
@@ -276,6 +279,15 @@ async def configuration(db: AsyncSession, ctx):
         eligibility = diet_chart_eligibility(profession)
         return {"profession":profession,"capabilities":sorted(effective),"terminology":TERMINOLOGY.get(profession,{"consultation":"Consultation","plan":"Care Plan","goal":"Goal"}),"profile":{},"version":0,"diet_chart_eligibility":eligibility.value if eligibility else "UNMAPPED","diet_chart_authoring_enabled":"DIET_PLAN" in effective,"diet_chart_entitlement_required":eligibility == DietChartEligibility.OPTIONAL}
     return {"profession":"UNMAPPED","capabilities":["CLIENT_CRM","CLIENT_ONBOARDING","CONSULTATIONS","FOLLOW_UPS","GOALS_PROGRESS","TASKS","CALENDAR","COMMUNICATION","WHATSAPP_SHARING","TEMPLATES"],"terminology":{"consultation":"Consultation","plan":"Care Plan","goal":"Goal"},"profile":{},"version":0,"diet_chart_eligibility":"UNMAPPED","diet_chart_authoring_enabled":False,"diet_chart_entitlement_required":False}
+
+def _diet_branding_snapshot(config,ctx,consultant_name=None):
+    profile=dict(config.get("profile") or {})
+    practice_name=next((str(profile.get(key) or "").strip() for key in
+      ("registered_company_name","registeredCompanyName","company_name","companyName","practice_name","practiceName","display_name","displayName")
+      if str(profile.get(key) or "").strip()),"")
+    display_name=str(consultant_name or profile.get("consultant_name") or profile.get("consultantName") or profile.get("display_name") or profile.get("displayName") or "").strip()
+    return {"brand_type":"EXTERNAL","practice_name":practice_name or display_name or "Independent Consultant",
+      "consultant_name":display_name or "Registered consultant","branding_source":"PRACTICE_TENANT_CONFIGURATION"}
 
 
 async def require_capability(request: Request, db: AsyncSession, ctx, capability: str):
@@ -2017,7 +2029,13 @@ async def _deliver_diet_plan_to_fiteatsy(request,connection,plan,options,publish
             upstream=await client.post(base,headers={"x-zestiva-delegation":write_token},json=payload)
             upstream_data=upstream.json() if upstream.headers.get("content-type","").startswith("application/json") else {}
             if upstream.status_code not in {200,201}:
-                return None,error(request,upstream.status_code,upstream_data.get("error","FITEATSY_DIET_DELIVERY_REJECTED"),upstream_data.get("message","Fiteatsy rejected this published Diet Plan"),upstream.status_code>=500)
+                safe_message=upstream_data.get("message","Fiteatsy rejected this published Diet Plan")
+                invalid=upstream_data.get("invalidFoods") or []
+                if upstream_data.get("error")=="UNVERIFIED_FOOD_REFERENCE" and invalid:
+                    first=invalid[0];meal=str(first.get("mealHead") or "meal").replace("_"," ").title();food=str(first.get("displayName") or "A food")
+                    suffix=f" and {len(invalid)-1} more" if len(invalid)>1 else ""
+                    safe_message=f"Unable to publish: {food} in {meal}{suffix} is not available in the verified catalogue. Duplicate this plan, replace the affected food, save, and approve the new version."
+                return None,error(request,upstream.status_code,upstream_data.get("error","FITEATSY_DIET_DELIVERY_REJECTED"),safe_message,upstream.status_code>=500)
             select_token=create_fiteatsy_delegation(connection,"fiteatsy.external.diet.select","external_consultant_diet_plan_selection")
             selected=await client.put(f"{base}/active",headers={"x-zestiva-delegation":select_token},json={"externalPlanId":str(plan["id"])})
             selected_data=selected.json() if selected.headers.get("content-type","").startswith("application/json") else {}
@@ -2147,6 +2165,7 @@ async def list_diet_plans(request:Request,client_id:str,ctx=Depends(context),db:
     rows=(await db.execute(text(f"""SELECT id,tenant_id,client_id,profession_code,plan_type,title,status,current_version,
       daily_calories_target,daily_protein_target_g,authorised_consultant_id,created_at,updated_at
       FROM external_profession_plans WHERE tenant_id=:tenant AND client_id=:client AND plan_type='DIET_PLAN'{actor_clause}
+      AND status<>'ARCHIVED'
       ORDER BY updated_at DESC"""),{"tenant":ctx["tenant_id"],"client":client_id,**actor_params})).mappings().all()
     return {"success":True,"data":{"items":[dict(row) for row in rows]},"error":None,"request_id":request.state.correlation_id}
 
@@ -2184,6 +2203,7 @@ async def create_diet_plan(request:Request,body:DietPlanCreate,idempotency_key:s
       "measurement_source_ids":measurement["source_measurement_ids"],"measurement_snapshot":measurement["eligible_latest"],
       "measurement_calculations":measurement["calculations"],"assessment_id":readiness["assessment_id"],
       "assessment_version":readiness["assessment_version"]}
+    snapshot["branding_snapshot"]=_diet_branding_snapshot(config,ctx)
     await db.execute(text("""INSERT INTO external_profession_plan_versions
       (id,plan_id,tenant_id,client_id,version,status,title,nutrition_snapshot,created_by,created_at)
       VALUES (:id,:plan,:tenant,:client,1,'DRAFT',:title,CAST(:snapshot AS jsonb),:actor,:now)"""),
@@ -2204,6 +2224,80 @@ async def get_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db:Asy
     denied=await _diet_plan_assignment_guard(request,db,ctx,plan,"PLAN_VIEW")
     if denied:return denied
     return {"success":True,"data":await _diet_plan_projection(db,plan),"error":None,"request_id":request.state.correlation_id}
+
+@app.patch("/api/v1/practice-operations/diet-plans/{plan_id}/name")
+async def rename_diet_plan(request:Request,plan_id:UUID,body:DietPlanRename,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    plan=await _diet_plan_row(request,db,ctx,plan_id)
+    if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    denied=await _diet_plan_assignment_guard(request,db,ctx,plan,"PLAN_EDIT")
+    if denied:return denied
+    if plan["status"] not in {"DRAFT","SAVED","CHANGES_REQUESTED"}:
+        return error(request,409,"DIET_PLAN_IMMUTABLE","Duplicate an approved or published Diet Plan before renaming it")
+    name=body.name.strip();now=datetime.now(timezone.utc)
+    version_id=(await db.execute(text("SELECT id FROM external_profession_plan_versions WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version"),{"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).scalar_one()
+    await db.execute(text("UPDATE external_profession_plans SET title=:title,updated_at=:now WHERE id=:plan AND tenant_id=:tenant"),{"title":name,"now":now,"plan":plan_id,"tenant":ctx["tenant_id"]})
+    await db.execute(text("INSERT INTO external_profession_plan_audit_events(id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,metadata,created_at) VALUES (:id,:plan,:version,:tenant,:client,'RENAMED',:actor,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"plan":plan_id,"version":version_id,"tenant":ctx["tenant_id"],"client":plan["client_id"],"actor":ctx["user_id"],"metadata":json.dumps({"from":plan["title"],"to":name}),"now":now})
+    await db.commit()
+    return {"success":True,"data":{"id":str(plan_id),"name":name,"status":plan["status"],"version":plan["current_version"]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/diet-plans/{plan_id}/duplicate",status_code=201)
+async def duplicate_diet_plan(request:Request,plan_id:UUID,body:DietPlanDuplicate,
+                              idempotency_key:str|None=Header(None,alias="Idempotency-Key"),
+                              ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    if not idempotency_key or len(idempotency_key)>160:return error(request,400,"IDEMPOTENCY_KEY_REQUIRED","A valid Idempotency-Key is required")
+    source=await _diet_plan_row(request,db,ctx,plan_id)
+    if not source:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    denied=await _diet_plan_assignment_guard(request,db,ctx,source,"PLAN_CREATE")
+    if denied:return denied
+    await db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:scope,0))"),{"scope":f"diet-plan-duplicate:{ctx['tenant_id']}:{ctx['user_id']}:{idempotency_key}"})
+    existing=(await db.execute(text("SELECT id,title,status,current_version FROM external_profession_plans WHERE tenant_id=:tenant AND authorised_consultant_id=:actor AND idempotency_key=:key"),{"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"key":idempotency_key})).mappings().first()
+    if existing:
+        return {"success":True,"data":{"id":str(existing["id"]),"name":existing["title"],"status":existing["status"],"version":existing["current_version"],"idempotent_replay":True},"error":None,"request_id":request.state.correlation_id}
+    current=(await db.execute(text("SELECT id,title,nutrition_snapshot FROM external_profession_plan_versions WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version"),{"plan":plan_id,"tenant":ctx["tenant_id"],"version":source["current_version"]})).mappings().one()
+    options=await _diet_options_for_version(db,ctx["tenant_id"],plan_id,source["current_version"])
+    new_id=uuid4();version_id=uuid4();section_id=uuid4();now=datetime.now(timezone.utc);name=(body.name or f"{source['title']} copy").strip()
+    await db.execute(text("""INSERT INTO external_profession_plans
+      (id,tenant_id,client_id,profession_code,plan_type,title,status,current_version,created_by,authorised_consultant_id,daily_calories_target,daily_protein_target_g,idempotency_key,created_at,updated_at)
+      VALUES(:id,:tenant,:client,:profession,'DIET_PLAN',:title,'DRAFT',1,:actor,:actor,:calories,:protein,:key,:now,:now)"""),
+      {"id":new_id,"tenant":ctx["tenant_id"],"client":source["client_id"],"profession":source["profession_code"],"title":name,"actor":ctx["user_id"],"calories":source["daily_calories_target"],"protein":source["daily_protein_target_g"],"key":idempotency_key,"now":now})
+    snapshot={**dict(current["nutrition_snapshot"] or {}),"duplicated_from_plan_id":str(plan_id),"duplicated_from_version":source["current_version"]}
+    await db.execute(text("INSERT INTO external_profession_plan_versions(id,plan_id,tenant_id,client_id,version,status,title,nutrition_snapshot,created_by,created_at) VALUES(:id,:plan,:tenant,:client,1,'DRAFT',:title,CAST(:snapshot AS jsonb),:actor,:now)"),{"id":version_id,"plan":new_id,"tenant":ctx["tenant_id"],"client":source["client_id"],"title":name,"snapshot":json.dumps(snapshot),"actor":ctx["user_id"],"now":now})
+    await db.execute(text("INSERT INTO external_profession_plan_sections(id,plan_version_id,tenant_id,section_key,title,content,sort_order) VALUES(:id,:version,:tenant,'meal_options','Meal options',CAST(:content AS jsonb),1)"),{"id":section_id,"version":version_id,"tenant":ctx["tenant_id"],"content":json.dumps(snapshot)})
+    for index,item in enumerate(options):
+        await db.execute(text("INSERT INTO external_profession_plan_items(id,plan_section_id,tenant_id,item_key,label,content,sort_order) VALUES(:id,:section,:tenant,:key,:label,CAST(:content AS jsonb),:sort)"),{"id":uuid4(),"section":section_id,"tenant":ctx["tenant_id"],"key":f"option_{index+1}","label":str(item.get("mealHead") or "Meal option"),"content":json.dumps(item),"sort":index+1})
+    await db.execute(text("INSERT INTO external_profession_plan_audit_events(id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,metadata,created_at) VALUES(:id,:plan,:version,:tenant,:client,'DUPLICATED',:actor,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"plan":new_id,"version":version_id,"tenant":ctx["tenant_id"],"client":source["client_id"],"actor":ctx["user_id"],"metadata":json.dumps({"source_plan_id":str(plan_id),"source_version":source["current_version"]}),"now":now})
+    await db.commit()
+    return {"success":True,"data":{"id":str(new_id),"name":name,"status":"DRAFT","version":1},"error":None,"request_id":request.state.correlation_id}
+
+async def _archive_unpublished_diet_plan(request,plan_id,reason,ctx,db):
+    plan=await _diet_plan_row(request,db,ctx,plan_id)
+    if not plan:return error(request,404,"DIET_PLAN_NOT_FOUND","Diet Plan not found")
+    denied=await _diet_plan_assignment_guard(request,db,ctx,plan,"PLAN_EDIT")
+    if denied:return denied
+    if plan["status"]=="PUBLISHED":return error(request,409,"ACTIVE_PUBLISHED_PLAN_IMMUTABLE","Publish a replacement before archiving an active clinical plan")
+    if plan["status"]=="ARCHIVED":return {"success":True,"data":{"id":str(plan_id),"status":"ARCHIVED","version":plan["current_version"],"already_archived":True},"error":None,"request_id":request.state.correlation_id}
+    now=datetime.now(timezone.utc)
+    version_id=(await db.execute(text("SELECT id FROM external_profession_plan_versions WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version"),{"plan":plan_id,"tenant":ctx["tenant_id"],"version":plan["current_version"]})).scalar_one()
+    await db.execute(text("UPDATE external_profession_plans SET status='ARCHIVED',updated_at=:now WHERE id=:plan AND tenant_id=:tenant"),{"now":now,"plan":plan_id,"tenant":ctx["tenant_id"]})
+    await db.execute(text("INSERT INTO external_profession_plan_audit_events(id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,metadata,created_at) VALUES(:id,:plan,:version,:tenant,:client,'ARCHIVED',:actor,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"plan":plan_id,"version":version_id,"tenant":ctx["tenant_id"],"client":plan["client_id"],"actor":ctx["user_id"],"metadata":json.dumps({"reason":reason}),"now":now})
+    await db.commit()
+    return {"success":True,"data":{"id":str(plan_id),"status":"ARCHIVED","version":plan["current_version"]},"error":None,"request_id":request.state.correlation_id}
+
+@app.post("/api/v1/practice-operations/diet-plans/{plan_id}/archive")
+async def archive_diet_plan(request:Request,plan_id:UUID,body:DietPlanArchive,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    return await _archive_unpublished_diet_plan(request,plan_id,body.reason,ctx,db)
+
+@app.delete("/api/v1/practice-operations/diet-plans/{plan_id}")
+async def delete_unpublished_diet_plan(request:Request,plan_id:UUID,reason:str=Query("Deleted by consultant",min_length=3,max_length=500),ctx=Depends(context),db:AsyncSession=Depends(get_db)):
+    denied=external_only(request,ctx)
+    if denied:return denied
+    return await _archive_unpublished_diet_plan(request,plan_id,reason,ctx,db)
 
 @app.put("/api/v1/practice-operations/diet-plans/{plan_id}/options/{option_id}")
 async def update_governed_diet_option(request:Request,plan_id:UUID,option_id:str,body:GovernedDietOptionUpdate,
@@ -2451,6 +2545,36 @@ async def publish_diet_plan(request:Request,plan_id:UUID,ctx=Depends(context),db
     await db.execute(text("INSERT INTO external_profession_plan_audit_events(id,plan_id,plan_version_id,tenant_id,client_id,event_type,actor_id,metadata,created_at) VALUES (:id,:plan,:version,:tenant,:client,'PUBLISHED',:actor,CAST(:metadata AS jsonb),:now)"),{"id":uuid4(),"plan":plan_id,"version":version_id,"tenant":ctx["tenant_id"],"client":plan["client_id"],"actor":ctx["user_id"],"metadata":json.dumps(publication_metadata),"now":now});await db.commit()
     return {"success":True,"data":{"id":str(plan_id),"status":"PUBLISHED","version":plan["current_version"],"publication_id":str(publication_id),"publication_basis":"CONSULTANT_AUTHORED_VALIDATED","already_published":False},"error":None,"request_id":request.state.correlation_id}
 
+async def _diet_export_snapshot(db,ctx,plan,projection):
+    current=dict(projection.get("current_version") or {})
+    nutrition=dict(current.get("nutrition_snapshot") or {})
+    options=list(projection.get("options") or [])
+    config=await configuration(db,ctx)
+    consultant_name=(await db.execute(text("SELECT display_name FROM external_practice_role_profiles WHERE tenant_id=:tenant AND user_id=:user AND status='ACTIVE'"),{"tenant":ctx["tenant_id"],"user":plan["authorised_consultant_id"]})).scalar_one_or_none()
+    branding=dict(nutrition.get("branding_snapshot") or _diet_branding_snapshot(config,ctx,consultant_name))
+    client=(await db.execute(text("""SELECT COALESCE(
+      (SELECT NULLIF(btrim(concat_ws(' ',first_name,last_name)),'') FROM external_practice_clients WHERE tenant_id=:tenant AND client_id=:client AND status='ACTIVE' LIMIT 1),
+      (SELECT NULLIF(btrim(values->>'name'),'') FROM external_client_profile_enrichments WHERE tenant_id=:tenant AND client_id=:client LIMIT 1),
+      (SELECT NULLIF(btrim(fd.display_name),'') FROM external_fiteatsy_connections c JOIN fiteatsy_client_directory fd ON fd.fiteatsy_user_id::text=c.fiteatsy_user_id AND fd.deleted_at IS NULL WHERE c.tenant_id=:tenant AND c.consultant_client_id=:client ORDER BY c.updated_at DESC LIMIT 1),
+      :client)"""),{"tenant":ctx["tenant_id"],"client":plan["client_id"]})).scalar_one()
+    approved=(await db.execute(text("""SELECT created_at,actor_id FROM external_profession_plan_audit_events
+      WHERE tenant_id=:tenant AND plan_id=:plan AND plan_version_id=:version AND event_type IN ('APPROVED','PUBLISHED')
+      ORDER BY created_at ASC LIMIT 1"""),{"tenant":ctx["tenant_id"],"plan":plan["id"],"version":current.get("id")})).mappings().first()
+    warnings=[]
+    if any(any(value is None for value in (item.get("nutrition") or {}).values()) for item in options):warnings.append("Some optional nutrient values are unavailable in the governed source and are not estimated.")
+    provenance=dict(nutrition.get("calculation_provenance") or {})
+    estimated=provenance.get("estimated_tdee_kcal") or provenance.get("estimatedTdeeKcal") or provenance.get("estimated_tdee")
+    if estimated is not None and abs(float(plan["daily_calories_target"])-float(estimated))>=1000:
+        warnings.append(f"The saved energy target ({plan['daily_calories_target']} kcal/day) differs materially from the recorded estimate ({estimated} kcal/day). Review the consultant-entered target before use.")
+    if nutrition.get("target_methodology")=="CONSULTANT_MANUAL":warnings.append("Energy and macro targets were entered or confirmed by the consultant; the export does not alter them.")
+    return {"title":plan["title"],"client_name":client,"version":plan["current_version"],"status":current.get("status") or plan["status"],
+      "reference":f"{plan['id']}:v{plan['current_version']}","approved_at":approved["created_at"].isoformat() if approved else None,
+      "approved_by":approved["actor_id"] if approved else None,"branding":branding,"options":options,
+      "targets":{"calories":plan["daily_calories_target"],"protein":float(plan["daily_protein_target_g"] or 0),
+        "carbohydrate":nutrition.get("daily_carbohydrate_target_g"),"fat":nutrition.get("daily_fat_target_g"),"fibre":nutrition.get("daily_fibre_target_g")},
+      "warnings":warnings,"target_methodology":nutrition.get("target_methodology"),"activity_level":nutrition.get("activity_level"),
+      "energy_adjustment_kcal":nutrition.get("energy_adjustment_kcal"),"calculation_provenance":provenance}
+
 @app.get("/api/v1/practice-operations/diet-plans/{plan_id}/download")
 async def download_diet_plan(request:Request,plan_id:UUID,format:str=Query("DOCX",pattern="^(PDF|DOCX)$"),ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied=external_only(request,ctx)
@@ -2463,15 +2587,10 @@ async def download_diet_plan(request:Request,plan_id:UUID,format:str=Query("DOCX
         return error(request,409,"DIET_PLAN_APPROVAL_REQUIRED","Approve the exact Diet Plan version before downloading its PDF")
     projection=await _diet_plan_projection(db,plan)
     current=projection["current_version"] or {}
-    options=projection["options"]
-    snapshot={"title":plan["title"],"period_start":f"Version {plan['current_version']}","period_end":plan["status"],"profession_code":plan["profession_code"],
-      "consultant_summary":f"Diet Plan version {plan['current_version']} · {plan['status']}",
-      "sections":[{"title":"Daily targets","items":[
-        {"label":"Calories","value":plan["daily_calories_target"],"provenance":"PRACTITIONER_ENTERED"},
-        {"label":"Protein (g)","value":float(plan["daily_protein_target_g"] or 0),"provenance":"PRACTITIONER_ENTERED"}]},
-        {"title":"Meal options","items":[{"label":str(item.get("mealHead") or "Meal"),"value":str(item.get("clientTitle") or item.get("label") or item.get("combinationId") or "Structured meal"),"provenance":"PRACTITIONER_ENTERED"} for item in options]}]}
+    snapshot=await _diet_export_snapshot(db,ctx,plan,projection)
     safe_name="".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in plan["title"]).strip("-") or "diet-plan"
-    is_pdf=format=="PDF";content=build_pdf(snapshot) if is_pdf else build_docx(snapshot)
+    logo_path=str(Path(__file__).parent/'assets'/'zestiva-logo.png')
+    is_pdf=format=="PDF";content=build_diet_pdf(snapshot,logo_path) if is_pdf else build_diet_docx(snapshot,logo_path)
     media_type="application/pdf" if is_pdf else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     extension="pdf" if is_pdf else "docx"
     return Response(content=content,media_type=media_type,

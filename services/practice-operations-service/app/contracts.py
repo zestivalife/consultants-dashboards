@@ -273,6 +273,15 @@ class DietPlanReviewAction(BaseModel):
     expected_version: int = Field(ge=1)
     reason: str | None = Field(default=None, max_length=2000)
 
+class DietPlanRename(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+
+class DietPlanArchive(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+class DietPlanDuplicate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+
 class SessionNoteSection(BaseModel):
     key: str = Field(min_length=1, max_length=100, pattern=r"^[a-z][a-z0-9_]*$")
     title: str = Field(min_length=1, max_length=240)
