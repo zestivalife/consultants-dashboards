@@ -73,16 +73,21 @@ export default function ExternalMultiDietPlan({ clientId, clientName='Client', c
   const [questionnaireLink, setQuestionnaireLink] = useState('');
   const [editorDirty, setEditorDirty] = useState(false);
   const [editorProgress, setEditorProgress] = useState({selected:0,busy:false,canSave:false});
+  const [generationRequest, setGenerationRequest] = useState({ planId: '', id: 0 });
   const editorRef = useRef(null);
   const selectedIdRef = useRef('');
   const creationKeyRef = useRef('');
   const generateButtonRef = useRef(null);
   const firstFieldRef = useRef(null);
+  const nextGenerationRequestId = useRef(0);
   const selected = useMemo(() => plans.find((plan) => plan.id === selectedId) || plans[0] || null, [plans, selectedId]);
   const editorState = useMemo(() => externalDietEditorState(selected?.status), [selected?.status]);
   const publishReady = canPublishExternalDietVersion({ status: selected?.status, dirty: editorDirty });
   const valid = (targetEditPlanId||form.name.trim().length >= 2) && Number(form.dailyCalories) >= 1 && Number(form.dailyProtein) >= 0;
   const macroAdvisory=macroConsistencyAdvisory({calories:form.dailyCalories,protein:form.dailyProtein,carbohydrate:form.dailyCarbohydrate,fat:form.dailyFat});
+  const handleGenerationRequestHandled = useCallback((requestId) => {
+    setGenerationRequest((current) => current.id === requestId ? { planId: '', id: 0 } : current);
+  }, []);
 
   const load = useCallback(async (preferredId) => {
     setLoading(true); setLoadError('');
@@ -175,6 +180,10 @@ export default function ExternalMultiDietPlan({ clientId, clientName='Client', c
       setForm(initialForm);
       setRequirementsOpen(false);setEnergyEstimate(null);
       const loaded=await load(result.id);const presentation=createdDraftPresentation(result.id,loaded);setCreationState(presentation);setMessage(presentation.message);
+      if (loaded.preferredLoaded) {
+        nextGenerationRequestId.current += 1;
+        setGenerationRequest({ planId: result.id, id: nextGenerationRequestId.current });
+      }
     } catch (error) { setCreationState({state:'failed',createdId:''});onError(error.message || 'Unable to create Diet Plan.'); }
     finally { setBusy(''); }
   };
@@ -265,7 +274,7 @@ export default function ExternalMultiDietPlan({ clientId, clientName='Client', c
         </div>
       </section>
       <section className="rounded-2xl border border-slate-200 bg-white p-5">
-        <CommonFoodPlanEditor key={`${selected.id}:${selected.version.id}`} ref={editorRef} clientId={clientId} dietPlanId={selected.id} planVersionId={selected.version.id} generationRequestId={editorState.generationRequestId} generateMissingOnLoad={false} lifecycle={editorState.lifecycle} initialOptions={selected.version.plan.meals.flatMap((meal) => meal.options)} legacyMealPlan={{}} readOnly={editorState.readOnly} authoringApi={authoringApi} templatesEnabled={false} proposalsEnabled={false} autoBalanceEnabled={false} onDirtyChange={setEditorDirty} onProgressChange={setEditorProgress} onStale={() => load(selected.id)} />
+        <CommonFoodPlanEditor key={`${selected.id}:${selected.version.id}`} ref={editorRef} clientId={clientId} dietPlanId={selected.id} planVersionId={selected.version.id} generationRequestId={generationRequest.planId === selected.id ? generationRequest.id : editorState.generationRequestId} generateMissingOnLoad={false} lifecycle={editorState.lifecycle} initialOptions={selected.version.plan.meals.flatMap((meal) => meal.options)} legacyMealPlan={{}} readOnly={editorState.readOnly} authoringApi={authoringApi} templatesEnabled={false} proposalsEnabled={false} autoBalanceEnabled={false} onDirtyChange={setEditorDirty} onProgressChange={setEditorProgress} onGenerationRequestHandled={handleGenerationRequestHandled} onStale={() => load(selected.id)} />
       </section>
       <section className="rounded-2xl border bg-white p-5">
         <h4 className="font-semibold">Version history</h4>

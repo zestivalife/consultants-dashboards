@@ -22,10 +22,12 @@ test('publication requires the exact approved version with no local edits', () =
   assert.equal(canPublishExternalDietVersion({ status: 'PUBLISHED', dirty: false }), false);
 });
 
-test('external editor disables both generation-on-mount paths while preserving explicit generation', async () => {
+test('external editor avoids implicit reload generation and only requests generation for a newly created draft', async () => {
   const workspace = await readFile(new URL('../components/external/ExternalMultiDietPlan.jsx', import.meta.url), 'utf8');
   const editor = await readFile(new URL('../components/platform/CommonFoodPlanEditor.jsx', import.meta.url), 'utf8');
-  assert.match(workspace, /generationRequestId=\{editorState\.generationRequestId\}/);
+  assert.match(workspace, /generationRequestId=\{generationRequest\.planId === selected\.id \? generationRequest\.id : editorState\.generationRequestId\}/);
+  assert.match(workspace, /if \(loaded\.preferredLoaded\)[\s\S]*setGenerationRequest/);
+  assert.match(workspace, /onGenerationRequestHandled=\{handleGenerationRequestHandled\}/);
   assert.match(workspace, /generateMissingOnLoad=\{false\}/);
   assert.doesNotMatch(workspace, /generationRequestId=\{1\}/);
   assert.match(editor, /generateMissingOnLoad && isCommonFoodCombinationEngineEnabled/);

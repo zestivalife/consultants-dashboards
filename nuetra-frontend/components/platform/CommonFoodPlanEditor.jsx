@@ -18,7 +18,7 @@ import {
   updateFiteatsyCommonFoodServing,
 } from '../../lib/fiteatsyConsultantsApi';
 import { isCommonFoodCombinationEngineEnabled } from '../../lib/dietFeatureFlags';
-import { COMMON_FOOD_MEALS, buildMealAuthoringPool, commonFoodErrorMessage, commonFoodOptionType, formatNutrient, legacyOptionsForUnifiedPlan, optionSummary, optionTitle, previousOptionReuseState } from '../../lib/commonFoodUi.mjs';
+import { COMMON_FOOD_MEALS, buildMealAuthoringPool, commonFoodErrorMessage, commonFoodOptionType, formatNutrient, governedGenerationCandidates, legacyOptionsForUnifiedPlan, optionSummary, optionTitle, previousOptionReuseState } from '../../lib/commonFoodUi.mjs';
 import { isValidDraftSelection, mergeCandidateOptions, verifyPersistedSelection } from '../../lib/commonFoodSelectionLifecycle.mjs';
 import { ConsultantFoodProposalPanel } from './FoodProposalUx';
 
@@ -168,7 +168,7 @@ function LegacyOptionDetails({ option }) {
   return <div className="mt-3 grid gap-2 border-t pt-3 text-xs text-gray-600 sm:grid-cols-2"><span>Serving: {option.servingLabel}</span><span>Verification: {option.verificationStatus || 'Legacy plan record'}</span>{option.prepNote ? <span className="sm:col-span-2">Preparation: {option.prepNote}</span> : null}</div>;
 }
 
-const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId, dietPlanId, planVersionId, lifecycle, initialOptions = [], legacyMealPlan = {}, generationRequestId = 0, generateMissingOnLoad = true, readOnly = false, mode = 'authoring', authoringApi = defaultAuthoringApi, templatesEnabled = true, proposalsEnabled = true, autoBalanceEnabled = true, onStale, onDirtyChange, onProgressChange }, ref) {
+const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId, dietPlanId, planVersionId, lifecycle, initialOptions = [], legacyMealPlan = {}, generationRequestId = 0, generateMissingOnLoad = true, readOnly = false, mode = 'authoring', authoringApi = defaultAuthoringApi, templatesEnabled = true, proposalsEnabled = true, autoBalanceEnabled = true, onStale, onDirtyChange, onProgressChange, onGenerationRequestHandled }, ref) {
   const [meals, setMeals] = useState([]);
   const [options, setOptions] = useState(initialOptions);
   const [selectedIds, setSelectedIds] = useState(() => new Set(initialOptions.map((option) => option.combinationId)));
@@ -219,9 +219,10 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
     try {
       const response = await authoringApi.generate(clientId, dietPlanId, COMMON_FOOD_MEALS.map(([head]) => head));
       if (response?.supported === false) { setOptions([]); setMeals([]); setError(commonFoodErrorMessage({ data: { error: response.code } })); return; }
-      const generated = (response?.meals || []).flatMap((meal) => meal.options || []);
+      const generatedProjection = governedGenerationCandidates(response);
+      const generated = generatedProjection.options;
       setGenerationSnapshot(response?.generationSnapshot || null);
-      setMeals(response?.meals || []);
+      setMeals(generatedProjection.meals);
       setOptions((current) => {
         const sourceOptions = Array.isArray(baseOptions) ? baseOptions : current;
         const byId = new Map(sourceOptions.map((option) => [option.combinationId, option]));
@@ -268,11 +269,12 @@ const CommonFoodPlanEditor = forwardRef(function CommonFoodPlanEditor({ clientId
     if (readOnly) return;
     if (generationRequestId > handledGenerationRequest.current && ['draft', 'changes_requested'].includes(lifecycle) && !readOnly) {
       handledGenerationRequest.current = generationRequestId;
+      onGenerationRequestHandled?.(generationRequestId);
       void generate();
       return;
     }
     void reload();
-  }, [dietPlanId, generate, generationRequestId, lifecycle, planVersionId, readOnly, reload]);
+  }, [dietPlanId, generate, generationRequestId, lifecycle, onGenerationRequestHandled, planVersionId, readOnly, reload]);
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => { const warn = (event) => { if (dirty) { event.preventDefault(); event.returnValue = ''; } }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn); }, [dirty]);
 

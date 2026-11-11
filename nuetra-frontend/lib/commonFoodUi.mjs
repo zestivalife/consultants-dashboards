@@ -3,6 +3,14 @@ export const COMMON_FOOD_MEALS = [
   ['LUNCH', 'Lunch'], ['EVENING_SNACK', 'Evening Snack'], ['DINNER', 'Dinner'], ['BEDTIME', 'Bedtime'],
 ];
 
+export function governedGenerationCandidates(response = {}) {
+  const meals = Array.isArray(response.meals) ? response.meals : [];
+  return {
+    meals,
+    options: meals.flatMap((meal) => (Array.isArray(meal?.options) ? meal.options : [])),
+  };
+}
+
 export const COMMON_FOOD_ERROR_MESSAGES = {
   AUTHENTICATION_REQUIRED: 'Your session could not be verified. Sign in again, then retry this Diet Plan action.',
   EXTERNAL_PRACTICE_SCOPE_REQUIRED: 'Your active External Practice workspace could not be verified. Reload the workspace before retrying.',
