@@ -6,7 +6,15 @@ from unittest.mock import AsyncMock, patch
 from pydantic import ValidationError
 from starlette.requests import Request
 
-from app.routers.fiteatsy_bridge import QaAdminProvisionRequest, _assert_owner_authority, create_professional_assignments_batch, list_professional_assignment_clients, provision_qa_admin
+from app.routers.fiteatsy_bridge import (
+    QaAdminProvisionRequest,
+    _assert_owner_authority,
+    create_external_practice_referral,
+    create_professional_assignments_batch,
+    list_external_practice_professionals,
+    list_professional_assignment_clients,
+    provision_qa_admin,
+)
 
 
 def owner_request(*, role="platform_owner", permissions=None, products=None, user_id="owner-123", idempotency_key="phase-c-admin", method="POST", query_string=b"", authorization=None):
@@ -187,6 +195,68 @@ class FiteatsyOwnerBridgeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call.args[0], "POST")
         self.assertEqual(call.kwargs["headers"]["Idempotency-Key"], "batch-123")
         self.assertEqual(call.kwargs["headers"]["X-Zestiva-Delegation"], "signed-write-token")
+        self.assertNotIn("Authorization", call.kwargs["headers"])
+
+    async def test_external_practice_discovery_uses_separate_read_contract(self):
+        permission = "fiteatsy.client.assignment.read"
+        request = owner_request(
+            role="platform_owner",
+            permissions=[permission],
+            products=["fiteatsy"],
+            method="GET",
+            query_string=b"q=external",
+        )
+        settings = SimpleNamespace(fiteatsy_service_url="https://fiteatsy.example")
+        with (
+            patch("app.routers.fiteatsy_bridge.get_settings", return_value=settings),
+            patch("app.routers.fiteatsy_bridge.issue_fiteatsy_delegation", return_value="signed-read-token") as issue,
+            patch("app.routers.fiteatsy_bridge.httpx.AsyncClient", FakeHttpClient),
+        ):
+            await list_external_practice_professionals(request)
+        issue.assert_called_once_with(
+            subject="owner-123",
+            permissions=[permission],
+            purpose="external_practice_referral",
+            actor_type="platform_owner",
+        )
+        call = FakeHttpClient.request.await_args
+        self.assertEqual(call.args[0], "GET")
+        self.assertEqual(call.args[1], "https://fiteatsy.example/v1/internal/delegated/external-practice-referrals/professionals")
+        self.assertEqual(call.kwargs["params"], {"q": "external"})
+        self.assertNotIn("Authorization", call.kwargs["headers"])
+
+    async def test_external_practice_referral_uses_separate_idempotent_write_contract(self):
+        permission = "fiteatsy.client.assign"
+        request = owner_request(
+            role="platform_owner",
+            permissions=[permission],
+            products=["fiteatsy"],
+            idempotency_key="external-referral-123",
+            authorization="Bearer browser-zestiva-token",
+        )
+        body = {
+            "clientUserId": "11111111-1111-4111-8111-111111111111",
+            "professionalUserId": "22222222-2222-4222-8222-222222222222",
+            "reason": "External practice referral",
+        }
+        settings = SimpleNamespace(fiteatsy_service_url="https://fiteatsy.example")
+        with (
+            patch("app.routers.fiteatsy_bridge.get_settings", return_value=settings),
+            patch("app.routers.fiteatsy_bridge.issue_fiteatsy_delegation", return_value="signed-write-token") as issue,
+            patch("app.routers.fiteatsy_bridge.httpx.AsyncClient", FakeHttpClient),
+        ):
+            await create_external_practice_referral(request, body)
+        issue.assert_called_once_with(
+            subject="owner-123",
+            permissions=[permission],
+            purpose="external_practice_referral",
+            actor_type="platform_owner",
+        )
+        call = FakeHttpClient.request.await_args
+        self.assertEqual(call.args[0], "POST")
+        self.assertEqual(call.args[1], "https://fiteatsy.example/v1/internal/delegated/external-practice-referrals")
+        self.assertEqual(call.kwargs["headers"]["Idempotency-Key"], "external-referral-123")
+        self.assertEqual(call.kwargs["json"], body)
         self.assertNotIn("Authorization", call.kwargs["headers"])
 
     async def test_downstream_delegation_failure_does_not_expire_the_browser_session(self):
