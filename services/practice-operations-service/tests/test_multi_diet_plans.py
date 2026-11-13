@@ -127,7 +127,9 @@ def test_mobile_nutrition_adapter_preserves_seven_meals_and_authoritative_values
         "combinationId": "option-1", "mealHead": "BREAKFAST", "clientTitle": "Poha and curd",
         "humanServingSummary": "1 bowl", "calculationStatus": "AUTHORITATIVELY_RESOLVED",
         "nutrition": {"kcal": 320, "protein": 14, "carbs": 48, "fat": 8, "fibre": 6},
-        "components": [{"componentId": "component-1", "foodId": "food-1", "foodDisplayNameSnapshot": "Poha",
+        "components": [{"componentId": "component-1", "foodId": "food-1", "foodVersion": 3,
+            "servingId": "serving-bowl", "servingVersion": 2, "sourceMappingId": "USDA_FDC:123",
+            "foodDisplayNameSnapshot": "Poha",
             "servingDisplayNameSnapshot": "1 bowl", "label": "1 bowl", "grams": 100,
             "nutrition": {"kcal": 320, "protein": 14, "carbs": 48, "fat": 8, "fibre": 6}}],
     }
@@ -136,6 +138,10 @@ def test_mobile_nutrition_adapter_preserves_seven_meals_and_authoritative_values
     rendered = content["mealPlan"]["breakfast"]["options"][0]
     assert rendered["approxKcal"] == 320 and rendered["proteinGrams"] == 14
     assert rendered["components"][0]["foodId"] == "food-1"
+    assert rendered["components"][0]["foodVersion"] == 3
+    assert rendered["components"][0]["servingId"] == "serving-bowl"
+    assert rendered["components"][0]["servingVersion"] == 2
+    assert rendered["components"][0]["sourceMappingId"] == "USDA_FDC:123"
     assert rendered["components"][0]["calories"] == 320
 
 
