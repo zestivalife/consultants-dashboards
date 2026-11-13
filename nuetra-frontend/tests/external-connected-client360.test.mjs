@@ -139,11 +139,33 @@ test('connected evidence records retain factual report lifecycle timestamps', ()
   assert.equal(records[0].confirmedAt,'2026-10-27T15:35:00Z');
 });
 
+test('authorised health-context projection exposes connection-scoped health records', () => {
+  const result=projectAuthorizedHealthContext({id:'client-1',displayName:'Connected Client'},{
+    reports:[{report_id:'report-1',reportType:'LAB_ANALYSIS',reportDate:'2026-11-12'}],
+    biomarkers:[{report_id:'report-1',biomarkerId:'hba1c',name:'HbA1c',value:5.6,unit:'%'}],
+  });
+  assert.equal(result.healthRecords.length,1);
+  assert.equal(result.healthRecords[0].id,'report-1');
+  assert.equal(result.healthRecords[0].connectionScoped,true);
+  assert.equal(result.healthRecords[0].biomarkerCount,1);
+  assert.equal(result.healthRecords[0].observations[0].name,'HbA1c');
+});
+
 test('connected Client 360 binds health records and does not expose a mutable connection status selector', () => {
   assert.match(component,/documents=\{data\.documents\|\|\[\]\}/);
   assert.match(component,/!client\.connectionId&&<select aria-label="Client status"/);
   assert.match(component,/loadAuthorizedClient360\(client,getFiteatsyConnectionHealthContext\)/);
   assert.doesNotMatch(component,/getExternalClient360\(client\.id\)/);
+  assert.match(component,/connectionRecords=\{client\.connectionId\?\(baseData\?\.healthRecords\|\|\[\]\):null\}/);
+});
+
+test('Client 360 keeps auxiliary failures inside the active section', () => {
+  assert.match(component,/sectionErrors\[active\]/);
+  assert.match(component,/setSectionError\('Health Profile'/);
+  assert.match(component,/setSectionError\('Nutrition',message\)/);
+  assert.match(component,/setSectionError\('Diet Plan',message\)/);
+  assert.match(component,/setSectionError\('Reports',message\)/);
+  assert.match(component,/Biomarkers could not be loaded/);
 });
 
 test('connected report download uses the browser document instead of shadowing it with report data', () => {

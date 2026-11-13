@@ -75,6 +75,28 @@ export function projectAuthorizedHealthContext(client, healthContext = {}) {
   const measurements = healthContext.measurements || {};
   const reports = list(healthContext.reports);
   const biomarkers = list(healthContext.biomarkers);
+  const healthRecords = reports.map((report) => {
+    const reportId = report.id || report.reportId || report.report_id;
+    const observations = Array.isArray(report.biomarkers)
+      ? report.biomarkers
+      : biomarkers.filter((item) => (item.reportId || item.report_id || item.source?.reportId) === reportId);
+    return {
+      id: reportId,
+      recordType: report.reportType || report.category || 'LAB_REPORT',
+      sampleDate: report.reportDate || report.sampleDate || report.uploadedAt || report.createdAt || observations[0]?.observationDate || null,
+      reportDate: report.reportDate || report.uploadedAt || report.createdAt || null,
+      confirmedAt: report.confirmedAt || report.reviewedAt || report.completedAt || report.updatedAt || null,
+      providerName: report.labName || report.providerName || null,
+      biomarkerCount: observations.length,
+      uploadedByType: report.uploadedByType || 'FITEATSY_CLIENT',
+      reviewStatus: report.reviewStatus || (report.processingStatus === 'COMPLETED' ? 'CONFIRMED' : 'PENDING'),
+      processingStatus: report.processingStatus || 'COMPLETED',
+      status: 'ACTIVE',
+      provenance: 'FITEATSY_CONNECTION',
+      observations,
+      connectionScoped: true,
+    };
+  });
   const missingRequiredFields = [
     !person.dob && 'dateOfBirth',
     onboarding.height == null && 'height',
@@ -144,6 +166,7 @@ export function projectAuthorizedHealthContext(client, healthContext = {}) {
       latest: biomarkers,
       pendingReviewCount: biomarkers.filter((item) => String(item.reviewStatus || item.review_status || '').toUpperCase() === 'REVIEW_REQUIRED').length,
     },
+    healthRecords,
     timeline: [],
     derived: { bmi: profile.healthMetrics?.bmi || healthContext.healthMetrics?.bmi || { status: 'NOT_AVAILABLE', value: null } },
     onboarding: canonicalOnboardingProjection(healthContext),
