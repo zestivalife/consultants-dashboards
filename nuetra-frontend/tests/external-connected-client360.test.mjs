@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import { externalClient360Base, externalConnectedBiomarkerHistory, externalConnectedBiomarkers, externalConnectedHealthRecords } from '../lib/externalClientProfile.mjs';
 import { contentDispositionFilename } from '../lib/contentDisposition.mjs';
+import { canonicalOnboardingProjection, hydrateDirectoryOnboarding, projectAuthorizedHealthContext, reconcileAuthorizedMeasurements } from '../lib/connectedClient360.mjs';
 
 const component = fs.readFileSync(new URL('../components/external/ExternalClient360.jsx', import.meta.url), 'utf8');
 const enhancements = fs.readFileSync(new URL('../components/external/ExternalClientProfileEnhancements.jsx', import.meta.url), 'utf8');
@@ -179,4 +180,53 @@ test('authorised Fiteatsy profile name replaces directory placeholder without fa
     profile:{client:{name:null,first_name:null,last_name:null}},
   });
   assert.equal(missing.overview.name,'Unnamed client');
+});
+
+test('canonical Fiteatsy profile completion is distinct from optional professional intake', () => {
+  assert.deepEqual(canonicalOnboardingProjection({profile:{healthProfile:{profileCompleted:true,updatedAt:'2026-11-13T03:56:52Z'}}}),{
+    state:'COMPLETED',completionPercent:null,source:'FITEATSY_CANONICAL_PROFILE',updatedAt:'2026-11-13T03:56:52Z',
+  });
+  assert.equal(canonicalOnboardingProjection({profile:{healthProfile:{profileCompleted:false,completionPercent:45}}}).state,'IN_PROGRESS');
+  assert.equal(canonicalOnboardingProjection({}).state,'UNAVAILABLE');
+});
+
+test('authorised canonical measurements fill an empty practice projection without fabricating history', () => {
+  const client360=projectAuthorizedHealthContext({id:'client-1',displayName:'LalitP'},{
+    profile:{onboarding:{height:170,weight:68},healthProfile:{profileCompleted:true,updatedAt:'2026-11-13T03:56:52Z'}},
+  });
+  const resolved=reconcileAuthorizedMeasurements(client360,{latest:{},history:[],calculations:{}});
+  assert.equal(resolved.latest.HEIGHT_CM.value,170);
+  assert.equal(resolved.latest.WEIGHT_KG.value,68);
+  assert.equal(resolved.latest.HEIGHT_CM.source,'FITEATSY_ONBOARDING');
+  assert.deepEqual(resolved.history,[]);
+
+  const authoritativePractice={measurement_type:'WEIGHT_KG',value:69,unit:'kg'};
+  const preserved=reconcileAuthorizedMeasurements(client360,{latest:{WEIGHT_KG:authoritativePractice},history:[]});
+  assert.equal(preserved.latest.WEIGHT_KG,authoritativePractice);
+});
+
+test('directory onboarding hydration is consent-aware and failed APIs never become zero percent', async () => {
+  const clients=[
+    {id:'active',connectionId:'connection-1',connectionState:'ACTIVE',consentedScopes:['PROFILE']},
+    {id:'revoked',connectionId:'connection-2',connectionState:'REVOKED',consentedScopes:['PROFILE']},
+    {id:'no-profile',connectionId:'connection-3',connectionState:'ACTIVE',consentedScopes:['DIET_PLANS']},
+    {id:'failed',connectionId:'connection-4',connectionState:'ACTIVE',consentedScopes:['PROFILE']},
+  ];
+  const hydrated=await hydrateDirectoryOnboarding(clients,async(id)=>{
+    if(id==='connection-4')throw new Error('timeout');
+    return {profile:{healthProfile:{profileCompleted:true}}};
+  });
+  assert.deepEqual(hydrated.map(item=>[item.id,item.mobileOnboardingState,item.mobileOnboardingCompletionPercent]),[
+    ['active','COMPLETED',null],
+    ['revoked','ACCESS_RESTRICTED',null],
+    ['no-profile','ACCESS_RESTRICTED',null],
+    ['failed','UNAVAILABLE',null],
+  ]);
+});
+
+test('Client 360 uses reconciled measurements and canonical onboarding instead of profession intake', () => {
+  assert.match(component,/reconcileAuthorizedMeasurements/);
+  assert.match(component,/value=\{onboardingLabel\}/);
+  assert.doesNotMatch(component,/label="Onboarding" value=\{`\$\{professionIntake/);
+  assert.match(component,/measurements=\{resolvedMeasurements\}/);
 });

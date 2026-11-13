@@ -25,5 +25,7 @@ test('dashboard and Client360 consume the read-only canonical profession project
   assert.match(workspace,/intakeState:projection.status/);
   assert.match(client360,/getClientProfessionIntake/);
   assert.match(client360,/createProfessionIntakeInvitation/);
-  assert.match(client360,/professionIntake\?\.completion_percent/);
+  assert.match(client360,/professionIntake\.profession_code\|\|professionConfig\?\.profession/);
+  assert.match(client360,/professionIntake\.review_state\|\|professionIntake\.status/);
+  assert.doesNotMatch(client360,/label="Onboarding" value=\{`\$\{professionIntake/);
 });

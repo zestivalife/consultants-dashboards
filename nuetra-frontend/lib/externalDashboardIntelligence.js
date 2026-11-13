@@ -21,6 +21,9 @@ const priorityFor=score=>PRIORITY_THRESHOLDS.find(item=>score>=item.minimum);
 const ageLabel=(value,now)=>{if(!value)return'Time unavailable';const hours=Math.max(0,Math.floor((now-new Date(value))/36e5));if(hours<1)return'Less than an hour ago';if(hours<24)return`${hours}h ago`;return`${Math.floor(hours/24)}d ago`;};
 
 export function deriveOnboardingState(client={}){
+  const mobileState=typeof client.mobileOnboardingState==='string'?client.mobileOnboardingState.toUpperCase():null;
+  const mobilePercent=client.mobileOnboardingCompletionPercent!==null&&client.mobileOnboardingCompletionPercent!==undefined&&client.mobileOnboardingCompletionPercent!==''&&Number.isFinite(Number(client.mobileOnboardingCompletionPercent))?Math.max(0,Math.min(100,Number(client.mobileOnboardingCompletionPercent))):null;
+  if(mobileState)return{state:mobileState,completionPercent:mobilePercent,source:'FITEATSY_CANONICAL_PROFILE'};
   const intakeState=typeof client.intakeState==='string'?client.intakeState.toUpperCase():null;
   const hasPercent=client.intakeCompletionPercent!==null&&client.intakeCompletionPercent!==undefined&&client.intakeCompletionPercent!=='';
   const completionPercent=hasPercent&&Number.isFinite(Number(client.intakeCompletionPercent))?Math.max(0,Math.min(100,Number(client.intakeCompletionPercent))):null;

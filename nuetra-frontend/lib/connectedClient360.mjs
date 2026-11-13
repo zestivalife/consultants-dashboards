@@ -2,6 +2,31 @@ const list = (value) => Array.isArray(value) ? value : value == null || value ==
 
 const deniedConnectionStates = new Set(['REVOKED', 'EXPIRED', 'DISCONNECTED', 'SUSPENDED', 'CONSENT_REVOKED', 'CONSENT_EXPIRED']);
 
+const numericPercent = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(100, parsed)) : null;
+};
+
+export function canonicalOnboardingProjection(healthContext = {}) {
+  const healthProfile = healthContext.profile?.healthProfile || healthContext.healthProfile || {};
+  const completionPercent = numericPercent(
+    healthProfile.completionPercent ?? healthProfile.completion_percent,
+  );
+  const completed = healthProfile.profileCompleted ?? healthProfile.profile_completed;
+  const state = completed === true || completionPercent === 100
+    ? 'COMPLETED'
+    : completed === false || completionPercent !== null
+      ? 'IN_PROGRESS'
+      : 'UNAVAILABLE';
+  return {
+    state,
+    completionPercent,
+    source: 'FITEATSY_CANONICAL_PROFILE',
+    updatedAt: healthProfile.updatedAt ?? healthProfile.updated_at ?? healthContext.generatedAt ?? null,
+  };
+}
+
 export function hasAuthorizedHealthConnection(client = {}) {
   if (!client.connectionId) return false;
   const state = String(client.connectionState || client.relationshipStatus || client.status || '').toUpperCase();
@@ -36,6 +61,7 @@ export function projectDirectoryClient360(client) {
     documents: [],
     timeline: [],
     derived: { bmi: { status: 'NOT_AVAILABLE', value: null } },
+    onboarding: { state: 'ACCESS_RESTRICTED', completionPercent: null, source: 'CONSENT_REQUIRED', updatedAt: null },
   };
 }
 
@@ -120,7 +146,56 @@ export function projectAuthorizedHealthContext(client, healthContext = {}) {
     },
     timeline: [],
     derived: { bmi: profile.healthMetrics?.bmi || healthContext.healthMetrics?.bmi || { status: 'NOT_AVAILABLE', value: null } },
+    onboarding: canonicalOnboardingProjection(healthContext),
   };
+}
+
+export function reconcileAuthorizedMeasurements(client360 = {}, practiceMeasurements = {}) {
+  const next = {
+    ...practiceMeasurements,
+    latest: { ...(practiceMeasurements.latest || {}) },
+    history: Array.isArray(practiceMeasurements.history) ? practiceMeasurements.history : [],
+    calculations: { ...(practiceMeasurements.calculations || {}) },
+  };
+  const canonical = client360.sections?.measurements || {};
+  const occurredAt = client360.onboarding?.updatedAt || null;
+  const addCanonical = (key, value, unit) => {
+    if (next.latest[key] || value === null || value === undefined || value === '') return;
+    next.latest[key] = {
+      measurement_type: key,
+      value: Number(value),
+      unit,
+      measured_at: occurredAt,
+      source: 'FITEATSY_ONBOARDING',
+      read_only: true,
+    };
+  };
+  addCanonical('HEIGHT_CM', canonical.heightCm ?? canonical.height, 'cm');
+  addCanonical('WEIGHT_KG', canonical.weightKg ?? canonical.weight, 'kg');
+  return next;
+}
+
+export async function hydrateDirectoryOnboarding(clients = [], getHealthContext) {
+  return Promise.all(clients.map(async (client) => {
+    if (!hasAuthorizedHealthConnection(client)) {
+      return { ...client, mobileOnboardingState: 'ACCESS_RESTRICTED', mobileOnboardingCompletionPercent: null };
+    }
+    const scopes = Array.isArray(client.consentedScopes) ? client.consentedScopes : [];
+    if (scopes.length && !scopes.includes('PROFILE')) {
+      return { ...client, mobileOnboardingState: 'ACCESS_RESTRICTED', mobileOnboardingCompletionPercent: null };
+    }
+    try {
+      const projection = canonicalOnboardingProjection(await getHealthContext(client.connectionId));
+      return {
+        ...client,
+        mobileOnboardingState: projection.state,
+        mobileOnboardingCompletionPercent: projection.completionPercent,
+        mobileOnboardingUpdatedAt: projection.updatedAt,
+      };
+    } catch {
+      return { ...client, mobileOnboardingState: 'UNAVAILABLE', mobileOnboardingCompletionPercent: null };
+    }
+  }));
 }
 
 export async function loadAuthorizedClient360(client, getHealthContext) {
