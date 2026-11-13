@@ -7,6 +7,7 @@ import { contentDispositionFilename } from '../lib/contentDisposition.mjs';
 import { canonicalOnboardingProjection, hydrateDirectoryOnboarding, projectAuthorizedHealthContext, reconcileAuthorizedMeasurements } from '../lib/connectedClient360.mjs';
 
 const component = fs.readFileSync(new URL('../components/external/ExternalClient360.jsx', import.meta.url), 'utf8');
+const biomarkerHistory = fs.readFileSync(new URL('../components/external/ExternalBiomarkerHistory.jsx', import.meta.url), 'utf8');
 const enhancements = fs.readFileSync(new URL('../components/external/ExternalClientProfileEnhancements.jsx', import.meta.url), 'utf8');
 
 test('connected external Client 360 uses the consented Practice Operations health context', () => {
@@ -175,6 +176,11 @@ test('connected biomarker cards tolerate omitted review status and dates', () =>
   assert.match(component,/row\.observationDate\|\|'Date unavailable'/);
   assert.doesNotMatch(component,/item\.reviewStatus\.replaceAll/);
   assert.doesNotMatch(component,/row\.reviewStatus\.replaceAll/);
+});
+
+test('active biomarker history tolerates Fiteatsy projections without review metadata', () => {
+  assert.match(biomarkerHistory,/String\(item\.reviewStatus\|\|'UNKNOWN'\)\.replaceAll\('_',' '\)/);
+  assert.doesNotMatch(biomarkerHistory,/item\.reviewStatus\.replaceAll/);
 });
 
 test('connected report download uses the browser document instead of shadowing it with report data', () => {
