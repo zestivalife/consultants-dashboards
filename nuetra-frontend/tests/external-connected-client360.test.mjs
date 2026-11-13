@@ -168,6 +168,15 @@ test('Client 360 keeps auxiliary failures inside the active section', () => {
   assert.match(component,/Biomarkers could not be loaded/);
 });
 
+test('connected biomarker cards tolerate omitted review status and dates', () => {
+  assert.match(component,/String\(item\.reviewStatus\|\|'UNKNOWN'\)\.replaceAll\('_',' '\)/);
+  assert.match(component,/String\(row\.reviewStatus\|\|'UNKNOWN'\)\.replaceAll\('_',' '\)/);
+  assert.match(component,/item\.observationDate\|\|'Date unavailable'/);
+  assert.match(component,/row\.observationDate\|\|'Date unavailable'/);
+  assert.doesNotMatch(component,/item\.reviewStatus\.replaceAll/);
+  assert.doesNotMatch(component,/row\.reviewStatus\.replaceAll/);
+});
+
 test('connected report download uses the browser document instead of shadowing it with report data', () => {
   assert.match(component,/const downloadDocument=async\(report\)/);
   assert.match(component,/window\.document\.createElement\('a'\)/);
