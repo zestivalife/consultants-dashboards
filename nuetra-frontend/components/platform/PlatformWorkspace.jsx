@@ -2506,7 +2506,7 @@ function RealClientProfileDrawer({
             <DetailField label="Latest metric" value={wearableSummary?.latestMetrics?.[0] ? `${wearableSummary.latestMetrics[0].metricType} • ${wearableSummary.latestMetrics[0].latestValue} ${wearableSummary.latestMetrics[0].unit}` : 'Not available'} />
           </div>
           <div className="grid gap-3 md:grid-cols-2">
-            {(wearableSummary?.latestMetrics || []).slice(0, 6).map((metric) => (
+            {(wearableSummary?.latestMetrics || []).map((metric) => (
               <div key={`${metric.metricType}-${metric.measuredAt}`} className="rounded-[18px] border border-[var(--fluent-color-neutral-stroke-1)] bg-[var(--fluent-color-neutral-background-2)] p-4">
                 <p className="text-sm font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{metric.metricType}</p>
                 <p className="mt-2 text-[22px] font-semibold text-[var(--fluent-color-neutral-foreground-1)]">{`${metric.latestValue} ${metric.unit}`.trim()}</p>
@@ -2566,7 +2566,7 @@ function RealClientProfileDrawer({
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <DetailField label="Daily energy target" value={nutritionProtocol?.calorieTarget != null ? `${nutritionProtocol.calorieTarget} kcal` : nutritionSnapshot?.calorieTarget != null ? `${nutritionSnapshot.calorieTarget} kcal` : 'Not available'} />
         <DetailField label="Protein target" value={nutritionProtocol?.macroTargets?.proteinGrams != null ? `${nutritionProtocol.macroTargets.proteinGrams} g` : nutritionSnapshot?.proteinTarget != null ? `${nutritionSnapshot.proteinTarget} g` : 'Not available'} />
-        <DetailField label="Hydration target" value={nutritionProtocol?.hydrationTargetLitres != null ? `${nutritionProtocol.hydrationTargetLitres} L` : nutritionSnapshot?.hydrationTargetLitres != null ? `${nutritionSnapshot.hydrationTargetLitres} L` : 'Not available'} />
+        <DetailField label="Hydration target" value={nutritionProtocol?.hydrationTargetLiters != null ? `${nutritionProtocol.hydrationTargetLiters} L` : nutritionSnapshot?.hydrationTargetLiters != null ? `${nutritionSnapshot.hydrationTargetLiters} L` : 'Not available'} />
         <DetailField label="Current adherence" value={weeklyNutritionMonitoring?.adherencePercent != null ? `${weeklyNutritionMonitoring.adherencePercent}%` : 'Not available'} />
       </div>
     </Surface>

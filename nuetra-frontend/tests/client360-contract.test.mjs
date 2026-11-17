@@ -78,3 +78,26 @@ test('assignment authorization failures remain global and fail closed', () => {
   assert.match(api, /requestFiteatsyJson\(`\/v1\/consultants\/clients\/\$\{encodedClientId\}\/workspace`\)/);
   assert.match(workspace, /if \(error\.status === 403\) return 'An active client assignment is required';/);
 });
+
+test('canonical Consultant workspace adapter preserves every governed receiving projection', () => {
+  const adapter = api.match(/export async function getFiteatsyConsultantClientProfile[\s\S]*?\n}/)?.[0] || '';
+  for (const field of [
+    'foodPreferences',
+    'medicationMonitoring',
+    'stressAssessment',
+    'recoveryMetrics',
+    'healthIntelligence',
+  ]) {
+    assert.match(adapter, new RegExp(`${field}: body\\?\\.${field} \\|\\| null`), `${field} must not be dropped by the dashboard adapter`);
+  }
+});
+
+test('nutrition receipt uses the backend hydration contract spelling', () => {
+  assert.match(workspace, /nutritionProtocol\?\.hydrationTargetLiters/);
+  assert.doesNotMatch(workspace, /hydrationTargetLitres/);
+});
+
+test('activity receipt does not truncate authorised canonical metric categories', () => {
+  assert.match(workspace, /\(wearableSummary\?\.latestMetrics \|\| \[\]\)\.map/);
+  assert.doesNotMatch(workspace, /wearableSummary\?\.latestMetrics \|\| \[\]\)\.slice/);
+});
