@@ -101,3 +101,8 @@ test('activity receipt does not truncate authorised canonical metric categories'
   assert.match(workspace, /\(wearableSummary\?\.latestMetrics \|\| \[\]\)\.map/);
   assert.doesNotMatch(workspace, /wearableSummary\?\.latestMetrics \|\| \[\]\)\.slice/);
 });
+
+test('capture and check-in projections survive the dashboard adapter without visual expansion',()=>{
+  assert.match(api,/clientCapturedEvents: body\?\.clientCapturedEvents \|\| \[\]/);
+  assert.match(api,/dailyCheckIns: body\?\.dailyCheckIns \|\| \[\]/);
+});

@@ -625,6 +625,8 @@ export async function getFiteatsyConsultantClientProfile(clientId) {
     recoveryMetrics: body?.recoveryMetrics || null,
     healthIntelligence: body?.healthIntelligence || null,
     foodPreferences: body?.foodPreferences || null,
+    clientCapturedEvents: body?.clientCapturedEvents || [],
+    dailyCheckIns: body?.dailyCheckIns || [],
     reports: Array.isArray(body?.reports) ? body.reports : [],
     recommendations: Array.isArray(body?.recommendations) ? body.recommendations : [],
     timeline: Array.isArray(body?.timeline) ? body.timeline : [],
