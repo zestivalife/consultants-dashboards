@@ -42,7 +42,7 @@ test('production-compatible seven-meal response supplies 35 named selectable edi
 test('newly created draft requests generation once while existing empty and immutable plans remain explicit', async () => {
   const workspace = await readFile(new URL('../components/external/ExternalMultiDietPlan.jsx', import.meta.url), 'utf8');
   const editor = await readFile(new URL('../components/platform/CommonFoodPlanEditor.jsx', import.meta.url), 'utf8');
-  assert.match(workspace, /if \(loaded\.preferredLoaded\)[\s\S]*setGenerationRequest\(\{ planId: result\.id/);
+  assert.match(workspace, /if \(loaded\.preferredLoaded && targets\.daily_calories_target != null\)[\s\S]*setGenerationRequest\(\{ planId: result\.id/);
   assert.match(workspace, /generationRequest\.planId === selected\.id/);
   assert.match(workspace, /onGenerationRequestHandled=\{handleGenerationRequestHandled\}/);
   assert.match(editor, /onGenerationRequestHandled\?\.\(generationRequestId\)/);

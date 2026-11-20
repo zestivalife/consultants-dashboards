@@ -1,5 +1,15 @@
 const optionalNumber=(value)=>value===''||value==null?null:Number(value);
 
+export const optionalTargetIsValid=(value)=>{
+  const parsed=optionalNumber(value);
+  return parsed==null||(Number.isFinite(parsed)&&parsed>=0);
+};
+
+export const targetFormIsValid=(form,{requiresName=true}={})=>(
+  (!requiresName||String(form.name||'').trim().length>=2)
+  &&['dailyCalories','dailyProtein','dailyCarbohydrate','dailyFat','dailyFibre'].every((field)=>optionalTargetIsValid(form[field]))
+);
+
 export const macroCalories=({protein,carbohydrate,fat})=>{
   const values=[protein,carbohydrate,fat].map(optionalNumber);
   if(values.some((value)=>value==null||!Number.isFinite(value)||value<0))return null;
@@ -34,8 +44,8 @@ export const applyEnergyEstimate=(form,estimate)=>({
 });
 
 export const targetPayload=(form,confirmedAt)=>({
-  daily_calories_target:Number(form.dailyCalories),
-  daily_protein_target_g:Number(form.dailyProtein),
+  daily_calories_target:optionalNumber(form.dailyCalories),
+  daily_protein_target_g:optionalNumber(form.dailyProtein),
   daily_carbohydrate_target_g:optionalNumber(form.dailyCarbohydrate),
   daily_fat_target_g:optionalNumber(form.dailyFat),
   daily_fibre_target_g:optionalNumber(form.dailyFibre),

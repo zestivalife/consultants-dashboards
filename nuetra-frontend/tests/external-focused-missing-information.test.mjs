@@ -33,8 +33,8 @@ test('external profile warnings are non-blocking and target validation remains t
   assert.match(client360,/Continue to Diet Plan/);
   assert.doesNotMatch(client360,/overview\.dietPlanEligible &&/);
   assert.doesNotMatch(client360,/Diet Plan generation remains unavailable/);
-  assert.match(dietPlan,/const valid =/);
-  assert.match(dietPlan,/Number\(form\.dailyCalories\) >= 1/);
-  assert.match(dietPlan,/Number\(form\.dailyProtein\) >= 0/);
+  assert.match(dietPlan,/const valid = targetFormIsValid/);
+  assert.match(dietPlan,/Save Diet Chart draft/);
+  assert.match(dietPlan,/targetFormIsValid/);
   assert.doesNotMatch(client360,/overview\.intakeStatus='REQUIRED_INFORMATION_MISSING'/);
 });

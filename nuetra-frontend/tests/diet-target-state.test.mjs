@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {applyEnergyEstimate,macroCalories,macroConsistencyAdvisory,targetPayload} from '../lib/dietTargetState.mjs';
+import {applyEnergyEstimate,macroCalories,macroConsistencyAdvisory,targetFormIsValid,targetPayload} from '../lib/dietTargetState.mjs';
 
 test('energy estimate stays separate until explicitly applied',()=>{
   const form={dailyCalories:'1800',activityLevel:'light',energyAdjustment:'0',targetMethodology:'CONSULTANT_MANUAL',calculationProvenance:{}};
@@ -15,6 +15,21 @@ test('energy estimate stays separate until explicitly applied',()=>{
 test('manual target payload retains nullable macros and confirmation provenance',()=>{
   const payload=targetPayload({dailyCalories:'1900',dailyProtein:'90',dailyCarbohydrate:'220',dailyFat:'60',dailyFibre:'',activityLevel:'light',energyAdjustment:'-100',targetMethodology:'CONSULTANT_MANUAL',calculationProvenance:{}},'2026-11-08T01:00:00.000Z');
   assert.deepEqual(payload,{daily_calories_target:1900,daily_protein_target_g:90,daily_carbohydrate_target_g:220,daily_fat_target_g:60,daily_fibre_target_g:null,target_methodology:'CONSULTANT_MANUAL',activity_level:'light',energy_adjustment_kcal:-100,calculation_provenance:{source:'CONSULTANT_MANUAL',confirmedAt:'2026-11-08T01:00:00.000Z'}});
+});
+
+test('a draft can retain genuinely missing targets without converting them to zero',()=>{
+  const form={name:'Flexible draft',dailyCalories:'',dailyProtein:'',dailyCarbohydrate:'',dailyFat:'',dailyFibre:'',activityLevel:'moderate',energyAdjustment:'0',targetMethodology:'CONSULTANT_MANUAL',calculationProvenance:{}};
+  assert.equal(targetFormIsValid(form),true);
+  const payload=targetPayload(form,'2026-11-20T00:00:00.000Z');
+  assert.equal(payload.daily_calories_target,null);
+  assert.equal(payload.daily_protein_target_g,null);
+  assert.equal(payload.daily_carbohydrate_target_g,null);
+});
+
+test('consultant targets are finite and non-negative without arbitrary upper caps',()=>{
+  for(const calories of ['1800','2200','2800','12000'])assert.equal(targetFormIsValid({name:'Plan',dailyCalories:calories,dailyProtein:'650',dailyCarbohydrate:'2500',dailyFat:'1200',dailyFibre:'350'}),true);
+  assert.equal(targetFormIsValid({name:'Plan',dailyCalories:'-1',dailyProtein:'90',dailyCarbohydrate:'',dailyFat:'',dailyFibre:''}),false);
+  assert.equal(targetFormIsValid({name:'Plan',dailyCalories:'NaN',dailyProtein:'90',dailyCarbohydrate:'',dailyFat:'',dailyFibre:''}),false);
 });
 
 test('macro energy advisory warns without changing consultant values',()=>{

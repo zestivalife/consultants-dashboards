@@ -26,7 +26,7 @@ test('external editor avoids implicit reload generation and only requests genera
   const workspace = await readFile(new URL('../components/external/ExternalMultiDietPlan.jsx', import.meta.url), 'utf8');
   const editor = await readFile(new URL('../components/platform/CommonFoodPlanEditor.jsx', import.meta.url), 'utf8');
   assert.match(workspace, /generationRequestId=\{generationRequest\.planId === selected\.id \? generationRequest\.id : editorState\.generationRequestId\}/);
-  assert.match(workspace, /if \(loaded\.preferredLoaded\)[\s\S]*setGenerationRequest/);
+  assert.match(workspace, /if \(loaded\.preferredLoaded && targets\.daily_calories_target != null\)[\s\S]*setGenerationRequest/);
   assert.match(workspace, /onGenerationRequestHandled=\{handleGenerationRequestHandled\}/);
   assert.match(workspace, /generateMissingOnLoad=\{false\}/);
   assert.doesNotMatch(workspace, /generationRequestId=\{1\}/);

@@ -44,11 +44,15 @@ test("multiple named plans are listed, selected, created and persisted by immuta
   );
 });
 
-test("consultant-entered calorie and protein targets have only structural numeric validation", () => {
-  assert.match(multi, /Number\(form\.dailyCalories\) >= 1/);
-  assert.match(multi, /Number\(form\.dailyProtein\) >= 0/);
+test("consultant-entered targets are optional and have only structural numeric validation", () => {
+  assert.match(multi, /targetFormIsValid/);
+  assert.match(multi, /Calories \(optional\)/);
+  assert.match(multi, /Save Diet Chart draft/);
   assert.doesNotMatch(multi, /dailyCalories\) <= 6000/);
   assert.doesNotMatch(multi, /dailyProtein\) <= 400/);
+  assert.doesNotMatch(multi, /Calories \(optional\)<input[^>]*max=/);
+  assert.doesNotMatch(multi, /Protein \(g, optional\)<input[^>]*max=/);
+  assert.doesNotMatch(multi, /Carbohydrate \(g, optional\)<input[^>]*max=/);
 });
 
 test("generated governed food snapshots survive first draft persistence", () => {

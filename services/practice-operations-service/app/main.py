@@ -1921,7 +1921,7 @@ async def _diet_plan_projection(db, plan):
               WHERE plan_section_id=:section AND tenant_id=:tenant ORDER BY sort_order"""),
               {"section":section,"tenant":plan["tenant_id"]})).scalars().all()
             options=[dict(item or {}) for item in items]
-    value=dict(plan);value["id"]=str(value["id"]);value["daily_protein_target_g"]=float(value["daily_protein_target_g"] or 0)
+    value=dict(plan);value["id"]=str(value["id"]);value["daily_protein_target_g"]=float(value["daily_protein_target_g"]) if value["daily_protein_target_g"] is not None else None
     current_snapshot=dict((current or {}).get("nutrition_snapshot") or {})
     for key in ("daily_carbohydrate_target_g","daily_fat_target_g","daily_fibre_target_g","target_methodology","activity_level","energy_adjustment_kcal","calculation_provenance"):
         value[key]=current_snapshot.get(key)
@@ -1956,8 +1956,8 @@ def _mobile_diet_publication(plan, version, options, published_at):
       "contractVersion":"EXTERNAL_DIET_PLAN_V1",
       "plan":{"id":str(plan["id"]),"version":version,"title":plan["title"],
         "status":"PUBLISHED","publishedAt":published_at.isoformat()},
-      "targets":{"calories":float(plan["daily_calories_target"]),
-        "protein":float(plan["daily_protein_target_g"] or 0)},
+      "targets":{"calories":float(plan["daily_calories_target"]) if plan["daily_calories_target"] is not None else None,
+        "protein":float(plan["daily_protein_target_g"]) if plan["daily_protein_target_g"] is not None else None},
       "mealOptions":[{
         "id":str(item.get("combinationId") or ""),"mealHead":item.get("mealHead"),
         "title":item.get("clientTitle") or item.get("humanServingSummary") or item.get("mealHead"),
@@ -2009,8 +2009,8 @@ def _fiteatsy_nutrition_content(plan, options):
       "nutritionSnapshot":{"client":str(plan["client_id"]),"age":None,"gender":None,"goals":[],
         "healthConditions":[],"dietPreference":None,"allergies":[],"lifestyleSummary":"",
         "personalisedPlanFocus":"","programmeName":plan["title"],"preparedBy":str(plan["authorised_consultant_id"])},
-      "dailyTargets":{"calories":float(plan["daily_calories_target"]),
-        "protein":float(plan["daily_protein_target_g"] or 0),"carbohydrates":None,"fat":None,"fibre":None,
+      "dailyTargets":{"calories":float(plan["daily_calories_target"]) if plan["daily_calories_target"] is not None else None,
+        "protein":float(plan["daily_protein_target_g"]) if plan["daily_protein_target_g"] is not None else None,"carbohydrates":None,"fat":None,"fibre":None,
         "hydration":None,"movement":""},
       "mealPlan":meal_plan,"hydrationRhythm":[],"weeklySuccessGuide":[],"smartSubstitutions":[],
       "supplementsAndClinicalNotes":[],
@@ -2089,6 +2089,8 @@ async def estimate_diet_plan_energy(request:Request,client_id:str,body:DietEnerg
     return {"success":True,"data":payload,"error":None,"request_id":request.state.correlation_id}
 
 async def _resolve_governed_option(request,connection,plan,resolver_body,purpose="external_consultant_diet_option"):
+    if plan["daily_calories_target"] is None:
+        return None,error(request,409,"DIET_PLAN_ENERGY_TARGET_REQUIRED","Confirm a daily energy target before resolving governed meal options")
     settings=get_settings()
     if not all((settings.external_fiteatsy_backend_url,settings.external_fiteatsy_outbound_private_key,settings.external_fiteatsy_outbound_key_id)):
         return None,error(request,503,"FITEATSY_RESOLVER_UNAVAILABLE","The governed food resolver is not configured",True)
@@ -2120,6 +2122,7 @@ async def generate_governed_diet_options(request:Request,plan_id:UUID,body:DietO
     denied=await _diet_plan_assignment_guard(request,db,ctx,plan,"PLAN_EDIT")
     if denied:return denied
     if plan["status"] in {"APPROVED","PUBLISHED","ARCHIVED"}:return error(request,409,"DIET_PLAN_IMMUTABLE","Approved and published Diet Plans are immutable")
+    if plan["daily_calories_target"] is None:return error(request,409,"DIET_PLAN_ENERGY_TARGET_REQUIRED","Confirm a daily energy target before generating governed meal options")
     connection=await _active_diet_connection(db,ctx,plan["client_id"])
     if not connection:return error(request,403,"DIET_PLAN_CONSENT_REQUIRED","An active assigned Fiteatsy connection with Diet Plans consent is required")
     settings=get_settings()
@@ -2161,6 +2164,25 @@ def _legacy_governed_option(item):
         components.append(GovernedDietComponent(food_id=raw.get("foodId"),serving_id=raw.get("servingId"),multiplier=raw.get("multiplier")))
     return option_id,{"mealHead":meal_head,"components":[{"foodId":value.food_id,"servingId":value.serving_id,"multiplier":value.multiplier} for value in components]}
 
+def _diet_alternative_nutrition_summary(options):
+    meal_heads=("EARLY_MORNING","BREAKFAST","MID_MORNING","LUNCH","EVENING_SNACK","DINNER","BEDTIME")
+    ranges={};single_day=[]
+    for meal_head in meal_heads:
+        meal_options=[item for item in options if item.get("mealHead")==meal_head]
+        calories=[float((item.get("nutrition") or {}).get("kcal")) for item in meal_options if (item.get("nutrition") or {}).get("kcal") is not None]
+        protein=[float((item.get("nutrition") or {}).get("protein")) for item in meal_options if (item.get("nutrition") or {}).get("protein") is not None]
+        ranges[meal_head]={"option_count":len(meal_options),"minimum_kcal":min(calories) if len(calories)==len(meal_options) and calories else None,"maximum_kcal":max(calories) if len(calories)==len(meal_options) and calories else None,"minimum_protein_g":min(protein) if len(protein)==len(meal_options) and protein else None,"maximum_protein_g":max(protein) if len(protein)==len(meal_options) and protein else None}
+        if len(meal_options)==1:single_day.append(meal_options[0])
+    complete_ranges=all(ranges[head]["minimum_kcal"] is not None for head in meal_heads)
+    selected_complete=len(single_day)==len(meal_heads)
+    return {
+      "actual_calories":round(sum(float((item.get("nutrition") or {}).get("kcal") or 0) for item in single_day),2) if selected_complete else None,
+      "actual_protein_g":round(sum(float((item.get("nutrition") or {}).get("protein") or 0) for item in single_day),2) if selected_complete else None,
+      "selected_daily_complete":selected_complete,
+      "alternative_daily_range":{"minimum_kcal":round(sum(ranges[head]["minimum_kcal"] for head in meal_heads),2),"maximum_kcal":round(sum(ranges[head]["maximum_kcal"] for head in meal_heads),2)} if complete_ranges else None,
+      "meal_option_ranges":ranges,
+    }
+
 @app.get("/api/v1/practice-operations/clients/{client_id}/diet-plans")
 async def list_diet_plans(request:Request,client_id:str,ctx=Depends(context),db:AsyncSession=Depends(get_db)):
     denied,_=await _team_guard(request,db,ctx,"PLAN_VIEW",client_id)
@@ -2186,7 +2208,8 @@ async def create_diet_plan(request:Request,body:DietPlanCreate,idempotency_key:s
       {"tenant":ctx["tenant_id"],"actor":ctx["user_id"],"key":idempotency_key})).mappings().first()
     if existing:
         snapshot=dict(existing["nutrition_snapshot"] or {})
-        same=existing["client_id"]==body.client_id and existing["title"]==body.name and existing["daily_calories_target"]==body.daily_calories_target and float(existing["daily_protein_target_g"] or 0)==float(body.daily_protein_target_g) and list(snapshot.get("health_goals") or [])==list(body.health_goals or []) and snapshot.get("daily_carbohydrate_target_g")==body.daily_carbohydrate_target_g and snapshot.get("daily_fat_target_g")==body.daily_fat_target_g and snapshot.get("daily_fibre_target_g")==body.daily_fibre_target_g
+        existing_protein=float(existing["daily_protein_target_g"]) if existing["daily_protein_target_g"] is not None else None
+        same=existing["client_id"]==body.client_id and existing["title"]==body.name and existing["daily_calories_target"]==body.daily_calories_target and existing_protein==body.daily_protein_target_g and list(snapshot.get("health_goals") or [])==list(body.health_goals or []) and snapshot.get("daily_carbohydrate_target_g")==body.daily_carbohydrate_target_g and snapshot.get("daily_fat_target_g")==body.daily_fat_target_g and snapshot.get("daily_fibre_target_g")==body.daily_fibre_target_g
         if not same:return error(request,409,"IDEMPOTENCY_KEY_REUSED","This Idempotency-Key was already used for a different Diet Plan request")
         return {"success":True,"data":{"id":str(existing["id"]),"status":existing["status"],"version":existing["current_version"],"idempotent_replay":True},"error":None,"request_id":request.state.correlation_id}
     readiness=await _current_diet_plan_readiness(db,ctx,body.client_id)
@@ -2199,7 +2222,7 @@ async def create_diet_plan(request:Request,body:DietPlanCreate,idempotency_key:s
     measurement=health_context["measurement_context"]
     snapshot={"daily_calories_target":body.daily_calories_target,"daily_protein_target_g":body.daily_protein_target_g,
       "daily_carbohydrate_target_g":body.daily_carbohydrate_target_g,"daily_fat_target_g":body.daily_fat_target_g,
-      "daily_fibre_target_g":body.daily_fibre_target_g,"health_goals":body.health_goals,"actual_calories":0,"actual_protein_g":0,"source":"CONSULTANT_AUTHORED",
+      "daily_fibre_target_g":body.daily_fibre_target_g,"health_goals":body.health_goals,"actual_calories":None,"actual_protein_g":None,"selected_daily_complete":False,"source":"CONSULTANT_AUTHORED",
       "target_methodology":body.target_methodology,"activity_level":body.activity_level,
       "energy_adjustment_kcal":body.energy_adjustment_kcal,"calculation_provenance":body.calculation_provenance,
       "target_reviewed_by":ctx["user_id"],
@@ -2351,9 +2374,8 @@ async def update_governed_diet_option(request:Request,plan_id:UUID,option_id:str
         else:options[existing]=option
         next_version=locked["current_version"]+1;version_id=uuid4();now=datetime.now(timezone.utc)
         current_snapshot=(await db.execute(text("SELECT nutrition_snapshot FROM external_profession_plan_versions WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version"),{"plan":plan_id,"tenant":ctx["tenant_id"],"version":locked["current_version"]})).scalar_one_or_none() or {}
-        actual_calories=sum(float((item.get("nutrition") or {}).get("kcal") or 0) for item in options if item.get("selected",True))
-        actual_protein=sum(float((item.get("nutrition") or {}).get("protein") or 0) for item in options if item.get("selected",True))
-        snapshot={**dict(current_snapshot),"actual_calories":round(actual_calories,2),"actual_protein_g":round(actual_protein,2),"option_count":len(options),"calculation_authority":"FITEATSY_GOVERNED_COMMON_FOOD"}
+        nutrition_summary=_diet_alternative_nutrition_summary(options)
+        snapshot={**dict(current_snapshot),**nutrition_summary,"option_count":len(options),"calculation_authority":"FITEATSY_GOVERNED_COMMON_FOOD"}
         await db.execute(text("""INSERT INTO external_profession_plan_versions
           (id,plan_id,tenant_id,client_id,version,status,title,nutrition_snapshot,created_by,created_at)
           VALUES (:id,:plan,:tenant,:client,:version,'SAVED',:title,CAST(:snapshot AS jsonb),:actor,:now)"""),{"id":version_id,"plan":plan_id,"tenant":ctx["tenant_id"],"client":locked["client_id"],"version":next_version,"title":locked["title"],"snapshot":json.dumps(snapshot),"actor":ctx["user_id"],"now":now})
@@ -2425,14 +2447,13 @@ async def save_diet_plan(request:Request,plan_id:UUID,body:DietPlanSave,ctx=Depe
         readiness=await _current_diet_plan_readiness(db,ctx,locked["client_id"])
         health_context=await _diet_plan_health_context(db,ctx,locked["client_id"])
         now=datetime.now(timezone.utc);next_version=locked["current_version"]+1;version_id=uuid4()
-        actual_calories=sum(float((item.get("nutrition") or {}).get("kcal") or 0) for item in options)
-        actual_protein=sum(float((item.get("nutrition") or {}).get("protein") or 0) for item in options)
+        nutrition_summary=_diet_alternative_nutrition_summary(options)
         measurement=health_context["measurement_context"]
         previous_snapshot=dict((await db.execute(text("SELECT nutrition_snapshot FROM external_profession_plan_versions WHERE plan_id=:plan AND tenant_id=:tenant AND version=:version"),{"plan":plan_id,"tenant":ctx["tenant_id"],"version":locked["current_version"]})).scalar_one_or_none() or {})
         supplied=body.model_fields_set
         def target_value(name,fallback):return getattr(body,name) if name in supplied else fallback
         daily_calories=target_value("daily_calories_target",locked["daily_calories_target"])
-        daily_protein=target_value("daily_protein_target_g",float(locked["daily_protein_target_g"] or 0))
+        daily_protein=target_value("daily_protein_target_g",float(locked["daily_protein_target_g"]) if locked["daily_protein_target_g"] is not None else None)
         target_methodology=target_value("target_methodology",previous_snapshot.get("target_methodology") or "CONSULTANT_MANUAL")
         calculation_provenance=target_value("calculation_provenance",previous_snapshot.get("calculation_provenance") or {})
         if target_methodology=="FITEATSY_ESTIMATE" and not calculation_provenance:
@@ -2444,7 +2465,7 @@ async def save_diet_plan(request:Request,plan_id:UUID,body:DietPlanSave,ctx=Depe
           "target_methodology":target_methodology,"activity_level":target_value("activity_level",previous_snapshot.get("activity_level")),
           "energy_adjustment_kcal":target_value("energy_adjustment_kcal",previous_snapshot.get("energy_adjustment_kcal")),
           "calculation_provenance":calculation_provenance,
-          "actual_calories":round(actual_calories,2),"actual_protein_g":round(actual_protein,2),"option_count":len(options),"calculation_authority":"FITEATSY_GOVERNED_COMMON_FOOD",
+          **nutrition_summary,"option_count":len(options),"calculation_authority":"FITEATSY_GOVERNED_COMMON_FOOD",
           "target_reviewed_by":ctx["user_id"],
           "measurement_context_fingerprint":measurement["measurement_context_fingerprint"],
           "measurement_source_ids":measurement["source_measurement_ids"],"measurement_snapshot":measurement["eligible_latest"],
@@ -2568,13 +2589,13 @@ async def _diet_export_snapshot(db,ctx,plan,projection):
     if any(any(value is None for value in (item.get("nutrition") or {}).values()) for item in options):warnings.append("Some optional nutrient values are unavailable in the governed source and are not estimated.")
     provenance=dict(nutrition.get("calculation_provenance") or {})
     estimated=provenance.get("estimated_tdee_kcal") or provenance.get("estimatedTdeeKcal") or provenance.get("estimated_tdee")
-    if estimated is not None and abs(float(plan["daily_calories_target"])-float(estimated))>=1000:
+    if estimated is not None and plan["daily_calories_target"] is not None and abs(float(plan["daily_calories_target"])-float(estimated))>=1000:
         warnings.append(f"The saved energy target ({plan['daily_calories_target']} kcal/day) differs materially from the recorded estimate ({estimated} kcal/day). Review the consultant-entered target before use.")
     if nutrition.get("target_methodology")=="CONSULTANT_MANUAL":warnings.append("Energy and macro targets were entered or confirmed by the consultant; the export does not alter them.")
     return {"title":plan["title"],"client_name":client,"version":plan["current_version"],"status":current.get("status") or plan["status"],
       "reference":f"{plan['id']}:v{plan['current_version']}","approved_at":approved["created_at"].isoformat() if approved else None,
       "approved_by":approved["actor_id"] if approved else None,"branding":branding,"options":options,
-      "targets":{"calories":plan["daily_calories_target"],"protein":float(plan["daily_protein_target_g"] or 0),
+      "targets":{"calories":plan["daily_calories_target"],"protein":float(plan["daily_protein_target_g"]) if plan["daily_protein_target_g"] is not None else None,
         "carbohydrate":nutrition.get("daily_carbohydrate_target_g"),"fat":nutrition.get("daily_fat_target_g"),"fibre":nutrition.get("daily_fibre_target_g")},
       "warnings":warnings,"target_methodology":nutrition.get("target_methodology"),"activity_level":nutrition.get("activity_level"),
       "energy_adjustment_kcal":nutrition.get("energy_adjustment_kcal"),"calculation_provenance":provenance}

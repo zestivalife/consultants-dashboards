@@ -178,7 +178,41 @@ def test_legacy_draft_save_discards_frontend_nutrition_and_re_resolves_every_opt
     assert '"external_consultant_diet_option"' in save
     assert '"external_consultant_diet_draft"' not in save
     assert 'options.append({**resolved' in save
-    assert 'actual_calories=sum(float((item.get("nutrition") or {}).get("kcal") or 0) for item in options)' in save
+    assert "nutrition_summary=_diet_alternative_nutrition_summary(options)" in save
+    assert 'actual_calories=sum(float((item.get("nutrition") or {}).get("kcal") or 0) for item in options)' not in save
     assert 'for item in body.options if item.get("selected",True)' not in save
     assert "FOR UPDATE" in save and "current_version=:expected" in save
     assert '"calculation_authority":"FITEATSY_GOVERNED_COMMON_FOOD"' in save
+
+def test_optional_consultant_targets_and_alternative_summary_do_not_sum_35_options():
+    from app.contracts import DietPlanCreate, DietPlanSave
+    from app.main import _diet_alternative_nutrition_summary
+
+    draft=DietPlanCreate(client_id="client-1",name="Flexible target plan")
+    assert draft.daily_calories_target is None and draft.daily_protein_target_g is None
+    assert DietPlanCreate(client_id="client-1",name="High target",daily_calories_target=12000,daily_protein_target_g=650).daily_calories_target==12000
+    assert DietPlanSave(expected_version=1,daily_carbohydrate_target_g=2500).daily_carbohydrate_target_g==2500
+
+    meals=("EARLY_MORNING","BREAKFAST","MID_MORNING","LUNCH","EVENING_SNACK","DINNER","BEDTIME")
+    options=[]
+    for meal_index,meal in enumerate(meals):
+        for option_index in range(5):
+            options.append({"mealHead":meal,"nutrition":{"kcal":100+meal_index*10+option_index,"protein":10+option_index}})
+    summary=_diet_alternative_nutrition_summary(options)
+    assert summary["actual_calories"] is None
+    assert summary["actual_protein_g"] is None
+    assert summary["selected_daily_complete"] is False
+    assert summary["alternative_daily_range"]=={"minimum_kcal":910.0,"maximum_kcal":938.0}
+    assert sum(item["nutrition"]["kcal"] for item in options)>summary["alternative_daily_range"]["maximum_kcal"]
+
+    one_per_meal=[next(item for item in options if item["mealHead"]==meal) for meal in meals]
+    selected=_diet_alternative_nutrition_summary(one_per_meal)
+    assert selected["selected_daily_complete"] is True
+    assert selected["actual_calories"]==910.0
+
+
+def test_mobile_and_export_projections_preserve_missing_targets_as_null():
+    source = (ROOT / "app" / "main.py").read_text()
+    assert '"protein":float(plan["daily_protein_target_g"]) if plan["daily_protein_target_g"] is not None else None' in source
+    assert 'plan["daily_calories_target"] is not None and abs' in source
+    assert '"protein":float(plan["daily_protein_target_g"] or 0)' not in source

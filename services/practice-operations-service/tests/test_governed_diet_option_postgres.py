@@ -132,7 +132,8 @@ async def test_governed_option_is_atomic_immutable_idempotent_and_authoritative(
         saved=next(response for response in competing if response.status_code==200)
         assert saved.status_code==200,saved.text
         assert saved.json()["data"]["version"]==3
-        assert saved.json()["data"]["nutrition"]["actual_calories"]==210
+        assert saved.json()["data"]["nutrition"]["actual_calories"] is None
+        assert saved.json()["data"]["nutrition"]["selected_daily_complete"] is False
         assert saved.json()["data"]["options"][0]["nutrition"]["kcal"]==210
         assert saved.json()["data"]["options"][0]["calculationStatus"]=="AUTHORITATIVELY_RESOLVED"
         other_tenant=await browser.get(f"/api/v1/practice-operations/diet-plans/{plan_id}",headers={**headers,"X-Tenant-Id":f"other-{tenant}"})
