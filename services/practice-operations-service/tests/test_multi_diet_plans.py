@@ -213,6 +213,10 @@ def test_optional_consultant_targets_and_alternative_summary_do_not_sum_35_optio
 
 def test_mobile_and_export_projections_preserve_missing_targets_as_null():
     source = (ROOT / "app" / "main.py").read_text()
+    publication = source[source.index("def _mobile_diet_publication"):source.index("def _fiteatsy_nutrition_content")]
+    nutrition_content = source[source.index("def _fiteatsy_nutrition_content"):source.index("async def _deliver_diet_plan_to_fiteatsy")]
+    export = source[source.index("async def _diet_export_snapshot"):source.index('@app.get("/api/v1/practice-operations/diet-plans/{plan_id}/download")')]
     assert '"protein":float(plan["daily_protein_target_g"]) if plan["daily_protein_target_g"] is not None else None' in source
-    assert 'plan["daily_calories_target"] is not None and abs' in source
-    assert '"protein":float(plan["daily_protein_target_g"] or 0)' not in source
+    assert 'plan["daily_calories_target"] is not None and abs' in export
+    for projection in (publication, nutrition_content, export):
+        assert '"protein":float(plan["daily_protein_target_g"] or 0)' not in projection
